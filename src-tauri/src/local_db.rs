@@ -346,6 +346,16 @@ pub fn init_local_db(repo_path: &str) -> Result<PathBuf, String> {
     )
     .map_err(|e| format!("Failed to create instance_registry heartbeat index: {}", e))?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS repo_config_cache (
+            key TEXT NOT NULL PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )
+    .map_err(|e| format!("Failed to create repo_config_cache table: {}", e))?;
+
     // Migration: rename pending_reviews columns from old schema to new schema.
     let has_old_columns: Result<i64, _> = conn.query_row(
         "SELECT COUNT(*) FROM pragma_table_info('pending_reviews') WHERE name IN ('comments_json', 'overall_comment', 'viewed_files_json')",
@@ -1309,6 +1319,101 @@ pub fn clear_pending_review(repo_path: &str, workspace_id: i64) -> Result<(), St
     Ok(())
 }
 
+/// Remove `repo_path` from the in-memory initialization cache.
+///
+/// Used in tests to force `get_connection` to re-run `init_local_db` for the
+/// same path, simulating a fresh process start.
+#[cfg(test)]
+pub(crate) fn clear_db_cache_for_testing(repo_path: &str) {
+    if let Some(initialized) = INITIALIZED_DBS.get() {
+        initialized.lock().unwrap().remove(repo_path);
+    }
+}
+
+/// Store a `RepoConfig` in the local DB, replacing any previously cached values.
+///
+/// Each field is stored as a separate key-value row so individual settings can
+/// be queried without deserializing the entire config.  `None` fields are deleted
+/// from the cache so that a subsequent `get_cached_repo_config` returns `None`
+/// for those keys rather than stale data.
+pub fn cache_repo_config(
+    repo_path: &str,
+    config: &crate::repo_config::RepoConfig,
+) -> Result<(), String> {
+    let conn = get_connection(repo_path)?;
+    let now = Utc::now().to_rfc3339();
+
+    let mut pairs: Vec<(&str, Option<String>)> = vec![
+        ("branch_name_pattern", config.branch_name_pattern.clone()),
+        ("default_model", config.default_model.clone()),
+        ("default_agent", config.default_agent.clone()),
+        ("target_branch", config.target_branch.clone()),
+        (
+            "included_copy_files",
+            config
+                .included_copy_files
+                .as_ref()
+                .map(|v| serde_json::to_string(v).unwrap_or_default()),
+        ),
+    ];
+
+    for (key, value) in pairs.drain(..) {
+        match value {
+            Some(val) => {
+                conn.execute(
+                    "INSERT INTO repo_config_cache (key, value, updated_at)
+                     VALUES (?1, ?2, ?3)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                                    updated_at = excluded.updated_at",
+                    params![key, val, now],
+                )
+                .map_err(|e| format!("Failed to cache repo config key '{key}': {e}"))?;
+            }
+            None => {
+                conn.execute(
+                    "DELETE FROM repo_config_cache WHERE key = ?1",
+                    params![key],
+                )
+                .map_err(|e| format!("Failed to delete stale repo config key '{key}': {e}"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read the cached `RepoConfig` from the local DB.
+///
+/// Returns a default (all-`None`) `RepoConfig` when no cache exists yet.
+pub fn get_cached_repo_config(repo_path: &str) -> Result<crate::repo_config::RepoConfig, String> {
+    let conn = get_connection(repo_path)?;
+    let mut stmt = conn
+        .prepare("SELECT key, value FROM repo_config_cache")
+        .map_err(|e| format!("Failed to prepare repo_config_cache query: {e}"))?;
+
+    let mut map = std::collections::HashMap::<String, String>::new();
+    let mut rows = stmt
+        .query([])
+        .map_err(|e| format!("Failed to query repo_config_cache: {e}"))?;
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| format!("Failed to read repo_config_cache row: {e}"))?
+    {
+        let key: String = row.get(0).map_err(|e| e.to_string())?;
+        let value: String = row.get(1).map_err(|e| e.to_string())?;
+        map.insert(key, value);
+    }
+
+    Ok(crate::repo_config::RepoConfig {
+        branch_name_pattern: map.remove("branch_name_pattern"),
+        default_model: map.remove("default_model"),
+        default_agent: map.remove("default_agent"),
+        target_branch: map.remove("target_branch"),
+        included_copy_files: map
+            .remove("included_copy_files")
+            .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2219,6 +2324,110 @@ mod tests {
         let _ = stmt
             .query([])
             .expect("Should execute query with new columns");
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn init_local_db_creates_repo_config_cache_table() {
+        use rusqlite::Connection;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let db_path = init_local_db(repo_path).expect("init_local_db should succeed");
+        let conn = Connection::open(db_path).expect("Failed to open database");
+
+        let table_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'repo_config_cache'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("Should query sqlite_master");
+        assert_eq!(table_exists, 1, "repo_config_cache table should exist");
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn cache_repo_config_stores_and_retrieves_all_fields() {
+        use crate::repo_config::RepoConfig;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let config = RepoConfig {
+            branch_name_pattern: Some("treq/{name}".to_string()),
+            default_model: Some("claude-opus-4".to_string()),
+            default_agent: Some("code".to_string()),
+            target_branch: Some("main".to_string()),
+            included_copy_files: Some(vec!["a.rs".to_string(), "b.rs".to_string()]),
+        };
+
+        cache_repo_config(repo_path, &config).expect("cache should succeed");
+
+        let cached = get_cached_repo_config(repo_path).expect("get should succeed");
+        assert_eq!(cached.branch_name_pattern.as_deref(), Some("treq/{name}"));
+        assert_eq!(cached.default_model.as_deref(), Some("claude-opus-4"));
+        assert_eq!(cached.default_agent.as_deref(), Some("code"));
+        assert_eq!(cached.target_branch.as_deref(), Some("main"));
+        assert_eq!(
+            cached.included_copy_files,
+            Some(vec!["a.rs".to_string(), "b.rs".to_string()])
+        );
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn get_cached_repo_config_returns_default_when_empty() {
+        use crate::repo_config::RepoConfig;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let cached = get_cached_repo_config(repo_path).expect("should succeed on empty db");
+        assert_eq!(cached, RepoConfig::default());
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn cache_repo_config_replaces_stale_none_fields() {
+        use crate::repo_config::RepoConfig;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        // Cache with default_model set.
+        let first = RepoConfig {
+            default_model: Some("claude-haiku".to_string()),
+            ..Default::default()
+        };
+        cache_repo_config(repo_path, &first).expect("first cache should succeed");
+
+        // Cache again without default_model — it should be removed.
+        let second = RepoConfig {
+            target_branch: Some("develop".to_string()),
+            ..Default::default()
+        };
+        cache_repo_config(repo_path, &second).expect("second cache should succeed");
+
+        let cached = get_cached_repo_config(repo_path).expect("should read updated cache");
+        assert!(
+            cached.default_model.is_none(),
+            "stale default_model should be cleared"
+        );
+        assert_eq!(cached.target_branch.as_deref(), Some("develop"));
 
         if let Some(initialized) = INITIALIZED_DBS.get() {
             initialized.lock().unwrap().remove(repo_path);
