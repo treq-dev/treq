@@ -1,0 +1,91 @@
+---
+sidebar_position: 2
+description: Compare Treq and Superset for parallel coding agents, review workflows, stacked changes, and packaging.
+---
+
+# Treq vs Superset
+
+_Two local-first agent orchestrators with different bets: review and stacks, or breadth and packaging._
+
+Treq and Superset both run coding agents in isolated workspaces. Both give you a place to review the result. They sit in the same product category. The useful difference is what each product focuses on after the agents start writing code.
+
+Treq is built around human-in-the-loop review, stacked workspaces, and automatic rebasing of AI-generated branches. Superset is built around running many CLI agents in parallel. It also packages the product for individuals, teams, and enterprise buyers.
+
+## At a Glance
+
+| | Treq | Superset |
+| --- | --- | --- |
+| Positioning | AI workspace manager, open-source Graphite alternative | Code editor for AI agents, software-factory platform |
+| Isolation model | Jujutsu workspaces over a colocated Git repo | Git worktrees per task |
+| Review surface | PR-style diffs, line comments sent back to the agent | Diff and file review inside the app |
+| Stacked changes | Core workflow | Not emphasized publicly |
+| Auto-rebase | Core workflow | Not emphasized publicly |
+| Provider model | Claude, Codex, and Cursor shown today | Very broad CLI agent support |
+| Remote or cloud workspaces | Not public on the site today | Remote workspaces and enterprise packaging |
+| License | Apache 2.0 | Source-available under ELv2 |
+| Pricing | Free and open source | Free tier, Pro, and Enterprise |
+
+## What Each Product Does
+
+**Treq** is a desktop app for managing parallel agent workspaces. Each workspace has its own working copy, terminal, and line of history. You review diffs like a familiar pull request, leave comments, and send that feedback back to the agent. When a lower workspace in a stack moves, Treq can rebase dependents and surface conflicts for resolution.
+
+**Superset** is a local-first desktop workspace for many coding agents. It launches CLI agents in isolated Git worktrees and surrounds them with chat, browser, review, and automation surfaces. Its public story emphasizes parallel scale, integrations with tools like GitHub, Linear, and Slack, and a path from free use into team and enterprise packaging.
+
+Both products assume the same basic problem: one shared checkout is a poor place for several agents to work at once. Both solve isolation with per-task working directories.
+
+## Feature Comparison
+
+| Feature | Treq | Superset |
+| --- | --- | --- |
+| Local-first desktop app | Yes | Yes |
+| Parallel agent sessions | Yes | Yes, with an explicit 100+ agent ambition |
+| Workspace isolation | Yes | Yes |
+| Review and diff UI | Strong emphasis | Yes |
+| Comments sent back to the agent | Yes | Review surfaces exist, agent-loop feedback is not the center of the public pitch |
+| Stacked PR or stacked workspace support | Yes | Not emphasized publicly |
+| Auto-rebase and conflict handling | Yes | Not emphasized publicly |
+| Automations and scheduling | Not public on the site today | Yes |
+| Remote or cloud workspaces | Not public on the site today | Yes |
+| Open source | Apache 2.0 | Source-available under ELv2 |
+
+## Where They Differ
+
+The shared category is parallel agents in isolated workspaces. The split is what happens next.
+
+Treq treats review quality as the product. Diff comments, stacked dependencies, and rebase hygiene are first-class. That matters when agents produce a lot of code. The bottleneck then moves from writing code to inspecting it and merging safely.
+
+Superset treats breadth as the product. Provider coverage, automations, remote workspaces, and team packaging are more visible in its public materials. That matters when you want one control plane for many agents and team workflows beyond a single developer's review loop.
+
+If "run many agents" becomes common, these differences remain. Breadth and packaging are easy for rivals to copy in messaging. Stacked review and automatic rebase are harder to fake without shipping the workflow.
+
+## Pricing and Licensing
+
+Treq is free and open source under Apache 2.0. There is no public paid plan today.
+
+Superset offers a free tier, Pro pricing around $15 per user per month when billed yearly, and custom Enterprise pricing. Its desktop code is source-available under Elastic License 2.0, which is not the same as Apache-style open source.
+
+In both cases you still pay the underlying model providers for Claude, Codex, or any other agent usage.
+
+## Who Should Choose Which
+
+Choose **Treq** if you:
+
+- Care more about reviewing and shipping AI-generated code than about launching the largest number of agents.
+- Want stacked workspaces and automatic rebasing as part of the default workflow.
+- Prefer Apache 2.0 open source and a local-only review loop.
+- Are looking for a Graphite-like stacked workflow built for coding agents.
+
+Choose **Superset** if you:
+
+- Need broad CLI agent support and frequent provider switching.
+- Want remote workspaces, automations, and team or enterprise packaging today.
+- Prefer a product that already has pricing pages, compare content, and self-serve team plans.
+- Care more about orchestration breadth than stacked PR discipline.
+
+## Next Steps
+
+- [Treq vs Conductor](./treq-vs-conductor): Mac-native agent workspaces versus stacked review workflows.
+- [Treq vs Graphite for AI teams](./treq-vs-graphite-for-ai-teams): why stacked PR tooling matters once agents write most of the code.
+- [Human-in-the-loop review workflow](/learn/workflows/git/human-in-the-loop-review): how review comments become the next agent prompt.
+- [Stacked PR workflow](/learn/workflows/git/stacked-pr): how dependent branches stay reviewable.
+- [Installation](/docs/getting-started/installation): install Treq and open a repository.

@@ -1,0 +1,95 @@
+---
+sidebar_position: 7
+description: Compare Treq and Orca for agent development environments, from ADE surface area to stacked review and rebase workflows.
+---
+
+# Treq vs Orca
+
+_Both isolate agents in worktrees. Orca expands the full environment. Treq deepens review and stack hygiene._
+
+Treq and Orca are open-source products for agent development. Each gives coding agents isolated workspaces. Each gives you a place to watch the work. The real difference is scope.
+
+Orca presents a broad environment. It supports any CLI agent, built-in editing, browser and design surfaces, mobile companion support, and enterprise packaging. Treq presents a narrower workflow. It focuses on human-in-the-loop review, stacked workspaces, and automatic rebasing for AI-generated branches.
+
+## At a Glance
+
+| | Treq | Orca |
+| --- | --- | --- |
+| Positioning | AI workspace manager, open-source Graphite alternative | Agent development environment, worktree IDE for coding agents |
+| Isolation model | Jujutsu workspaces over a colocated Git repo | Worktree per task, with terminal and browser tab |
+| Review surface | PR-style diffs, comments sent back to the agent | Diff and Git tracking inside a broader ADE |
+| Stacked changes | Core workflow | Not emphasized publicly |
+| Auto-rebase | Core workflow | Not emphasized publicly |
+| Provider support | Claude, Codex, and Cursor shown today | Any CLI agent |
+| Extra surfaces | Desktop review and terminals | File editor, browser or design mode, mobile companion |
+| Remote work | Not public on the site today | SSH worktrees and enterprise packaging |
+| License | Apache 2.0 | MIT |
+| Pricing | Free and open source | Free and open source, enterprise contact motion |
+
+## What Each Product Does
+
+**Treq** manages parallel agent workspaces and keeps merge quality under human control. You review changes, leave comments, and send that feedback back to the agent. Dependent workspaces form stacks. When lower layers move, Treq rebases dependents and shows conflicts.
+
+**Orca** aims to be the place where agent work happens. Public materials stress per-task worktrees, terminals, browser tabs, a built-in file editor, and Git tracking. They also cover mobile support, automation copy, and paid team plans. The product story is a full environment for developers who already run many agents.
+
+Both products accept that parallel agents need isolation. Both are open source. Both face pressure from vendor-owned agent apps that absorb these features over time.
+
+## Feature Comparison
+
+| Feature | Treq | Orca |
+| --- | --- | --- |
+| Local-first desktop app | Yes | Yes |
+| Parallel agent sessions | Yes | Yes |
+| Worktree or workspace isolation | Yes | Yes |
+| Review and diff UI | Strong emphasis | Yes |
+| Comments sent back to the agent | Yes | Broader ADE review, less public emphasis on stacked review loops |
+| Stacked PR or stacked workspace support | Yes | Not emphasized publicly |
+| Auto-rebase and conflict handling | Yes | Not emphasized publicly |
+| Built-in file editor | Not the product center | Yes |
+| Browser or design mode | Not public on the site today | Yes |
+| Mobile companion | No | Yes |
+| SSH worktrees | Not public on the site today | Yes |
+| Enterprise packaging | Not public on the site today | Yes |
+| Open source | Apache 2.0 | MIT |
+
+## Where They Differ
+
+Orca's public momentum comes from breadth and speed. High GitHub traction, frequent releases, and a wide feature set make it look like a full environment for agent work. That is useful when you want one product for editing, browsing, mobile access, and remote worktrees.
+
+Treq's public bet is a narrower workflow. If parallel worktrees become common, the hard problems left are review quality, dependent changes, and keeping AI branches current. Treq puts those problems at the center.
+
+That creates a clear trade-off. Choose Orca when you want a full environment more than a specific merge workflow. Choose Treq when weak reviews, drifting stacks, and conflict-heavy AI branches are the costly failures.
+
+Brand search is noisy for both. "Orca" collides with many unrelated products. "Treq" collides with an older Python package and other entities. Specific workflow pages matter more than bare brand queries.
+
+## Pricing and Licensing
+
+Both desktop products are free and open source. Treq uses Apache 2.0. Orca uses MIT.
+
+Orca also publishes enterprise packaging with a contact motion. Treq does not publish a paid plan today.
+
+Model and agent fees remain separate.
+
+## Who Should Choose Which
+
+Choose **Treq** if you:
+
+- Want stacked workspaces and automatic rebasing as core behavior.
+- Care most about PR-style review that returns comments to the agent.
+- Prefer a focused local workflow over a full ADE feature set.
+- Want safe shipping of AI-generated code as the main goal.
+
+Choose **Orca** if you:
+
+- Want a broad ADE with editor, browser, automation, and mobile surfaces.
+- Need SSH worktrees or enterprise packaging today.
+- Prefer any-CLI-agent flexibility as the primary buying criterion.
+- Care more about environment completeness than stacked PR specialization.
+
+## Next Steps
+
+- [Treq vs Emdash](./treq-vs-emdash): another open-source ADE comparison.
+- [Treq vs Superset](./treq-vs-superset): packaging breadth versus review focus.
+- [Treq vs Graphite for AI teams](./treq-vs-graphite-for-ai-teams): why stacked workflows matter for agent output.
+- [Human-in-the-loop development](/learn/concepts/ai-engineering/human-in-the-loop-development): the review model behind Treq.
+- [Installation](/docs/getting-started/installation): install Treq and open a repository.
