@@ -7,7 +7,7 @@ description: Compare Treq and Graphite for AI coding teams that need stacked pul
 
 _Graphite popularized stacked PRs for humans. Treq applies stacked development to agent-generated work._
 
-Graphite and Treq are not the same category of product, but AI teams often evaluate them together. Graphite is a stacked pull request and code review platform. Treq is a local AI workspace manager. It uses stacked workspaces, human-in-the-loop review, and automatic rebasing around coding agents.
+Graphite and Treq operate at different parts of the development workflow, but AI teams often evaluate them together. Graphite is a stacked pull request and code review platform. Treq is a local Stacking ADE that manages dependent agent workspaces before you open a pull request.
 
 The comparison matters because agent throughput changes where the pain shows up. When people wrote most of the code, stack tools focused on review batching and merge order. When agents write most of the code, you also need isolation. You need comment routing back into agent sessions. You need ongoing rebase hygiene.
 
@@ -15,7 +15,7 @@ The comparison matters because agent throughput changes where the pain shows up.
 
 | | Treq | Graphite |
 | --- | --- | --- |
-| Product type | Local AI workspace manager | Stacked PR and code review platform |
+| Product type | Local Stacking ADE | Stacked PR and code review platform |
 | Primary surface | Desktop app on your machine | Web app and CLI around GitHub pull requests |
 | Stack model | Stacked workspaces with dependent targets | Stacked pull requests |
 | Agent orchestration | Parallel agent workspaces and terminals | Not an agent orchestrator |
@@ -27,7 +27,7 @@ The comparison matters because agent throughput changes where the pain shows up.
 
 ## What Each Product Does
 
-**Treq** creates isolated workspaces for coding agents, shows diffs for review, and turns comments into the next agent prompt. Workspaces can target other workspaces to form a stack. When a lower layer moves, Treq rebases dependents and surfaces conflicts. The product is local-first and designed for the loop between generation and inspection.
+**Treq** creates isolated workspaces for coding agents, shows diffs for review, and turns comments into the next agent prompt. Workspaces target other workspaces to form a stack before any pull request exists. When a lower layer moves, Treq rebases dependents and shows conflicts.
 
 **Graphite** helps teams create, review, restack, and merge stacked pull requests. It sits on top of GitHub's pull request model and optimizes the social and process layer of code review: smaller diffs, clearer dependencies, and better merge sequencing. It is not a desktop environment for launching Claude, Codex, or Cursor agents in parallel worktrees.
 
@@ -52,7 +52,7 @@ Graphite assumes the unit of work is a pull request that teammates review togeth
 
 Treq assumes the unit of work often starts as an agent workspace. The first reviewer may be the developer who launched the agent. Comments need to return to the agent quickly. Stacks need to stay current while several agents continue working. The pull request can come later.
 
-This is why Treq calls itself an open-source Graphite alternative in public materials without claiming feature parity with Graphite's hosted review platform. The shared idea is stacked development. The implementation point is different: workspace orchestration versus PR collaboration.
+This is why Treq calls itself an open-source Graphite alternative without claiming feature parity with Graphite's hosted review platform. Both products use stacked development. Treq applies the stack to local agent workspaces, while Graphite applies it to hosted pull requests.
 
 If your team already has a strong Graphite workflow, Treq can still help on the generation side. Agents work in isolated stacks locally, you review there, then you push into whatever PR process you already trust. If your team has no agent orchestration layer yet, starting with Graphite alone leaves the parallel generation problem unsolved.
 

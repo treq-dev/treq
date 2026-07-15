@@ -9,13 +9,13 @@ _Same isolation idea, different control surfaces: desktop review versus terminal
 
 Treq and Claude Squad both start from git worktree isolation and parallel agent sessions. They serve different preferences for how much UI you want between you and the agents.
 
-Treq is a desktop AI workspace manager with PR-style review, stacked workspaces, and automatic rebasing. Claude Squad is a terminal-native manager that uses tmux sessions and git worktrees for people who want minimal abstraction.
+Treq is a desktop Stacking ADE with PR-style review and automatic rebasing across dependent workspaces. Claude Squad is a terminal-native manager that uses tmux sessions and git worktrees for people who want minimal abstraction.
 
 ## At a Glance
 
 | | Treq | Claude Squad |
 | --- | --- | --- |
-| Positioning | AI workspace manager for busy developers | Terminal-native manager for multiple AI terminal agents |
+| Positioning | Stacking ADE for dependent agent work | Terminal-native manager for multiple AI terminal agents |
 | Control surface | Desktop app | Terminal UI over tmux |
 | Isolation model | Jujutsu workspaces over a colocated Git repo | Git worktrees plus tmux sessions |
 | Review surface | PR-style diffs and line comments | Basic or TUI-oriented review before push |
@@ -28,7 +28,7 @@ Treq is a desktop AI workspace manager with PR-style review, stacked workspaces,
 
 ## What Each Product Does
 
-**Treq** gives each agent workspace its own working copy, terminal, and review surface. You inspect diffs, leave comments, and send feedback back to the agent. Dependent workspaces can form a stack. Rebases and conflicts are product features, not a manual side process.
+**Treq** gives each agent workspace its own working copy, terminal, and review surface. A target relationship connects dependent workspaces into a stack. You inspect each layer, send comments back to the agent, and let Treq rebase higher layers when their base changes.
 
 **Claude Squad** keeps you in the terminal. It manages multiple AI agent sessions through tmux, isolates work with git worktrees, supports background work, and expects review before push. The appeal is low abstraction and fast install for power users who already live in shell workflows.
 

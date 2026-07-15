@@ -7,15 +7,15 @@ description: Compare Treq and Conductor for parallel coding agents on the deskto
 
 _Both run agents in isolated workspaces. Treq bets on stacked review. Conductor bets on a polished Mac workflow._
 
-Treq and Conductor solve the same first problem. Give every coding agent its own workspace, branch, files, terminal, and review path. After that shared base, the products diverge.
+Treq and Conductor solve the same first problem. Each coding agent gets its own workspace, branch, files, terminal, and review path. Their models diverge when tasks depend on one another.
 
-Treq focuses on human-in-the-loop diffs, stacked workspaces, and automatic rebasing. Conductor focuses on a Mac-native interface for running Claude, Codex, Cursor, and OpenCode agents as a team.
+Treq is a Stacking ADE built around dependent workspaces, human review, and automatic rebasing. Conductor focuses on a Mac-native interface for running Claude, Codex, Cursor, and OpenCode agents as a team.
 
 ## At a Glance
 
 | | Treq | Conductor |
 | --- | --- | --- |
-| Positioning | AI workspace manager, open-source Graphite alternative | Human interface to AI organizations on your Mac |
+| Positioning | Stacking ADE, open-source Graphite alternative | Human interface to AI organizations on your Mac |
 | Platform | Desktop app, currently marketed for macOS | Mac-first desktop app |
 | Isolation model | Jujutsu workspaces over a colocated Git repo | Per-task workspace, branch, files, terminal, and diff |
 | Review surface | PR-style diffs with comments sent back to the agent | Diff and review path per task |
@@ -53,7 +53,7 @@ Both products assume agents need isolation. Both assume developers still need a 
 
 Conductor's public strength is commercial and product momentum. It presents a clear Mac-native workflow, strong growth signals, and team-facing motion. If your team already lives in Claude, Codex, Cursor, or OpenCode on macOS, that focus can reduce setup cost.
 
-Treq's public strength is a narrower workflow. Stacked workspaces, review comments that return to the agent, and auto-rebase target a later failure mode. After parallel generation succeeds, branches go stale. Stacks drift. Review quality becomes the bottleneck.
+Treq's workflow starts with the stack. A workspace can target another workspace, so dependent changes retain their merge order while agents work. Review comments return to the agent, and automatic rebasing keeps higher layers current when a lower layer changes.
 
 Platform scope also differs. Conductor's Mac-first story narrows the audience and sharpens the experience. Treq's open-source packaging makes inspection and contribution part of the adoption path. Cloud workspaces exist as early access in Conductor's public materials. They are not a public Treq offering today.
 
@@ -84,7 +84,7 @@ Choose **Conductor** if you:
 ## Next Steps
 
 - [Treq vs Superset](./treq-vs-superset): breadth and packaging versus review-focused orchestration.
-- [Treq vs Orca](./treq-vs-orca): ADE surface area versus stacked review depth.
+- [Treq vs Orca](./treq-vs-orca): broad ADE features versus a stack-native workflow.
 - [Changes and reviews](/docs/concepts/changes-and-reviews): how Treq turns diffs into agent feedback.
 - [Workspaces](/docs/concepts/workspaces): how stacked workspaces and rebases work.
 - [Installation](/docs/getting-started/installation): install Treq and open a repository.
