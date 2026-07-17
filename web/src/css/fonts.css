@@ -1,0 +1,71 @@
+/**
+ * Self-hosted webfonts (Latin subset only) plus metric-matched fallback
+ * @font-faces used to minimize layout shift while the real fonts load.
+ *
+ * Fallback ascent/descent/line-gap/size-adjust values were derived from
+ * OS/2 metrics (via @capsizecss/metrics) for each webfont against its
+ * local system fallback (Arial for the sans faces, Courier New for
+ * JetBrains Mono), following the approach described at
+ * https://web.dev/articles/css-size-adjust
+ */
+
+/* Inter 400 — marketing body copy, docs/learn body */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/inter-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Inter Tight 600 — content headings */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/inter-tight-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* JetBrains Mono 400 — code blocks and terminal snippets */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Metric-matched fallback faces: same box metrics as the webfont above,
+   rendered with a locally installed font, so swapping in the webfont
+   causes minimal reflow. */
+
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial');
+  ascent-override: 90.44%;
+  descent-override: 22.52%;
+  line-gap-override: 0%;
+  size-adjust: 107.12%;
+}
+
+@font-face {
+  font-family: 'Inter Tight Fallback';
+  src: local('Arial');
+  ascent-override: 95.83%;
+  descent-override: 23.86%;
+  line-gap-override: 0%;
+  size-adjust: 101.10%;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Fallback';
+  src: local('Courier New');
+  ascent-override: 102.02%;
+  descent-override: 30.00%;
+  line-gap-override: 0%;
+  size-adjust: 99.98%;
+}

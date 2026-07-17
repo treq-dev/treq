@@ -43,10 +43,10 @@ jobs:
       - name: Generate release notes
         id: gen
         run: |
-          git-cliff --output CHANGELOG.md
+          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" git-cliff --output CHANGELOG.md
           {
             echo 'notes<<CLIFF_EOF'
-            git-cliff --unreleased --strip all
+            GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" git-cliff --unreleased --strip all
             echo 'CLIFF_EOF'
           } >> "$GITHUB_OUTPUT"
 

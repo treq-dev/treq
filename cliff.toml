@@ -2,14 +2,16 @@
 header = "# Changelog\n\n"
 body = """
 {% if version %}\
-## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+## [{{ version | trim_start_matches(pat="v") }}](https://github.com/Ziinc/treq/releases/tag/{{ version }}) - {{ timestamp | date(format="%-d %B %Y") }}
 {% else %}\
 ## [Unreleased]
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | upper_first }}
 {% for commit in commits %}
-- {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/Ziinc/treq/commit/{{ commit.id }}))
+{%- if commit.remote.pr_number %}
+- {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.remote.pr_title | default(value=commit.message) | split(pat="\n") | first | trim | trim_start_matches(pat="feat: ") | trim_start_matches(pat="feature: ") | trim_start_matches(pat="fix: ") | trim_start_matches(pat="chore: ") | upper_first }} ([#{{ commit.remote.pr_number }}](https://github.com/Ziinc/treq/pull/{{ commit.remote.pr_number }}))
+{%- endif %}
 {%- endfor %}
 {% endfor %}\n
 """
@@ -22,11 +24,12 @@ filter_unconventional = true
 split_commits = false
 commit_preprocessors = []
 commit_parsers = [
-  { message = "^feat", group = "Features" },
+  { message = "^(feat|feature)", group = "Features" },
   { message = "^fix", group = "Bug Fixes" },
   { message = "^perf", group = "Performance" },
-  { message = "^refactor", skip = true },
   { message = "^docs", skip = true },
+  { message = "^doc", skip = true },
+  { message = "^refactor", skip = true },
   { message = "^chore", skip = true },
   { body = ".*security", group = "Security" },
 ]
@@ -37,3 +40,7 @@ skip_tags = ""
 ignore_tags = ""
 topo_order = false
 sort_commits = "oldest"
+
+[remote.github]
+owner = "Ziinc"
+repo = "treq"

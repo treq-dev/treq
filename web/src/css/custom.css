@@ -6,6 +6,18 @@
 
 /* You can override the default Infima variables here. */
 :root {
+  /* Font tokens. Real webfonts are self-hosted (see fonts.css); each is
+     paired with a metric-matched "Fallback" face to minimize layout shift
+     before the webfont loads. */
+  --font-sans: 'Inter', 'Inter Fallback', system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-display: 'Inter Tight', 'Inter Tight Fallback', 'Inter',
+    'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'JetBrains Mono Fallback', ui-monospace,
+    SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
   --ifm-color-primary: #3b9cff;
   --ifm-color-primary-dark: #1f8eff;
   --ifm-color-primary-darker: #1187ff;
@@ -16,10 +28,12 @@
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
   --ifm-background-color: #ffffff;
-  --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  --ifm-font-family-base: var(--font-sans);
+  --ifm-font-family-monospace: var(--font-mono);
+  --ifm-heading-font-family: var(--font-display);
   --ifm-navbar-background-color: #ffffff;
   --ifm-navbar-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --ifm-heading-font-weight: 700;
+  --ifm-heading-font-weight: 600;
   --ifm-font-weight-bold: 600;
 }
 

@@ -6,7 +6,7 @@ import pkg from '../package.json';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const featureFlags = pkg.featureFlags;
-const isProduction = process.env.NODE_ENV === 'production';
+const shouldLoadGoogleTag = process.env.DOCUSAURUS_ENABLE_GTAG === 'true';
 
 const config: Config = {
   plugins: [
@@ -148,9 +148,9 @@ const config: Config = {
         },
         blog: false,
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: ['./src/css/fonts.css', './src/css/custom.css'],
         },
-        ...(isProduction ? {
+        ...(shouldLoadGoogleTag ? {
           gtag: {
             trackingID: 'G-V9MPP2ZWZF',
             anonymizeIP: true,

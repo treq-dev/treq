@@ -21,21 +21,25 @@ jobs:
           tool: git-cliff
 
       - name: Generate changelog
-        run: git-cliff --output CHANGELOG.md
+        run: GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" git-cliff --output CHANGELOG.md
 
       - name: Generate web changelog page
         run: |
           {
-            printf -- '---\ntitle: Changelog\ndescription: Release history for Treq\nhide_table_of_contents: true\n---\n\n'
+            printf -- '---\ntitle: Changelog\ndescription: Release history for Treq\nhide_table_of_contents: true\nwrapperClassName: changelog-page\n---\n\n'
+            printf "import ContentPageLayout from '@site/src/components/ContentPageLayout';\n\n"
+            printf 'export const toc = [];\n\n'
+            printf "<ContentPageLayout toc={toc} breadcrumbs={[{label: 'Home', href: '/'}, {label: 'Changelog'}]}>\n\n"
             printf '# Changelog\n\n'
             printf '> Full release history for [Treq](https://github.com/Ziinc/treq/releases).\n\n'
             tail -n +3 CHANGELOG.md
-          } > web/src/pages/changelog.md
+            printf '\n</ContentPageLayout>\n'
+          } > web/src/pages/changelog.mdx
 
       - name: Commit and push changelog
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md web/src/pages/changelog.md
+          git add CHANGELOG.md web/src/pages/changelog.mdx
           git diff --cached --quiet || git commit -m "chore: update changelog for ${{ github.event.release.tag_name }}"
           git push origin HEAD:main
