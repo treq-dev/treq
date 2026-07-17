@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import styles from './markdown-annotator.module.css';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -13,6 +13,12 @@ export interface Annotation {
 }
 
 export type ViewMode = 'code' | 'preview';
+
+interface MdBlock {
+  lineStart: number;
+  lineEnd: number;
+  html: string;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -54,7 +60,6 @@ export function isMarkdown(filename: string): boolean {
   return ext === 'md' || ext === 'mdx';
 }
 
-// URL-safe UTF-8 base64 encoding
 export function encodeContentForUrl(content: string): string {
   const bytes = new TextEncoder().encode(content);
   let binary = '';
@@ -71,74 +76,15 @@ export function decodeContentFromUrl(encoded: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-// ── Markdown renderer ─────────────────────────────────────────────────────────
+// ── Markdown block renderer ───────────────────────────────────────────────────
 
-export function renderMarkdown(md: string): string {
-  let html = md
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    return `<pre><code class="language-${lang || 'text'}">${code.trimEnd()}</code></pre>\n`;
-  });
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-  const lines = html.split('\n');
-  const output: string[] = [];
-  let i = 0;
-  let inList: 'ul' | 'ol' | null = null;
-  let inBlockquote = false;
-  let inPre = false;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.startsWith('<pre>')) { inPre = true; output.push(line); i++; continue; }
-    if (line.includes('</pre>')) { inPre = false; output.push(line); i++; continue; }
-    if (inPre) { output.push(line); i++; continue; }
-
-    const isUl = /^[-*+] /.test(line);
-    const isOl = /^\d+\. /.test(line);
-    const isBq = line.startsWith('&gt;');
-
-    if (!isUl && !isOl && inList) { output.push(inList === 'ul' ? '</ul>' : '</ol>'); inList = null; }
-    if (!isBq && inBlockquote) { output.push('</blockquote>'); inBlockquote = false; }
-
-    if (line === '' || line === '\n') { output.push(''); i++; continue; }
-
-    const hMatch = line.match(/^(#{1,6}) (.+)/);
-    if (hMatch) {
-      const level = hMatch[1].length;
-      output.push(`<h${level}>${inlineFmt(hMatch[2])}</h${level}>`);
-      i++; continue;
-    }
-    if (/^[-*_]{3,}$/.test(line.trim())) { output.push('<hr/>'); i++; continue; }
-    if (isBq) {
-      if (!inBlockquote) { output.push('<blockquote>'); inBlockquote = true; }
-      output.push(`<p>${inlineFmt(line.replace(/^&gt;\s?/, ''))}</p>`);
-      i++; continue;
-    }
-    if (isUl) {
-      if (!inList) { output.push('<ul>'); inList = 'ul'; }
-      output.push(`<li>${inlineFmt(line.replace(/^[-*+] /, ''))}</li>`);
-      i++; continue;
-    }
-    if (isOl) {
-      if (!inList) { output.push('<ol>'); inList = 'ol'; }
-      output.push(`<li>${inlineFmt(line.replace(/^\d+\. /, ''))}</li>`);
-      i++; continue;
-    }
-    output.push(`<p>${inlineFmt(line)}</p>`);
-    i++;
-  }
-
-  if (inList) output.push(inList === 'ul' ? '</ul>' : '</ol>');
-  if (inBlockquote) output.push('</blockquote>');
-  return output.join('\n');
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function inlineFmt(text: string): string {
   return text
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
@@ -146,6 +92,118 @@ function inlineFmt(text: string): string {
     .replace(/_(.+?)_/g, '<em>$1</em>')
     .replace(/~~(.+?)~~/g, '<del>$1</del>')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+
+// Returns an array of blocks each with a source line range and rendered HTML.
+function renderMarkdownBlocks(md: string): MdBlock[] {
+  const blocks: MdBlock[] = [];
+  const rawLines = md.split('\n');
+  let i = 0;
+
+  while (i < rawLines.length) {
+    const raw = rawLines[i];
+    const lineNum = i + 1;
+
+    // Skip blank lines — they don't produce a block
+    if (!raw.trim()) { i++; continue; }
+
+    // Fenced code block
+    if (raw.trimStart().startsWith('```')) {
+      const start = i;
+      const lang = raw.replace(/^\s*```/, '').trim();
+      i++;
+      const codeLines: string[] = [];
+      while (i < rawLines.length && !rawLines[i].trimStart().startsWith('```')) {
+        codeLines.push(esc(rawLines[i]));
+        i++;
+      }
+      i++; // closing ```
+      blocks.push({
+        lineStart: start + 1,
+        lineEnd: i,
+        html: `<pre><code class="language-${lang || 'text'}">${codeLines.join('\n')}</code></pre>`,
+      });
+      continue;
+    }
+
+    // ATX heading
+    const hMatch = raw.match(/^(#{1,6})\s+(.*)/);
+    if (hMatch) {
+      const level = hMatch[1].length;
+      blocks.push({ lineStart: lineNum, lineEnd: lineNum, html: `<h${level}>${inlineFmt(esc(hMatch[2]))}</h${level}>` });
+      i++;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^[-*_]{3,}\s*$/.test(raw)) {
+      blocks.push({ lineStart: lineNum, lineEnd: lineNum, html: '<hr/>' });
+      i++;
+      continue;
+    }
+
+    // Blockquote — collect consecutive > lines
+    if (raw.startsWith('>')) {
+      const start = i;
+      const innerLines: string[] = [];
+      while (i < rawLines.length && rawLines[i].startsWith('>')) {
+        innerLines.push(inlineFmt(esc(rawLines[i].replace(/^>\s?/, ''))));
+        i++;
+      }
+      blocks.push({
+        lineStart: start + 1,
+        lineEnd: i,
+        html: `<blockquote>${innerLines.map((l) => `<p>${l}</p>`).join('')}</blockquote>`,
+      });
+      continue;
+    }
+
+    // Unordered list — collect consecutive list items (simple flat list)
+    if (/^[-*+]\s/.test(raw)) {
+      const start = i;
+      const items: string[] = [];
+      while (i < rawLines.length && /^[-*+]\s/.test(rawLines[i])) {
+        items.push(`<li>${inlineFmt(esc(rawLines[i].replace(/^[-*+]\s/, '')))}</li>`);
+        i++;
+      }
+      blocks.push({ lineStart: start + 1, lineEnd: i, html: `<ul>${items.join('')}</ul>` });
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\.\s/.test(raw)) {
+      const start = i;
+      const items: string[] = [];
+      while (i < rawLines.length && /^\d+\.\s/.test(rawLines[i])) {
+        items.push(`<li>${inlineFmt(esc(rawLines[i].replace(/^\d+\.\s/, '')))}</li>`);
+        i++;
+      }
+      blocks.push({ lineStart: start + 1, lineEnd: i, html: `<ol>${items.join('')}</ol>` });
+      continue;
+    }
+
+    // Paragraph — collect consecutive non-special, non-blank lines
+    const start = i;
+    const paraLines: string[] = [];
+    while (
+      i < rawLines.length &&
+      rawLines[i].trim() !== '' &&
+      !/^#{1,6}\s/.test(rawLines[i]) &&
+      !rawLines[i].trimStart().startsWith('```') &&
+      !/^[-*_]{3,}\s*$/.test(rawLines[i]) &&
+      !rawLines[i].startsWith('>') &&
+      !/^[-*+]\s/.test(rawLines[i]) &&
+      !/^\d+\.\s/.test(rawLines[i])
+    ) {
+      paraLines.push(inlineFmt(esc(rawLines[i])));
+      i++;
+    }
+    if (paraLines.length > 0) {
+      blocks.push({ lineStart: start + 1, lineEnd: i, html: `<p>${paraLines.join('<br/>')}</p>` });
+    }
+  }
+
+  return blocks;
 }
 
 // ── Review prompt ─────────────────────────────────────────────────────────────
@@ -158,90 +216,102 @@ export function buildReviewPrompt(opts: {
   summary: string;
 }): string {
   const { content, filename, sourceUrl, annotations, summary } = opts;
-  const lines: string[] = [];
+  const out: string[] = [];
 
-  lines.push('# File Review');
-  lines.push('');
-  lines.push(`**File:** \`${filename}\``);
-  if (sourceUrl) lines.push(`**Source:** ${sourceUrl}`);
-  lines.push('');
+  out.push('# File Review');
+  out.push('');
+
+  if (sourceUrl) {
+    out.push(`**File:** \`${filename}\``);
+    out.push(`**Source:** ${sourceUrl}`);
+    out.push('');
+  }
 
   if (annotations.length > 0) {
-    lines.push('## Inline Annotations');
-    lines.push('');
+    out.push('## Inline Annotations');
+    out.push('');
     for (const a of annotations) {
       const range = a.lineStart === a.lineEnd ? `Line ${a.lineStart}` : `Lines ${a.lineStart}–${a.lineEnd}`;
-      lines.push(`### ${range}`);
-      if (a.selectedText) { lines.push(''); lines.push('```'); lines.push(a.selectedText); lines.push('```'); }
-      lines.push(''); lines.push(a.comment); lines.push('');
+      out.push(`### ${range}`);
+      if (a.selectedText) { out.push(''); out.push('```'); out.push(a.selectedText); out.push('```'); }
+      out.push(''); out.push(a.comment); out.push('');
     }
   }
 
-  if (summary.trim()) { lines.push('## Summary'); lines.push(''); lines.push(summary.trim()); lines.push(''); }
+  if (summary.trim()) { out.push('## Summary'); out.push(''); out.push(summary.trim()); out.push(''); }
 
-  lines.push('## File Contents');
-  lines.push(''); lines.push('```' + detectLanguage(filename)); lines.push(content); lines.push('```');
+  out.push('## File Contents');
+  out.push('');
+  out.push('```' + (sourceUrl ? detectLanguage(filename) : 'text'));
+  out.push(content);
+  out.push('```');
 
-  return lines.join('\n');
+  return out.join('\n');
 }
 
-// ── Annotation dialog ─────────────────────────────────────────────────────────
+// ── Inline comment form ───────────────────────────────────────────────────────
 
-interface AnnotationDialogProps {
+interface InlineFormProps {
   lineStart: number;
   lineEnd: number;
-  selectedText: string;
-  view: ViewMode;
-  onConfirm: (comment: string) => void;
+  comment: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
   onCancel: () => void;
 }
 
-export function AnnotationDialog({ lineStart, lineEnd, selectedText, onConfirm, onCancel }: AnnotationDialogProps) {
-  const [comment, setComment] = useState('');
+function InlineForm({ lineStart, lineEnd, comment, onChange, onSubmit, onCancel }: InlineFormProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
   useEffect(() => { textareaRef.current?.focus(); }, []);
 
   const range = lineStart === lineEnd ? `Line ${lineStart}` : `Lines ${lineStart}–${lineEnd}`;
 
   return (
-    <div className={styles.dialogOverlay} onClick={onCancel}>
-      <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.dialogHeader}>
-          <span className={styles.dialogTitle}>Add comment — {range}</span>
-          <button className={styles.dialogClose} onClick={onCancel}>✕</button>
-        </div>
-        {selectedText && (
-          <div className={styles.dialogSelection}>
-            <pre className={styles.dialogSelectionText}>
-              {selectedText.length > 200 ? selectedText.slice(0, 200) + '…' : selectedText}
-            </pre>
-          </div>
-        )}
-        <textarea
-          ref={textareaRef}
-          className={styles.dialogTextarea}
-          placeholder="Write your comment…"
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          rows={4}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (comment.trim()) onConfirm(comment.trim()); }
-            if (e.key === 'Escape') onCancel();
-          }}
-        />
-        <div className={styles.dialogActions}>
-          <button className={styles.dialogCancel} onClick={onCancel}>Cancel</button>
-          <button
-            className={styles.dialogConfirm}
-            disabled={!comment.trim()}
-            onClick={() => { if (comment.trim()) onConfirm(comment.trim()); }}
-          >
-            Add comment
-          </button>
-        </div>
-        <div className={styles.dialogHint}>⌘↵ to submit · Esc to cancel</div>
+    <div className={styles.inlineForm}>
+      <div className={styles.inlineFormRange}>{range}</div>
+      <textarea
+        ref={textareaRef}
+        className={styles.inlineFormTextarea}
+        placeholder="Leave a comment… (⌘↵ to submit)"
+        value={comment}
+        onChange={(e) => onChange(e.target.value)}
+        rows={3}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (comment.trim()) onSubmit(); }
+          if (e.key === 'Escape') onCancel();
+        }}
+      />
+      <div className={styles.inlineFormActions}>
+        <button className={styles.inlineFormCancel} onClick={onCancel}>Cancel</button>
+        <button className={styles.inlineFormSubmit} disabled={!comment.trim()} onClick={onSubmit}>
+          Add comment
+        </button>
       </div>
+    </div>
+  );
+}
+
+// ── Annotation card ───────────────────────────────────────────────────────────
+
+interface AnnotCardProps {
+  annotation: Annotation;
+  onDelete: (id: string) => void;
+}
+
+function AnnotCard({ annotation: a, onDelete }: AnnotCardProps) {
+  const range = a.lineStart === a.lineEnd ? `Line ${a.lineStart}` : `Lines ${a.lineStart}–${a.lineEnd}`;
+  return (
+    <div className={styles.annotCard}>
+      <div className={styles.annotCardHeader}>
+        <span className={styles.annotCardRange}>{range}</span>
+        <button className={styles.annotCardDelete} onClick={() => onDelete(a.id)} title="Delete comment">✕</button>
+      </div>
+      {a.selectedText && (
+        <pre className={styles.annotCardQuote}>
+          {a.selectedText.length > 160 ? a.selectedText.slice(0, 160) + '…' : a.selectedText}
+        </pre>
+      )}
+      <div className={styles.annotCardComment}>{a.comment}</div>
     </div>
   );
 }
@@ -251,86 +321,141 @@ export function AnnotationDialog({ lineStart, lineEnd, selectedText, onConfirm, 
 interface CodeViewProps {
   lines: string[];
   annotations: Annotation[];
-  onAnnotationAdd: (lineStart: number, lineEnd: number, selectedText: string) => void;
+  onAnnotationAdd: (lineStart: number, lineEnd: number, selectedText: string, comment: string) => void;
   onAnnotationDelete: (id: string) => void;
 }
 
 export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDelete }: CodeViewProps) {
   const [anchorLine, setAnchorLine] = useState<number | null>(null);
   const [hoverLine, setHoverLine] = useState<number | null>(null);
+  const [inlineForm, setInlineForm] = useState<{ lineStart: number; lineEnd: number } | null>(null);
+  const [inlineComment, setInlineComment] = useState('');
 
-  const getSelectedRange = (current: number): [number, number] =>
-    anchorLine === null ? [current, current] : anchorLine <= current ? [anchorLine, current] : [current, anchorLine];
+  const getRange = (a: number, b: number): [number, number] =>
+    a <= b ? [a, b] : [b, a];
 
-  const annotationsByLine = new Map<number, Annotation[]>();
-  for (const a of annotations) {
-    for (let l = a.lineStart; l <= a.lineEnd; l++) {
-      const arr = annotationsByLine.get(l) ?? [];
-      arr.push(a);
-      annotationsByLine.set(l, arr);
-    }
-  }
-
-  const handleLineClick = (lineNum: number, e: React.MouseEvent) => {
-    if (e.shiftKey && anchorLine !== null) {
-      const [start, end] = getSelectedRange(lineNum);
-      onAnnotationAdd(start, end, lines.slice(start - 1, end).join('\n'));
-      setAnchorLine(null);
+  const handleAddClick = (lineNum: number) => {
+    if (anchorLine !== null && anchorLine !== lineNum) {
+      const [start, end] = getRange(anchorLine, lineNum);
+      setInlineForm({ lineStart: start, lineEnd: end });
     } else {
-      setAnchorLine(lineNum);
+      setInlineForm({ lineStart: lineNum, lineEnd: lineNum });
     }
+    setAnchorLine(null);
+    setInlineComment('');
   };
 
-  const [low, high] = anchorLine !== null && hoverLine !== null ? getSelectedRange(hoverLine) : [null, null];
+  const handleLineNumClick = (lineNum: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (inlineForm) return;
+    setAnchorLine((prev) => (prev === lineNum ? null : lineNum));
+  };
+
+  const handleInlineSubmit = () => {
+    if (!inlineForm || !inlineComment.trim()) return;
+    const selectedText = lines.slice(inlineForm.lineStart - 1, inlineForm.lineEnd).join('\n');
+    onAnnotationAdd(inlineForm.lineStart, inlineForm.lineEnd, selectedText, inlineComment.trim());
+    setInlineForm(null);
+    setInlineComment('');
+  };
+
+  const handleInlineCancel = () => {
+    setInlineForm(null);
+    setInlineComment('');
+  };
+
+  const [rangeStart, rangeEnd] =
+    anchorLine !== null && hoverLine !== null ? getRange(anchorLine, hoverLine) : [null, null];
+
+  // Build a map: lineNum → annotations starting here
+  const annotsByLine = new Map<number, Annotation[]>();
+  for (const a of annotations) {
+    const arr = annotsByLine.get(a.lineStart) ?? [];
+    arr.push(a);
+    annotsByLine.set(a.lineStart, arr);
+  }
+
+  // Lines that are annotated (for gutter dot)
+  const annotatedLines = new Set(annotations.flatMap((a) => {
+    const out: number[] = [];
+    for (let l = a.lineStart; l <= a.lineEnd; l++) out.push(l);
+    return out;
+  }));
 
   return (
     <div className={styles.codeView}>
-      <div className={styles.codeHint}>
-        Click a line number to anchor · Shift+click to select range · Double-click to annotate single line
-      </div>
       <div className={styles.codeScroll}>
         <table className={styles.codeTable} cellSpacing={0} cellPadding={0}>
           <tbody>
             {lines.map((lineContent, idx) => {
               const lineNum = idx + 1;
-              const isInRange = low !== null && high !== null && lineNum >= low && lineNum <= high;
+              const isInRange = rangeStart !== null && rangeEnd !== null && lineNum >= rangeStart && lineNum <= rangeEnd;
               const isAnchor = lineNum === anchorLine;
-              const hasAnnotation = annotationsByLine.has(lineNum);
-              const annotationsHere = annotations.filter((a) => a.lineStart === lineNum);
+              const isAnnotated = annotatedLines.has(lineNum);
+              const annotsHere = annotsByLine.get(lineNum) ?? [];
+              const isFormEnd = inlineForm?.lineEnd === lineNum;
+              const isFormRange = inlineForm !== null && lineNum >= inlineForm.lineStart && lineNum <= inlineForm.lineEnd;
 
               return (
                 <React.Fragment key={lineNum}>
                   <tr
-                    className={`${styles.codeLine} ${isInRange || isAnchor ? styles.codeLineSelected : ''} ${hasAnnotation ? styles.codeLineAnnotated : ''}`}
+                    className={`${styles.codeLine} ${isInRange || isAnchor ? styles.codeLineSelected : ''} ${isAnnotated ? styles.codeLineAnnotated : ''} ${isFormRange ? styles.codeLineFormRange : ''}`}
                     onMouseEnter={() => setHoverLine(lineNum)}
                     onMouseLeave={() => setHoverLine(null)}
                   >
+                    {/* Add-comment button — left of gutter */}
+                    <td className={styles.addCell}>
+                      <button
+                        className={`${styles.addBtn} ${isAnchor ? styles.addBtnAnchor : ''}`}
+                        onClick={() => handleAddClick(lineNum)}
+                        title={anchorLine !== null && anchorLine !== lineNum ? `Comment on lines ${Math.min(anchorLine, lineNum)}–${Math.max(anchorLine, lineNum)}` : 'Add comment'}
+                        tabIndex={-1}
+                      >
+                        +
+                      </button>
+                    </td>
+
+                    {/* Line number */}
                     <td
                       className={`${styles.lineNum} ${isAnchor ? styles.lineNumAnchor : ''}`}
-                      onClick={(e) => handleLineClick(lineNum, e)}
-                      onDoubleClick={() => { onAnnotationAdd(lineNum, lineNum, lines[lineNum - 1]); setAnchorLine(null); }}
-                      title={anchorLine === null ? 'Click to anchor, shift+click to select range' : 'Shift+click to select range'}
+                      onClick={(e) => handleLineNumClick(lineNum, e)}
+                      title="Click to start a range selection, click another line number to extend"
                     >
-                      {hasAnnotation && <span className={styles.annotDot} title="Has annotation" />}
+                      {isAnnotated && <span className={styles.annotDot} />}
                       {lineNum}
                     </td>
+
+                    {/* Code content */}
                     <td className={styles.lineContent}>
                       <pre className={styles.lineCode}>{lineContent || ' '}</pre>
                     </td>
                   </tr>
-                  {annotationsHere.map((a) => (
-                    <tr key={a.id} className={styles.annotRow}>
+
+                  {/* Inline comment form — appears after the last line of the range */}
+                  {isFormEnd && (
+                    <tr className={styles.inlineFormRow}>
                       <td />
-                      <td className={styles.annotCell}>
-                        <div className={styles.annotBlock}>
-                          <div className={styles.annotMeta}>
-                            <span className={styles.annotRange}>
-                              {a.lineStart === a.lineEnd ? `Line ${a.lineStart}` : `Lines ${a.lineStart}–${a.lineEnd}`}
-                            </span>
-                            <button className={styles.annotDelete} onClick={() => onAnnotationDelete(a.id)} title="Delete">✕</button>
-                          </div>
-                          <div className={styles.annotComment}>{a.comment}</div>
-                        </div>
+                      <td />
+                      <td className={styles.inlineFormCell}>
+                        <InlineForm
+                          lineStart={inlineForm.lineStart}
+                          lineEnd={inlineForm.lineEnd}
+                          comment={inlineComment}
+                          onChange={setInlineComment}
+                          onSubmit={handleInlineSubmit}
+                          onCancel={handleInlineCancel}
+                        />
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Existing annotation cards */}
+                  {annotsHere.map((a) => (
+                    <tr key={a.id} className={styles.annotCardRow}>
+                      <td />
+                      <td />
+                      <td className={styles.annotCardCell}>
+                        <AnnotCard annotation={a} onDelete={onAnnotationDelete} />
                       </td>
                     </tr>
                   ))}
@@ -340,6 +465,11 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
           </tbody>
         </table>
       </div>
+      {anchorLine !== null && (
+        <div className={styles.codeRangeHint}>
+          Line {anchorLine} anchored — click another "+" to comment on a range, or click the same line number to deselect
+        </div>
+      )}
     </div>
   );
 }
@@ -349,66 +479,100 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
 interface PreviewViewProps {
   content: string;
   annotations: Annotation[];
-  onAnnotationAdd: (lineStart: number, lineEnd: number, selectedText: string) => void;
+  onAnnotationAdd: (lineStart: number, lineEnd: number, selectedText: string, comment: string) => void;
   onAnnotationDelete: (id: string) => void;
 }
 
 export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotationDelete }: PreviewViewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [selection, setSelection] = useState<{ text: string; lineStart: number; lineEnd: number } | null>(null);
+  const blocks = useMemo(() => renderMarkdownBlocks(content), [content]);
+  const rawLines = content.split('\n');
 
-  const handleMouseUp = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) { setSelection(null); return; }
-    const selectedText = sel.toString().trim();
-    if (!selectedText) { setSelection(null); return; }
-    const firstLine = content.indexOf(selectedText.split('\n')[0]);
-    if (firstLine === -1) { setSelection(null); return; }
-    const lineStart = content.slice(0, firstLine).split('\n').length;
-    const lineEnd = lineStart + selectedText.split('\n').length - 1;
-    setSelection({ text: selectedText, lineStart, lineEnd });
-  }, [content]);
+  const [inlineForm, setInlineForm] = useState<{ blockIdx: number; lineStart: number; lineEnd: number } | null>(null);
+  const [inlineComment, setInlineComment] = useState('');
 
-  const handleAddFromSelection = useCallback(() => {
-    if (!selection) return;
-    onAnnotationAdd(selection.lineStart, selection.lineEnd, selection.text);
-    setSelection(null);
-    window.getSelection()?.removeAllRanges();
-  }, [selection, onAnnotationAdd]);
+  const handleAddClick = (block: MdBlock, blockIdx: number) => {
+    setInlineForm({ blockIdx, lineStart: block.lineStart, lineEnd: block.lineEnd });
+    setInlineComment('');
+  };
 
-  const html = renderMarkdown(content);
+  const handleInlineSubmit = () => {
+    if (!inlineForm || !inlineComment.trim()) return;
+    const selectedText = rawLines.slice(inlineForm.lineStart - 1, inlineForm.lineEnd).join('\n');
+    onAnnotationAdd(inlineForm.lineStart, inlineForm.lineEnd, selectedText, inlineComment.trim());
+    setInlineForm(null);
+    setInlineComment('');
+  };
+
+  // Map lineStart → annotations
+  const annotsByLine = new Map<number, Annotation[]>();
+  for (const a of annotations) {
+    const arr = annotsByLine.get(a.lineStart) ?? [];
+    arr.push(a);
+    annotsByLine.set(a.lineStart, arr);
+  }
 
   return (
     <div className={styles.previewView}>
-      {selection && (
-        <div className={styles.selectionBar}>
-          <span className={styles.selectionInfo}>Selected: lines {selection.lineStart}–{selection.lineEnd}</span>
-          <button className={styles.selectionAddBtn} onClick={handleAddFromSelection}>+ Add annotation</button>
-          <button className={styles.selectionCancelBtn} onClick={() => { setSelection(null); window.getSelection()?.removeAllRanges(); }}>✕</button>
-        </div>
-      )}
-      <div ref={containerRef} className={styles.previewContent} onMouseUp={handleMouseUp} dangerouslySetInnerHTML={{ __html: html }} />
-      {annotations.length > 0 && (
-        <div className={styles.previewAnnotations}>
-          <div className={styles.previewAnnotationsTitle}>Annotations</div>
-          {annotations.map((a) => (
-            <div key={a.id} className={styles.previewAnnotBlock}>
-              <div className={styles.annotMeta}>
-                <span className={styles.annotRange}>
-                  {a.lineStart === a.lineEnd ? `Line ${a.lineStart}` : `Lines ${a.lineStart}–${a.lineEnd}`}
-                </span>
-                <button className={styles.annotDelete} onClick={() => onAnnotationDelete(a.id)} title="Delete">✕</button>
+      {blocks.map((block, blockIdx) => {
+        const annotsHere = annotsByLine.get(block.lineStart) ?? [];
+        const isFormHere = inlineForm?.blockIdx === blockIdx;
+
+        return (
+          <React.Fragment key={blockIdx}>
+            {/* Block row with line number + rendered content */}
+            <div className={`${styles.previewBlockRow} ${isFormHere ? styles.previewBlockRowActive : ''}`}>
+              {/* Add button */}
+              <button
+                className={styles.previewAddBtn}
+                onClick={() => handleAddClick(block, blockIdx)}
+                title="Add annotation"
+                tabIndex={-1}
+              >
+                +
+              </button>
+              {/* Line number */}
+              <div className={styles.previewLineNum}>
+                {block.lineStart}
+                {block.lineEnd > block.lineStart && (
+                  <span className={styles.previewLineNumEnd}>–{block.lineEnd}</span>
+                )}
               </div>
-              {a.selectedText && (
-                <pre className={styles.annotQuote}>
-                  {a.selectedText.length > 150 ? a.selectedText.slice(0, 150) + '…' : a.selectedText}
-                </pre>
-              )}
-              <div className={styles.annotComment}>{a.comment}</div>
+              {/* Rendered content */}
+              <div
+                className={styles.previewBlockContent}
+                dangerouslySetInnerHTML={{ __html: block.html }}
+              />
             </div>
-          ))}
-        </div>
-      )}
+
+            {/* Inline form */}
+            {isFormHere && (
+              <div className={styles.previewInlineFormRow}>
+                <div className={styles.previewInlineFormSpacer} />
+                <div className={styles.previewInlineFormContent}>
+                  <InlineForm
+                    lineStart={inlineForm.lineStart}
+                    lineEnd={inlineForm.lineEnd}
+                    comment={inlineComment}
+                    onChange={setInlineComment}
+                    onSubmit={handleInlineSubmit}
+                    onCancel={() => { setInlineForm(null); setInlineComment(''); }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Annotation cards */}
+            {annotsHere.map((a) => (
+              <div key={a.id} className={styles.previewAnnotRow}>
+                <div className={styles.previewInlineFormSpacer} />
+                <div className={styles.previewAnnotContent}>
+                  <AnnotCard annotation={a} onDelete={onAnnotationDelete} />
+                </div>
+              </div>
+            ))}
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -422,15 +586,17 @@ interface FileLoaderProps {
 export function FileLoader({ onLoad }: FileLoaderProps) {
   const [urlInput, setUrlInput] = useState('');
   const [pasteContent, setPasteContent] = useState('');
-  const [pasteFilename, setPasteFilename] = useState('');
-  const [tab, setTab] = useState<'url' | 'paste'>('url');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchFromGithub = async () => {
+    if (!urlInput.trim()) return;
     setError(null);
     const parsed = parseGithubUrl(urlInput.trim());
-    if (!parsed) { setError('Invalid GitHub URL. Expected: github.com/owner/repo/blob/branch/path/to/file'); return; }
+    if (!parsed) {
+      setError('Invalid GitHub URL. Expected: github.com/owner/repo/blob/branch/path/to/file');
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(parsed.rawUrl);
@@ -440,61 +606,58 @@ export function FileLoader({ onLoad }: FileLoaderProps) {
       onLoad(text, filename, parsed.displayUrl);
     } catch (e) {
       setError(`Failed to fetch: ${e instanceof Error ? e.message : String(e)}`);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadPasted = () => {
     if (!pasteContent.trim()) { setError('No content to load.'); return; }
-    onLoad(pasteContent, pasteFilename.trim() || 'untitled.md', null);
+    onLoad(pasteContent, '', null);
   };
 
   return (
     <div className={styles.loader}>
-      <div className={styles.loaderTabs}>
-        <button className={`${styles.loaderTab} ${tab === 'url' ? styles.loaderTabActive : ''}`} onClick={() => setTab('url')}>GitHub URL</button>
-        <button className={`${styles.loaderTab} ${tab === 'paste' ? styles.loaderTabActive : ''}`} onClick={() => setTab('paste')}>Paste content</button>
+      {/* GitHub URL */}
+      <div className={styles.loaderSection}>
+        <label className={styles.loaderLabel}>GitHub file URL</label>
+        <div className={styles.loaderRow}>
+          <input
+            className={styles.loaderInput}
+            type="url"
+            placeholder="https://github.com/owner/repo/blob/main/README.md"
+            value={urlInput}
+            onChange={(e) => { setUrlInput(e.target.value); setError(null); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') fetchFromGithub(); }}
+          />
+          <button className={styles.loaderBtn} onClick={fetchFromGithub} disabled={loading || !urlInput.trim()}>
+            {loading ? 'Loading…' : 'Fetch'}
+          </button>
+        </div>
       </div>
 
-      {tab === 'url' && (
-        <div className={styles.loaderSection}>
-          <p className={styles.loaderDesc}>Paste a GitHub file URL to load and review it.</p>
-          <div className={styles.loaderRow}>
-            <input
-              className={styles.loaderInput}
-              type="url"
-              placeholder="https://github.com/owner/repo/blob/main/README.md"
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') fetchFromGithub(); }}
-            />
-            <button className={styles.loaderBtn} onClick={fetchFromGithub} disabled={loading || !urlInput.trim()}>
-              {loading ? 'Loading…' : 'Fetch'}
-            </button>
-          </div>
-        </div>
-      )}
+      <div className={styles.loaderDivider}>
+        <span>or paste content below</span>
+      </div>
 
-      {tab === 'paste' && (
-        <div className={styles.loaderSection}>
-          <div className={styles.loaderRow}>
-            <input
-              className={styles.loaderFilenameInput}
-              type="text"
-              placeholder="filename.md"
-              value={pasteFilename}
-              onChange={(e) => setPasteFilename(e.target.value)}
-            />
-          </div>
-          <textarea
-            className={styles.loaderTextarea}
-            placeholder="Paste file contents here…"
-            value={pasteContent}
-            onChange={(e) => setPasteContent(e.target.value)}
-            rows={12}
-          />
-          <button className={styles.loaderBtn} onClick={loadPasted} disabled={!pasteContent.trim()}>Load file</button>
-        </div>
-      )}
+      {/* Paste */}
+      <div className={styles.loaderSection}>
+        <textarea
+          className={styles.loaderTextarea}
+          placeholder="Paste file contents here…"
+          value={pasteContent}
+          onChange={(e) => { setPasteContent(e.target.value); setError(null); }}
+          rows={10}
+        />
+        <button
+          className={styles.loaderBtn}
+          onClick={loadPasted}
+          disabled={!pasteContent.trim()}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          Load
+        </button>
+      </div>
 
       {error && <div className={styles.loaderError}>{error}</div>}
     </div>
@@ -585,7 +748,7 @@ function EmbedPanel({ content, filename, sourceUrl, onClose }: EmbedPanelProps) 
     ? `${EMBED_BASE}?url=${encodeURIComponent(sourceUrl)}`
     : tooLarge
     ? null
-    : `${EMBED_BASE}?content=${encodeContentForUrl(content)}&filename=${encodeURIComponent(filename)}`;
+    : `${EMBED_BASE}?content=${encodeContentForUrl(content)}&filename=${encodeURIComponent(filename || 'file')}`;
 
   const iframeCode = embedUrl
     ? `<iframe\n  src="${embedUrl}"\n  width="${width}"\n  height="${height}"\n  frameborder="0"\n  style="border-radius:8px;border:1px solid #e5e7eb;"\n></iframe>`
@@ -597,8 +760,6 @@ function EmbedPanel({ content, filename, sourceUrl, onClose }: EmbedPanelProps) 
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
-  const handleInputClick = () => { inputRef.current?.select(); };
 
   return (
     <div className={styles.embedPanel}>
@@ -657,7 +818,7 @@ function EmbedPanel({ content, filename, sourceUrl, onClose }: EmbedPanelProps) 
                 type="text"
                 readOnly
                 value={iframeCode ?? ''}
-                onClick={handleInputClick}
+                onClick={() => inputRef.current?.select()}
               />
               <button className={styles.embedCopyBtn} onClick={handleCopy}>
                 {copied ? '✓ Copied' : 'Copy'}
@@ -666,12 +827,7 @@ function EmbedPanel({ content, filename, sourceUrl, onClose }: EmbedPanelProps) 
           </div>
 
           <div className={styles.embedPreviewRow}>
-            <a
-              className={styles.embedPreviewLink}
-              href={embedUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <a className={styles.embedPreviewLink} href={embedUrl} target="_blank" rel="noopener noreferrer">
               Preview embed ↗
             </a>
           </div>
@@ -681,7 +837,7 @@ function EmbedPanel({ content, filename, sourceUrl, onClose }: EmbedPanelProps) 
             <ol className={styles.embedInstructionsList}>
               <li>Copy the embed code above.</li>
               <li>Paste it into any HTML page where you want the annotator to appear.</li>
-              <li>Adjust <code>width</code> and <code>height</code> to fit your layout. You can also use <code>width="100%"</code>.</li>
+              <li>Adjust <code>width</code> and <code>height</code> to fit your layout — <code>width="100%"</code> works for responsive layouts.</li>
               <li>Viewers can annotate the file and export their review to Claude or ChatGPT directly from the embed.</li>
             </ol>
           </div>
@@ -712,7 +868,6 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
     initialFile ? (isMarkdown(initialFile.filename) ? 'preview' : 'code') : 'code'
   );
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [pendingAnnotation, setPendingAnnotation] = useState<{ lineStart: number; lineEnd: number; selectedText: string } | null>(null);
   const [showReview, setShowReview] = useState(false);
   const [showEmbed, setShowEmbed] = useState(false);
 
@@ -729,15 +884,15 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
     setShowEmbed(false);
   }, []);
 
-  const handleAnnotationAdd = useCallback((lineStart: number, lineEnd: number, selectedText: string) => {
-    setPendingAnnotation({ lineStart, lineEnd, selectedText });
-  }, []);
-
-  const handleAnnotationConfirm = useCallback((comment: string) => {
-    if (!pendingAnnotation) return;
-    setAnnotations((prev) => [...prev, { id: uid(), ...pendingAnnotation, comment, view: viewMode }]);
-    setPendingAnnotation(null);
-  }, [pendingAnnotation, viewMode]);
+  const handleAnnotationAdd = useCallback(
+    (lineStart: number, lineEnd: number, selectedText: string, comment: string) => {
+      setAnnotations((prev) => [
+        ...prev,
+        { id: uid(), lineStart, lineEnd, selectedText, comment, view: viewMode },
+      ]);
+    },
+    [viewMode]
+  );
 
   const handleAnnotationDelete = useCallback((id: string) => {
     setAnnotations((prev) => prev.filter((a) => a.id !== id));
@@ -749,7 +904,6 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
     setFilename('');
     setSourceUrl(null);
     setAnnotations([]);
-    setPendingAnnotation(null);
     setShowReview(false);
     setShowEmbed(false);
   }, [compact]);
@@ -788,7 +942,7 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
               <span>Review</span>
             </div>
           )}
-          <h1 className={styles.toolTitle}>Review: {filename}</h1>
+          <h1 className={styles.toolTitle}>Review{filename ? `: ${filename}` : ''}</h1>
         </div>
         <ReviewPanel
           content={content}
@@ -812,7 +966,9 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
           </div>
         )}
         <div className={styles.toolTitleRow}>
-          <h1 className={compact ? styles.toolTitleCompact : styles.toolTitle}>{filename}</h1>
+          <h1 className={compact ? styles.toolTitleCompact : styles.toolTitle}>
+            {filename || 'Untitled'}
+          </h1>
           <div className={styles.toolHeaderActions}>
             {isMd && (
               <div className={styles.viewToggle}>
@@ -855,22 +1011,21 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
 
       <div className={styles.toolBody}>
         {viewMode === 'code' ? (
-          <CodeView lines={lines} annotations={annotations} onAnnotationAdd={handleAnnotationAdd} onAnnotationDelete={handleAnnotationDelete} />
+          <CodeView
+            lines={lines}
+            annotations={annotations}
+            onAnnotationAdd={handleAnnotationAdd}
+            onAnnotationDelete={handleAnnotationDelete}
+          />
         ) : (
-          <PreviewView content={content} annotations={annotations} onAnnotationAdd={handleAnnotationAdd} onAnnotationDelete={handleAnnotationDelete} />
+          <PreviewView
+            content={content}
+            annotations={annotations}
+            onAnnotationAdd={handleAnnotationAdd}
+            onAnnotationDelete={handleAnnotationDelete}
+          />
         )}
       </div>
-
-      {pendingAnnotation && (
-        <AnnotationDialog
-          lineStart={pendingAnnotation.lineStart}
-          lineEnd={pendingAnnotation.lineEnd}
-          selectedText={pendingAnnotation.selectedText}
-          view={viewMode}
-          onConfirm={handleAnnotationConfirm}
-          onCancel={() => setPendingAnnotation(null)}
-        />
-      )}
     </div>
   );
 }
