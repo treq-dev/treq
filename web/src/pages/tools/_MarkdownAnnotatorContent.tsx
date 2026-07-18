@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { cn } from '../../lib/utils';
+import { CommentInput } from '../../components/CommentInput';
 import styles from './markdown-annotator.module.css';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -94,7 +96,6 @@ function inlineFmt(text: string): string {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 }
 
-// Returns an array of blocks each with a source line range and rendered HTML.
 function renderMarkdownBlocks(md: string): MdBlock[] {
   const blocks: MdBlock[] = [];
   const rawLines = md.split('\n');
@@ -104,10 +105,8 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
     const raw = rawLines[i];
     const lineNum = i + 1;
 
-    // Skip blank lines — they don't produce a block
     if (!raw.trim()) { i++; continue; }
 
-    // Fenced code block
     if (raw.trimStart().startsWith('```')) {
       const start = i;
       const lang = raw.replace(/^\s*```/, '').trim();
@@ -117,7 +116,7 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
         codeLines.push(esc(rawLines[i]));
         i++;
       }
-      i++; // closing ```
+      i++;
       blocks.push({
         lineStart: start + 1,
         lineEnd: i,
@@ -126,7 +125,6 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
       continue;
     }
 
-    // ATX heading
     const hMatch = raw.match(/^(#{1,6})\s+(.*)/);
     if (hMatch) {
       const level = hMatch[1].length;
@@ -135,14 +133,12 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
       continue;
     }
 
-    // Horizontal rule
     if (/^[-*_]{3,}\s*$/.test(raw)) {
       blocks.push({ lineStart: lineNum, lineEnd: lineNum, html: '<hr/>' });
       i++;
       continue;
     }
 
-    // Blockquote — collect consecutive > lines
     if (raw.startsWith('>')) {
       const start = i;
       const innerLines: string[] = [];
@@ -158,7 +154,6 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
       continue;
     }
 
-    // Unordered list — collect consecutive list items (simple flat list)
     if (/^[-*+]\s/.test(raw)) {
       const start = i;
       const items: string[] = [];
@@ -170,7 +165,6 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
       continue;
     }
 
-    // Ordered list
     if (/^\d+\.\s/.test(raw)) {
       const start = i;
       const items: string[] = [];
@@ -182,7 +176,6 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
       continue;
     }
 
-    // Paragraph — collect consecutive non-special, non-blank lines
     const start = i;
     const paraLines: string[] = [];
     while (
@@ -249,49 +242,7 @@ export function buildReviewPrompt(opts: {
   return out.join('\n');
 }
 
-// ── Inline comment form ───────────────────────────────────────────────────────
-
-interface InlineFormProps {
-  lineStart: number;
-  lineEnd: number;
-  comment: string;
-  onChange: (v: string) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-}
-
-function InlineForm({ lineStart, lineEnd, comment, onChange, onSubmit, onCancel }: InlineFormProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { textareaRef.current?.focus(); }, []);
-
-  const range = lineStart === lineEnd ? `Line ${lineStart}` : `Lines ${lineStart}–${lineEnd}`;
-
-  return (
-    <div className={styles.inlineForm}>
-      <div className={styles.inlineFormRange}>{range}</div>
-      <textarea
-        ref={textareaRef}
-        className={styles.inlineFormTextarea}
-        placeholder="Leave a comment… (⌘↵ to submit)"
-        value={comment}
-        onChange={(e) => onChange(e.target.value)}
-        rows={3}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (comment.trim()) onSubmit(); }
-          if (e.key === 'Escape') onCancel();
-        }}
-      />
-      <div className={styles.inlineFormActions}>
-        <button className={styles.inlineFormCancel} onClick={onCancel}>Cancel</button>
-        <button className={styles.inlineFormSubmit} disabled={!comment.trim()} onClick={onSubmit}>
-          Add comment
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Annotation card ───────────────────────────────────────────────────────────
+// ── Inline annotation card (matches app's HunkLines comment card) ─────────────
 
 interface AnnotCardProps {
   annotation: Annotation;
@@ -299,19 +250,33 @@ interface AnnotCardProps {
 }
 
 function AnnotCard({ annotation: a, onDelete }: AnnotCardProps) {
-  const range = a.lineStart === a.lineEnd ? `Line ${a.lineStart}` : `Lines ${a.lineStart}–${a.lineEnd}`;
   return (
-    <div className={styles.annotCard}>
-      <div className={styles.annotCardHeader}>
-        <span className={styles.annotCardRange}>{range}</span>
-        <button className={styles.annotCardDelete} onClick={() => onDelete(a.id)} title="Delete comment">✕</button>
+    <div className="bg-muted/60 border-y border-border/40 px-4 py-2">
+      <div
+        data-testid="inline-comment-card"
+        className="group bg-background rounded-md p-3 border border-border/60"
+      >
+        <div className="flex items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs text-muted-foreground font-mono mb-1">
+              {a.lineStart === a.lineEnd ? `L${a.lineStart}` : `L${a.lineStart}–${a.lineEnd}`}
+            </div>
+            {a.selectedText && (
+              <pre className="text-xs bg-muted rounded p-2 whitespace-pre-wrap break-words text-foreground/80 mb-2 font-mono">
+                {a.selectedText.length > 200 ? a.selectedText.slice(0, 200) + '…' : a.selectedText}
+              </pre>
+            )}
+            <p className="text-sm whitespace-pre-wrap">{a.comment}</p>
+          </div>
+          <button
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive text-xs p-1 rounded hover:bg-destructive/10 flex-shrink-0"
+            onClick={() => onDelete(a.id)}
+            title="Delete comment"
+          >
+            ✕
+          </button>
+        </div>
       </div>
-      {a.selectedText && (
-        <pre className={styles.annotCardQuote}>
-          {a.selectedText.length > 160 ? a.selectedText.slice(0, 160) + '…' : a.selectedText}
-        </pre>
-      )}
-      <div className={styles.annotCardComment}>{a.comment}</div>
     </div>
   );
 }
@@ -329,10 +294,8 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
   const [anchorLine, setAnchorLine] = useState<number | null>(null);
   const [hoverLine, setHoverLine] = useState<number | null>(null);
   const [inlineForm, setInlineForm] = useState<{ lineStart: number; lineEnd: number } | null>(null);
-  const [inlineComment, setInlineComment] = useState('');
 
-  const getRange = (a: number, b: number): [number, number] =>
-    a <= b ? [a, b] : [b, a];
+  const getRange = (a: number, b: number): [number, number] => a <= b ? [a, b] : [b, a];
 
   const handleAddClick = (lineNum: number) => {
     if (anchorLine !== null && anchorLine !== lineNum) {
@@ -342,7 +305,6 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
       setInlineForm({ lineStart: lineNum, lineEnd: lineNum });
     }
     setAnchorLine(null);
-    setInlineComment('');
   };
 
   const handleLineNumClick = (lineNum: number, e: React.MouseEvent) => {
@@ -351,23 +313,16 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
     setAnchorLine((prev) => (prev === lineNum ? null : lineNum));
   };
 
-  const handleInlineSubmit = () => {
-    if (!inlineForm || !inlineComment.trim()) return;
+  const handleInlineSubmit = (text: string) => {
+    if (!inlineForm) return;
     const selectedText = lines.slice(inlineForm.lineStart - 1, inlineForm.lineEnd).join('\n');
-    onAnnotationAdd(inlineForm.lineStart, inlineForm.lineEnd, selectedText, inlineComment.trim());
+    onAnnotationAdd(inlineForm.lineStart, inlineForm.lineEnd, selectedText, text);
     setInlineForm(null);
-    setInlineComment('');
-  };
-
-  const handleInlineCancel = () => {
-    setInlineForm(null);
-    setInlineComment('');
   };
 
   const [rangeStart, rangeEnd] =
     anchorLine !== null && hoverLine !== null ? getRange(anchorLine, hoverLine) : [null, null];
 
-  // Build a map: lineNum → annotations starting here
   const annotsByLine = new Map<number, Annotation[]>();
   for (const a of annotations) {
     const arr = annotsByLine.get(a.lineStart) ?? [];
@@ -375,7 +330,6 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
     annotsByLine.set(a.lineStart, arr);
   }
 
-  // Lines that are annotated (for gutter dot)
   const annotatedLines = new Set(annotations.flatMap((a) => {
     const out: number[] = [];
     for (let l = a.lineStart; l <= a.lineEnd; l++) out.push(l);
@@ -383,9 +337,9 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
   }));
 
   return (
-    <div className={styles.codeView}>
-      <div className={styles.codeScroll}>
-        <table className={styles.codeTable} cellSpacing={0} cellPadding={0}>
+    <div className="flex flex-col">
+      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+        <table className="w-full border-collapse font-mono text-[0.82rem] leading-relaxed" cellSpacing={0} cellPadding={0}>
           <tbody>
             {lines.map((lineContent, idx) => {
               const lineNum = idx + 1;
@@ -399,62 +353,84 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
               return (
                 <React.Fragment key={lineNum}>
                   <tr
-                    className={`${styles.codeLine} ${isInRange || isAnchor ? styles.codeLineSelected : ''} ${isAnnotated ? styles.codeLineAnnotated : ''} ${isFormRange ? styles.codeLineFormRange : ''}`}
+                    className={cn(
+                      'group transition-colors',
+                      (isInRange || isAnchor) && '!bg-primary/10',
+                      isAnnotated && 'bg-amber-500/5',
+                      isFormRange && 'bg-primary/5',
+                    )}
                     onMouseEnter={() => setHoverLine(lineNum)}
                     onMouseLeave={() => setHoverLine(null)}
                   >
-                    {/* Add-comment button — left of gutter */}
-                    <td className={styles.addCell}>
-                      <button
-                        className={`${styles.addBtn} ${isAnchor ? styles.addBtnAnchor : ''}`}
-                        onClick={() => handleAddClick(lineNum)}
-                        title={anchorLine !== null && anchorLine !== lineNum ? `Comment on lines ${Math.min(anchorLine, lineNum)}–${Math.max(anchorLine, lineNum)}` : 'Add comment'}
-                        tabIndex={-1}
-                      >
-                        +
-                      </button>
+                    {/* Gutter (matches app's w-24 / w-10 layout) */}
+                    <td
+                      data-testid="line-gutter"
+                      className={cn(
+                        'w-24 flex-shrink-0 text-muted-foreground select-none border-r border-border/40 align-top',
+                        'cursor-pointer hover:bg-muted/50',
+                      )}
+                      onClick={(e) => handleLineNumClick(lineNum, e)}
+                      title="Click to start a range selection"
+                    >
+                      <div className="flex items-center justify-end gap-1 pr-2 py-[2px]">
+                        {isAnnotated && (
+                          <span className="w-2 h-2 rounded-full bg-amber-500 inline-block flex-shrink-0" />
+                        )}
+                        <span className={cn('w-10 text-right text-xs', isAnchor && 'text-primary font-semibold')}>
+                          {lineNum}
+                        </span>
+                      </div>
                     </td>
 
-                    {/* Line number */}
-                    <td
-                      className={`${styles.lineNum} ${isAnchor ? styles.lineNumAnchor : ''}`}
-                      onClick={(e) => handleLineNumClick(lineNum, e)}
-                      title="Click to start a range selection, click another line number to extend"
-                    >
-                      {isAnnotated && <span className={styles.annotDot} />}
-                      {lineNum}
+                    {/* Add-comment button (matches app's w-6 invisible group-hover:visible) */}
+                    <td className="w-6 flex-shrink-0 align-top">
+                      <div className="flex items-center justify-center py-[2px]">
+                        <button
+                          data-comment-button
+                          className={cn(
+                            'p-[2px] rounded bg-primary text-primary-foreground hover:bg-primary/90',
+                            'invisible group-hover:visible',
+                            isAnchor && '!visible bg-primary',
+                          )}
+                          onClick={() => handleAddClick(lineNum)}
+                          title={
+                            anchorLine !== null && anchorLine !== lineNum
+                              ? `Comment on lines ${Math.min(anchorLine, lineNum)}–${Math.max(anchorLine, lineNum)}`
+                              : 'Add comment'
+                          }
+                          tabIndex={-1}
+                        >
+                          <span className="text-[10px] leading-none font-bold w-3 h-3 flex items-center justify-center">+</span>
+                        </button>
+                      </div>
                     </td>
 
                     {/* Code content */}
-                    <td className={styles.lineContent}>
-                      <pre className={styles.lineCode}>{lineContent || ' '}</pre>
+                    <td className="flex-1 align-top">
+                      <pre className="m-0 px-2 py-[2px] whitespace-pre bg-transparent border-0 font-inherit text-inherit text-sm">
+                        {lineContent || ' '}
+                      </pre>
                     </td>
                   </tr>
 
-                  {/* Inline comment form — appears after the last line of the range */}
+                  {/* Inline comment form — below last line of range */}
                   {isFormEnd && (
-                    <tr className={styles.inlineFormRow}>
-                      <td />
-                      <td />
-                      <td className={styles.inlineFormCell}>
-                        <InlineForm
-                          lineStart={inlineForm.lineStart}
-                          lineEnd={inlineForm.lineEnd}
-                          comment={inlineComment}
-                          onChange={setInlineComment}
+                    <tr>
+                      <td colSpan={3} className="p-0">
+                        <CommentInput
+                          startLine={inlineForm.lineStart}
+                          endLine={inlineForm.lineEnd}
                           onSubmit={handleInlineSubmit}
-                          onCancel={handleInlineCancel}
+                          onCancel={() => setInlineForm(null)}
                         />
                       </td>
                     </tr>
                   )}
 
-                  {/* Existing annotation cards */}
+                  {/* Annotation cards */}
                   {annotsHere.map((a) => (
-                    <tr key={a.id} className={styles.annotCardRow}>
-                      <td />
-                      <td />
-                      <td className={styles.annotCardCell}>
+                    <tr key={a.id}>
+                      <td colSpan={3} className="p-0">
                         <AnnotCard annotation={a} onDelete={onAnnotationDelete} />
                       </td>
                     </tr>
@@ -466,8 +442,8 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
         </table>
       </div>
       {anchorLine !== null && (
-        <div className={styles.codeRangeHint}>
-          Line {anchorLine} anchored — click another "+" to comment on a range, or click the same line number to deselect
+        <div className="px-4 py-2 text-xs text-primary bg-primary/5 border-t border-primary/20 select-none">
+          Line {anchorLine} anchored — click "+" on another line to annotate a range, or click the same line number to deselect
         </div>
       )}
     </div>
@@ -488,22 +464,18 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
   const rawLines = content.split('\n');
 
   const [inlineForm, setInlineForm] = useState<{ blockIdx: number; lineStart: number; lineEnd: number } | null>(null);
-  const [inlineComment, setInlineComment] = useState('');
 
   const handleAddClick = (block: MdBlock, blockIdx: number) => {
     setInlineForm({ blockIdx, lineStart: block.lineStart, lineEnd: block.lineEnd });
-    setInlineComment('');
   };
 
-  const handleInlineSubmit = () => {
-    if (!inlineForm || !inlineComment.trim()) return;
+  const handleInlineSubmit = (text: string) => {
+    if (!inlineForm) return;
     const selectedText = rawLines.slice(inlineForm.lineStart - 1, inlineForm.lineEnd).join('\n');
-    onAnnotationAdd(inlineForm.lineStart, inlineForm.lineEnd, selectedText, inlineComment.trim());
+    onAnnotationAdd(inlineForm.lineStart, inlineForm.lineEnd, selectedText, text);
     setInlineForm(null);
-    setInlineComment('');
   };
 
-  // Map lineStart → annotations
   const annotsByLine = new Map<number, Annotation[]>();
   for (const a of annotations) {
     const arr = annotsByLine.get(a.lineStart) ?? [];
@@ -512,50 +484,52 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
   }
 
   return (
-    <div className={styles.previewView}>
+    <div className="flex flex-col">
       {blocks.map((block, blockIdx) => {
         const annotsHere = annotsByLine.get(block.lineStart) ?? [];
         const isFormHere = inlineForm?.blockIdx === blockIdx;
 
         return (
           <React.Fragment key={blockIdx}>
-            {/* Block row with line number + rendered content */}
-            <div className={`${styles.previewBlockRow} ${isFormHere ? styles.previewBlockRowActive : ''}`}>
-              {/* Add button */}
-              <button
-                className={styles.previewAddBtn}
-                onClick={() => handleAddClick(block, blockIdx)}
-                title="Add annotation"
-                tabIndex={-1}
-              >
-                +
-              </button>
-              {/* Line number */}
-              <div className={styles.previewLineNum}>
+            {/* Block row: [+btn] [line#] [content] */}
+            <div className={cn('flex items-start group py-0.5 rounded-sm', isFormHere && 'bg-primary/5')}>
+              {/* Add button (w-6, same as code view) */}
+              <div className="w-6 flex-shrink-0 flex items-center justify-center pt-1">
+                <button
+                  className="p-[2px] rounded bg-primary text-primary-foreground hover:bg-primary/90 invisible group-hover:visible"
+                  onClick={() => handleAddClick(block, blockIdx)}
+                  title="Add annotation"
+                  tabIndex={-1}
+                >
+                  <span className="text-[10px] leading-none font-bold w-3 h-3 flex items-center justify-center">+</span>
+                </button>
+              </div>
+
+              {/* Line number (w-10 matches gutter) */}
+              <div className="w-10 flex-shrink-0 text-right pr-2 pt-1 text-xs font-mono text-muted-foreground select-none leading-relaxed">
                 {block.lineStart}
                 {block.lineEnd > block.lineStart && (
-                  <span className={styles.previewLineNumEnd}>–{block.lineEnd}</span>
+                  <span className="block text-[0.6rem] text-muted-foreground/60">–{block.lineEnd}</span>
                 )}
               </div>
-              {/* Rendered content */}
+
+              {/* Rendered markdown block */}
               <div
                 className={styles.previewBlockContent}
                 dangerouslySetInnerHTML={{ __html: block.html }}
               />
             </div>
 
-            {/* Inline form */}
+            {/* Inline comment form */}
             {isFormHere && (
-              <div className={styles.previewInlineFormRow}>
-                <div className={styles.previewInlineFormSpacer} />
-                <div className={styles.previewInlineFormContent}>
-                  <InlineForm
-                    lineStart={inlineForm.lineStart}
-                    lineEnd={inlineForm.lineEnd}
-                    comment={inlineComment}
-                    onChange={setInlineComment}
+              <div className="flex">
+                <div className="w-16 flex-shrink-0" />
+                <div className="flex-1 min-w-0 pr-4">
+                  <CommentInput
+                    startLine={inlineForm.lineStart}
+                    endLine={inlineForm.lineEnd}
                     onSubmit={handleInlineSubmit}
-                    onCancel={() => { setInlineForm(null); setInlineComment(''); }}
+                    onCancel={() => setInlineForm(null)}
                   />
                 </div>
               </div>
@@ -563,9 +537,9 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
 
             {/* Annotation cards */}
             {annotsHere.map((a) => (
-              <div key={a.id} className={styles.previewAnnotRow}>
-                <div className={styles.previewInlineFormSpacer} />
-                <div className={styles.previewAnnotContent}>
+              <div key={a.id} className="flex">
+                <div className="w-16 flex-shrink-0" />
+                <div className="flex-1 min-w-0 pr-4 py-1">
                   <AnnotCard annotation={a} onDelete={onAnnotationDelete} />
                 </div>
               </div>
@@ -784,27 +758,15 @@ function EmbedPanel({ content, filename, sourceUrl, onClose }: EmbedPanelProps) 
           <div className={styles.embedSizeRow}>
             <label className={styles.embedSizeLabel}>
               Width
-              <input
-                className={styles.embedSizeInput}
-                type="number"
-                value={width}
-                min={320}
-                max={2560}
-                onChange={(e) => setWidth(Math.max(320, Number(e.target.value)))}
-              />
+              <input className={styles.embedSizeInput} type="number" value={width} min={320} max={2560}
+                onChange={(e) => setWidth(Math.max(320, Number(e.target.value)))} />
               <span className={styles.embedSizeUnit}>px</span>
             </label>
             <span className={styles.embedSizeSep}>×</span>
             <label className={styles.embedSizeLabel}>
               Height
-              <input
-                className={styles.embedSizeInput}
-                type="number"
-                value={height}
-                min={300}
-                max={2000}
-                onChange={(e) => setHeight(Math.max(300, Number(e.target.value)))}
-              />
+              <input className={styles.embedSizeInput} type="number" value={height} min={300} max={2000}
+                onChange={(e) => setHeight(Math.max(300, Number(e.target.value)))} />
               <span className={styles.embedSizeUnit}>px</span>
             </label>
           </div>
