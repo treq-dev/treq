@@ -1,0 +1,109 @@
+---
+sidebar_position: 6
+---
+
+import DefinitionCard from "@site/src/components/DefinitionCard";
+
+# Force-with-lease
+
+_Refuse a force push when the remote tip has moved past what you expect._
+
+After you rewrite local history with rebase or amend, a normal push is rejected because the remote tip is not an ancestor of your new tip. A force push overwrites that remote tip. `--force-with-lease` still overwrites, but only when the remote matches the tip your repository already expects.
+
+## Introduction
+
+`--force` updates a remote branch to your local tip with no check against concurrent work. If a collaborator pushed while you rebased, those commits disappear from the branch.
+
+`--force-with-lease` treats the update as conditional. Git compares the live remote tip to an expected value, usually the tip stored in your remote-tracking branch. Matching hashes allow the update. Diverging hashes reject the push and leave the upstream commits in place.
+
+## Understanding the Concept
+
+A **force push** replaces a remote branch pointer. History rewriting needs that replacement when the rewritten commits no longer descend from the previous remote tip. Unconditional force push ignores whether anyone else moved the branch.
+
+<DefinitionCard
+  term="Force Push"
+  definition="A push that updates a remote branch even when the new tip does not fast-forward from the current remote tip."
+/>
+
+**Force-with-lease** adds a compare-and-swap check before that replacement. The lease is the expected remote value. Git asks the remote to update the ref only if that expected value still matches the live tip.
+
+<DefinitionCard
+  term="Force-with-lease"
+  definition="A force push that updates a remote ref only when the remote tip still equals an expected commit, usually the local remote-tracking branch."
+/>
+
+The default expected value comes from your **remote-tracking branch**, such as `refs/remotes/origin/feature`. That ref is a local cache of what `git fetch` last saw on the remote. The lease compares that cached hash to the remote tip at push time.
+
+<DefinitionCard
+  term="Remote-tracking Branch"
+  definition="A local ref under refs/remotes/ that records the last-seen tip of a branch on a remote."
+/>
+
+| Form | Expected tip | Scope |
+| --- | --- | --- |
+| `--force-with-lease` | Each destination's remote-tracking branch | Every ref this push updates |
+| `--force-with-lease=<refname>` | That ref's remote-tracking branch | Only the named ref |
+| `--force-with-lease=<refname>:<expect>` | The commit you name | Only the named ref, ignoring the tracking cache |
+
+The `<refname>:<expect>` form hard-codes the expected hash. Scripts use it when the remote-tracking cache is unreliable or when several jobs might race on the same branch.
+
+## Applying It in Practice
+
+Rewrite a private feature branch, then update the remote only if nobody else pushed:
+
+```bash
+git fetch origin
+git switch feature/my-work
+git rebase origin/main
+git push --force-with-lease origin feature/my-work
+```
+
+Protect one named branch during a multi-ref push:
+
+```bash
+git push --force-with-lease=feature/my-work origin feature/my-work notes/commits
+```
+
+In CI, pin the expected tip to a hash you already validated:
+
+```bash
+git push --force-with-lease=feature/my-work:a3f9c12 origin feature/my-work
+```
+
+If the lease fails, fetch and inspect the remote branch before deciding whether to rebase onto the new tip or recover the other person's commits.
+
+## Engineering Considerations
+
+The default lease trusts your remote-tracking branch. Background `git fetch` from an IDE, terminal helper, or cron job can advance that cache to the live remote tip without merging those commits into your working branch. The lease then passes, and a force push can overwrite work you never integrated locally.
+
+`--force-if-includes` closes that gap when combined with `--force-with-lease`. Before allowing the update, Git checks that the tip of the remote-tracking branch is reachable from one of your local branch's reflog entries. If those remote commits are absent from that history, the push is rejected even when the tip hashes match.
+
+```bash
+git push --force-with-lease --force-if-includes origin feature/my-work
+```
+
+<DefinitionCard
+  term="Force-if-includes"
+  definition="A push option that requires the remote-tracking tip to appear in your local reflog before a force-with-lease update proceeds."
+/>
+
+`--force-if-includes` is a no-op with `--force-with-lease=<refname>:<expect>`, because that form already names the expected tip instead of reading the tracking cache. Other mitigations include a push-only remote that never receives fetches into the same tracking refs, or an explicit `<refname>:<expect>` value taken from a known good commit.
+
+Do not use any force push form on protected shared branches such as `main` or release lines. Prefer lease-protected force pushes for branches with a single owner and an agreed rewrite policy.
+
+## Scaling and Operations
+
+Treat rewriteable feature branches as owned resources. Document who may rebase them and whether reviewers should base follow-up work on the remote tip.
+
+In automation, prefer `--force-with-lease=<refname>:<expect>` over the parameterless form. A fixed expected hash survives background fetches and concurrent jobs that update tracking refs between validation and push.
+
+For interactive developer defaults, pair parameterless `--force-with-lease` with `--force-if-includes` where your Git version supports it. Branch protection on hosting platforms should still reject force pushes to shared integration branches.
+
+When a lease rejection appears in CI, fail the job and surface the unexpected remote tip. Silent retries with a refreshed expect value recreate the race the lease exists to prevent.
+
+## Next Steps
+
+- [Merge vs Rebase](./merge-vs-rebase): see when rewritten history needs a force push
+- [Cherry-pick vs Rebase](./cherry-pick-vs-rebase): distinguish selected patch copying from branch rewriting
+- [Pushing to Remote](/learn/how-to/pushing-to-remote): use lease-protected pushes from the Treq workflow
+- [Stacked PR Workflow](/learn/workflows/git/stacked-pr): force-push rewritten stacks without clobbering dependents
