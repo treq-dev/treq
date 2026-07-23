@@ -1,17 +1,27 @@
 name: CI
 
+defaults:
+  run:
+    shell: bash
+
 on:
   push:
     branches: [main]
     paths:
       - "src/**"
       - "src-tauri/**"
+      - "crates/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "src/**"
       - "src-tauri/**"
+      - "crates/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/ci.yml"
 
 jobs:
@@ -31,6 +41,12 @@ jobs:
             kind: rust
             task: test
           - platform: macos-latest
+            kind: rust
+            task: test
+          - platform: windows-latest
+            kind: js
+            task: test
+          - platform: windows-latest
             kind: rust
             task: test
 
@@ -56,21 +72,21 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
 
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y git
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install git and jj CLI (macOS)
-        if: matrix.platform == 'macos-latest'
+        if: runner.os == 'macOS'
         run: |
           brew update
           brew install git jj
           echo "$(brew --prefix)/bin" >> $GITHUB_PATH
 
-      - name: Install jj CLI (ubuntu)
-        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
+      - name: Install jj CLI (non-macOS)
+        if: runner.os != 'macOS'
         run: |
           cargo binstall --strategies crate-meta-data jj-cli
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
