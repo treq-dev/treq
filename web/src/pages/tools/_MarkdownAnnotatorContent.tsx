@@ -251,25 +251,29 @@ interface AnnotCardProps {
 
 function AnnotCard({ annotation: a, onDelete }: AnnotCardProps) {
   return (
-    <div className="bg-muted/60 border-y border-border/40 px-4 py-2">
+    <div className="border-t border-b border-[hsl(var(--primary)/0.2)] bg-[hsl(var(--primary)/0.03)] px-0 py-2">
       <div
         data-testid="inline-comment-card"
-        className="group bg-background rounded-md p-3 border border-border/60"
+        className="group mx-3 bg-background rounded-md border border-border"
+        style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
       >
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-2 p-3">
           <div className="flex-1 min-w-0">
-            <div className="text-xs text-muted-foreground font-mono mb-1">
-              {a.lineStart === a.lineEnd ? `L${a.lineStart}` : `L${a.lineStart}–${a.lineEnd}`}
+            <div className="text-[11px] text-muted-foreground font-mono mb-1.5">
+              {a.lineStart === a.lineEnd ? `Line ${a.lineStart}` : `Lines ${a.lineStart}–${a.lineEnd}`}
             </div>
             {a.selectedText && (
-              <pre className="text-xs bg-muted rounded p-2 whitespace-pre-wrap break-words text-foreground/80 mb-2 font-mono">
+              <pre
+                className="text-[11px] rounded py-1.5 px-2.5 whitespace-pre-wrap break-words font-mono mb-2"
+                style={{ background: 'hsl(var(--muted))', color: 'hsl(var(--foreground)/0.7)', margin: 0 }}
+              >
                 {a.selectedText.length > 200 ? a.selectedText.slice(0, 200) + '…' : a.selectedText}
               </pre>
             )}
-            <p className="text-sm whitespace-pre-wrap">{a.comment}</p>
+            <p className="text-sm whitespace-pre-wrap m-0" style={{ fontFamily: 'inherit' }}>{a.comment}</p>
           </div>
           <button
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive text-xs p-1 rounded hover:bg-destructive/10 flex-shrink-0"
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive text-xs px-1.5 py-0.5 rounded hover:bg-destructive/10 flex-shrink-0 mt-0.5"
             onClick={() => onDelete(a.id)}
             title="Delete comment"
           >
@@ -339,7 +343,23 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
   return (
     <div className="flex flex-col">
       <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
-        <table className="w-full border-collapse font-mono text-[0.82rem] leading-relaxed" cellSpacing={0} cellPadding={0}>
+        {/*
+          GitHub-style diff table:
+          - Two columns only: [gutter] [code]
+          - Gutter contains the "+" add-button (hidden until row hover) + line number
+          - No visible borders between columns — just a subtle background on the gutter
+          - Full-width code column, no constrained boxes
+        */}
+        <table
+          className="w-full font-mono text-[13px] leading-5"
+          style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}
+        >
+          <colgroup>
+            {/* Gutter: fixed width for line-number + add-button */}
+            <col style={{ width: '52px' }} />
+            {/* Code: takes remaining width */}
+            <col style={{ width: 'auto' }} />
+          </colgroup>
           <tbody>
             {lines.map((lineContent, idx) => {
               const lineNum = idx + 1;
@@ -350,47 +370,41 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
               const isFormEnd = inlineForm?.lineEnd === lineNum;
               const isFormRange = inlineForm !== null && lineNum >= inlineForm.lineStart && lineNum <= inlineForm.lineEnd;
 
+              const rowBg = (isInRange || isAnchor)
+                ? 'hsl(var(--primary)/0.1)'
+                : isFormRange
+                ? 'hsl(var(--primary)/0.05)'
+                : isAnnotated
+                ? 'hsl(40 96% 60% / 0.06)'
+                : undefined;
+
               return (
                 <React.Fragment key={lineNum}>
                   <tr
-                    className={cn(
-                      'group transition-colors',
-                      (isInRange || isAnchor) && '!bg-primary/10',
-                      isAnnotated && 'bg-amber-500/5',
-                      isFormRange && 'bg-primary/5',
-                    )}
+                    className="group"
+                    style={{ background: rowBg }}
                     onMouseEnter={() => setHoverLine(lineNum)}
                     onMouseLeave={() => setHoverLine(null)}
                   >
-                    {/* Gutter (matches app's w-24 / w-10 layout) */}
+                    {/* ── Gutter: add-button + line number in one cell ── */}
                     <td
-                      data-testid="line-gutter"
-                      className={cn(
-                        'w-24 flex-shrink-0 text-muted-foreground select-none border-r border-border/40 align-top',
-                        'cursor-pointer hover:bg-muted/50',
-                      )}
-                      onClick={(e) => handleLineNumClick(lineNum, e)}
-                      title="Click to start a range selection"
+                      className="select-none align-top p-0"
+                      style={{
+                        background: rowBg ?? 'hsl(var(--muted)/0.5)',
+                        position: 'relative',
+                        verticalAlign: 'top',
+                      }}
                     >
-                      <div className="flex items-center justify-end gap-1 pr-2 py-[2px]">
-                        {isAnnotated && (
-                          <span className="w-2 h-2 rounded-full bg-amber-500 inline-block flex-shrink-0" />
-                        )}
-                        <span className={cn('w-10 text-right text-xs', isAnchor && 'text-primary font-semibold')}>
-                          {lineNum}
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Add-comment button (matches app's w-6 invisible group-hover:visible) */}
-                    <td className="w-6 flex-shrink-0 align-top">
-                      <div className="flex items-center justify-center py-[2px]">
+                      <div className="flex items-start h-full">
+                        {/* "+" add-button — invisible until row hover */}
                         <button
-                          data-comment-button
                           className={cn(
-                            'p-[2px] rounded bg-primary text-primary-foreground hover:bg-primary/90',
-                            'invisible group-hover:visible',
-                            isAnchor && '!visible bg-primary',
+                            'flex items-center justify-center flex-shrink-0',
+                            'w-4 h-5 mt-[2px] ml-[2px]',
+                            'rounded text-[11px] font-bold leading-none',
+                            'text-primary-foreground bg-primary',
+                            'opacity-0 group-hover:opacity-100 transition-opacity',
+                            isAnchor && '!opacity-100',
                           )}
                           onClick={() => handleAddClick(lineNum)}
                           title={
@@ -400,23 +414,52 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
                           }
                           tabIndex={-1}
                         >
-                          <span className="text-[10px] leading-none font-bold w-3 h-3 flex items-center justify-center">+</span>
+                          +
                         </button>
+                        {/* Line number */}
+                        <span
+                          className={cn(
+                            'flex-1 text-right pr-3 py-[2px] text-[12px] cursor-pointer',
+                            'text-muted-foreground hover:text-foreground',
+                            isAnchor && 'text-primary font-semibold',
+                          )}
+                          onClick={(e) => handleLineNumClick(lineNum, e)}
+                          title="Click to anchor a range selection"
+                        >
+                          {isAnnotated && (
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 mr-1 mb-[1px]" />
+                          )}
+                          {lineNum}
+                        </span>
                       </div>
                     </td>
 
-                    {/* Code content */}
-                    <td className="flex-1 align-top">
-                      <pre className="m-0 px-2 py-[2px] whitespace-pre bg-transparent border-0 font-inherit text-inherit text-sm">
-                        {lineContent || ' '}
+                    {/* ── Code content ── */}
+                    <td className="align-top p-0">
+                      <pre
+                        style={{
+                          margin: 0,
+                          padding: '2px 16px 2px 8px',
+                          whiteSpace: 'pre',
+                          background: 'transparent',
+                          border: 'none',
+                          fontFamily: 'inherit',
+                          fontSize: 'inherit',
+                          lineHeight: 'inherit',
+                          fontWeight: 'normal',
+                          color: 'inherit',
+                          overflow: 'visible',
+                        }}
+                      >
+                        {lineContent || '​'}
                       </pre>
                     </td>
                   </tr>
 
-                  {/* Inline comment form — below last line of range */}
+                  {/* ── Inline comment form ── */}
                   {isFormEnd && (
                     <tr>
-                      <td colSpan={3} className="p-0">
+                      <td colSpan={2} style={{ padding: 0 }}>
                         <CommentInput
                           startLine={inlineForm.lineStart}
                           endLine={inlineForm.lineEnd}
@@ -427,10 +470,10 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
                     </tr>
                   )}
 
-                  {/* Annotation cards */}
+                  {/* ── Annotation cards ── */}
                   {annotsHere.map((a) => (
                     <tr key={a.id}>
-                      <td colSpan={3} className="p-0">
+                      <td colSpan={2} style={{ padding: 0 }}>
                         <AnnotCard annotation={a} onDelete={onAnnotationDelete} />
                       </td>
                     </tr>
@@ -442,8 +485,15 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
         </table>
       </div>
       {anchorLine !== null && (
-        <div className="px-4 py-2 text-xs text-primary bg-primary/5 border-t border-primary/20 select-none">
-          Line {anchorLine} anchored — click "+" on another line to annotate a range, or click the same line number to deselect
+        <div
+          className="px-4 py-1.5 text-xs select-none border-t"
+          style={{
+            color: 'hsl(var(--primary))',
+            background: 'hsl(var(--primary)/0.05)',
+            borderColor: 'hsl(var(--primary)/0.2)',
+          }}
+        >
+          Line {anchorLine} selected — click "+" on another line to comment on a range, or click the line number to deselect
         </div>
       )}
     </div>
