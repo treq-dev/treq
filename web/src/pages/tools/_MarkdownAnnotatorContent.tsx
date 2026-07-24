@@ -342,21 +342,21 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
 
   return (
     <div className="flex flex-col">
-      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+      <div className={cn('overflow-x-auto overflow-y-auto', styles.ghCodeScroll)} style={{ maxHeight: 'calc(100vh - 220px)' }}>
         {/*
           GitHub-style diff table:
           - Two columns only: [gutter] [code]
-          - Gutter contains the "+" add-button (hidden until row hover) + line number
-          - No visible borders between columns — just a subtle background on the gutter
+          - Gutter contains the line number + "+" add-button (hidden until row hover)
+          - No visible borders between columns or rows — just a subtle background on the gutter
           - Full-width code column, no constrained boxes
         */}
         <table
-          className="w-full font-mono text-[13px] leading-5"
+          className={cn('w-full font-mono text-[13px] leading-5', styles.ghCodeTable)}
           style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}
         >
           <colgroup>
             {/* Gutter: fixed width for line-number + add-button */}
-            <col style={{ width: '52px' }} />
+            <col style={{ width: '56px' }} />
             {/* Code: takes remaining width */}
             <col style={{ width: 'auto' }} />
           </colgroup>
@@ -395,12 +395,27 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
                         verticalAlign: 'top',
                       }}
                     >
-                      <div className="flex items-start h-full">
-                        {/* "+" add-button — invisible until row hover */}
+                      <div className="flex items-start justify-end h-full gap-1 pl-1 pr-1">
+                        {/* Line number */}
+                        <span
+                          className={cn(
+                            'text-right py-[2px] text-[12px] cursor-pointer',
+                            'text-muted-foreground hover:text-foreground',
+                            isAnchor && 'text-primary font-semibold',
+                          )}
+                          onClick={(e) => handleLineNumClick(lineNum, e)}
+                          title="Click to anchor a range selection"
+                        >
+                          {isAnnotated && (
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 mr-1 mb-[1px]" />
+                          )}
+                          {lineNum}
+                        </span>
+                        {/* "+" add-button — invisible until row hover, sits right of the line number */}
                         <button
                           className={cn(
                             'flex items-center justify-center flex-shrink-0',
-                            'w-4 h-5 mt-[2px] ml-[2px]',
+                            'w-4 h-5 mt-[2px]',
                             'rounded text-[11px] font-bold leading-none',
                             'text-primary-foreground bg-primary',
                             'opacity-0 group-hover:opacity-100 transition-opacity',
@@ -416,21 +431,6 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
                         >
                           +
                         </button>
-                        {/* Line number */}
-                        <span
-                          className={cn(
-                            'flex-1 text-right pr-3 py-[2px] text-[12px] cursor-pointer',
-                            'text-muted-foreground hover:text-foreground',
-                            isAnchor && 'text-primary font-semibold',
-                          )}
-                          onClick={(e) => handleLineNumClick(lineNum, e)}
-                          title="Click to anchor a range selection"
-                        >
-                          {isAnnotated && (
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 mr-1 mb-[1px]" />
-                          )}
-                          {lineNum}
-                        </span>
                       </div>
                     </td>
 
@@ -654,7 +654,7 @@ export function FileLoader({ onLoad }: FileLoaderProps) {
             onChange={(e) => { setUrlInput(e.target.value); setError(null); }}
             onKeyDown={(e) => { if (e.key === 'Enter') fetchFromGithub(); }}
           />
-          <button className={styles.loaderBtn} onClick={fetchFromGithub} disabled={loading || !urlInput.trim()}>
+          <button className="button button--primary button--sm" onClick={fetchFromGithub} disabled={loading || !urlInput.trim()}>
             {loading ? 'Loading…' : 'Fetch'}
           </button>
         </div>
@@ -674,7 +674,7 @@ export function FileLoader({ onLoad }: FileLoaderProps) {
           rows={10}
         />
         <button
-          className={styles.loaderBtn}
+          className="button button--primary button--sm"
           onClick={loadPasted}
           disabled={!pasteContent.trim()}
           style={{ alignSelf: 'flex-start' }}
@@ -735,7 +735,7 @@ export function ReviewPanel({ content, filename, sourceUrl, annotations, onBack 
         />
       </div>
       <div className={styles.reviewActions}>
-        <button className={styles.reviewCopyBtn} onClick={handleCopy}>{copied ? '✓ Copied!' : 'Copy prompt'}</button>
+        <button className="button button--secondary button--sm" onClick={handleCopy}>{copied ? '✓ Copied!' : 'Copy prompt'}</button>
         <a className={styles.reviewOpenClaude} href={claudeUrl} target="_blank" rel="noopener noreferrer">Open in Claude</a>
         <a className={styles.reviewOpenChatgpt} href={chatgptUrl} target="_blank" rel="noopener noreferrer">Open in ChatGPT</a>
       </div>
@@ -743,7 +743,7 @@ export function ReviewPanel({ content, filename, sourceUrl, annotations, onBack 
         <div className={styles.reviewPromptHeader}><span className={styles.reviewPromptLabel}>Prompt preview</span></div>
         <pre className={styles.reviewPromptText}>{prompt}</pre>
       </div>
-      <button className={styles.reviewNewBtn} onClick={onBack}>← Back to annotations</button>
+      <button className="button button--secondary button--sm" style={{ alignSelf: 'flex-start' }} onClick={onBack}>← Back to annotations</button>
     </div>
   );
 }
@@ -832,7 +832,7 @@ function EmbedPanel({ content, filename, sourceUrl, onClose }: EmbedPanelProps) 
                 value={iframeCode ?? ''}
                 onClick={() => inputRef.current?.select()}
               />
-              <button className={styles.embedCopyBtn} onClick={handleCopy}>
+              <button className="button button--primary button--sm" onClick={handleCopy}>
                 {copied ? '✓ Copied' : 'Copy'}
               </button>
             </div>
@@ -884,7 +884,6 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
   const [showEmbed, setShowEmbed] = useState(false);
 
   const lines = content?.split('\n') ?? [];
-  const isMd = isMarkdown(filename);
 
   const handleLoad = useCallback((c: string, fn: string, url: string | null) => {
     setContent(c);
@@ -982,30 +981,18 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
             {filename || 'Untitled'}
           </h1>
           <div className={styles.toolHeaderActions}>
-            {isMd && (
-              <div className={styles.viewToggle}>
-                <button
-                  className={`${styles.viewToggleBtn} ${viewMode === 'code' ? styles.viewToggleBtnActive : ''}`}
-                  onClick={() => setViewMode('code')}
-                >Code</button>
-                <button
-                  className={`${styles.viewToggleBtn} ${viewMode === 'preview' ? styles.viewToggleBtnActive : ''}`}
-                  onClick={() => setViewMode('preview')}
-                >Preview</button>
-              </div>
-            )}
             {!compact && (
               <>
                 <button
-                  className={`${styles.embedToggleBtn} ${showEmbed ? styles.embedToggleBtnActive : ''}`}
+                  className={`button button--sm ${showEmbed ? 'button--primary' : 'button--secondary'}`}
                   onClick={() => setShowEmbed((v) => !v)}
                 >
                   {showEmbed ? 'Hide embed' : '‹/› Embed'}
                 </button>
-                <button className={styles.changeFileBtn} onClick={handleClear}>Change file</button>
+                <button className="button button--secondary button--sm" onClick={handleClear}>Change file</button>
               </>
             )}
-            <button className={styles.finishReviewBtn} onClick={() => setShowReview(true)}>
+            <button className="button button--primary button--sm" onClick={() => setShowReview(true)}>
               Finish review ({annotations.length})
             </button>
           </div>
@@ -1022,6 +1009,21 @@ export function AnnotatorTool({ compact = false, initialFile }: AnnotatorToolPro
       )}
 
       <div className={styles.toolBody}>
+        {/* GitHub-style Code/Preview tabs at the top of the review container — markdown is always assumed */}
+        <div className={styles.bodyTabs}>
+          <button
+            className={cn(styles.bodyTab, viewMode === 'code' && styles.bodyTabActive)}
+            onClick={() => setViewMode('code')}
+          >
+            Code
+          </button>
+          <button
+            className={cn(styles.bodyTab, viewMode === 'preview' && styles.bodyTabActive)}
+            onClick={() => setViewMode('preview')}
+          >
+            Preview
+          </button>
+        </div>
         {viewMode === 'code' ? (
           <CodeView
             lines={lines}

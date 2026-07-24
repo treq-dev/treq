@@ -1,8 +1,8 @@
 /* ── Root ────────────────────────────────────────────────────────────────────── */
 
 .toolRoot {
-  max-width: 1280px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   padding: 0 1.5rem 4rem;
   width: 100%;
 }
@@ -150,6 +150,58 @@
   border-radius: 10px;
   overflow: hidden;
   background: var(--ifm-background-surface-color);
+  width: 100%;
+}
+
+/* ── Body tabs (GitHub-style Code/Preview tabs at top of container) ──────────── */
+
+.bodyTabs {
+  display: flex;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  padding: 0 0.75rem;
+  background: var(--ifm-color-emphasis-50, rgba(0,0,0,0.015));
+}
+
+[data-theme='dark'] .bodyTabs {
+  background: rgba(255,255,255,0.015);
+}
+
+.bodyTab {
+  background: none;
+  border: none;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--ifm-color-emphasis-600);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.bodyTabActive {
+  color: var(--ifm-font-color-base);
+  border-bottom-color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+.bodyTab:hover:not(.bodyTabActive) {
+  color: var(--ifm-font-color-base);
+}
+
+/* ── GitHub-style code table: no internal cell/row borders ───────────────────── */
+
+.ghCodeTable,
+.ghCodeTable tr,
+.ghCodeTable td,
+.ghCodeTable th {
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+
+.ghCodeScroll {
+  scrollbar-gutter: stable;
 }
 
 /* ── File loader ─────────────────────────────────────────────────────────────── */
