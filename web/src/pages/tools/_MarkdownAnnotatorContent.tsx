@@ -101,6 +101,9 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
   const rawLines = md.split('\n');
   let i = 0;
 
+  // Every non-blank line becomes its own annotatable block (one row per source
+  // line, like a code diff) — only fenced code blocks span multiple lines,
+  // since splitting mid-fence would break the syntax.
   while (i < rawLines.length) {
     const raw = rawLines[i];
     const lineNum = i + 1;
@@ -140,60 +143,31 @@ function renderMarkdownBlocks(md: string): MdBlock[] {
     }
 
     if (raw.startsWith('>')) {
-      const start = i;
-      const innerLines: string[] = [];
-      while (i < rawLines.length && rawLines[i].startsWith('>')) {
-        innerLines.push(inlineFmt(esc(rawLines[i].replace(/^>\s?/, ''))));
-        i++;
-      }
-      blocks.push({
-        lineStart: start + 1,
-        lineEnd: i,
-        html: `<blockquote>${innerLines.map((l) => `<p>${l}</p>`).join('')}</blockquote>`,
-      });
-      continue;
-    }
-
-    if (/^[-*+]\s/.test(raw)) {
-      const start = i;
-      const items: string[] = [];
-      while (i < rawLines.length && /^[-*+]\s/.test(rawLines[i])) {
-        items.push(`<li>${inlineFmt(esc(rawLines[i].replace(/^[-*+]\s/, '')))}</li>`);
-        i++;
-      }
-      blocks.push({ lineStart: start + 1, lineEnd: i, html: `<ul>${items.join('')}</ul>` });
-      continue;
-    }
-
-    if (/^\d+\.\s/.test(raw)) {
-      const start = i;
-      const items: string[] = [];
-      while (i < rawLines.length && /^\d+\.\s/.test(rawLines[i])) {
-        items.push(`<li>${inlineFmt(esc(rawLines[i].replace(/^\d+\.\s/, '')))}</li>`);
-        i++;
-      }
-      blocks.push({ lineStart: start + 1, lineEnd: i, html: `<ol>${items.join('')}</ol>` });
-      continue;
-    }
-
-    const start = i;
-    const paraLines: string[] = [];
-    while (
-      i < rawLines.length &&
-      rawLines[i].trim() !== '' &&
-      !/^#{1,6}\s/.test(rawLines[i]) &&
-      !rawLines[i].trimStart().startsWith('```') &&
-      !/^[-*_]{3,}\s*$/.test(rawLines[i]) &&
-      !rawLines[i].startsWith('>') &&
-      !/^[-*+]\s/.test(rawLines[i]) &&
-      !/^\d+\.\s/.test(rawLines[i])
-    ) {
-      paraLines.push(inlineFmt(esc(rawLines[i])));
+      const text = inlineFmt(esc(raw.replace(/^>\s?/, '')));
+      blocks.push({ lineStart: lineNum, lineEnd: lineNum, html: `<blockquote><p>${text}</p></blockquote>` });
       i++;
+      continue;
     }
-    if (paraLines.length > 0) {
-      blocks.push({ lineStart: start + 1, lineEnd: i, html: `<p>${paraLines.join('<br/>')}</p>` });
+
+    const ulMatch = raw.match(/^[-*+]\s(.*)/);
+    if (ulMatch) {
+      const text = inlineFmt(esc(ulMatch[1]));
+      blocks.push({ lineStart: lineNum, lineEnd: lineNum, html: `<ul><li>${text}</li></ul>` });
+      i++;
+      continue;
     }
+
+    const olMatch = raw.match(/^(\d+)\.\s(.*)/);
+    if (olMatch) {
+      const [, num, rest] = olMatch;
+      const text = inlineFmt(esc(rest));
+      blocks.push({ lineStart: lineNum, lineEnd: lineNum, html: `<ol start="${num}"><li>${text}</li></ol>` });
+      i++;
+      continue;
+    }
+
+    blocks.push({ lineStart: lineNum, lineEnd: lineNum, html: `<p>${inlineFmt(esc(raw))}</p>` });
+    i++;
   }
 
   return blocks;
@@ -342,13 +316,13 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
 
   return (
     <div className="flex flex-col">
-      <div className={cn('overflow-x-auto overflow-y-auto', styles.ghCodeScroll)} style={{ maxHeight: 'calc(100vh - 220px)' }}>
+      <div className={cn('overflow-y-auto', styles.ghCodeScroll)} style={{ maxHeight: 'calc(100vh - 220px)' }}>
         {/*
           GitHub-style diff table:
           - Two columns only: [gutter] [code]
           - Gutter contains the line number + "+" add-button (hidden until row hover)
           - No visible borders between columns or rows — just a subtle background on the gutter
-          - Full-width code column, no constrained boxes
+          - Full-width code column that word-wraps instead of scrolling horizontally
         */}
         <table
           className={cn('w-full font-mono text-[13px] leading-5', styles.ghCodeTable)}
@@ -440,7 +414,9 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
                         style={{
                           margin: 0,
                           padding: '2px 16px 2px 8px',
-                          whiteSpace: 'pre',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
                           background: 'transparent',
                           border: 'none',
                           fontFamily: 'inherit',
@@ -513,10 +489,26 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
   const blocks = useMemo(() => renderMarkdownBlocks(content), [content]);
   const rawLines = content.split('\n');
 
+  const [anchorLine, setAnchorLine] = useState<number | null>(null);
+  const [hoverLine, setHoverLine] = useState<number | null>(null);
   const [inlineForm, setInlineForm] = useState<{ blockIdx: number; lineStart: number; lineEnd: number } | null>(null);
 
+  const getRange = (a: number, b: number): [number, number] => a <= b ? [a, b] : [b, a];
+
   const handleAddClick = (block: MdBlock, blockIdx: number) => {
-    setInlineForm({ blockIdx, lineStart: block.lineStart, lineEnd: block.lineEnd });
+    if (anchorLine !== null && anchorLine !== block.lineStart) {
+      const [start, end] = getRange(anchorLine, block.lineStart);
+      setInlineForm({ blockIdx, lineStart: start, lineEnd: end });
+    } else {
+      setInlineForm({ blockIdx, lineStart: block.lineStart, lineEnd: block.lineEnd });
+    }
+    setAnchorLine(null);
+  };
+
+  const handleLineNumClick = (lineNum: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (inlineForm) return;
+    setAnchorLine((prev) => (prev === lineNum ? null : lineNum));
   };
 
   const handleInlineSubmit = (text: string) => {
@@ -525,6 +517,9 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
     onAnnotationAdd(inlineForm.lineStart, inlineForm.lineEnd, selectedText, text);
     setInlineForm(null);
   };
+
+  const [rangeStart, rangeEnd] =
+    anchorLine !== null && hoverLine !== null ? getRange(anchorLine, hoverLine) : [null, null];
 
   const annotsByLine = new Map<number, Annotation[]>();
   for (const a of annotations) {
@@ -538,29 +533,55 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
       {blocks.map((block, blockIdx) => {
         const annotsHere = annotsByLine.get(block.lineStart) ?? [];
         const isFormHere = inlineForm?.blockIdx === blockIdx;
+        const isInRange = rangeStart !== null && rangeEnd !== null && block.lineStart >= rangeStart && block.lineStart <= rangeEnd;
+        const isAnchor = block.lineStart === anchorLine;
+        const isFormRange = inlineForm !== null && block.lineStart >= inlineForm.lineStart && block.lineStart <= inlineForm.lineEnd;
+
+        const rowBg = (isInRange || isAnchor)
+          ? 'hsl(var(--primary)/0.1)'
+          : isFormRange
+          ? 'hsl(var(--primary)/0.05)'
+          : undefined;
 
         return (
           <React.Fragment key={blockIdx}>
-            {/* Block row: [+btn] [line#] [content] */}
-            <div className={cn('flex items-start group py-0.5 rounded-sm', isFormHere && 'bg-primary/5')}>
-              {/* Add button (w-6, same as code view) */}
-              <div className="w-6 flex-shrink-0 flex items-center justify-center pt-1">
+            {/* Line row: [line#] [+btn] [content] */}
+            <div
+              className="group flex items-start py-0.5 rounded-sm"
+              style={{ background: rowBg }}
+              onMouseEnter={() => setHoverLine(block.lineStart)}
+              onMouseLeave={() => setHoverLine(null)}
+            >
+              {/* Gutter: line number + add-button, button sits right of the number */}
+              <div className="w-14 flex-shrink-0 flex items-start justify-end gap-1 pt-1 pr-1 select-none">
+                <span
+                  className={cn(
+                    'text-right text-xs font-mono cursor-pointer text-muted-foreground hover:text-foreground',
+                    isAnchor && 'text-primary font-semibold',
+                  )}
+                  onClick={(e) => handleLineNumClick(block.lineStart, e)}
+                  title="Click to anchor a range selection"
+                >
+                  {block.lineStart}
+                  {block.lineEnd > block.lineStart && <span className="text-muted-foreground/60">–{block.lineEnd}</span>}
+                </span>
                 <button
-                  className="p-[2px] rounded bg-primary text-primary-foreground hover:bg-primary/90 invisible group-hover:visible"
+                  className={cn(
+                    'flex items-center justify-center flex-shrink-0 w-4 h-4 mt-[1px]',
+                    'rounded text-[11px] font-bold leading-none text-primary-foreground bg-primary',
+                    'opacity-0 group-hover:opacity-100 transition-opacity',
+                    isAnchor && '!opacity-100',
+                  )}
                   onClick={() => handleAddClick(block, blockIdx)}
-                  title="Add annotation"
+                  title={
+                    anchorLine !== null && anchorLine !== block.lineStart
+                      ? `Comment on lines ${Math.min(anchorLine, block.lineStart)}–${Math.max(anchorLine, block.lineStart)}`
+                      : 'Add comment'
+                  }
                   tabIndex={-1}
                 >
-                  <span className="text-[10px] leading-none font-bold w-3 h-3 flex items-center justify-center">+</span>
+                  +
                 </button>
-              </div>
-
-              {/* Line number (w-10 matches gutter) */}
-              <div className="w-10 flex-shrink-0 text-right pr-2 pt-1 text-xs font-mono text-muted-foreground select-none leading-relaxed">
-                {block.lineStart}
-                {block.lineEnd > block.lineStart && (
-                  <span className="block text-[0.6rem] text-muted-foreground/60">–{block.lineEnd}</span>
-                )}
               </div>
 
               {/* Rendered markdown block */}
@@ -573,7 +594,7 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
             {/* Inline comment form */}
             {isFormHere && (
               <div className="flex">
-                <div className="w-16 flex-shrink-0" />
+                <div className="w-14 flex-shrink-0" />
                 <div className="flex-1 min-w-0 pr-4">
                   <CommentInput
                     startLine={inlineForm.lineStart}
@@ -588,7 +609,7 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
             {/* Annotation cards */}
             {annotsHere.map((a) => (
               <div key={a.id} className="flex">
-                <div className="w-16 flex-shrink-0" />
+                <div className="w-14 flex-shrink-0" />
                 <div className="flex-1 min-w-0 pr-4 py-1">
                   <AnnotCard annotation={a} onDelete={onAnnotationDelete} />
                 </div>
@@ -597,6 +618,18 @@ export function PreviewView({ content, annotations, onAnnotationAdd, onAnnotatio
           </React.Fragment>
         );
       })}
+      {anchorLine !== null && (
+        <div
+          className="px-4 py-1.5 text-xs select-none border-t"
+          style={{
+            color: 'hsl(var(--primary))',
+            background: 'hsl(var(--primary)/0.05)',
+            borderColor: 'hsl(var(--primary)/0.2)',
+          }}
+        >
+          Line {anchorLine} selected — click "+" on another line to comment on a range, or click the line number to deselect
+        </div>
+      )}
     </div>
   );
 }

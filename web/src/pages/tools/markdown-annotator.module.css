@@ -1287,7 +1287,7 @@
 .previewBlockContent h1 { font-size: 1.8rem; }
 .previewBlockContent h2 { font-size: 1.4rem; border-bottom: 1px solid var(--ifm-color-emphasis-200); padding-bottom: 0.3em; }
 .previewBlockContent h3 { font-size: 1.15rem; }
-.previewBlockContent p { margin: 0.4em 0; line-height: 1.7; }
+.previewBlockContent p { margin: 0; line-height: 1.7; }
 
 .previewBlockContent code {
   font-family: monospace;
@@ -1302,21 +1302,27 @@
   border-radius: 7px;
   padding: 1rem;
   overflow-x: auto;
-  margin: 0.5em 0;
+  margin: 0.25em 0;
 }
 
 .previewBlockContent pre code { background: none; padding: 0; font-size: 0.82rem; }
-.previewBlockContent ul, .previewBlockContent ol { padding-left: 1.5rem; margin: 0.4em 0; }
-.previewBlockContent li { margin: 0.25em 0; }
+
+/* Each list item / blockquote line is rendered as its own standalone
+   ul/ol/blockquote (one per source line, for line-level annotation) —
+   zero out their margins so consecutive lines read as one continuous list. */
+.previewBlockContent ul, .previewBlockContent ol { padding-left: 1.5rem; margin: 0; }
+.previewBlockContent li { margin: 0; }
 
 .previewBlockContent blockquote {
   border-left: 4px solid var(--ifm-color-emphasis-300);
-  margin: 0.5em 0;
-  padding: 0.4em 0.85em;
+  margin: 0;
+  padding: 0.15em 0.85em;
   color: var(--ifm-color-emphasis-600);
   background: var(--ifm-color-emphasis-50, rgba(0,0,0,0.02));
   border-radius: 0 6px 6px 0;
 }
+
+.previewBlockContent blockquote p { line-height: 1.6; }
 
 .previewBlockContent hr { border: none; border-top: 1px solid var(--ifm-color-emphasis-300); margin: 0.75em 0; }
 .previewBlockContent a { color: var(--ifm-color-primary); }
