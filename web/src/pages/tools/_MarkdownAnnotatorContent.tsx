@@ -356,7 +356,7 @@ export function CodeView({ lines, annotations, onAnnotationAdd, onAnnotationDele
                 <React.Fragment key={lineNum}>
                   <tr
                     className="group"
-                    style={{ background: rowBg }}
+                    style={{ background: rowBg ?? 'transparent' }}
                     onMouseEnter={() => setHoverLine(lineNum)}
                     onMouseLeave={() => setHoverLine(null)}
                   >

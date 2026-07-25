@@ -189,15 +189,34 @@
   color: var(--ifm-font-color-base);
 }
 
-/* ── GitHub-style code table: no internal cell/row borders ───────────────────── */
+/* ── GitHub-style code table ───────────────────────────────────────────────────
+   Infima's global `table` selector (unscoped — applies to every table on the
+   site) sets `display: block; overflow: auto;`, which blockifies the table
+   and makes its internal content shrink-wrap instead of filling the
+   container, and stripes every 2nd row via `table tr:nth-child(2n)`. Both
+   need to be explicitly overridden here since they otherwise bleed into any
+   <table> we render, regardless of the JS-driven row highlighting below. */
 
-.ghCodeTable,
+.ghCodeTable {
+  display: table;
+  width: 100%;
+  overflow: visible;
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+
 .ghCodeTable tr,
 .ghCodeTable td,
 .ghCodeTable th {
   border: none;
   outline: none;
   box-shadow: none;
+}
+
+.ghCodeTable tbody tr,
+.ghCodeTable tbody tr:nth-child(2n) {
+  background-color: transparent;
 }
 
 .ghCodeScroll {
