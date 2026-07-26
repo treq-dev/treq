@@ -7,6 +7,17 @@
   width: 100%;
 }
 
+/* Tailwind's preflight is disabled site-wide (to avoid fighting Infima), so
+   raw <button> elements keep the browser's default UA border/appearance.
+   Reset that here — but leave Infima's own `.button` classes untouched, since
+   they set their own intentional border. */
+.toolRoot button:not(.button) {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: none;
+}
+
 /* ── Header ──────────────────────────────────────────────────────────────────── */
 
 .toolHeader {
