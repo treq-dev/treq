@@ -60,7 +60,7 @@ git switch feature/my-work
 git rebase origin/main
 ```
 
-If that branch already exists on a remote and its rewrite is agreed, [force push](/docs/how-to/pushing-to-remote) it with a lease:
+If that branch already exists on a remote and its rewrite is agreed, update it with [`--force-with-lease`](./force-with-lease):
 
 ```bash
 git push --force-with-lease origin feature/my-work
@@ -114,6 +114,7 @@ After a big rebase, use `git range-diff` to check the rewritten series still say
 ## Next Steps
 
 - [Cherry-pick vs Rebase](./cherry-pick-vs-rebase): distinguish selected patch copying from branch rewriting
+- [Force-with-lease](./force-with-lease): update a rewritten remote branch without clobbering concurrent pushes
 - [What are Stacked PRs?](./stacked-prs): manage branches that depend on one another
 - [Stacked PR Workflow](/learn/workflows/git/stacked-pr): apply rebasing to a pull-request stack
 - [Parallel Development Workflow](/learn/workflows/git/parallel-development): combine integration policy with concurrent branch work

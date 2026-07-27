@@ -92,7 +92,7 @@ Pending working-copy edits can block or complicate synchronization. Commit, move
 
 **Rebase succeeds, behavior breaks.** A conflict marker resolution kept the wrong side. Re-read conflicted files and add a regression test.
 
-**Force push without lease.** Concurrent updates on the remote branch can be overwritten, so always push with `--force-with-lease`.
+**Force push without lease.** Concurrent updates on the remote branch can be overwritten, so always push with [`--force-with-lease`](/learn/concepts/git/force-with-lease).
 
 **Rebasing during an active agent session.** The agent may write files while history rewrites. Stop the agent or wait until it finishes before rebasing that workspace.
 
