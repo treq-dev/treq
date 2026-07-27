@@ -1,0 +1,90 @@
+---
+sidebar_position: 4
+description: Compare Treq and Emdash as open-source agent development environments, focusing on review, stacks, and provider breadth.
+---
+
+# Treq vs Emdash
+
+_Two Apache-licensed desktop ADEs with different models for multi-agent work._
+
+Treq and Emdash are open-source desktop ADEs for running many coding agents. Both isolate work per task and let you review the result. Their models differ when tasks depend on one another.
+
+Treq is a Stacking ADE built around linked workspaces and auto-rebase. Emdash supports more providers, remote work, prompts, skills, and built-in browser and editor tools.
+
+## At a Glance
+
+| | Treq | Emdash |
+| --- | --- | --- |
+| Positioning | Stacking ADE, open-source Graphite alternative | Open-source agentic development environment |
+| Isolation model | Jujutsu workspaces over a colocated Git repo | Parallel agent tasks with workspace isolation |
+| Review surface | PR-style diffs, comments sent back to the agent | Review surfaces inside a broader ADE |
+| Stacked changes | Core workflow | Not emphasized publicly |
+| Auto-rebase | Core workflow | Not emphasized publicly |
+| Provider support | Claude, Codex, and Cursor shown today | 34 supported agent CLIs in public materials |
+| Remote work | Not public on the site today | SSH remote work, cloud workspaces, enterprise on-your-infra |
+| License | Apache 2.0 | Apache 2.0 |
+| Pricing | Free and open source | Free desktop app, enterprise and cloud contact motion |
+
+## What Each Product Does
+
+**Treq** keeps you in the merge path. Agents work in isolated workspaces. You review diffs, mark lines, and send comments back for planning or editing. A stack links workspaces that depend on each other. When a lower workspace updates, Treq rebases the layers above it and shows conflicts.
+
+**Emdash** is an environment for multiple coding agents. Its public materials feature parallel tasks and broad CLI support. Prompts, skills, MCP tools, an in-app browser, file editing, and issue handoff expand that environment. Emdash also supports SSH remote work and cloud deployment.
+
+Both use Apache 2.0, so licensing does not separate them.
+
+## Feature Comparison
+
+| Feature | Treq | Emdash |
+| --- | --- | --- |
+| Local-first desktop app | Yes | Yes |
+| Parallel agent sessions | Yes | Yes |
+| Workspace isolation | Yes | Yes |
+| Review and diff UI | Strong emphasis | Yes |
+| Comments sent back to the agent | Yes | Broader ADE review, less public emphasis on stacked review loops |
+| Stacked PR or stacked workspace support | Yes | Not emphasized publicly |
+| Auto-rebase and conflict handling | Yes | Not emphasized publicly |
+| Broad provider support | Focused set today | 34 supported agent CLIs |
+| SSH or remote workspaces | Not public on the site today | Yes |
+| Cloud and enterprise packaging | Not public on the site today | Yes |
+| Open source | Apache 2.0 | Apache 2.0 |
+
+## Where They Differ
+
+Emdash covers more of the environment around each agent. It supports many providers, remote execution, cloud workspaces, and team deployment. This model fits teams whose agents run across different tools and machines.
+
+Treq makes the stack the main unit of work. Each workspace holds one reviewable layer and names the layer below it. Auto-rebase keeps higher workspaces current as lower workspaces change.
+
+Emdash has used more than one public domain. Some search indexes still show pages from an older product. Treq shares its name with unrelated products, including a Python package. These brand issues affect how people find each tool, but they do not change the product choice.
+
+## Pricing and Licensing
+
+Both desktop apps are free and open source under Apache 2.0.
+
+Emdash adds enterprise and cloud packaging through a contact-sales style motion. Treq does not publish a paid plan today.
+
+Agent and model costs remain outside either license.
+
+## Who Should Choose Which
+
+Choose **Treq** if you:
+
+- Want stacked workspaces and automatic rebasing as default behavior.
+- Care most about PR-style review that feeds the next agent turn.
+- Need an ADE where dependent agent tasks form a managed stack.
+- Are evaluating open-source options specifically for safe shipping of AI-generated code.
+
+Choose **Emdash** if you:
+
+- Need wide CLI provider coverage today.
+- Want SSH remote work, cloud workspaces, or on-your-infra enterprise options.
+- Prefer an ADE that includes browser, editor, prompts, skills, and MCP tooling in one surface.
+- Care more about environment breadth than stacked PR specialization.
+
+## Next Steps
+
+- [Treq vs Orca](./treq-vs-orca): another open-source ADE comparison with a different momentum profile.
+- [Treq vs Superset](./treq-vs-superset): packaging and breadth versus review focus.
+- [Agent orchestration](/learn/concepts/ai-engineering/agent-orchestration): why isolation and review matter once agents run in parallel.
+- [Code review workflow](/docs/tutorials/code-review-workflow): Treq's review loop in practice.
+- [Installation](/docs/getting-started/installation): install Treq and open a repository.
