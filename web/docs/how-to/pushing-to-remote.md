@@ -42,7 +42,7 @@ Only force push when you [rebased](/learn/concepts/git/merge-vs-rebase) your own
 git push --force-with-lease origin treq/your-branch
 ```
 
-Use `--force-with-lease` instead of `--force`. It fails if someone else pushed, preventing accidental overwrites.
+Use [`--force-with-lease`](/learn/concepts/git/force-with-lease) instead of `--force`. It fails if someone else pushed, preventing accidental overwrites.
 
 ## Best Practices
 
