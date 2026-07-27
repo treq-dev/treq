@@ -1,0 +1,125 @@
+---
+sidebar_position: 6
+---
+
+import DefinitionCard from "@site/src/components/DefinitionCard";
+
+# What is the Git Reflog?
+
+_The reflog is a local journal of where `HEAD` and branch refs pointed over time._
+
+## Introduction
+
+Git's commit history is the directed acyclic graph of parent links. The **reflog** records something else: each time a local reference moves. Checkouts, commits, resets, [rebases](./merge-vs-rebase), and similar commands append entries so you can find commits that no longer hang from any branch tip.
+
+That journal stays on the machine that wrote it. `git push` and `git fetch` do not send reflogs, so recovery with them is always local.
+
+## Understanding the Concept
+
+A **reflog** is an append-only log of reference updates for one [clone](./git-worktrees-vs-clones). Global `HEAD` updates go in `.git/logs/HEAD`. Branch updates go in files such as `.git/logs/refs/heads/main`. Each entry stores the previous and new tip hashes, who made the change, a timestamp, and a short description of the action.
+
+<DefinitionCard
+  term="Reflog"
+  definition="A local, append-only log of updates to HEAD or another Git reference, stored under .git/logs/ and never shared by fetch or push."
+/>
+
+Commit history answers which commits are ancestors of a tip. The reflog answers which commits a reference pointed at after each local command, including tips that are no longer reachable from any branch.
+
+| | Commit history | Reflog |
+| --- | --- | --- |
+| Shape | Parent links in the commit graph | Chronological list of ref updates |
+| Scope | Shared across clones after fetch or push | Local to one repository |
+| Lifetime | Objects remain while reachable or until pruned | Entries expire on configured schedules |
+| Use | Inspect lineage and collaboration history | Recover moved or orphaned tips |
+
+After a hard reset, a failed rebase, or deleting an unmerged branch, commits can leave the branch topology while their objects stay in the object database. The reflog still names those tips until its entries expire and garbage collection removes the unreachable objects.
+
+Git also writes **`ORIG_HEAD`** before some rewrite operations such as reset, merge, and rebase. That ref is a single bookmark of the prior `HEAD`, useful for a quick undo without scanning the full log.
+
+<DefinitionCard
+  term="ORIG_HEAD"
+  definition="A local reference Git sets to the previous HEAD value before selected rewrite operations, so you can reset back to that tip quickly."
+/>
+
+## Applying It in Practice
+
+Inspect recent `HEAD` movements:
+
+```bash
+git reflog
+git reflog show main
+```
+
+Address a prior tip with positional or time-based syntax:
+
+```bash
+git show HEAD@{2}
+git log -1 main@{one.week.ago}
+git checkout HEAD@{2.hours.ago}
+```
+
+`HEAD@{n}` means the nth prior recorded tip for that ref, counting from zero as the current position. Time forms such as `main@{yesterday}` select the tip as of that wall-clock time in the local reflog.
+
+Restore a branch after a mistaken hard reset:
+
+```bash
+git reflog
+git reset --hard HEAD@{1}
+```
+
+Create a branch at an orphaned tip you still need, including after `git branch -D`:
+
+```bash
+git reflog
+# find checkout: moving from feature/login to main
+git branch feature/login abc1234
+```
+
+Deletion removes the name under `.git/refs/heads/`. It does not remove the commits. The `HEAD` reflog keeps tip hashes from earlier checkouts, so you can [recreate the branch](/learn/how-to/recover-deleted-git-branch) while those entries and objects remain.
+
+Use `ORIG_HEAD` when you know the last rewrite was the mistake:
+
+```bash
+git reset --hard ORIG_HEAD
+```
+
+Message search such as `HEAD^{/fix login}` walks ancestors of `HEAD` by commit message. That is revision syntax on the commit graph, not a reflog query.
+
+## Engineering Considerations
+
+The reflog recovers commits that were once referenced locally. It does not recover uncommitted working-tree edits or deleted untracked files, because those states never entered the object database.
+
+It also cannot recover history rewritten only on a remote by someone else. Another clone's reflog never reaches you. A branch that was never checked out in this clone leaves no local `HEAD` footprint, so remote pull-request metadata or another clone must supply the tip hash.
+
+Keep protected branches free of unexpected force pushes, and coordinate when a shared tip must move.
+
+Recovery races the retention window. Once an entry expires and `git gc` prunes the unreachable objects, the tip is gone from that clone.
+
+Jujutsu logs repository-changing commands in an [operation log](./version-control). `jj undo` and `jj op log` cover a similar recovery need with a different command model. In a colocated repository you can still inspect Git reflogs for Git-side ref movement.
+
+## Scaling and Operations
+
+`git gc` expires reflog entries using two settings:
+
+| Setting | Default | Applies to |
+| --- | --- | --- |
+| `gc.reflogExpire` | 90 days | Entries whose tips remain reachable |
+| `gc.reflogExpireUnreachable` | 30 days | Entries whose tips are unreachable |
+
+After expiration, disconnected blobs and trees become eligible for removal on the next prune. Shorten these windows only when disk use matters more than local recovery depth.
+
+Force immediate expiry when you must reclaim space after filtering leaked secrets from history:
+
+```bash
+git reflog expire --expire=now --all
+git gc --prune=now --aggressive
+```
+
+Do that only after you have rotated credentials and confirmed no remaining local tip still needs those objects. Aggressive prune is permanent on that clone.
+
+## Next Steps
+
+- [What is Version Control?](./version-control): review commits, branches, and recovery basics
+- [Merge vs Rebase](./merge-vs-rebase): understand rewrite operations that move refs
+- [Cherry-pick vs Rebase](./cherry-pick-vs-rebase): compare selective replay with branch rewriting
+- [What are Git Worktrees?](./git-worktrees): each worktree keeps its own `HEAD` and reflog entries

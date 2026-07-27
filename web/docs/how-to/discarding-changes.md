@@ -20,7 +20,7 @@ Treq doesn't support discarding specific lines directly. As a workaround, commit
 
 ## Recovery
 
-There's no direct undo for discarded changes. Check your editor's local history (VS Code, IntelliJ), look for auto-save copies, or check git reflog if changes were previously committed.
+There's no direct undo for discarded changes. Check your editor's local history (VS Code, IntelliJ), look for auto-save copies, or check the [git reflog](/learn/concepts/git/git-reflog) if changes were previously committed.
 
 Before discarding uncertain changes, create a safety net with `git stash push -m "backup"` or [commit](/docs/concepts/commit-management) to a temporary branch.
 

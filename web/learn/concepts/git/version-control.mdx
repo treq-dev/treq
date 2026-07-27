@@ -91,7 +91,7 @@ jj bookmark create feature/add-login
 jj git push --bookmark feature/add-login
 ```
 
-Jujutsu also logs every command that changes the repository. `jj undo` reverses the last one, and `jj op log` shows earlier states. Git gives you the same kind of rescue at a lower level, through refs and reflogs.
+Jujutsu also logs every command that changes the repository. `jj undo` reverses the last one, and `jj op log` shows earlier states. Git gives you the same kind of rescue at a lower level, through refs and [reflogs](./git-reflog).
 
 Pick Jujutsu because its working-copy, conflict, and history-editing model suits your team. Do not pick it expecting Git hosting and tooling to go away, because most collaboration still crosses a Git boundary.
 
@@ -118,4 +118,5 @@ Keep generated files, credentials, and build output out of commits unless the pr
 - [What are Git Worktrees?](./git-worktrees): use several working directories with one repository
 - [Git Worktrees vs Clones](./git-worktrees-vs-clones): compare shared and independent repositories
 - [Merge vs Rebase](./merge-vs-rebase): choose how to integrate diverged histories
+- [What is the Git Reflog?](./git-reflog): recover local tips after resets and rewrites
 - [What are Stacked PRs?](./stacked-prs): organize dependent changes for review

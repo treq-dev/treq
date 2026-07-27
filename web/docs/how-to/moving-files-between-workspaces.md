@@ -43,5 +43,5 @@ git reset HEAD~1
 
 ## Recovery
 
-If you moved the wrong files and haven't committed in the destination, discard there and check the source's stash or reflog. If already committed, reset the commit in the destination and move files back.
+If you moved the wrong files and haven't committed in the destination, discard there and check the source's stash or [reflog](/learn/concepts/git/git-reflog). If already committed, reset the commit in the destination and move files back.
 
