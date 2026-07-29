@@ -1,12 +1,14 @@
 pub mod app;
 pub mod changes;
 pub mod checks;
+pub mod checks_logs;
 pub mod commits;
 pub mod repo;
 pub mod workspaces;
 pub use app::*;
 pub use changes::*;
 pub use checks::*;
+pub use checks_logs::*;
 pub use commits::*;
 pub use repo::*;
 use std::path::{Path, PathBuf};

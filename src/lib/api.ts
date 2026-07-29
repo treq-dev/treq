@@ -21,10 +21,12 @@ import type {
 	JjRebaseResult,
 	JjRevisionDiff,
 	JobResult,
+	LogLine,
 	MergeStrategy,
 	PullWorkspaceResult,
 	RepoBranch,
 	RenameWorkspaceResult,
+	RunSummary,
 	SingleRebaseResult,
 	Workspace,
 	WorkflowInfo,
@@ -610,3 +612,47 @@ export const isRepoTrusted = (repoPath: string): Promise<boolean> =>
 
 export const trustRepo = (repoPath: string): Promise<void> =>
 	invoke("trust_repo", { repoPath });
+
+export const listWorkflowRuns = (
+	repoPath: string,
+	workspaceId: number,
+	filename: string,
+	limit?: number,
+): Promise<RunSummary[]> =>
+	invoke("list_workflow_runs", {
+		repoPath,
+		workspaceId,
+		filename,
+		limit: limit ?? null,
+	});
+
+export const getRunLogs = (
+	repoPath: string,
+	runId: number,
+	jobId: string,
+	options?: {
+		level?: string;
+		search?: string;
+		stepIndex?: number;
+		limit?: number;
+		offset?: number;
+	},
+): Promise<LogLine[]> =>
+	invoke("get_run_logs", {
+		repoPath,
+		runId,
+		jobId,
+		level: options?.level ?? null,
+		search: options?.search ?? null,
+		stepIndex: options?.stepIndex ?? null,
+		limit: options?.limit ?? null,
+		offset: options?.offset ?? null,
+	});
+
+export const exportRunLogs = (
+	repoPath: string,
+	runId: number,
+	jobId: string,
+	destPath: string,
+): Promise<string> =>
+	invoke("export_run_logs", { repoPath, runId, jobId, destPath });

@@ -346,19 +346,61 @@ pub fn init_local_db(repo_path: &str) -> Result<PathBuf, String> {
     )
     .map_err(|e| format!("Failed to create instance_registry heartbeat index: {}", e))?;
 
+    // Migration: replace the old per-job workflow_runs shape with per-invocation.
+    let has_legacy_workflow_runs: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('workflow_runs') WHERE name = 'job_id'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if has_legacy_workflow_runs > 0 {
+        conn.execute("DROP TABLE workflow_runs", [])
+            .map_err(|e| format!("Failed to drop legacy workflow_runs table: {}", e))?;
+    }
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS workflow_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             workspace_id INTEGER,
             filename TEXT NOT NULL,
-            job_id TEXT NOT NULL,
-            success INTEGER NOT NULL DEFAULT 0,
-            steps_json TEXT NOT NULL,
-            ran_at TEXT NOT NULL
+            status TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT
         )",
         [],
     )
     .map_err(|e| format!("Failed to create workflow_runs table: {}", e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_workflow_runs_lookup
+         ON workflow_runs(workspace_id, filename, id DESC)",
+        [],
+    )
+    .map_err(|e| format!("Failed to create workflow_runs index: {}", e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS workflow_job_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            job_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            steps_json TEXT NOT NULL,
+            log_path TEXT
+        )",
+        [],
+    )
+    .map_err(|e| format!("Failed to create workflow_job_results table: {}", e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_workflow_job_results_run
+         ON workflow_job_results(run_id, position)",
+        [],
+    )
+    .map_err(|e| format!("Failed to create workflow_job_results index: {}", e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS repo_trust (
@@ -2377,30 +2419,164 @@ mod tests {
     }
 }
 
-pub fn add_workflow_run(
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WorkflowRunRecord {
+    pub id: i64,
+    pub filename: String,
+    pub status: String,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WorkflowJobRecord {
+    pub id: i64,
+    pub run_id: i64,
+    pub job_id: String,
+    pub position: i64,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub steps_json: String,
+    pub log_path: Option<String>,
+}
+
+/// Opens a new run row in the `running` state; jobs are attached as they finish.
+pub fn create_workflow_run(
     repo_path: &str,
     workspace_id: i64,
     filename: &str,
-    job_id: &str,
-    success: bool,
-    steps_json: &str,
 ) -> Result<i64, String> {
     let conn = get_connection(repo_path)?;
-    let ran_at = Utc::now().to_rfc3339();
+    let started_at = Utc::now().to_rfc3339();
     conn.execute(
-        "INSERT INTO workflow_runs (workspace_id, filename, job_id, success, steps_json, ran_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            workspace_id,
-            filename,
-            job_id,
-            success as i64,
-            steps_json,
-            ran_at
-        ],
+        "INSERT INTO workflow_runs (workspace_id, filename, status, started_at)
+         VALUES (?1, ?2, 'running', ?3)",
+        params![workspace_id, filename, started_at],
     )
     .map_err(|e| format!("Failed to insert workflow_run: {}", e))?;
     Ok(conn.last_insert_rowid())
+}
+
+pub fn add_workflow_job_result(
+    repo_path: &str,
+    run_id: i64,
+    job_id: &str,
+    position: i64,
+    status: &str,
+    started_at: &str,
+    completed_at: &str,
+    steps_json: &str,
+    log_path: Option<&str>,
+) -> Result<i64, String> {
+    let conn = get_connection(repo_path)?;
+    conn.execute(
+        "INSERT INTO workflow_job_results
+           (run_id, job_id, position, status, started_at, completed_at, steps_json, log_path)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            run_id,
+            job_id,
+            position,
+            status,
+            started_at,
+            completed_at,
+            steps_json,
+            log_path
+        ],
+    )
+    .map_err(|e| format!("Failed to insert workflow_job_result: {}", e))?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn finish_workflow_run(repo_path: &str, run_id: i64, status: &str) -> Result<(), String> {
+    let conn = get_connection(repo_path)?;
+    let completed_at = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE workflow_runs SET status = ?1, completed_at = ?2 WHERE id = ?3",
+        params![status, completed_at, run_id],
+    )
+    .map_err(|e| format!("Failed to finish workflow_run: {}", e))?;
+    Ok(())
+}
+
+pub fn list_workflow_runs(
+    repo_path: &str,
+    workspace_id: i64,
+    filename: &str,
+    limit: i64,
+) -> Result<Vec<WorkflowRunRecord>, String> {
+    let conn = get_connection(repo_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, filename, status, started_at, completed_at
+             FROM workflow_runs
+             WHERE workspace_id = ?1 AND filename = ?2
+             ORDER BY id DESC LIMIT ?3",
+        )
+        .map_err(|e| format!("Failed to prepare workflow_runs query: {}", e))?;
+    let rows = stmt
+        .query_map(params![workspace_id, filename, limit], |row| {
+            Ok(WorkflowRunRecord {
+                id: row.get(0)?,
+                filename: row.get(1)?,
+                status: row.get(2)?,
+                started_at: row.get(3)?,
+                completed_at: row.get(4)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query workflow_runs: {}", e))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("Failed to read workflow_runs: {}", e))
+}
+
+pub fn list_workflow_job_results(
+    repo_path: &str,
+    run_id: i64,
+) -> Result<Vec<WorkflowJobRecord>, String> {
+    let conn = get_connection(repo_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, run_id, job_id, position, status, started_at, completed_at,
+                    steps_json, log_path
+             FROM workflow_job_results
+             WHERE run_id = ?1
+             ORDER BY position ASC",
+        )
+        .map_err(|e| format!("Failed to prepare job results query: {}", e))?;
+    let rows = stmt
+        .query_map(params![run_id], |row| {
+            Ok(WorkflowJobRecord {
+                id: row.get(0)?,
+                run_id: row.get(1)?,
+                job_id: row.get(2)?,
+                position: row.get(3)?,
+                status: row.get(4)?,
+                started_at: row.get(5)?,
+                completed_at: row.get(6)?,
+                steps_json: row.get(7)?,
+                log_path: row.get(8)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query job results: {}", e))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("Failed to read job results: {}", e))
+}
+
+pub fn get_job_log_path(
+    repo_path: &str,
+    run_id: i64,
+    job_id: &str,
+) -> Result<Option<String>, String> {
+    let conn = get_connection(repo_path)?;
+    conn.query_row(
+        "SELECT log_path FROM workflow_job_results WHERE run_id = ?1 AND job_id = ?2",
+        params![run_id, job_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map(|opt| opt.flatten())
+    .map_err(|e| format!("Failed to query job log path: {}", e))
 }
 
 pub fn is_repo_trusted(repo_path: &str) -> bool {

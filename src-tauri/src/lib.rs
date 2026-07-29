@@ -556,6 +556,9 @@ pub fn run() {
             commands::run_workflow,
             commands::is_repo_trusted,
             commands::trust_repo,
+            commands::list_workflow_runs,
+            commands::get_run_logs,
+            commands::export_run_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

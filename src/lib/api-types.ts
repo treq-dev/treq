@@ -531,3 +531,26 @@ export interface JobResult {
 	steps: StepResult[];
 	success: boolean;
 }
+
+export interface RunJobSummary {
+	job_id: string;
+	status: string;
+	steps: StepResult[];
+	has_logs: boolean;
+}
+export interface RunSummary {
+	id: number;
+	filename: string;
+	status: string;
+	started_at: string;
+	completed_at: string | null;
+	jobs: RunJobSummary[];
+}
+export interface LogLine {
+	ts: string;
+	step_index: number;
+	step_name: string;
+	stream: string;
+	level: string;
+	message: string;
+}

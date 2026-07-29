@@ -1,4 +1,5 @@
-use crate::core::{JobResult, WorkflowInfo};
+use crate::core::checks_logs::{LogLine, LogQuery};
+use crate::core::{JobResult, RunSummary, WorkflowInfo};
 
 #[tauri::command]
 pub async fn list_workflows(repo_path: String) -> Result<Vec<WorkflowInfo>, String> {
@@ -54,4 +55,62 @@ pub async fn trust_repo(repo_path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || crate::local_db::trust_repo(&repo_path))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn list_workflow_runs(
+    repo_path: String,
+    workspace_id: i64,
+    filename: String,
+    limit: Option<i64>,
+) -> Result<Vec<RunSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::core::list_workflow_runs_sync(
+            &repo_path,
+            workspace_id,
+            &filename,
+            limit.unwrap_or(20),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_run_logs(
+    repo_path: String,
+    run_id: i64,
+    job_id: String,
+    level: Option<String>,
+    search: Option<String>,
+    step_index: Option<i64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<LogLine>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let query = LogQuery {
+            level,
+            search,
+            step_index,
+            limit,
+            offset,
+        };
+        crate::core::get_run_logs_sync(&repo_path, run_id, &job_id, &query)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn export_run_logs(
+    repo_path: String,
+    run_id: i64,
+    job_id: String,
+    dest_path: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::core::export_run_logs_sync(&repo_path, run_id, &job_id, &dest_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

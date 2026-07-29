@@ -11,7 +11,7 @@ import {
 	getWorkspaces,
 	trustRepo,
 } from "../../../src/lib/api";
-import { render, screen, waitFor } from "../../test-utils";
+import { render, screen, waitFor, within } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
 
@@ -163,5 +163,114 @@ describe("Checks tab", () => {
 		const workflowNames = await screen.findAllByText(/CI$/);
 		expect(workflowNames[0].textContent).toBe("Failing CI");
 		expect(workflowNames[1].textContent).toBe("Passing CI");
+	});
+});
+
+const LOGGING_WORKFLOW = `
+name: Logging CI
+on:
+  workflow_dispatch: {}
+jobs:
+  build:
+    name: Build Job
+    steps:
+      - name: Emit output
+        run: "echo hello-from-logs; echo 'warning: careful'; echo 'error: broke' 1>&2"
+`;
+
+describe("Checks logs browser", () => {
+	beforeEach(() => {
+		user = userEvent.setup();
+	});
+
+	async function runBuildJob(repoPath: string, branch: string) {
+		await createWorkspace(repoPath, branch);
+		await writeRepoFile(repoPath, ".treq/workflows/ci.yaml", LOGGING_WORKFLOW);
+		await trustRepo(repoPath);
+		await openChecksTab(branch);
+		await user.click(
+			await screen.findByRole("button", { name: /Run Build Job/i }),
+		);
+		await screen.findByTestId("run-history-item");
+	}
+
+	it("records a run in the history after running a job", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await runBuildJob(repoPath, "logs-history");
+
+		const items = await screen.findAllByTestId("run-history-item");
+		expect(items).toHaveLength(1);
+	});
+
+	it("adds a second history item when the job is re-run", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await runBuildJob(repoPath, "logs-rerun");
+
+		await user.click(
+			await screen.findByRole("button", { name: /Run Build Job/i }),
+		);
+		await waitFor(async () => {
+			const items = await screen.findAllByTestId("run-history-item");
+			expect(items).toHaveLength(2);
+		});
+	});
+
+	it("opens the logs browser and shows captured output with levels", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await runBuildJob(repoPath, "logs-view");
+
+		await user.click(
+			(await screen.findAllByRole("button", { name: /^Logs/ }))[0],
+		);
+
+		await screen.findByTestId("logs-output");
+		await screen.findByText("hello-from-logs");
+		await waitFor(() => {
+			const errorLines = document.querySelectorAll(
+				'[data-testid="log-line"][data-level="error"]',
+			);
+			expect(errorLines.length).toBeGreaterThan(0);
+		});
+	});
+
+	it("filters log lines by level", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await runBuildJob(repoPath, "logs-filter");
+
+		await user.click(
+			(await screen.findAllByRole("button", { name: /^Logs/ }))[0],
+		);
+		await screen.findByText("hello-from-logs");
+
+		await user.click(await screen.findByRole("button", { name: "error" }));
+
+		await waitFor(() => {
+			const lines = document.querySelectorAll('[data-testid="log-line"]');
+			expect(lines.length).toBe(1);
+		});
+		expect(screen.queryByText("hello-from-logs")).toBeNull();
+	});
+
+	it("exports logs to a file", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await runBuildJob(repoPath, "logs-export");
+
+		await user.click(
+			(await screen.findAllByRole("button", { name: /^Logs/ }))[0],
+		);
+		await screen.findByText("hello-from-logs");
+
+		const browser = await screen.findByTestId("logs-browser");
+		await user.click(
+			await within(browser).findByRole("button", { name: /Export/i }),
+		);
+
+		const note = await screen.findByText(/Exported to/i);
+		expect(note.textContent).toContain(".log");
 	});
 });

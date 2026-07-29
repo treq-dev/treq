@@ -992,6 +992,45 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             Ok(serde_json::Value::Null)
         }
 
+        "list_workflow_runs" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id = get_i64(&args, "workspaceId")?;
+            let filename = get_str(&args, "filename")?;
+            let limit = opt_i64(&args, "limit").unwrap_or(20);
+            let result = treq_lib::core::list_workflow_runs_sync(
+                &repo_path,
+                workspace_id,
+                &filename,
+                limit,
+            )?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "get_run_logs" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let run_id = get_i64(&args, "runId")?;
+            let job_id = get_str(&args, "jobId")?;
+            let query = treq_lib::core::checks_logs::LogQuery {
+                level: opt_str(&args, "level"),
+                search: opt_str(&args, "search"),
+                step_index: opt_i64(&args, "stepIndex"),
+                limit: opt_i64(&args, "limit"),
+                offset: opt_i64(&args, "offset"),
+            };
+            let result = treq_lib::core::get_run_logs_sync(&repo_path, run_id, &job_id, &query)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "export_run_logs" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let run_id = get_i64(&args, "runId")?;
+            let job_id = get_str(&args, "jobId")?;
+            let dest_path = get_str(&args, "destPath")?;
+            let result =
+                treq_lib::core::export_run_logs_sync(&repo_path, run_id, &job_id, &dest_path)?;
+            Ok(serde_json::Value::String(result))
+        }
+
         // ── Tauri-runtime-only: silent no-ops ─────────────────────────────
         "pty_create_session"
         | "pty_session_exists"
@@ -1169,6 +1208,10 @@ mod tests {
 
 fn opt_i64(args: &Value, key: &str) -> Option<i64> {
     args.get(key).and_then(|v| v.as_i64())
+}
+
+fn opt_str(args: &Value, key: &str) -> Option<String> {
+    args.get(key).and_then(|v| v.as_str()).map(String::from)
 }
 
 fn opt_str_to_value(s: Option<String>) -> Value {
