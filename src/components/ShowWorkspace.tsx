@@ -6,60 +6,6 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import {
-	DirectoryEntry,
-	dryRunHomeRepoRebase,
-	type HomeRebaseDryRunResult,
-	type JjLogResult,
-	type SingleRebaseResult,
-	Workspace,
-	type WorkspaceBookmarkConflict,
-	checkAndRebaseWorkspaces,
-	createSession,
-	discardWorkspaceChanges,
-	getWorkspaceReadme,
-	getWorkspaceStatus,
-	listCommits,
-	lsWorkspace,
-	pullWorkspaceFromRemote,
-	pushWorkspaceToRemote,
-	rebaseHomeRepoBranch,
-	resolveBookmarkConflict,
-	updateWorkspace,
-} from "../lib/api";
-import { getStatusBgColor } from "../lib/git-status-colors";
-import { type ParsedFileChange } from "../lib/git-utils";
-import { cn, getFullWorkspacePath, resolveReadmeImageSrc } from "../lib/utils";
-
-import {
-	ChangesDiffViewer,
-	type ChangesDiffViewerHandle,
-} from "./ChangesDiffViewer";
-import { FileBrowser } from "./FileBrowser";
-import { LinearCommitHistory } from "./LinearCommitHistory";
-import { CommitDiffViewer } from "./CommitDiffViewer";
-import { WorkspaceBookmarkConflictModal } from "./WorkspaceBookmarkConflictModal";
-import { WorkspaceStackPanel } from "./WorkspaceStackPanel";
-import { ChecksTab } from "./ChecksTab";
-import { LogsTab } from "./LogsTab";
-import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
-import { Button } from "./ui/button";
-import { Kbd, KbdGroup } from "./ui/kbd";
-import { useToast } from "./ui/toast";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "./ui/tooltip";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import {
 	AlertTriangle,
 	ArrowRight,
 	ChevronLeft,
@@ -124,11 +70,13 @@ import {
 	ChangesDiffViewer,
 	type ChangesDiffViewerHandle,
 } from "./ChangesDiffViewer";
+import { ChecksTab } from "./ChecksTab";
 import { CiStatusIndicator } from "./CiStatusIndicator";
 import { CommitDiffViewer } from "./CommitDiffViewer";
 import { CreatePrButtonGroup } from "./CreatePrButtonGroup";
 import { FileBrowser } from "./FileBrowser";
 import { LinearCommitHistory } from "./LinearCommitHistory";
+import { LogsTab } from "./LogsTab";
 import { MarkdownContent } from "./MarkdownContent";
 import {
 	type BranchListItem,
