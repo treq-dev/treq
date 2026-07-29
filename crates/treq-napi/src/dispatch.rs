@@ -1011,13 +1011,34 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             let run_id = get_i64(&args, "runId")?;
             let job_id = get_str(&args, "jobId")?;
             let query = treq_lib::core::checks_logs::LogQuery {
-                level: opt_str(&args, "level"),
+                levels: opt_str_vec(&args, "levels"),
                 search: opt_str(&args, "search"),
                 step_index: opt_i64(&args, "stepIndex"),
                 limit: opt_i64(&args, "limit"),
                 offset: opt_i64(&args, "offset"),
             };
             let result = treq_lib::core::get_run_logs_sync(&repo_path, run_id, &job_id, &query)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "get_repo_logs" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let query = treq_lib::core::checks_logs::LogQuery {
+                levels: opt_str_vec(&args, "levels"),
+                search: opt_str(&args, "search"),
+                step_index: None,
+                limit: opt_i64(&args, "limit"),
+                offset: opt_i64(&args, "offset"),
+            };
+            let result = treq_lib::core::checks_logs::query_repo_logs(&repo_path, &query)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "run_logs_sql" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let sql = get_str(&args, "sql")?;
+            let max_rows = opt_i64(&args, "maxRows").unwrap_or(500);
+            let result = treq_lib::core::checks_logs::run_logs_sql(&repo_path, &sql, max_rows)?;
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
 
@@ -1212,6 +1233,14 @@ fn opt_i64(args: &Value, key: &str) -> Option<i64> {
 
 fn opt_str(args: &Value, key: &str) -> Option<String> {
     args.get(key).and_then(|v| v.as_str()).map(String::from)
+}
+
+fn opt_str_vec(args: &Value, key: &str) -> Option<Vec<String>> {
+    args.get(key).and_then(|v| v.as_array()).map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    })
 }
 
 fn opt_str_to_value(s: Option<String>) -> Value {

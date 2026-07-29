@@ -26,8 +26,10 @@ import type {
 	PullWorkspaceResult,
 	RepoBranch,
 	RenameWorkspaceResult,
+	RepoLogLine,
 	RunSummary,
 	SingleRebaseResult,
+	SqlResult,
 	Workspace,
 	WorkflowInfo,
 	WorkspaceSidebarStatus,
@@ -631,7 +633,7 @@ export const getRunLogs = (
 	runId: number,
 	jobId: string,
 	options?: {
-		level?: string;
+		levels?: string[];
 		search?: string;
 		stepIndex?: number;
 		limit?: number;
@@ -642,12 +644,36 @@ export const getRunLogs = (
 		repoPath,
 		runId,
 		jobId,
-		level: options?.level ?? null,
+		levels: options?.levels ?? null,
 		search: options?.search ?? null,
 		stepIndex: options?.stepIndex ?? null,
 		limit: options?.limit ?? null,
 		offset: options?.offset ?? null,
 	});
+
+export const getRepoLogs = (
+	repoPath: string,
+	options?: {
+		levels?: string[];
+		search?: string;
+		limit?: number;
+		offset?: number;
+	},
+): Promise<RepoLogLine[]> =>
+	invoke("get_repo_logs", {
+		repoPath,
+		levels: options?.levels ?? null,
+		search: options?.search ?? null,
+		limit: options?.limit ?? null,
+		offset: options?.offset ?? null,
+	});
+
+export const runLogsSql = (
+	repoPath: string,
+	sql: string,
+	maxRows?: number,
+): Promise<SqlResult> =>
+	invoke("run_logs_sql", { repoPath, sql, maxRows: maxRows ?? null });
 
 export const exportRunLogs = (
 	repoPath: string,

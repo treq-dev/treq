@@ -77,12 +77,14 @@ it("captures the checks run history and the logs browser", async () => {
 			"Every log line is rendered in a monospace font with a timestamp in a left-hand column.",
 			'The line "warning: unused variable x" is amber/yellow and "error: assertion failed" is red.',
 			'Plain lines such as "Compiling treq v0.1.3" and "running 2 tests" are rendered in the default text colour, not amber or red.',
-			'A filter row shows "all", "info", "warning" and "error" buttons plus a step dropdown and a search box.',
+			'A filter row shows a level multi-select button reading "All levels" plus a step dropdown and a search box.',
 		],
 	});
 
-	// Filter down to error lines only.
-	await user.click(within(browser).getByRole("button", { name: "error" }));
+	// Filter down to error lines only via the level multi-select.
+	await user.click(within(browser).getByTestId("log-level-filter"));
+	await user.click(await screen.findByRole("menuitemcheckbox", { name: /error/i }));
+	await user.keyboard("{Escape}");
 	await waitFor(() => {
 		const lines = document.querySelectorAll('[data-testid="log-line"]');
 		if (lines.length !== 1) throw new Error(`expected 1 line, got ${lines.length}`);
@@ -92,7 +94,7 @@ it("captures the checks run history and the logs browser", async () => {
 		name: "checks-logs-03-error-filter",
 		expectations: [
 			'Exactly one log line is shown — the red "error: assertion failed" line.',
-			'The "error" filter button is visually selected/highlighted compared to the other filter buttons.',
+			'The level filter button reads "error" rather than "All levels".',
 			'The info and warning lines from the previous screenshot are gone.',
 		],
 	});

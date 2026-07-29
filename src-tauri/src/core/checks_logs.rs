@@ -24,13 +24,38 @@ pub struct LogLine {
 }
 
 /// Filters accepted by the logs browser.
+///
+/// `levels` is a set: an empty or absent list means "no level filter", matching
+/// the multi-select showing nothing ticked.
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct LogQuery {
-    pub level: Option<String>,
+    pub levels: Option<Vec<String>>,
     pub search: Option<String>,
     pub step_index: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+/// A run/job-tagged log line, for browsing across the whole repo.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct RepoLogLine {
+    pub run_id: i64,
+    pub job_id: String,
+    pub ts: String,
+    pub step_index: i64,
+    pub step_name: String,
+    pub stream: String,
+    pub level: String,
+    pub message: String,
+}
+
+/// Result of an ad-hoc SQL query in the explorer.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SqlResult {
+    pub columns: Vec<String>,
+    /// Every cell rendered as text so any column type survives the boundary.
+    pub rows: Vec<Vec<Option<String>>>,
+    pub row_count: usize,
 }
 
 const DEFAULT_LIMIT: i64 = 2000;
@@ -166,6 +191,35 @@ fn sql_quote(value: &str) -> String {
     value.replace('\'', "''")
 }
 
+/// Shared WHERE builder for the single-job and cross-run readers.
+fn build_where_clause(query: &LogQuery) -> String {
+    let mut conditions: Vec<String> = Vec::new();
+
+    if let Some(levels) = query.levels.as_ref().filter(|l| !l.is_empty()) {
+        let list = levels
+            .iter()
+            .map(|l| format!("'{}'", sql_quote(l)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        conditions.push(format!("level IN ({})", list));
+    }
+    if let Some(search) = query.search.as_ref().filter(|s| !s.is_empty()) {
+        conditions.push(format!(
+            "lower(message) LIKE '%{}%'",
+            sql_quote(&search.to_lowercase())
+        ));
+    }
+    if let Some(step_index) = query.step_index {
+        conditions.push(format!("step_index = {}", step_index));
+    }
+
+    if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    }
+}
+
 /// Read a job's log file, applying the browser's filters.
 ///
 /// Returns an empty vec when the file is missing or empty — a job that produced
@@ -181,24 +235,7 @@ pub fn query_logs(absolute_log_path: &str, query: &LogQuery) -> Result<Vec<LogLi
     let conn = duckdb::Connection::open_in_memory()
         .map_err(|e| format!("Failed to open DuckDB connection: {}", e))?;
 
-    let mut conditions: Vec<String> = Vec::new();
-    if let Some(level) = query.level.as_ref().filter(|l| !l.is_empty()) {
-        conditions.push(format!("level = '{}'", sql_quote(level)));
-    }
-    if let Some(search) = query.search.as_ref().filter(|s| !s.is_empty()) {
-        conditions.push(format!(
-            "lower(message) LIKE '%{}%'",
-            sql_quote(&search.to_lowercase())
-        ));
-    }
-    if let Some(step_index) = query.step_index {
-        conditions.push(format!("step_index = {}", step_index));
-    }
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
+    let where_clause = build_where_clause(query);
 
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, 100_000);
     let offset = query.offset.unwrap_or(0).max(0);
@@ -239,6 +276,219 @@ pub fn query_logs(absolute_log_path: &str, query: &LogQuery) -> Result<Vec<LogLi
 
     rows.collect::<duckdb::Result<Vec<_>>>()
         .map_err(|e| format!("Failed to read log rows: {}", e))
+}
+
+// ── Repo-wide data source ────────────────────────────────────────────────────
+
+/// Glob covering every job log in the repo.
+fn runs_glob(repo_path: &str) -> String {
+    Path::new(repo_path)
+        .join(".treq")
+        .join("runs")
+        .join("*")
+        .join("*.jsonl")
+        .to_string_lossy()
+        .to_string()
+}
+
+/// True when at least one log file exists, so callers can skip DuckDB entirely.
+fn has_any_logs(repo_path: &str) -> bool {
+    let runs_dir = Path::new(repo_path).join(".treq").join("runs");
+    let Ok(entries) = std::fs::read_dir(&runs_dir) else {
+        return false;
+    };
+    entries.filter_map(|e| e.ok()).any(|run_dir| {
+        std::fs::read_dir(run_dir.path())
+            .map(|mut files| {
+                files.any(|f| {
+                    f.ok()
+                        .map(|f| f.file_name().to_string_lossy().ends_with(".jsonl"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// SQL defining the `logs` view: every run's JSONL, with `run_id` and `job_id`
+/// recovered from the file path so cross-run queries can group by them.
+fn logs_view_sql(repo_path: &str) -> String {
+    format!(
+        "CREATE OR REPLACE VIEW logs AS
+         SELECT
+           CAST(regexp_extract(filename, 'runs/([0-9]+)/', 1) AS BIGINT) AS run_id,
+           regexp_extract(filename, '/([^/]+)\\.jsonl$', 1) AS job_id,
+           CAST(ts AS VARCHAR) AS ts,
+           CAST(step_index AS BIGINT) AS step_index,
+           CAST(step_name AS VARCHAR) AS step_name,
+           CAST(stream AS VARCHAR) AS stream,
+           CAST(level AS VARCHAR) AS level,
+           CAST(message AS VARCHAR) AS message
+         FROM read_json_auto('{}', format='newline_delimited', filename=true)",
+        sql_quote(&runs_glob(repo_path))
+    )
+}
+
+/// Open an in-memory DuckDB with the `logs` view registered.
+fn connect_with_logs_view(repo_path: &str) -> Result<duckdb::Connection, String> {
+    let conn = duckdb::Connection::open_in_memory()
+        .map_err(|e| format!("Failed to open DuckDB connection: {}", e))?;
+    conn.execute_batch(&logs_view_sql(repo_path))
+        .map_err(|e| format!("Failed to register logs view: {}", e))?;
+    Ok(conn)
+}
+
+/// Browse log lines across every run in the repo.
+pub fn query_repo_logs(repo_path: &str, query: &LogQuery) -> Result<Vec<RepoLogLine>, String> {
+    if !has_any_logs(repo_path) {
+        return Ok(vec![]);
+    }
+    let conn = connect_with_logs_view(repo_path)?;
+
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, 100_000);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let sql = format!(
+        "SELECT run_id, job_id, ts, step_index, step_name, stream, level, message
+         FROM logs {} ORDER BY run_id DESC, ts, step_index LIMIT {} OFFSET {}",
+        build_where_clause(query),
+        limit,
+        offset
+    );
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare repo log query: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(RepoLogLine {
+                run_id: row.get(0)?,
+                job_id: row.get(1)?,
+                ts: row.get(2)?,
+                step_index: row.get(3)?,
+                step_name: row.get(4)?,
+                stream: row.get(5)?,
+                level: row.get(6)?,
+                message: row.get(7)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query repo logs: {}", e))?;
+
+    rows.collect::<duckdb::Result<Vec<_>>>()
+        .map_err(|e| format!("Failed to read repo log rows: {}", e))
+}
+
+// ── SQL explorer ─────────────────────────────────────────────────────────────
+
+/// Statement kinds the explorer will run. Everything else is rejected so a
+/// stray COPY/ATTACH/INSTALL can't write files or pull in extensions.
+const ALLOWED_SQL_PREFIXES: [&str; 6] =
+    ["select", "with", "describe", "show", "explain", "summarize"];
+
+/// Reject anything that isn't a single read-only statement.
+fn validate_sql(sql: &str) -> Result<(), String> {
+    let trimmed = sql.trim().trim_end_matches(';').trim();
+    if trimmed.is_empty() {
+        return Err("Query is empty".to_string());
+    }
+    // One statement only: a second one could smuggle in a write.
+    if trimmed.contains(';') {
+        return Err("Only a single statement can be run at a time".to_string());
+    }
+
+    let lower = trimmed.to_lowercase();
+    if !ALLOWED_SQL_PREFIXES
+        .iter()
+        .any(|p| lower.starts_with(p) && lower[p.len()..].starts_with(char::is_whitespace))
+    {
+        return Err(
+            "Only read-only queries are allowed (SELECT, WITH, DESCRIBE, SHOW, EXPLAIN, SUMMARIZE)"
+                .to_string(),
+        );
+    }
+
+    // These can still appear mid-statement, e.g. inside a CTE body.
+    let blocked = [
+        "attach ", "copy ", "install ", "load ", "export ", "import ", "create ", "insert ",
+        "update ", "delete ", "drop ", "alter ",
+    ];
+    if let Some(word) = blocked.iter().find(|w| lower.contains(*w)) {
+        return Err(format!(
+            "Statement contains a disallowed keyword: {}",
+            word.trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Run an ad-hoc read-only query against the `logs` view.
+pub fn run_logs_sql(repo_path: &str, sql: &str, max_rows: i64) -> Result<SqlResult, String> {
+    validate_sql(sql)?;
+
+    if !has_any_logs(repo_path) {
+        return Err(
+            "No check logs recorded yet — run a workflow check to populate the logs table."
+                .to_string(),
+        );
+    }
+
+    let conn = connect_with_logs_view(repo_path)?;
+    let capped = format!(
+        "SELECT * FROM ({}) AS explorer_query LIMIT {}",
+        sql.trim().trim_end_matches(';'),
+        max_rows.clamp(1, 10_000)
+    );
+
+    let mut stmt = conn
+        .prepare(&capped)
+        .map_err(|e| format!("Query error: {}", e))?;
+    let mut rows = stmt.query([]).map_err(|e| format!("Query error: {}", e))?;
+
+    let mut columns: Vec<String> = Vec::new();
+    let mut out_rows: Vec<Vec<Option<String>>> = Vec::new();
+
+    while let Some(row) = rows.next().map_err(|e| format!("Query error: {}", e))? {
+        if columns.is_empty() {
+            columns = row
+                .as_ref()
+                .column_names()
+                .into_iter()
+                .map(String::from)
+                .collect();
+        }
+        let mut cells = Vec::with_capacity(columns.len());
+        for idx in 0..columns.len() {
+            // Everything is stringified; the grid renders text regardless of type.
+            let value: Option<String> = row
+                .get::<_, Option<String>>(idx)
+                .or_else(|_| {
+                    row.get::<_, Option<i64>>(idx)
+                        .map(|v| v.map(|n| n.to_string()))
+                })
+                .or_else(|_| {
+                    row.get::<_, Option<f64>>(idx)
+                        .map(|v| v.map(|n| n.to_string()))
+                })
+                .or_else(|_| {
+                    row.get::<_, Option<bool>>(idx)
+                        .map(|v| v.map(|b| b.to_string()))
+                })
+                .unwrap_or(None);
+            cells.push(value);
+        }
+        out_rows.push(cells);
+    }
+
+    // A zero-row result still needs its header, which the loop above never saw.
+    if columns.is_empty() {
+        columns = stmt.column_names().into_iter().map(String::from).collect();
+    }
+
+    let row_count = out_rows.len();
+    Ok(SqlResult {
+        columns,
+        rows: out_rows,
+        row_count,
+    })
 }
 
 /// Render a job's logs as a plain text file suitable for sharing.
@@ -347,7 +597,7 @@ mod tests {
         let result = query_logs(
             &path,
             &LogQuery {
-                level: Some("error".to_string()),
+                levels: Some(vec!["error".to_string()]),
                 ..Default::default()
             },
         )
@@ -385,6 +635,112 @@ mod tests {
         )
         .unwrap();
         assert_eq!(by_step.len(), 1);
+    }
+
+    #[test]
+    fn test_query_logs_filters_by_multiple_levels() {
+        let dir = TempDir::new().unwrap();
+        let path = write_log(
+            &dir,
+            &[
+                sample_line(0, "info", "hello"),
+                sample_line(1, "warning", "careful"),
+                sample_line(2, "error", "boom"),
+            ],
+        );
+        let result = query_logs(
+            &path,
+            &LogQuery {
+                levels: Some(vec!["warning".to_string(), "error".to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|l| l.level != "info"));
+    }
+
+    #[test]
+    fn test_empty_levels_list_does_not_filter() {
+        let dir = TempDir::new().unwrap();
+        let path = write_log(
+            &dir,
+            &[
+                sample_line(0, "info", "hello"),
+                sample_line(1, "error", "boom"),
+            ],
+        );
+        let result = query_logs(
+            &path,
+            &LogQuery {
+                levels: Some(vec![]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_query_repo_logs_spans_runs_with_ids() {
+        let dir = TempDir::new().unwrap();
+        let repo = dir.path().to_string_lossy().to_string();
+        for run_id in [1i64, 2i64] {
+            let writer = LogWriter::create(&repo, run_id, "build").unwrap();
+            writer
+                .write_line(&sample_line(0, "info", &format!("run {}", run_id)))
+                .unwrap();
+            writer.flush().unwrap();
+        }
+
+        let result = query_repo_logs(&repo, &LogQuery::default()).unwrap();
+        assert_eq!(result.len(), 2);
+        // Newest run first, and run/job identity is recovered from the path.
+        assert_eq!(result[0].run_id, 2);
+        assert_eq!(result[0].job_id, "build");
+    }
+
+    #[test]
+    fn test_query_repo_logs_empty_without_runs() {
+        let dir = TempDir::new().unwrap();
+        let result = query_repo_logs(&dir.path().to_string_lossy(), &LogQuery::default()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_validate_sql_rejects_writes_and_multiple_statements() {
+        assert!(validate_sql("SELECT * FROM logs").is_ok());
+        assert!(validate_sql("WITH x AS (SELECT 1) SELECT * FROM x").is_ok());
+        assert!(validate_sql("DROP TABLE logs").is_err());
+        assert!(validate_sql("SELECT 1; DROP TABLE logs").is_err());
+        assert!(validate_sql("COPY logs TO '/tmp/out.csv'").is_err());
+        assert!(validate_sql("").is_err());
+    }
+
+    #[test]
+    fn test_run_logs_sql_returns_columns_and_rows() {
+        let dir = TempDir::new().unwrap();
+        let repo = dir.path().to_string_lossy().to_string();
+        let writer = LogWriter::create(&repo, 1, "build").unwrap();
+        writer.write_line(&sample_line(0, "error", "boom")).unwrap();
+        writer.write_line(&sample_line(1, "info", "fine")).unwrap();
+        writer.flush().unwrap();
+
+        let result = run_logs_sql(
+            &repo,
+            "SELECT level, count(*) AS n FROM logs GROUP BY level ORDER BY level",
+            100,
+        )
+        .unwrap();
+        assert_eq!(result.columns, vec!["level", "n"]);
+        assert_eq!(result.row_count, 2);
+    }
+
+    #[test]
+    fn test_run_logs_sql_rejects_disallowed_statement() {
+        let dir = TempDir::new().unwrap();
+        let err = run_logs_sql(&dir.path().to_string_lossy(), "DELETE FROM logs", 100).unwrap_err();
+        assert!(err.contains("read-only"));
     }
 
     #[test]

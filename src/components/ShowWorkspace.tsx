@@ -40,6 +40,7 @@ import { CommitDiffViewer } from "./CommitDiffViewer";
 import { WorkspaceBookmarkConflictModal } from "./WorkspaceBookmarkConflictModal";
 import { WorkspaceStackPanel } from "./WorkspaceStackPanel";
 import { ChecksTab } from "./ChecksTab";
+import { LogsTab } from "./LogsTab";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -80,6 +81,7 @@ import {
 	Trash2,
 	Upload,
 	Workflow,
+	Database,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1079,6 +1081,15 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 								<Workflow className="w-4 h-4" />
 								<span>Checks</span>
 							</TabsTrigger>
+							{!workspace && (
+								<TabsTrigger
+									value="logs"
+									className="inline-flex items-center gap-1.5"
+								>
+									<Database className="w-4 h-4" />
+									<span>Logs</span>
+								</TabsTrigger>
+							)}
 						</TabsList>
 					</Tabs>
 					<div className="flex items-center gap-3">
@@ -1362,6 +1373,8 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 							onViewTentativeChanges={handleViewTentativeChanges}
 							onDeleteTentativeChanges={handleDeleteTentativeChanges}
 						/>
+					) : activeTab === "logs" ? (
+						<LogsTab repoPath={effectiveRepoPath ?? ""} />
 					) : activeTab === "checks" ? (
 						<ChecksTab
 							repoPath={effectiveRepoPath ?? ""}

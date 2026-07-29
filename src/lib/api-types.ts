@@ -554,3 +554,19 @@ export interface LogLine {
 	level: string;
 	message: string;
 }
+
+export interface RepoLogLine {
+	run_id: number;
+	job_id: string;
+	ts: string;
+	step_index: number;
+	step_name: string;
+	stream: string;
+	level: string;
+	message: string;
+}
+export interface SqlResult {
+	columns: string[];
+	rows: (string | null)[][];
+	row_count: number;
+}

@@ -246,11 +246,39 @@ describe("Checks logs browser", () => {
 		);
 		await screen.findByText("hello-from-logs");
 
-		await user.click(await screen.findByRole("button", { name: "error" }));
+		await user.click(await screen.findByTestId("log-level-filter"));
+		await user.click(
+			await screen.findByRole("menuitemcheckbox", { name: /error/i }),
+		);
 
 		await waitFor(() => {
 			const lines = document.querySelectorAll('[data-testid="log-line"]');
 			expect(lines.length).toBe(1);
+		});
+		expect(screen.queryByText("hello-from-logs")).toBeNull();
+	});
+
+	it("selects multiple levels at once in the filter", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await runBuildJob(repoPath, "logs-multi");
+
+		await user.click(
+			(await screen.findAllByRole("button", { name: /^Logs/ }))[0],
+		);
+		await screen.findByText("hello-from-logs");
+
+		await user.click(await screen.findByTestId("log-level-filter"));
+		await user.click(
+			await screen.findByRole("menuitemcheckbox", { name: /warning/i }),
+		);
+		await user.click(
+			await screen.findByRole("menuitemcheckbox", { name: /error/i }),
+		);
+
+		await waitFor(() => {
+			const lines = document.querySelectorAll('[data-testid="log-line"]');
+			expect(lines.length).toBe(2);
 		});
 		expect(screen.queryByText("hello-from-logs")).toBeNull();
 	});

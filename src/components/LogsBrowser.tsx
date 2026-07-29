@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { exportRunLogs, getRunLogs } from "../lib/api";
 import type { LogLine } from "../lib/api-types";
 import { cn } from "../lib/utils";
+import { LogLevelFilter } from "./LogLevelFilter";
 
 interface Props {
 	repoPath: string;
@@ -15,8 +16,7 @@ interface Props {
 	onBack: () => void;
 }
 
-const LEVEL_FILTERS = ["all", "info", "warning", "error"] as const;
-type LevelFilter = (typeof LEVEL_FILTERS)[number];
+export { levelClass, formatTimestamp };
 
 /** Info stays uncolored so warnings and errors are what draw the eye. */
 function levelClass(level: string): string {
@@ -38,7 +38,7 @@ export function LogsBrowser({
 	initialStepIndex,
 	onBack,
 }: Props) {
-	const [level, setLevel] = useState<LevelFilter>("all");
+	const [levels, setLevels] = useState<string[]>([]);
 	const [search, setSearch] = useState("");
 	const [stepIndex, setStepIndex] = useState<number | undefined>(
 		initialStepIndex,
@@ -46,10 +46,10 @@ export function LogsBrowser({
 	const [exportedTo, setExportedTo] = useState<string | null>(null);
 
 	const { data: lines = [], isLoading } = useQuery({
-		queryKey: ["run-logs", repoPath, runId, jobId, level, search, stepIndex],
+		queryKey: ["run-logs", repoPath, runId, jobId, levels, search, stepIndex],
 		queryFn: () =>
 			getRunLogs(repoPath, runId, jobId, {
-				level: level === "all" ? undefined : level,
+				levels: levels.length > 0 ? levels : undefined,
 				search: search || undefined,
 				stepIndex,
 			}),
@@ -90,18 +90,7 @@ export function LogsBrowser({
 			</div>
 
 			<div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-muted/30">
-				<div className="flex items-center gap-1">
-					{LEVEL_FILTERS.map((option) => (
-						<Button
-							key={option}
-							size="sm"
-							variant={level === option ? "secondary" : "ghost"}
-							onClick={() => setLevel(option)}
-						>
-							{option}
-						</Button>
-					))}
-				</div>
+				<LogLevelFilter value={levels} onChange={setLevels} />
 
 				{steps.length > 1 && (
 					<select
