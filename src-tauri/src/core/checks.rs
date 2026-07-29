@@ -1,5 +1,5 @@
 use crate::core::checks_logs::{
-    infer_level, job_log_relative_path, make_log_line, now_unix_nano, strip_ansi, LogWriter,
+    infer_level, job_log_relative_path, make_log_line, now_timestamp, strip_ansi, LogWriter,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -302,7 +302,7 @@ fn run_job_in_run(
                     let Ok(raw) = line else { break };
                     let message = strip_ansi(&raw);
                     let entry = make_log_line(
-                        now_unix_nano(),
+                        now_timestamp(),
                         run_id,
                         &job_id_for_logs,
                         step_index as i64,
@@ -346,7 +346,7 @@ fn run_job_in_run(
 
         if timed_out {
             let _ = writer.write_line(&make_log_line(
-                now_unix_nano(),
+                now_timestamp(),
                 run_id,
                 job_id,
                 step_index as i64,

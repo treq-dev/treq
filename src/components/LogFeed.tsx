@@ -125,7 +125,7 @@ export function LogFeed({
 				{records.map((record, index) => (
 					<button
 						type="button"
-						key={`${record.run_id}-${record.job_id}-${record.time_unix_nano}-${index}`}
+						key={`${record.run_id}-${record.job_id}-${record.timestamp}-${index}`}
 						data-testid={lineTestId}
 						data-level={record.severity_text}
 						data-selected={selected.has(index) ? "true" : undefined}

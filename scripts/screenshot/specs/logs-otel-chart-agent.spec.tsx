@@ -57,7 +57,10 @@ it("captures the OTel logs tab, chart, selection and templates menu", async () =
 			"A chart area is rendered between the filter row and the log lines, with a legend showing Info, Warn and Error.",
 			"The chart draws stacked bars with a numeric y-axis and time labels along the x-axis.",
 			"The bars stack in severity order with Info blue at the bottom, Warn amber above it and Error red on top.",
-			"Ignore the chart's narrow width and any legend/axis overlap: jsdom reports a zero-width container, so ECharts falls back to a 100px canvas here instead of filling the panel.",
+			"The legend sits in its own band above the plot area and does not overlap any bar.",
+			"The x-axis has a tick for every time bucket in the range, including quiet ones with no bars.",
+			"Time runs oldest-on-the-left to newest-on-the-right along the x-axis.",
+			"Ignore the chart's narrow overall width: jsdom reports a zero-width container, so ECharts falls back to a 100px canvas here instead of filling the panel.",
 			'Below the chart a toolbar shows "Multi-select", "Select all" and a disabled "Send to agent" button.',
 			"Log lines appear beneath, each with a timestamp, run id, blue job id and the message.",
 		],
@@ -109,9 +112,9 @@ it("captures the OTel logs tab, chart, selection and templates menu", async () =
 	await captureDocument(document, {
 		name: "logs-otel-04-explorer-results",
 		expectations: [
-			'The SQL editor shows a query selecting timestamp, severity_text, job_id and body from the logs view.',
-			'A result grid below has columns "timestamp", "severity_text", "job_id" and "body".',
-			'The severity_text column contains OpenTelemetry severity names such as "INFO", "WARN" or "ERROR" — not lowercase "info"/"error".',
+			'The SQL editor shows a query selecting timestamp, severityText, attributes.job_id and body.message from the logs view.',
+			'A result grid below has columns "timestamp", "severityText", "job_id" and "message".',
+			'The severityText column contains OpenTelemetry severity names such as "INFO", "WARN" or "ERROR" — not lowercase "info"/"error".',
 			'A "Send results to agent" button appears next to "Run query" now that a result set exists.',
 		],
 	});

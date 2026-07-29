@@ -146,7 +146,7 @@ export function LogsBrowser({
 
 			{records.length > 0 && (
 				<div className="px-2 pt-2 border-b">
-					<LogsTimeseriesChart buckets={buckets} />
+					<LogsTimeseriesChart buckets={buckets} bucketSeconds={1} />
 				</div>
 			)}
 

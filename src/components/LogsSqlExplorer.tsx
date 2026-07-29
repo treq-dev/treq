@@ -23,8 +23,11 @@ interface Props {
 	onSendToAgent?: (prompt: string) => void;
 }
 
-const DEFAULT_QUERY =
-	"SELECT timestamp, severity_text, job_id, body\nFROM logs\nORDER BY run_id DESC, time_unix_nano\nLIMIT 50";
+const DEFAULT_QUERY = `SELECT timestamp, severityText, attributes.job_id AS job_id,
+       body.message AS message
+FROM logs
+ORDER BY timestamp DESC
+LIMIT 50`;
 
 const TEMPLATES: { label: string; description: string; sql: string }[] = [
 	{
@@ -35,22 +38,39 @@ const TEMPLATES: { label: string; description: string; sql: string }[] = [
 	{
 		label: "Errors by job",
 		description: "Which jobs produce the most ERROR records",
-		sql: "SELECT job_id, count(*) AS errors\nFROM logs\nWHERE severity_text = 'ERROR'\nGROUP BY job_id\nORDER BY errors DESC",
+		sql: `SELECT attributes.job_id AS job_id, count(*) AS errors
+FROM logs
+WHERE severityText = 'ERROR'
+GROUP BY job_id
+ORDER BY errors DESC`,
 	},
 	{
 		label: "Severity by run",
 		description: "Record counts per run, split by severity",
-		sql: "SELECT run_id, severity_text, count(*) AS records\nFROM logs\nGROUP BY run_id, severity_text\nORDER BY run_id DESC, severity_text",
+		sql: `SELECT attributes.run_id AS run_id, severityText, count(*) AS records
+FROM logs
+GROUP BY run_id, severityText
+ORDER BY run_id DESC, severityText`,
 	},
 	{
 		label: "Slowest steps",
 		description: "Wall-clock span of each step, longest first",
-		sql: "SELECT job_id, step_name,\n       (max(time_unix_nano) - min(time_unix_nano)) / 1000000 AS duration_ms\nFROM logs\nGROUP BY job_id, step_name\nORDER BY duration_ms DESC",
+		sql: `SELECT attributes.job_id AS job_id, attributes.step_name AS step_name,
+       datediff('millisecond', min(CAST(timestamp AS TIMESTAMP)),
+                max(CAST(timestamp AS TIMESTAMP))) AS duration_ms
+FROM logs
+GROUP BY job_id, step_name
+ORDER BY duration_ms DESC`,
 	},
 	{
 		label: "Trace overview",
 		description: "One row per trace and span, with severity counts",
-		sql: "SELECT trace_id, span_id, job_id,\n       count(*) AS records,\n       count(*) FILTER (WHERE severity_text = 'ERROR') AS errors\nFROM logs\nGROUP BY trace_id, span_id, job_id\nORDER BY errors DESC, records DESC",
+		sql: `SELECT traceId, spanId, attributes.job_id AS job_id,
+       count(*) AS records,
+       count(*) FILTER (WHERE severityText = 'ERROR') AS errors
+FROM logs
+GROUP BY traceId, spanId, job_id
+ORDER BY errors DESC, records DESC`,
 	},
 ];
 

@@ -258,7 +258,7 @@ describe("Home repo Logs tab", () => {
 		await user.clear(editor);
 		await user.type(
 			editor,
-			"SELECT severity_text, severity_number, body, trace_id, span_id, service_name FROM logs",
+			"SELECT severityText, severityNumber, body.message AS message, traceId, spanId, attributes.run_id AS run_id FROM logs",
 		);
 
 		const explorer = await screen.findByTestId("logs-sql-explorer");
@@ -269,7 +269,9 @@ describe("Home repo Logs tab", () => {
 		const table = await screen.findByTestId("sql-results");
 		await waitFor(() => {
 			expect(within(table).getAllByText("ERROR").length).toBeGreaterThan(0);
-			expect(within(table).getAllByText("treq").length).toBeGreaterThan(0);
+		});
+		await waitFor(() => {
+			expect(within(table).getAllByText("1").length).toBeGreaterThan(0);
 		});
 	});
 

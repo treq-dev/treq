@@ -547,7 +547,6 @@ export interface RunSummary {
 	jobs: RunJobSummary[];
 }
 export interface LogRecordView {
-	time_unix_nano: number;
 	timestamp: string;
 	severity_number: number;
 	severity_text: string;
