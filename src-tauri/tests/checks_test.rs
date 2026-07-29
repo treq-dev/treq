@@ -38,8 +38,9 @@ fn test_run_workflow_job_success() {
     repo.write_workflow("ci.yaml", PASSING_WORKFLOW)
         .expect("Failed to write workflow");
     treq_lib::local_db::trust_repo(&repo.repo_path).expect("Failed to trust repo");
-    let result = core::run_workflow_job_sync(&repo.repo_path, "ci.yaml", "greet", 0, &repo.repo_path)
-        .expect("Failed to run job");
+    let result =
+        core::run_workflow_job_sync(&repo.repo_path, "ci.yaml", "greet", 0, &repo.repo_path)
+            .expect("Failed to run job");
     assert!(result.success);
     assert!(!result.steps.is_empty());
 }
@@ -50,8 +51,9 @@ fn test_run_workflow_job_stops_at_first_failure() {
     repo.write_workflow("ci.yaml", FAILING_WORKFLOW)
         .expect("Failed to write workflow");
     treq_lib::local_db::trust_repo(&repo.repo_path).expect("Failed to trust repo");
-    let result = core::run_workflow_job_sync(&repo.repo_path, "ci.yaml", "check", 0, &repo.repo_path)
-        .expect("Failed to run job");
+    let result =
+        core::run_workflow_job_sync(&repo.repo_path, "ci.yaml", "check", 0, &repo.repo_path)
+            .expect("Failed to run job");
     assert!(!result.success);
     assert_eq!(result.steps.len(), 1);
 }
@@ -62,8 +64,14 @@ fn test_run_workflow_job_unknown_job_error() {
     repo.write_workflow("ci.yaml", PASSING_WORKFLOW)
         .expect("Failed to write workflow");
     treq_lib::local_db::trust_repo(&repo.repo_path).expect("Failed to trust repo");
-    let err = core::run_workflow_job_sync(&repo.repo_path, "ci.yaml", "nonexistent", 0, &repo.repo_path)
-        .unwrap_err();
+    let err = core::run_workflow_job_sync(
+        &repo.repo_path,
+        "ci.yaml",
+        "nonexistent",
+        0,
+        &repo.repo_path,
+    )
+    .unwrap_err();
     assert!(err.contains("nonexistent"));
 }
 

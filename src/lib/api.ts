@@ -589,7 +589,13 @@ export const runWorkflowJob = (
 	workspaceId: number,
 	workspacePath: string,
 ): Promise<JobResult> =>
-	invoke("run_workflow_job", { repoPath, filename, jobId, workspaceId, workspacePath });
+	invoke("run_workflow_job", {
+		repoPath,
+		filename,
+		jobId,
+		workspaceId,
+		workspacePath,
+	});
 
 export const runWorkflow = (
 	repoPath: string,

@@ -35,7 +35,6 @@ jobs:
         run: echo skipped
 ";
 
-
 fn random_default_branch_name() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);

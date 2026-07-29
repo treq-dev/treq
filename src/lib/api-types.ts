@@ -509,8 +509,25 @@ export interface ConflictRegion {
 	comparison: ConflictComparisonView;
 }
 
-export interface WorkflowStepInfo { name: string; }
-export interface WorkflowJobInfo { id: string; name: string; steps: WorkflowStepInfo[]; }
-export interface WorkflowInfo { filename: string; name: string; jobs: WorkflowJobInfo[]; }
-export interface StepResult { name: string; success: boolean; }
-export interface JobResult { job_id: string; steps: StepResult[]; success: boolean; }
+export interface WorkflowStepInfo {
+	name: string;
+}
+export interface WorkflowJobInfo {
+	id: string;
+	name: string;
+	steps: WorkflowStepInfo[];
+}
+export interface WorkflowInfo {
+	filename: string;
+	name: string;
+	jobs: WorkflowJobInfo[];
+}
+export interface StepResult {
+	name: string;
+	success: boolean;
+}
+export interface JobResult {
+	job_id: string;
+	steps: StepResult[];
+	success: boolean;
+}

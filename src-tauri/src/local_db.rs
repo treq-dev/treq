@@ -2377,16 +2377,6 @@ mod tests {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct WorkflowRunRecord {
-    pub id: i64,
-    pub filename: String,
-    pub job_id: String,
-    pub success: bool,
-    pub steps_json: String,
-    pub ran_at: String,
-}
-
 pub fn add_workflow_run(
     repo_path: &str,
     workspace_id: i64,
@@ -2400,48 +2390,25 @@ pub fn add_workflow_run(
     conn.execute(
         "INSERT INTO workflow_runs (workspace_id, filename, job_id, success, steps_json, ran_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![workspace_id, filename, job_id, success as i64, steps_json, ran_at],
+        params![
+            workspace_id,
+            filename,
+            job_id,
+            success as i64,
+            steps_json,
+            ran_at
+        ],
     )
     .map_err(|e| format!("Failed to insert workflow_run: {}", e))?;
     Ok(conn.last_insert_rowid())
 }
 
-pub fn get_latest_workflow_run(
-    repo_path: &str,
-    workspace_id: i64,
-    filename: &str,
-    job_id: &str,
-) -> Result<Option<WorkflowRunRecord>, String> {
-    let conn = get_connection(repo_path)?;
-    conn.query_row(
-        "SELECT id, filename, job_id, success, steps_json, ran_at
-         FROM workflow_runs
-         WHERE workspace_id = ?1 AND filename = ?2 AND job_id = ?3
-         ORDER BY id DESC LIMIT 1",
-        params![workspace_id, filename, job_id],
-        |row| {
-            Ok(WorkflowRunRecord {
-                id: row.get(0)?,
-                filename: row.get(1)?,
-                job_id: row.get(2)?,
-                success: row.get::<_, i64>(3)? != 0,
-                steps_json: row.get(4)?,
-                ran_at: row.get(5)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(|e| format!("Failed to query workflow_run: {}", e))
-}
-
 pub fn is_repo_trusted(repo_path: &str) -> bool {
     get_connection(repo_path)
         .and_then(|conn| {
-            conn.query_row(
-                "SELECT COUNT(*) FROM repo_trust",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
+            conn.query_row("SELECT COUNT(*) FROM repo_trust", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .map_err(|e| format!("Failed to query repo_trust: {}", e))
         })
         .map(|count| count > 0)

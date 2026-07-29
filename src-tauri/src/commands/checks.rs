@@ -44,11 +44,9 @@ pub async fn run_workflow(
 
 #[tauri::command]
 pub async fn is_repo_trusted(repo_path: String) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        Ok(crate::local_db::is_repo_trusted(&repo_path))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || Ok(crate::local_db::is_repo_trusted(&repo_path)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

@@ -151,12 +151,20 @@ pub fn list_workflows_sync(repo_path: &str) -> Result<Vec<WorkflowInfo>, String>
             .map(|(id, def)| JobInfo {
                 id: id.clone(),
                 name: def.name.unwrap_or_else(|| id),
-                steps: def.steps.into_iter().map(|s| StepInfo { name: s.name }).collect(),
+                steps: def
+                    .steps
+                    .into_iter()
+                    .map(|s| StepInfo { name: s.name })
+                    .collect(),
             })
             .collect();
         jobs.sort_by(|a, b| a.id.cmp(&b.id));
 
-        workflows.push(WorkflowInfo { filename, name: wf.name, jobs });
+        workflows.push(WorkflowInfo {
+            filename,
+            name: wf.name,
+            jobs,
+        });
     }
 
     Ok(workflows)
@@ -262,7 +270,10 @@ pub fn run_workflow_job_sync(
         };
 
         let success = exit_status.success();
-        step_results.push(StepResult { name: step.name.clone(), success });
+        step_results.push(StepResult {
+            name: step.name.clone(),
+            success,
+        });
 
         if !success {
             break;
@@ -423,11 +434,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let workflows_dir = dir.path().join(".treq").join("workflows");
         fs::create_dir_all(&workflows_dir).unwrap();
-        fs::write(workflows_dir.join("broken.yaml"), "this: is: not: valid: yaml: :::").unwrap();
+        fs::write(
+            workflows_dir.join("broken.yaml"),
+            "this: is: not: valid: yaml: :::",
+        )
+        .unwrap();
         // valid workflow alongside the broken one
-        let content = make_workflow(
-            "  j:\n    steps:\n      - name: s\n        run: echo x\n",
-        );
+        let content = make_workflow("  j:\n    steps:\n      - name: s\n        run: echo x\n");
         fs::write(workflows_dir.join("valid.yaml"), &content).unwrap();
         let result = list_workflows_sync(&dir.path().to_string_lossy()).unwrap();
         assert_eq!(result.len(), 1);
@@ -437,9 +450,7 @@ mod tests {
     #[test]
     fn test_list_workflows_sorted_by_filename() {
         let dir = TempDir::new().unwrap();
-        let content = make_workflow(
-            "  j:\n    steps:\n      - name: s\n        run: echo x\n",
-        );
+        let content = make_workflow("  j:\n    steps:\n      - name: s\n        run: echo x\n");
         let repo = write_workflow(&dir, "b.yaml", &content);
         write_workflow(&dir, "a.yaml", &content);
         let result = list_workflows_sync(&repo).unwrap();
@@ -450,9 +461,8 @@ mod tests {
     #[test]
     fn test_run_job_requires_trust() {
         let dir = TempDir::new().unwrap();
-        let content = make_workflow(
-            "  greet:\n    steps:\n      - name: Say hi\n        run: echo hi\n",
-        );
+        let content =
+            make_workflow("  greet:\n    steps:\n      - name: Say hi\n        run: echo hi\n");
         let repo = write_workflow(&dir, "ci.yaml", &content);
         crate::local_db::init_local_db(&repo).unwrap();
         // NOT trusting the repo
@@ -473,9 +483,8 @@ mod tests {
     #[test]
     fn test_run_job_success() {
         let dir = TempDir::new().unwrap();
-        let content = make_workflow(
-            "  greet:\n    steps:\n      - name: Say hi\n        run: echo hi\n",
-        );
+        let content =
+            make_workflow("  greet:\n    steps:\n      - name: Say hi\n        run: echo hi\n");
         let repo = setup_trusted_repo(&dir, "ci.yaml", &content);
         let result = run_workflow_job_sync(&repo, "ci.yaml", "greet", 0, &repo).unwrap();
         assert!(result.success);
@@ -497,9 +506,8 @@ mod tests {
     #[test]
     fn test_run_job_unknown_job_returns_error() {
         let dir = TempDir::new().unwrap();
-        let content = make_workflow(
-            "  greet:\n    steps:\n      - name: hi\n        run: echo hi\n",
-        );
+        let content =
+            make_workflow("  greet:\n    steps:\n      - name: hi\n        run: echo hi\n");
         let repo = setup_trusted_repo(&dir, "ci.yaml", &content);
         let err = run_workflow_job_sync(&repo, "ci.yaml", "nonexistent", 0, &repo).unwrap_err();
         assert!(err.contains("nonexistent"));
