@@ -234,6 +234,9 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 
 		// Show overview tab by default for main repo, changes tab for workspaces
 		const [activeTab, setActiveTab] = useState("overview");
+		const [reviewSubView, setReviewSubView] = useState<"diff" | "browser">(
+			"diff",
+		);
 		const [scrollToCommitId, setScrollToCommitId] = useState<string | null>(
 			null,
 		);
@@ -959,13 +962,6 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 									</span>
 								)}
 							</TabsTrigger>
-							<TabsTrigger
-								value="browser"
-								className="inline-flex items-center gap-1.5"
-							>
-								<Globe className="w-4 h-4" />
-								<span>Browser</span>
-							</TabsTrigger>
 						</TabsList>
 					</Tabs>
 					<div className="flex items-center gap-3">
@@ -1247,35 +1243,61 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 							onViewTentativeChanges={handleViewTentativeChanges}
 							onDeleteTentativeChanges={handleDeleteTentativeChanges}
 						/>
-					) : activeTab === "browser" ? (
-						<BrowserPanel
-							repoPath={effectiveRepoPath}
-							workspaceId={workspace?.id}
-							onCreateAgentWithReview={handleCreateAgentWithPageReview}
-						/>
 					) : (
-						<ChangesDiffViewer
-							key={`changes-${workingDirectory}`}
-							ref={changesDiffViewerRef}
-							workspacePath={workingDirectory}
-							workspaceId={workspace?.id}
-							repoPath={effectiveRepoPath}
-							onChangedFilesChange={handleChangedFilesUpdate}
-							onRefreshingChange={handleRefreshingChange}
-							initialSelectedFile={initialSelectedFile}
-							conflictedFiles={normalizedConflictedFiles}
-							onCreateAgentWithReview={handleCreateAgentWithReview}
-							showCommittedChanges={
-								workspace && workspace.branch_name !== defaultTargetBranch
-									? showCommittedChanges
-									: false
-							}
-							onMoveFilesToNewWorkspace={
-								onMoveFilesToNewWorkspace
-									? (files) => onMoveFilesToNewWorkspace(files, workspace)
-									: undefined
-							}
-						/>
+						<div className="flex flex-col h-full min-h-0">
+							<div className="flex-shrink-0 flex items-center gap-1 px-4 py-1.5 border-b border-border">
+								<Button
+									size="sm"
+									variant={reviewSubView === "diff" ? "secondary" : "ghost"}
+									className="h-7 gap-1.5"
+									onClick={() => setReviewSubView("diff")}
+								>
+									<FileDiff className="w-3.5 h-3.5" />
+									Diff
+								</Button>
+								<Button
+									size="sm"
+									variant={reviewSubView === "browser" ? "secondary" : "ghost"}
+									className="h-7 gap-1.5"
+									onClick={() => setReviewSubView("browser")}
+								>
+									<Globe className="w-3.5 h-3.5" />
+									Browser
+								</Button>
+							</div>
+							<div className="flex-1 min-h-0">
+								{reviewSubView === "browser" ? (
+									<BrowserPanel
+										repoPath={effectiveRepoPath}
+										workspaceId={workspace?.id}
+										onCreateAgentWithReview={handleCreateAgentWithPageReview}
+									/>
+								) : (
+									<ChangesDiffViewer
+										key={`changes-${workingDirectory}`}
+										ref={changesDiffViewerRef}
+										workspacePath={workingDirectory}
+										workspaceId={workspace?.id}
+										repoPath={effectiveRepoPath}
+										onChangedFilesChange={handleChangedFilesUpdate}
+										onRefreshingChange={handleRefreshingChange}
+										initialSelectedFile={initialSelectedFile}
+										conflictedFiles={normalizedConflictedFiles}
+										onCreateAgentWithReview={handleCreateAgentWithReview}
+										showCommittedChanges={
+											workspace && workspace.branch_name !== defaultTargetBranch
+												? showCommittedChanges
+												: false
+										}
+										onMoveFilesToNewWorkspace={
+											onMoveFilesToNewWorkspace
+												? (files) => onMoveFilesToNewWorkspace(files, workspace)
+												: undefined
+										}
+									/>
+								)}
+							</div>
+						</div>
 					)}
 				</div>
 			</div>

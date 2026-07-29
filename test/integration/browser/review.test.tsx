@@ -41,9 +41,15 @@ async function openBrowserTab(
 
 	await user.click(await findSidebarBranchElement(branchName));
 
-	const browserTab = await screen.findByRole("tab", { name: /^Browser/ });
-	await user.click(browserTab);
-	await screen.findByRole("tab", { name: /^Browser/, selected: true });
+	const reviewTab = await screen.findByRole("tab", { name: /^Review/ });
+	await user.click(reviewTab);
+	await screen.findByRole("tab", { name: /^Review/, selected: true });
+
+	const browserSubViewButton = await screen.findByRole("button", {
+		name: "Browser",
+	});
+	await user.click(browserSubViewButton);
+	await screen.findByLabelText(/browser url/i);
 }
 
 async function loadPage(user: ReturnType<typeof userEvent.setup>, url: string) {

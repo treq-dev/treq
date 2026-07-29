@@ -44,14 +44,19 @@ it("captures the in-app browser page review flow", async () => {
 	render(<Dashboard />);
 
 	await user.click(await findSidebarBranchElement("feat/browser-review"));
-	const browserTab = await screen.findByRole("tab", { name: /^Browser/ });
-	await user.click(browserTab);
-	await screen.findByRole("tab", { name: /^Browser/, selected: true });
+	const reviewTab = await screen.findByRole("tab", { name: /^Review/ });
+	await user.click(reviewTab);
+	await screen.findByRole("tab", { name: /^Review/, selected: true });
+	const browserSubViewButton = await screen.findByRole("button", {
+		name: "Browser",
+	});
+	await user.click(browserSubViewButton);
+	await screen.findByLabelText(/browser url/i);
 
 	await captureDocument(document, {
 		name: "browser-panel-review-01-empty",
 		expectations: [
-			"The Browser tab is active, showing an address bar and a placeholder message to enter a localhost or file URL.",
+			'The Review tab is active with its "Browser" sub-view selected, showing an address bar and a placeholder message to enter a localhost or file URL.',
 			'The "Finish review" and "Discard" buttons are visible but disabled since there are no comments yet.',
 		],
 	});
