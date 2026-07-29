@@ -16,7 +16,13 @@ pub async fn run_workflow_job(
     workspace_path: String,
 ) -> Result<JobResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::core::run_workflow_job_sync(&repo_path, &filename, &job_id, workspace_id, &workspace_path)
+        crate::core::run_workflow_job_sync(
+            &repo_path,
+            &filename,
+            &job_id,
+            workspace_id,
+            &workspace_path,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -34,4 +40,20 @@ pub async fn run_workflow(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn is_repo_trusted(repo_path: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(crate::local_db::is_repo_trusted(&repo_path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn trust_repo(repo_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::local_db::trust_repo(&repo_path))
+        .await
+        .map_err(|e| e.to_string())?
 }

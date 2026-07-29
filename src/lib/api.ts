@@ -598,3 +598,9 @@ export const runWorkflow = (
 	workspacePath: string,
 ): Promise<JobResult[]> =>
 	invoke("run_workflow", { repoPath, filename, workspaceId, workspacePath });
+
+export const isRepoTrusted = (repoPath: string): Promise<boolean> =>
+	invoke("is_repo_trusted", { repoPath });
+
+export const trustRepo = (repoPath: string): Promise<void> =>
+	invoke("trust_repo", { repoPath });

@@ -980,6 +980,18 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
 
+        "is_repo_trusted" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let trusted = treq_lib::local_db::is_repo_trusted(&repo_path);
+            Ok(serde_json::Value::Bool(trusted))
+        }
+
+        "trust_repo" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            treq_lib::local_db::trust_repo(&repo_path)?;
+            Ok(serde_json::Value::Null)
+        }
+
         // ── Tauri-runtime-only: silent no-ops ─────────────────────────────
         "pty_create_session"
         | "pty_session_exists"

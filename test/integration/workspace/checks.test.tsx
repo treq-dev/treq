@@ -6,7 +6,7 @@ import {
 	openRepo,
 	writeRepoFile,
 } from "../../utils";
-import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
+import { createWorkspace, getWorkspaces, trustRepo } from "../../../src/lib/api";
 import { render, screen, waitFor } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
@@ -95,6 +95,7 @@ describe("Checks tab", () => {
 		openRepo(repoPath);
 		await createWorkspace(repoPath, "checks-pass");
 		await writeRepoFile(repoPath, ".treq/workflows/ci.yaml", PASSING_WORKFLOW);
+		await trustRepo(repoPath);
 
 		await openChecksTab(user, "checks-pass");
 		await screen.findByText("Greet Job");
@@ -120,6 +121,7 @@ describe("Checks tab", () => {
 			".treq/workflows/ci.yaml",
 			FAILING_WORKFLOW,
 		);
+		await trustRepo(repoPath);
 
 		await openChecksTab(user, "checks-fail");
 		await screen.findByText("Check Job");

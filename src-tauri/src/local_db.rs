@@ -360,6 +360,15 @@ pub fn init_local_db(repo_path: &str) -> Result<PathBuf, String> {
     )
     .map_err(|e| format!("Failed to create workflow_runs table: {}", e))?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS repo_trust (
+            id INTEGER PRIMARY KEY,
+            trusted_at TEXT NOT NULL
+        )",
+        [],
+    )
+    .map_err(|e| format!("Failed to create repo_trust table: {}", e))?;
+
     // Migration: rename pending_reviews columns from old schema to new schema.
     let has_old_columns: Result<i64, _> = conn.query_row(
         "SELECT COUNT(*) FROM pragma_table_info('pending_reviews') WHERE name IN ('comments_json', 'overall_comment', 'viewed_files_json')",
@@ -2423,4 +2432,29 @@ pub fn get_latest_workflow_run(
     )
     .optional()
     .map_err(|e| format!("Failed to query workflow_run: {}", e))
+}
+
+pub fn is_repo_trusted(repo_path: &str) -> bool {
+    get_connection(repo_path)
+        .and_then(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM repo_trust",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| format!("Failed to query repo_trust: {}", e))
+        })
+        .map(|count| count > 0)
+        .unwrap_or(false)
+}
+
+pub fn trust_repo(repo_path: &str) -> Result<(), String> {
+    let conn = get_connection(repo_path)?;
+    let trusted_at = Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT OR IGNORE INTO repo_trust (id, trusted_at) VALUES (1, ?1)",
+        params![trusted_at],
+    )
+    .map_err(|e| format!("Failed to trust repo: {}", e))?;
+    Ok(())
 }

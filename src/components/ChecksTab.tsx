@@ -1,14 +1,21 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	CheckCircle2,
 	CircleDot,
 	Loader2,
 	Play,
+	ShieldCheck,
 	XCircle,
 } from "lucide-react";
 import { Button } from "./ui/button";
-import { listWorkflows, runWorkflow, runWorkflowJob } from "../lib/api";
+import {
+	isRepoTrusted,
+	listWorkflows,
+	runWorkflow,
+	runWorkflowJob,
+	trustRepo,
+} from "../lib/api";
 import type { JobResult, WorkflowInfo } from "../lib/api-types";
 
 interface Props {
@@ -18,18 +25,29 @@ interface Props {
 }
 
 export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
+	const queryClient = useQueryClient();
 	const [runningJobs, setRunningJobs] = useState<Set<string>>(new Set());
 	const [runningWorkflows, setRunningWorkflows] = useState<Set<string>>(
 		new Set(),
 	);
 	const [jobResults, setJobResults] = useState<Record<string, JobResult>>({});
 
-	const { data: workflows = [], isLoading } = useQuery({
+	const { data: isTrusted, isLoading: trustLoading } = useQuery({
+		queryKey: ["repo-trusted", repoPath],
+		queryFn: () => isRepoTrusted(repoPath),
+	});
+
+	const { data: workflows = [], isLoading: workflowsLoading } = useQuery({
 		queryKey: ["workflows", repoPath],
 		queryFn: () => listWorkflows(repoPath),
 	});
 
 	const jobKey = (filename: string, jobId: string) => `${filename}:${jobId}`;
+
+	async function handleTrustRepo() {
+		await trustRepo(repoPath);
+		queryClient.invalidateQueries({ queryKey: ["repo-trusted", repoPath] });
+	}
 
 	async function handleRunJob(wf: WorkflowInfo, jobId: string) {
 		const key = jobKey(wf.filename, jobId);
@@ -75,11 +93,11 @@ export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
 		}
 	}
 
-	if (isLoading) {
+	if (trustLoading || workflowsLoading) {
 		return (
 			<div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
 				<Loader2 className="h-4 w-4 animate-spin" />
-				Loading workflows…
+				Loading…
 			</div>
 		);
 	}
@@ -95,6 +113,25 @@ export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
 
 	return (
 		<div className="flex flex-col gap-4 p-4">
+			{!isTrusted && (
+				<div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm dark:border-amber-900 dark:bg-amber-950">
+					<div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+						<ShieldCheck className="h-4 w-4 shrink-0" />
+						<span>
+							Trust this repository to enable running workflow checks.
+						</span>
+					</div>
+					<Button
+						size="sm"
+						variant="outline"
+						className="ml-4 shrink-0"
+						onClick={handleTrustRepo}
+					>
+						Trust Repository
+					</Button>
+				</div>
+			)}
+
 			{workflows.map((wf) => (
 				<div
 					key={wf.filename}
@@ -110,7 +147,7 @@ export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
 						<Button
 							size="sm"
 							variant="outline"
-							disabled={runningWorkflows.has(wf.filename)}
+							disabled={!isTrusted || runningWorkflows.has(wf.filename)}
 							onClick={() => handleRunWorkflow(wf)}
 						>
 							{runningWorkflows.has(wf.filename) ? (
@@ -135,7 +172,11 @@ export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
 										<Button
 											size="sm"
 											variant="ghost"
-											disabled={isRunning || runningWorkflows.has(wf.filename)}
+											disabled={
+												!isTrusted ||
+												isRunning ||
+												runningWorkflows.has(wf.filename)
+											}
 											onClick={() => handleRunJob(wf, job.id)}
 										>
 											{isRunning ? (
