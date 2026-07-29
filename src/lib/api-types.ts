@@ -546,24 +546,25 @@ export interface RunSummary {
 	completed_at: string | null;
 	jobs: RunJobSummary[];
 }
-export interface LogLine {
-	ts: string;
-	step_index: number;
-	step_name: string;
-	stream: string;
-	level: string;
-	message: string;
-}
-
-export interface RepoLogLine {
+export interface LogRecordView {
+	time_unix_nano: number;
+	timestamp: string;
+	severity_number: number;
+	severity_text: string;
+	body: string;
+	trace_id: string;
+	span_id: string;
 	run_id: number;
 	job_id: string;
-	ts: string;
 	step_index: number;
 	step_name: string;
 	stream: string;
-	level: string;
-	message: string;
+}
+
+export interface LogBucket {
+	bucket: string;
+	severity_text: string;
+	count: number;
 }
 export interface SqlResult {
 	columns: string[];

@@ -8,6 +8,7 @@ import {
 } from "../../utils";
 import {
 	createWorkspace,
+	getSessions,
 	getWorkspaces,
 	trustRepo,
 } from "../../../src/lib/api";
@@ -230,7 +231,7 @@ describe("Checks logs browser", () => {
 		await screen.findByText("hello-from-logs");
 		await waitFor(() => {
 			const errorLines = document.querySelectorAll(
-				'[data-testid="log-line"][data-level="error"]',
+				'[data-testid="log-line"][data-level="ERROR"]',
 			);
 			expect(errorLines.length).toBeGreaterThan(0);
 		});
@@ -300,5 +301,28 @@ describe("Checks logs browser", () => {
 
 		const note = await screen.findByText(/Exported to/i);
 		expect(note.textContent).toContain(".log");
+	});
+	it("sends selected log lines to an agent from the checks browser", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await runBuildJob(repoPath, "logs-send");
+
+		await user.click(
+			(await screen.findAllByRole("button", { name: /^Logs/ }))[0],
+		);
+		await screen.findByText("hello-from-logs");
+
+		await user.click(await screen.findByTestId("multi-select-toggle"));
+		const lines = await screen.findAllByTestId("log-line");
+		await user.click(lines[0]);
+
+		const send = await screen.findByTestId("send-to-agent");
+		expect(send).toBeEnabled();
+		await user.click(send);
+
+		await waitFor(async () => {
+			const sessions = await getSessions(repoPath);
+			expect(sessions.some((s) => s.name === "Logs")).toBe(true);
+		});
 	});
 });

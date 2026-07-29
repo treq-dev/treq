@@ -21,12 +21,12 @@ import type {
 	JjRebaseResult,
 	JjRevisionDiff,
 	JobResult,
-	LogLine,
+	LogBucket,
+	LogRecordView,
 	MergeStrategy,
 	PullWorkspaceResult,
 	RepoBranch,
 	RenameWorkspaceResult,
-	RepoLogLine,
 	RunSummary,
 	SingleRebaseResult,
 	SqlResult,
@@ -639,7 +639,7 @@ export const getRunLogs = (
 		limit?: number;
 		offset?: number;
 	},
-): Promise<LogLine[]> =>
+): Promise<LogRecordView[]> =>
 	invoke("get_run_logs", {
 		repoPath,
 		runId,
@@ -659,13 +659,24 @@ export const getRepoLogs = (
 		limit?: number;
 		offset?: number;
 	},
-): Promise<RepoLogLine[]> =>
+): Promise<LogRecordView[]> =>
 	invoke("get_repo_logs", {
 		repoPath,
 		levels: options?.levels ?? null,
 		search: options?.search ?? null,
 		limit: options?.limit ?? null,
 		offset: options?.offset ?? null,
+	});
+
+export const getLogTimeseries = (
+	repoPath: string,
+	options?: { levels?: string[]; search?: string; bucketSeconds?: number },
+): Promise<LogBucket[]> =>
+	invoke("get_log_timeseries", {
+		repoPath,
+		levels: options?.levels ?? null,
+		search: options?.search ?? null,
+		bucketSeconds: options?.bucketSeconds ?? null,
 	});
 
 export const runLogsSql = (

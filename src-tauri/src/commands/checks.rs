@@ -1,4 +1,4 @@
-use crate::core::checks_logs::{LogLine, LogQuery, RepoLogLine, SqlResult};
+use crate::core::checks_logs::{LogBucket, LogQuery, LogRecordView, SqlResult};
 use crate::core::{JobResult, RunSummary, WorkflowInfo};
 
 #[tauri::command]
@@ -86,7 +86,7 @@ pub async fn get_run_logs(
     step_index: Option<i64>,
     limit: Option<i64>,
     offset: Option<i64>,
-) -> Result<Vec<LogLine>, String> {
+) -> Result<Vec<LogRecordView>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let query = LogQuery {
             levels,
@@ -108,7 +108,7 @@ pub async fn get_repo_logs(
     search: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
-) -> Result<Vec<RepoLogLine>, String> {
+) -> Result<Vec<LogRecordView>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let query = LogQuery {
             levels,
@@ -118,6 +118,31 @@ pub async fn get_repo_logs(
             offset,
         };
         crate::core::checks_logs::query_repo_logs(&repo_path, &query)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_log_timeseries(
+    repo_path: String,
+    levels: Option<Vec<String>>,
+    search: Option<String>,
+    bucket_seconds: Option<i64>,
+) -> Result<Vec<LogBucket>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let query = LogQuery {
+            levels,
+            search,
+            step_index: None,
+            limit: None,
+            offset: None,
+        };
+        crate::core::checks_logs::query_log_timeseries(
+            &repo_path,
+            &query,
+            bucket_seconds.unwrap_or(1),
+        )
     })
     .await
     .map_err(|e| e.to_string())?

@@ -1,0 +1,118 @@
+import * as React from "react";
+import { it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { createTestRepo, openRepo, writeRepoFile } from "../../../test/utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
+import { Dashboard } from "../../../src/components/Dashboard";
+import { createWorkspace, trustRepo } from "../../../src/lib/api";
+import { captureDocument } from "../capture";
+
+const LOGGING_WORKFLOW = `
+name: Pull request checks
+on:
+  workflow_dispatch: {}
+jobs:
+  build:
+    name: Build Job
+    steps:
+      - name: Compile
+        run: "echo 'Compiling treq v0.1.3'; echo 'warning: unused variable x'"
+      - name: Test
+        run: "echo 'running 2 tests'; echo 'error: assertion failed' 1>&2"
+`;
+
+it("captures the OTel logs tab, chart, selection and templates menu", async () => {
+	const { repoPath } = createTestRepo(false);
+	openRepo(repoPath);
+	await createWorkspace(repoPath, "feat/logs");
+	await writeRepoFile(repoPath, ".treq/workflows/ci.yaml", LOGGING_WORKFLOW);
+	await trustRepo(repoPath);
+
+	const user = userEvent.setup();
+	render(<Dashboard />);
+
+	const sidebar = document.querySelector(
+		`.${CSS.escape("group/sidebar")}`,
+	) as HTMLElement;
+	await waitFor(() => {
+		if (within(sidebar).queryAllByText("feat/logs").length === 0) {
+			throw new Error("workspace not in sidebar yet");
+		}
+	});
+	await user.click(within(sidebar).getAllByText("feat/logs")[0]);
+	await user.click(await screen.findByRole("tab", { name: /^Checks/ }));
+	await user.click(await screen.findByRole("button", { name: /Run Build Job/i }));
+	await screen.findByTestId("run-history-item");
+
+	await user.click(within(sidebar).getAllByText(/^branch-/)[0]);
+	await user.click(await screen.findByRole("tab", { name: /^Logs/ }));
+	await screen.findByText("Compiling treq v0.1.3");
+	await screen.findByTestId("logs-timeseries-chart");
+
+	await captureDocument(document, {
+		name: "logs-otel-01-browse-with-chart",
+		expectations: [
+			'The header reads "Checks logs" with the subtitle "OpenTelemetry records · .treq/runs/**/*.jsonl".',
+			'The view toggle offers "Browse" and "Logs Explorer" (not "SQL Explorer"), with Browse selected.',
+			"A chart area is rendered between the filter row and the log lines, with a legend showing Info, Warn and Error.",
+			"The chart draws stacked bars with a numeric y-axis and time labels along the x-axis.",
+			"The bars stack in severity order with Info blue at the bottom, Warn amber above it and Error red on top.",
+			"Ignore the chart's narrow width and any legend/axis overlap: jsdom reports a zero-width container, so ECharts falls back to a 100px canvas here instead of filling the panel.",
+			'Below the chart a toolbar shows "Multi-select", "Select all" and a disabled "Send to agent" button.',
+			"Log lines appear beneath, each with a timestamp, run id, blue job id and the message.",
+		],
+	});
+
+	// Drag across the first two lines to select a range.
+	const lines = await screen.findAllByTestId("repo-log-line");
+	await user.pointer([
+		{ target: lines[0], keys: "[MouseLeft>]" },
+		{ target: lines[1] },
+		{ keys: "[/MouseLeft]" },
+	]);
+	await waitFor(() => {
+		if (!document.querySelector('[data-testid="selection-count"]')) {
+			throw new Error("no selection yet");
+		}
+	});
+
+	await captureDocument(document, {
+		name: "logs-otel-02-drag-selection",
+		expectations: [
+			"The first two log lines are highlighted with a tinted background, marking them selected.",
+			'The toolbar reads "2 selected" and offers a "Clear" button.',
+			'The "Send to agent" button is now enabled rather than greyed out.',
+			"Log lines after the first two are not highlighted.",
+		],
+	});
+
+	// Switch to the explorer and open the templates dropdown.
+	await user.click(await screen.findByRole("button", { name: /Logs Explorer/i }));
+	await user.click(await screen.findByTestId("template-menu"));
+	await screen.findByText("Newest records across every run");
+
+	await captureDocument(document, {
+		name: "logs-otel-03-templates-menu",
+		expectations: [
+			"An open dropdown lists exactly five query templates.",
+			'Each template shows a bold label above a smaller grey description, e.g. "Errors by job" above "Which jobs produce the most ERROR records".',
+			'The five labels are "Recent lines", "Errors by job", "Severity by run", "Slowest steps" and "Trace overview".',
+			"Ignore where the dropdown sits on the page: jsdom reports zero-sized boxes so Radix cannot anchor it to the trigger in this harness.",
+		],
+	});
+
+	await user.keyboard("{Escape}");
+	const explorer = await screen.findByTestId("logs-sql-explorer");
+	await user.click(within(explorer).getByRole("button", { name: /Run query/i }));
+	await screen.findByTestId("sql-results");
+
+	await captureDocument(document, {
+		name: "logs-otel-04-explorer-results",
+		expectations: [
+			'The SQL editor shows a query selecting timestamp, severity_text, job_id and body from the logs view.',
+			'A result grid below has columns "timestamp", "severity_text", "job_id" and "body".',
+			'The severity_text column contains OpenTelemetry severity names such as "INFO", "WARN" or "ERROR" — not lowercase "info"/"error".',
+			'A "Send results to agent" button appears next to "Run query" now that a result set exists.',
+		],
+	});
+}, 90000);

@@ -21,7 +21,7 @@ jobs:
         run: "echo 'running 2 tests'; echo 'error: assertion failed' 1>&2"
 `;
 
-it("captures the home repo Logs tab, level multi-select and SQL explorer", async () => {
+it("captures the home repo Logs tab and the level multi-select", async () => {
 	const { repoPath } = createTestRepo(false);
 	openRepo(repoPath);
 	await createWorkspace(repoPath, "feat/logs");
@@ -54,8 +54,8 @@ it("captures the home repo Logs tab, level multi-select and SQL explorer", async
 	await captureDocument(document, {
 		name: "logs-tab-01-browse",
 		expectations: [
-			'A "Checks logs" data-source header is visible with the path ".treq/runs/**/*.jsonl" underneath it.',
-			'The header has "Browse" and "SQL Explorer" toggle buttons, with "Browse" currently selected.',
+			'A "Checks logs" data-source header is visible, subtitled "OpenTelemetry records · .treq/runs/**/*.jsonl".',
+			'The header has "Browse" and "Logs Explorer" toggle buttons, with "Browse" currently selected.',
 			'Log lines are listed in a monospace font, each with a timestamp, a "#<run id>" column, a blue "build" job-id column, and the message.',
 			'The warning line is amber and the error line is red; plain lines are the default colour.',
 			'A level filter button reading "All levels" sits above the log lines next to a search box.',
@@ -96,9 +96,10 @@ it("captures the home repo Logs tab, level multi-select and SQL explorer", async
 	});
 
 	// Switch to the SQL explorer and run an aggregate query.
-	await user.click(await screen.findByRole("button", { name: /SQL Explorer/i }));
+	await user.click(await screen.findByRole("button", { name: /Logs Explorer/i }));
 	const explorer = await screen.findByTestId("logs-sql-explorer");
-	await user.click(await screen.findByRole("button", { name: /Errors by job/i }));
+	await user.click(await screen.findByTestId("template-menu"));
+	await user.click(await screen.findByRole("menuitem", { name: /Errors by job/i }));
 	await user.click(within(explorer).getByRole("button", { name: /Run query/i }));
 	await screen.findByTestId("sql-results");
 
@@ -106,7 +107,7 @@ it("captures the home repo Logs tab, level multi-select and SQL explorer", async
 		name: "logs-tab-04-sql-explorer",
 		expectations: [
 			"A SQL editor shows a multi-line GROUP BY query against the logs view, in a monospace font.",
-			'A row of template buttons ("Recent lines", "Errors by job", "Lines per run") sits above the editor.',
+			'A "Templates" dropdown button sits above the editor.',
 			'A result grid is rendered below with column headers "job_id" and "errors", and a row containing "build".',
 			'A row count line such as "1 row" appears above the grid.',
 		],

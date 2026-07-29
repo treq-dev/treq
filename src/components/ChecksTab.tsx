@@ -25,6 +25,7 @@ interface Props {
 	repoPath: string;
 	workspaceId: number;
 	workspacePath: string;
+	onSendToAgent?: (prompt: string) => void;
 }
 
 interface LogTarget {
@@ -65,7 +66,12 @@ function RunStatusIcon({ status }: { status: string }) {
 	);
 }
 
-export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
+export function ChecksTab({
+	repoPath,
+	workspaceId,
+	workspacePath,
+	onSendToAgent,
+}: Props) {
 	const queryClient = useQueryClient();
 	const [runningJobs, setRunningJobs] = useState<Set<string>>(new Set());
 	const [runningWorkflows, setRunningWorkflows] = useState<Set<string>>(
@@ -157,6 +163,7 @@ export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
 				jobId={logTarget.jobId}
 				initialStepIndex={logTarget.stepIndex}
 				onBack={() => setLogTarget(null)}
+				onSendToAgent={onSendToAgent}
 			/>
 		);
 	}

@@ -110,7 +110,7 @@ describe("Home repo Logs tab", () => {
 
 		await openLogsTab();
 		await user.click(
-			await screen.findByRole("button", { name: /SQL Explorer/i }),
+			await screen.findByRole("button", { name: /Logs Explorer/i }),
 		);
 
 		const explorer = await screen.findByTestId("logs-sql-explorer");
@@ -129,10 +129,11 @@ describe("Home repo Logs tab", () => {
 
 		await openLogsTab();
 		await user.click(
-			await screen.findByRole("button", { name: /SQL Explorer/i }),
+			await screen.findByRole("button", { name: /Logs Explorer/i }),
 		);
+		await user.click(await screen.findByTestId("template-menu"));
 		await user.click(
-			await screen.findByRole("button", { name: /Errors by job/i }),
+			await screen.findByRole("menuitem", { name: /Errors by job/i }),
 		);
 
 		const explorer = await screen.findByTestId("logs-sql-explorer");
@@ -151,7 +152,7 @@ describe("Home repo Logs tab", () => {
 
 		await openLogsTab();
 		await user.click(
-			await screen.findByRole("button", { name: /SQL Explorer/i }),
+			await screen.findByRole("button", { name: /Logs Explorer/i }),
 		);
 
 		const editor = await screen.findByTestId("sql-editor");
@@ -165,5 +166,126 @@ describe("Home repo Logs tab", () => {
 
 		const error = await screen.findByTestId("sql-error");
 		expect(error.textContent).toMatch(/read-only/i);
+	});
+	it("renders a timeseries chart above the feed", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await seedLogs(repoPath, "logs-chart");
+
+		await openLogsTab();
+		await screen.findByText("hello-from-logs");
+
+		await screen.findByTestId("logs-timeseries-chart");
+	});
+
+	it("selects a range of lines by dragging and enables send to agent", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await seedLogs(repoPath, "logs-drag");
+
+		await openLogsTab();
+		await screen.findByText("hello-from-logs");
+
+		const lines = await screen.findAllByTestId("repo-log-line");
+		expect(screen.getByTestId("send-to-agent")).toBeDisabled();
+
+		await user.pointer([
+			{ target: lines[0], keys: "[MouseLeft>]" },
+			{ target: lines[1] },
+			{ keys: "[/MouseLeft]" },
+		]);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("selection-count").textContent).toMatch(/2 /);
+		});
+		expect(screen.getByTestId("send-to-agent")).toBeEnabled();
+	});
+
+	it("toggles individual lines in multi-select mode", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await seedLogs(repoPath, "logs-multi-pick");
+
+		await openLogsTab();
+		await screen.findByText("hello-from-logs");
+
+		await user.click(await screen.findByTestId("multi-select-toggle"));
+		const lines = await screen.findAllByTestId("repo-log-line");
+		await user.click(lines[1]);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("selection-count").textContent).toMatch(/1 /);
+		});
+
+		await user.click(lines[1]);
+		await waitFor(() => {
+			expect(screen.queryByTestId("selection-count")).toBeNull();
+		});
+	});
+
+	it("offers sending the whole result set from the explorer", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await seedLogs(repoPath, "logs-send-results");
+
+		await openLogsTab();
+		await user.click(
+			await screen.findByRole("button", { name: /Logs Explorer/i }),
+		);
+
+		expect(screen.queryByTestId("send-resultset-to-agent")).toBeNull();
+
+		const explorer = await screen.findByTestId("logs-sql-explorer");
+		await user.click(
+			within(explorer).getByRole("button", { name: /Run query/i }),
+		);
+		await screen.findByTestId("sql-results");
+
+		await screen.findByTestId("send-resultset-to-agent");
+	});
+
+	it("exposes OpenTelemetry columns in the logs view", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await seedLogs(repoPath, "logs-otel");
+
+		await openLogsTab();
+		await user.click(
+			await screen.findByRole("button", { name: /Logs Explorer/i }),
+		);
+
+		const editor = await screen.findByTestId("sql-editor");
+		await user.clear(editor);
+		await user.type(
+			editor,
+			"SELECT severity_text, severity_number, body, trace_id, span_id, service_name FROM logs",
+		);
+
+		const explorer = await screen.findByTestId("logs-sql-explorer");
+		await user.click(
+			within(explorer).getByRole("button", { name: /Run query/i }),
+		);
+
+		const table = await screen.findByTestId("sql-results");
+		await waitFor(() => {
+			expect(within(table).getAllByText("ERROR").length).toBeGreaterThan(0);
+			expect(within(table).getAllByText("treq").length).toBeGreaterThan(0);
+		});
+	});
+
+	it("lists five query templates with descriptions", async () => {
+		const { repoPath } = createTestRepo(false);
+		openRepo(repoPath);
+		await seedLogs(repoPath, "logs-templates");
+
+		await openLogsTab();
+		await user.click(
+			await screen.findByRole("button", { name: /Logs Explorer/i }),
+		);
+		await user.click(await screen.findByTestId("template-menu"));
+
+		const items = await screen.findAllByRole("menuitem");
+		expect(items).toHaveLength(5);
+		await screen.findByText("Newest records across every run");
 	});
 });

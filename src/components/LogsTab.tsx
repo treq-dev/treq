@@ -2,37 +2,51 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Database, Loader2, Table2 } from "lucide-react";
 import { Button } from "./ui/button";
-import { getRepoLogs } from "../lib/api";
-import type { RepoLogLine } from "../lib/api-types";
-import { cn } from "../lib/utils";
+import { getLogTimeseries, getRepoLogs } from "../lib/api";
+import type { LogRecordView } from "../lib/api-types";
 import { LogLevelFilter } from "./LogLevelFilter";
 import { LogsSqlExplorer } from "./LogsSqlExplorer";
-import { formatTimestamp, levelClass } from "./LogsBrowser";
+import { LogFeed } from "./LogFeed";
+import { LogsTimeseriesChart } from "./LogsTimeseriesChart";
+import { buildLogLinesPrompt } from "../lib/logs-prompt";
 
 interface Props {
 	repoPath: string;
+	onSendToAgent?: (prompt: string) => void;
 }
 
-type View = "browse" | "sql";
+type View = "browse" | "explorer";
 
 /**
- * Repo-level view of the checks log data source: browse every run's lines, or
+ * Repo-level view of the checks log data source: browse every run's records, or
  * drop into SQL for ad-hoc questions across runs.
  */
-export function LogsTab({ repoPath }: Props) {
+export function LogsTab({ repoPath, onSendToAgent }: Props) {
 	const [view, setView] = useState<View>("browse");
 	const [levels, setLevels] = useState<string[]>([]);
 	const [search, setSearch] = useState("");
 
-	const { data: lines = [], isLoading } = useQuery({
+	const browsing = view === "browse";
+	const filters = {
+		levels: levels.length > 0 ? levels : undefined,
+		search: search || undefined,
+	};
+
+	const { data: records = [], isLoading } = useQuery({
 		queryKey: ["repo-logs", repoPath, levels, search],
-		queryFn: () =>
-			getRepoLogs(repoPath, {
-				levels: levels.length > 0 ? levels : undefined,
-				search: search || undefined,
-			}),
-		enabled: view === "browse",
+		queryFn: () => getRepoLogs(repoPath, filters),
+		enabled: browsing,
 	});
+
+	const { data: buckets = [] } = useQuery({
+		queryKey: ["repo-logs-timeseries", repoPath, levels, search],
+		queryFn: () => getLogTimeseries(repoPath, { ...filters, bucketSeconds: 1 }),
+		enabled: browsing,
+	});
+
+	function handleSendToAgent(chosen: LogRecordView[]) {
+		onSendToAgent?.(buildLogLinesPrompt(chosen, "my check logs"));
+	}
 
 	return (
 		<div data-testid="logs-tab" className="flex flex-col h-full">
@@ -42,14 +56,14 @@ export function LogsTab({ repoPath }: Props) {
 					<div className="min-w-0">
 						<div className="text-sm font-medium">Checks logs</div>
 						<div className="text-xs text-muted-foreground font-mono truncate">
-							.treq/runs/**/*.jsonl
+							OpenTelemetry records · .treq/runs/**/*.jsonl
 						</div>
 					</div>
 				</div>
 				<div className="flex items-center gap-1">
 					<Button
 						size="sm"
-						variant={view === "browse" ? "secondary" : "ghost"}
+						variant={browsing ? "secondary" : "ghost"}
 						onClick={() => setView("browse")}
 					>
 						<Table2 className="h-3 w-3 mr-1" />
@@ -57,18 +71,16 @@ export function LogsTab({ repoPath }: Props) {
 					</Button>
 					<Button
 						size="sm"
-						variant={view === "sql" ? "secondary" : "ghost"}
-						onClick={() => setView("sql")}
+						variant={browsing ? "ghost" : "secondary"}
+						onClick={() => setView("explorer")}
 					>
 						<Database className="h-3 w-3 mr-1" />
-						SQL Explorer
+						Logs Explorer
 					</Button>
 				</div>
 			</div>
 
-			{view === "sql" ? (
-				<LogsSqlExplorer repoPath={repoPath} />
-			) : (
+			{browsing ? (
 				<>
 					<div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-muted/30">
 						<LogLevelFilter value={levels} onChange={setLevels} />
@@ -81,45 +93,39 @@ export function LogsTab({ repoPath }: Props) {
 						/>
 					</div>
 
-					<div
-						data-testid="repo-logs-output"
-						className="flex-1 overflow-auto font-mono text-xs leading-relaxed p-3"
-					>
-						{isLoading ? (
-							<div className="flex items-center gap-2 text-muted-foreground">
-								<Loader2 className="h-4 w-4 animate-spin" />
-								Loading logs…
-							</div>
-						) : lines.length === 0 ? (
-							<div className="text-muted-foreground">
-								No check logs recorded yet. Run a workflow check from the Checks
-								tab of any workspace to populate this table.
-							</div>
-						) : (
-							lines.map((line: RepoLogLine, idx: number) => (
-								<div
-									key={`${line.run_id}-${line.job_id}-${line.ts}-${idx}`}
-									data-testid="repo-log-line"
-									data-level={line.level}
-									className="flex gap-3 whitespace-pre-wrap break-all hover:bg-muted/50"
-								>
-									<span className="shrink-0 select-none text-muted-foreground tabular-nums">
-										{formatTimestamp(line.ts)}
-									</span>
+					{buckets.length > 0 && (
+						<div className="px-2 pt-2 border-b">
+							<LogsTimeseriesChart buckets={buckets} />
+						</div>
+					)}
+
+					{isLoading ? (
+						<div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+							<Loader2 className="h-4 w-4 animate-spin" />
+							Loading logs…
+						</div>
+					) : (
+						<LogFeed
+							records={records}
+							testId="repo-logs-output"
+							lineTestId="repo-log-line"
+							emptyMessage="No check logs recorded yet. Run a workflow check from the Checks tab of any workspace to populate this table."
+							onSendToAgent={handleSendToAgent}
+							renderPrefix={(record) => (
+								<>
 									<span className="shrink-0 select-none text-muted-foreground">
-										#{line.run_id}
+										#{record.run_id}
 									</span>
 									<span className="shrink-0 select-none text-blue-600 dark:text-blue-400">
-										{line.job_id}
+										{record.job_id}
 									</span>
-									<span className={cn("min-w-0", levelClass(line.level))}>
-										{line.message}
-									</span>
-								</div>
-							))
-						)}
-					</div>
+								</>
+							)}
+						/>
+					)}
 				</>
+			) : (
+				<LogsSqlExplorer repoPath={repoPath} onSendToAgent={onSendToAgent} />
 			)}
 		</div>
 	);

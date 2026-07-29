@@ -1,26 +1,173 @@
 //! Log collection and querying for workflow check runs.
 //!
 //! Each job in a run streams its step output to a newline-delimited JSON file
-//! under `.treq/runs/{run_id}/{job_id}.jsonl`. Reads go through DuckDB's
-//! `read_json_auto`, which lets the logs browser filter and paginate without
-//! loading a whole run into memory.
+//! under `.treq/runs/{run_id}/{job_id}.jsonl`. Records follow the OpenTelemetry
+//! log data model, so a run's logs can be read by OTel-aware tooling without
+//! translation, and the DuckDB views expose the standard field names.
+//!
+//! Reads go through DuckDB's `read_json_auto`, which lets the logs browser
+//! filter and paginate without loading a whole run into memory.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// One captured output line.
+/// Identifies the emitter, per the OTel resource conventions.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct Resource {
+    #[serde(rename = "service.name")]
+    pub service_name: String,
+    #[serde(rename = "service.version")]
+    pub service_version: String,
+}
+
+impl Default for Resource {
+    fn default() -> Self {
+        Self {
+            service_name: "treq".to_string(),
+            service_version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+}
+
+/// The instrumentation scope that produced a record.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct Scope {
+    pub name: String,
+}
+
+impl Default for Scope {
+    fn default() -> Self {
+        Self {
+            name: "treq.checks".to_string(),
+        }
+    }
+}
+
+/// Attribute values we attach to records. Steps and streams are strings or
+/// ints, so this stays deliberately narrow rather than modelling AnyValue.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum AttributeValue {
+    Int(i64),
+    Str(String),
+}
+
+/// One captured output line, shaped as an OpenTelemetry LogRecord.
+///
+/// `trace_id`/`span_id` are synthesised from the run and job so a run reads as
+/// a trace and each job as a span within it.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct LogLine {
-    pub ts: String,
-    pub step_index: i64,
-    pub step_name: String,
-    /// `stdout` or `stderr`.
-    pub stream: String,
-    /// `info`, `warning`, or `error`.
-    pub level: String,
-    pub message: String,
+    /// Nanoseconds since the Unix epoch, per the OTel wire format.
+    pub time_unix_nano: u64,
+    pub observed_time_unix_nano: u64,
+    /// 1-24; INFO=9, WARN=13, ERROR=17.
+    pub severity_number: u8,
+    /// `INFO`, `WARN` or `ERROR`.
+    pub severity_text: String,
+    pub body: String,
+    /// 32 lowercase hex chars.
+    pub trace_id: String,
+    /// 16 lowercase hex chars.
+    pub span_id: String,
+    pub resource: Resource,
+    pub scope: Scope,
+    pub attributes: BTreeMap<String, AttributeValue>,
+}
+
+/// Wall-clock nanoseconds since the Unix epoch.
+pub fn now_unix_nano() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+// ── OTel severity ────────────────────────────────────────────────────────────
+
+/// UI-facing level names mapped to their OTel severity text.
+pub fn severity_text_for_level(level: &str) -> &'static str {
+    match level {
+        "error" => "ERROR",
+        "warning" => "WARN",
+        _ => "INFO",
+    }
+}
+
+/// OTel severity numbers: INFO=9, WARN=13, ERROR=17.
+pub fn severity_number_for_text(severity_text: &str) -> u8 {
+    match severity_text {
+        "ERROR" => 17,
+        "WARN" => 13,
+        _ => 9,
+    }
+}
+
+/// A run becomes a trace; ids are derived so they are stable and reproducible
+/// rather than random, which keeps re-reads of a log file consistent.
+pub fn trace_id_for_run(run_id: i64) -> String {
+    format!("{:032x}", run_id as u128)
+}
+
+/// Each job becomes a span within its run's trace.
+pub fn span_id_for_job(run_id: i64, job_id: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in job_id.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    }
+    hash ^= run_id as u64;
+    format!("{:016x}", hash)
+}
+
+/// Build an OTel record for one captured line.
+#[allow(clippy::too_many_arguments)]
+pub fn make_log_line(
+    time_unix_nano: u64,
+    run_id: i64,
+    job_id: &str,
+    step_index: i64,
+    step_name: &str,
+    stream: &str,
+    level: &str,
+    body: &str,
+) -> LogLine {
+    let severity_text = severity_text_for_level(level);
+    let mut attributes = BTreeMap::new();
+    attributes.insert("treq.run_id".to_string(), AttributeValue::Int(run_id));
+    attributes.insert(
+        "treq.job_id".to_string(),
+        AttributeValue::Str(job_id.to_string()),
+    );
+    attributes.insert(
+        "treq.step_index".to_string(),
+        AttributeValue::Int(step_index),
+    );
+    attributes.insert(
+        "treq.step_name".to_string(),
+        AttributeValue::Str(step_name.to_string()),
+    );
+    // OTel's own convention for which standard stream a line came from.
+    attributes.insert(
+        "log.iostream".to_string(),
+        AttributeValue::Str(stream.to_string()),
+    );
+
+    LogLine {
+        time_unix_nano,
+        observed_time_unix_nano: time_unix_nano,
+        severity_number: severity_number_for_text(severity_text),
+        severity_text: severity_text.to_string(),
+        body: body.to_string(),
+        trace_id: trace_id_for_run(run_id),
+        span_id: span_id_for_job(run_id, job_id),
+        resource: Resource::default(),
+        scope: Scope::default(),
+        attributes,
+    }
 }
 
 /// Filters accepted by the logs browser.
@@ -36,17 +183,25 @@ pub struct LogQuery {
     pub offset: Option<i64>,
 }
 
-/// A run/job-tagged log line, for browsing across the whole repo.
+/// Flattened projection of a stored OTel record, as the UI consumes it.
+///
+/// Keeps the OTel field names (`body`, `severity_text`) rather than inventing
+/// aliases, so what the browser shows lines up with what the explorer queries.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct RepoLogLine {
+pub struct LogRecordView {
+    pub time_unix_nano: u64,
+    /// ISO-8601 rendering of `time_unix_nano`, for display.
+    pub timestamp: String,
+    pub severity_number: u8,
+    pub severity_text: String,
+    pub body: String,
+    pub trace_id: String,
+    pub span_id: String,
     pub run_id: i64,
     pub job_id: String,
-    pub ts: String,
     pub step_index: i64,
     pub step_name: String,
     pub stream: String,
-    pub level: String,
-    pub message: String,
 }
 
 /// Result of an ad-hoc SQL query in the explorer.
@@ -183,7 +338,6 @@ impl LogWriter {
             .map_err(|e| format!("Failed to flush log file: {}", e))
     }
 }
-
 // ── Querying (DuckDB) ────────────────────────────────────────────────────────
 
 /// Escape a path for embedding in a DuckDB single-quoted string literal.
@@ -191,21 +345,46 @@ fn sql_quote(value: &str) -> String {
     value.replace('\'', "''")
 }
 
+/// Projection turning stored OTel records into the flat rows the UI renders.
+///
+/// Attributes are lifted into their own columns so queries can say `job_id`
+/// instead of digging through the attribute map every time.
+const OTEL_PROJECTION: &str = "SELECT
+      CAST(time_unix_nano AS BIGINT) AS time_unix_nano,
+      CAST(observed_time_unix_nano AS BIGINT) AS observed_time_unix_nano,
+      strftime(make_timestamp(CAST(time_unix_nano / 1000 AS BIGINT)),
+               '%Y-%m-%dT%H:%M:%S.%gZ') AS timestamp,
+      CAST(severity_number AS INTEGER) AS severity_number,
+      CAST(severity_text AS VARCHAR) AS severity_text,
+      CAST(body AS VARCHAR) AS body,
+      CAST(trace_id AS VARCHAR) AS trace_id,
+      CAST(span_id AS VARCHAR) AS span_id,
+      CAST(resource['service.name'] AS VARCHAR) AS service_name,
+      CAST(scope['name'] AS VARCHAR) AS scope_name,
+      CAST(attributes['treq.run_id'] AS BIGINT) AS run_id,
+      CAST(attributes['treq.job_id'] AS VARCHAR) AS job_id,
+      CAST(attributes['treq.step_index'] AS BIGINT) AS step_index,
+      CAST(attributes['treq.step_name'] AS VARCHAR) AS step_name,
+      CAST(attributes['log.iostream'] AS VARCHAR) AS stream";
+
 /// Shared WHERE builder for the single-job and cross-run readers.
+///
+/// `levels` carries UI names (info/warning/error); they are translated to OTel
+/// severity text here so the stored records stay standard.
 fn build_where_clause(query: &LogQuery) -> String {
     let mut conditions: Vec<String> = Vec::new();
 
     if let Some(levels) = query.levels.as_ref().filter(|l| !l.is_empty()) {
         let list = levels
             .iter()
-            .map(|l| format!("'{}'", sql_quote(l)))
+            .map(|l| format!("'{}'", sql_quote(severity_text_for_level(l))))
             .collect::<Vec<_>>()
             .join(", ");
-        conditions.push(format!("level IN ({})", list));
+        conditions.push(format!("severity_text IN ({})", list));
     }
     if let Some(search) = query.search.as_ref().filter(|s| !s.is_empty()) {
         conditions.push(format!(
-            "lower(message) LIKE '%{}%'",
+            "lower(body) LIKE '%{}%'",
             sql_quote(&search.to_lowercase())
         ));
     }
@@ -220,11 +399,29 @@ fn build_where_clause(query: &LogQuery) -> String {
     }
 }
 
+/// Map a projected row onto the flat view struct.
+fn row_to_record(row: &duckdb::Row<'_>) -> duckdb::Result<LogRecordView> {
+    Ok(LogRecordView {
+        time_unix_nano: row.get::<_, i64>(0)? as u64,
+        timestamp: row.get(2)?,
+        severity_number: row.get::<_, i32>(3)? as u8,
+        severity_text: row.get(4)?,
+        body: row.get(5)?,
+        trace_id: row.get(6)?,
+        span_id: row.get(7)?,
+        run_id: row.get(10)?,
+        job_id: row.get(11)?,
+        step_index: row.get(12)?,
+        step_name: row.get(13)?,
+        stream: row.get(14)?,
+    })
+}
+
 /// Read a job's log file, applying the browser's filters.
 ///
 /// Returns an empty vec when the file is missing or empty — a job that produced
 /// no output is a normal state, not an error.
-pub fn query_logs(absolute_log_path: &str, query: &LogQuery) -> Result<Vec<LogLine>, String> {
+pub fn query_logs(absolute_log_path: &str, query: &LogQuery) -> Result<Vec<LogRecordView>, String> {
     let path = Path::new(absolute_log_path);
     match std::fs::metadata(path) {
         Ok(meta) if meta.len() == 0 => return Ok(vec![]),
@@ -235,25 +432,14 @@ pub fn query_logs(absolute_log_path: &str, query: &LogQuery) -> Result<Vec<LogLi
     let conn = duckdb::Connection::open_in_memory()
         .map_err(|e| format!("Failed to open DuckDB connection: {}", e))?;
 
-    let where_clause = build_where_clause(query);
-
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, 100_000);
     let offset = query.offset.unwrap_or(0).max(0);
-
-    // Cast ts to VARCHAR so DuckDB timestamp inference can't alter the format.
     let sql = format!(
-        "SELECT CAST(ts AS VARCHAR) AS ts,
-                CAST(step_index AS BIGINT) AS step_index,
-                CAST(step_name AS VARCHAR) AS step_name,
-                CAST(stream AS VARCHAR) AS stream,
-                CAST(level AS VARCHAR) AS level,
-                CAST(message AS VARCHAR) AS message
-         FROM read_json_auto('{}', format='newline_delimited')
-         {}
-         ORDER BY ts, step_index
-         LIMIT {} OFFSET {}",
+        "SELECT * FROM ({} FROM read_json_auto('{}', format='newline_delimited')) AS records
+         {} ORDER BY time_unix_nano, step_index LIMIT {} OFFSET {}",
+        OTEL_PROJECTION,
         sql_quote(absolute_log_path),
-        where_clause,
+        build_where_clause(query),
         limit,
         offset
     );
@@ -262,16 +448,7 @@ pub fn query_logs(absolute_log_path: &str, query: &LogQuery) -> Result<Vec<LogLi
         .prepare(&sql)
         .map_err(|e| format!("Failed to prepare log query: {}", e))?;
     let rows = stmt
-        .query_map([], |row| {
-            Ok(LogLine {
-                ts: row.get(0)?,
-                step_index: row.get(1)?,
-                step_name: row.get(2)?,
-                stream: row.get(3)?,
-                level: row.get(4)?,
-                message: row.get(5)?,
-            })
-        })
+        .query_map([], row_to_record)
         .map_err(|e| format!("Failed to query logs: {}", e))?;
 
     rows.collect::<duckdb::Result<Vec<_>>>()
@@ -310,21 +487,11 @@ fn has_any_logs(repo_path: &str) -> bool {
     })
 }
 
-/// SQL defining the `logs` view: every run's JSONL, with `run_id` and `job_id`
-/// recovered from the file path so cross-run queries can group by them.
+/// SQL defining the `logs` view over every run's OTel records.
 fn logs_view_sql(repo_path: &str) -> String {
     format!(
-        "CREATE OR REPLACE VIEW logs AS
-         SELECT
-           CAST(regexp_extract(filename, 'runs/([0-9]+)/', 1) AS BIGINT) AS run_id,
-           regexp_extract(filename, '/([^/]+)\\.jsonl$', 1) AS job_id,
-           CAST(ts AS VARCHAR) AS ts,
-           CAST(step_index AS BIGINT) AS step_index,
-           CAST(step_name AS VARCHAR) AS step_name,
-           CAST(stream AS VARCHAR) AS stream,
-           CAST(level AS VARCHAR) AS level,
-           CAST(message AS VARCHAR) AS message
-         FROM read_json_auto('{}', format='newline_delimited', filename=true)",
+        "CREATE OR REPLACE VIEW logs AS {} FROM read_json_auto('{}', format='newline_delimited')",
+        OTEL_PROJECTION,
         sql_quote(&runs_glob(repo_path))
     )
 }
@@ -338,8 +505,8 @@ fn connect_with_logs_view(repo_path: &str) -> Result<duckdb::Connection, String>
     Ok(conn)
 }
 
-/// Browse log lines across every run in the repo.
-pub fn query_repo_logs(repo_path: &str, query: &LogQuery) -> Result<Vec<RepoLogLine>, String> {
+/// Browse log records across every run in the repo.
+pub fn query_repo_logs(repo_path: &str, query: &LogQuery) -> Result<Vec<LogRecordView>, String> {
     if !has_any_logs(repo_path) {
         return Ok(vec![]);
     }
@@ -348,8 +515,10 @@ pub fn query_repo_logs(repo_path: &str, query: &LogQuery) -> Result<Vec<RepoLogL
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, 100_000);
     let offset = query.offset.unwrap_or(0).max(0);
     let sql = format!(
-        "SELECT run_id, job_id, ts, step_index, step_name, stream, level, message
-         FROM logs {} ORDER BY run_id DESC, ts, step_index LIMIT {} OFFSET {}",
+        "SELECT time_unix_nano, observed_time_unix_nano, timestamp, severity_number,
+                severity_text, body, trace_id, span_id, service_name, scope_name,
+                run_id, job_id, step_index, step_name, stream
+         FROM logs {} ORDER BY run_id DESC, time_unix_nano, step_index LIMIT {} OFFSET {}",
         build_where_clause(query),
         limit,
         offset
@@ -359,25 +528,71 @@ pub fn query_repo_logs(repo_path: &str, query: &LogQuery) -> Result<Vec<RepoLogL
         .prepare(&sql)
         .map_err(|e| format!("Failed to prepare repo log query: {}", e))?;
     let rows = stmt
-        .query_map([], |row| {
-            Ok(RepoLogLine {
-                run_id: row.get(0)?,
-                job_id: row.get(1)?,
-                ts: row.get(2)?,
-                step_index: row.get(3)?,
-                step_name: row.get(4)?,
-                stream: row.get(5)?,
-                level: row.get(6)?,
-                message: row.get(7)?,
-            })
-        })
+        .query_map([], row_to_record)
         .map_err(|e| format!("Failed to query repo logs: {}", e))?;
 
     rows.collect::<duckdb::Result<Vec<_>>>()
         .map_err(|e| format!("Failed to read repo log rows: {}", e))
 }
 
-// ── SQL explorer ─────────────────────────────────────────────────────────────
+// ── Timeseries ───────────────────────────────────────────────────────────────
+
+/// One chart bucket: a time slot and how many records of each severity landed
+/// in it.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct LogBucket {
+    pub bucket: String,
+    pub severity_text: String,
+    pub count: i64,
+}
+
+/// Count records per time bucket and severity, for the chart above the feed.
+///
+/// The bucket width is caller-supplied because the useful resolution depends on
+/// how much history is on screen.
+pub fn query_log_timeseries(
+    repo_path: &str,
+    query: &LogQuery,
+    bucket_seconds: i64,
+) -> Result<Vec<LogBucket>, String> {
+    if !has_any_logs(repo_path) {
+        return Ok(vec![]);
+    }
+    let conn = connect_with_logs_view(repo_path)?;
+    let width = bucket_seconds.clamp(1, 86_400);
+
+    // Truncate to the bucket by integer division on epoch seconds.
+    let sql = format!(
+        "SELECT strftime(
+                  make_timestamp(CAST((time_unix_nano / 1000000000 / {w}) * {w} * 1000000 AS BIGINT)),
+                  '%Y-%m-%dT%H:%M:%SZ') AS bucket,
+                severity_text,
+                count(*) AS n
+         FROM logs {}
+         GROUP BY bucket, severity_text
+         ORDER BY bucket, severity_text",
+        build_where_clause(query),
+        w = width
+    );
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare timeseries query: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(LogBucket {
+                bucket: row.get(0)?,
+                severity_text: row.get(1)?,
+                count: row.get(2)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query timeseries: {}", e))?;
+
+    rows.collect::<duckdb::Result<Vec<_>>>()
+        .map_err(|e| format!("Failed to read timeseries rows: {}", e))
+}
+
+// ── Logs explorer ────────────────────────────────────────────────────────────
 
 /// Statement kinds the explorer will run. Everything else is rejected so a
 /// stray COPY/ATTACH/INSTALL can't write files or pull in extensions.
@@ -503,7 +718,10 @@ pub fn export_logs(absolute_log_path: &str, dest_path: &str) -> Result<String, S
 
     let mut out = String::new();
     for line in &lines {
-        out.push_str(&format!("{}  [{}] {}\n", line.ts, line.level, line.message));
+        out.push_str(&format!(
+            "{}  [{}] {}\n",
+            line.timestamp, line.severity_text, line.body
+        ));
     }
 
     if let Some(parent) = Path::new(dest_path).parent() {
@@ -521,15 +739,29 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    /// Fixed epoch base so bucketing assertions stay deterministic.
+    const BASE_NANOS: u64 = 1_785_000_000_000_000_000;
+
     fn sample_line(step_index: i64, level: &str, message: &str) -> LogLine {
-        LogLine {
-            ts: format!("2026-07-26T11:00:0{}Z", step_index),
+        sample_line_at(
+            BASE_NANOS + (step_index as u64) * 1_000_000_000,
             step_index,
-            step_name: format!("step {}", step_index),
-            stream: "stdout".to_string(),
-            level: level.to_string(),
-            message: message.to_string(),
-        }
+            level,
+            message,
+        )
+    }
+
+    fn sample_line_at(nanos: u64, step_index: i64, level: &str, message: &str) -> LogLine {
+        make_log_line(
+            nanos,
+            1,
+            "job",
+            step_index,
+            &format!("step {}", step_index),
+            "stdout",
+            level,
+            message,
+        )
     }
 
     fn write_log(dir: &TempDir, lines: &[LogLine]) -> String {
@@ -581,7 +813,7 @@ mod tests {
         );
         let result = query_logs(&path, &LogQuery::default()).unwrap();
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].message, "hello");
+        assert_eq!(result[0].body, "hello");
     }
 
     #[test]
@@ -603,7 +835,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].message, "boom");
+        assert_eq!(result[0].body, "boom");
     }
 
     #[test]
@@ -657,7 +889,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.len(), 2);
-        assert!(result.iter().all(|l| l.level != "info"));
+        assert!(result.iter().all(|l| l.severity_text != "INFO"));
     }
 
     #[test]
@@ -688,7 +920,16 @@ mod tests {
         for run_id in [1i64, 2i64] {
             let writer = LogWriter::create(&repo, run_id, "build").unwrap();
             writer
-                .write_line(&sample_line(0, "info", &format!("run {}", run_id)))
+                .write_line(&make_log_line(
+                    BASE_NANOS,
+                    run_id,
+                    "build",
+                    0,
+                    "step 0",
+                    "stdout",
+                    "info",
+                    &format!("run {}", run_id),
+                ))
                 .unwrap();
             writer.flush().unwrap();
         }
@@ -728,11 +969,11 @@ mod tests {
 
         let result = run_logs_sql(
             &repo,
-            "SELECT level, count(*) AS n FROM logs GROUP BY level ORDER BY level",
+            "SELECT severity_text, count(*) AS n FROM logs GROUP BY severity_text ORDER BY severity_text",
             100,
         )
         .unwrap();
-        assert_eq!(result.columns, vec!["level", "n"]);
+        assert_eq!(result.columns, vec!["severity_text", "n"]);
         assert_eq!(result.row_count, 2);
     }
 
@@ -741,6 +982,121 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let err = run_logs_sql(&dir.path().to_string_lossy(), "DELETE FROM logs", 100).unwrap_err();
         assert!(err.contains("read-only"));
+    }
+
+    #[test]
+    fn test_records_are_written_in_otel_shape() {
+        let dir = TempDir::new().unwrap();
+        let repo = dir.path().to_string_lossy().to_string();
+        let writer = LogWriter::create(&repo, 7, "build").unwrap();
+        writer
+            .write_line(&make_log_line(
+                BASE_NANOS, 7, "build", 2, "Compile", "stderr", "error", "boom",
+            ))
+            .unwrap();
+        writer.flush().unwrap();
+
+        let raw = std::fs::read_to_string(dir.path().join(".treq/runs/7/build.jsonl")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(raw.trim()).unwrap();
+
+        assert_eq!(json["severity_text"], "ERROR");
+        assert_eq!(json["severity_number"], 17);
+        assert_eq!(json["body"], "boom");
+        assert_eq!(json["resource"]["service.name"], "treq");
+        assert_eq!(json["scope"]["name"], "treq.checks");
+        assert_eq!(json["attributes"]["treq.job_id"], "build");
+        assert_eq!(json["attributes"]["treq.step_index"], 2);
+        assert_eq!(json["attributes"]["log.iostream"], "stderr");
+        assert_eq!(json["trace_id"].as_str().unwrap().len(), 32);
+        assert_eq!(json["span_id"].as_str().unwrap().len(), 16);
+        assert!(json["time_unix_nano"].as_u64().unwrap() > 0);
+    }
+
+    #[test]
+    fn test_severity_mapping_covers_all_levels() {
+        assert_eq!(severity_text_for_level("info"), "INFO");
+        assert_eq!(severity_text_for_level("warning"), "WARN");
+        assert_eq!(severity_text_for_level("error"), "ERROR");
+        assert_eq!(severity_number_for_text("INFO"), 9);
+        assert_eq!(severity_number_for_text("WARN"), 13);
+        assert_eq!(severity_number_for_text("ERROR"), 17);
+    }
+
+    #[test]
+    fn test_trace_id_is_per_run_and_span_id_per_job() {
+        assert_eq!(trace_id_for_run(1), trace_id_for_run(1));
+        assert_ne!(trace_id_for_run(1), trace_id_for_run(2));
+        assert_ne!(span_id_for_job(1, "build"), span_id_for_job(1, "test"));
+    }
+
+    #[test]
+    fn test_query_log_timeseries_buckets_by_severity() {
+        let dir = TempDir::new().unwrap();
+        let repo = dir.path().to_string_lossy().to_string();
+        let writer = LogWriter::create(&repo, 1, "build").unwrap();
+        // Two errors in the first second, one info in the next.
+        writer
+            .write_line(&sample_line_at(BASE_NANOS, 0, "error", "a"))
+            .unwrap();
+        writer
+            .write_line(&sample_line_at(BASE_NANOS + 1, 0, "error", "b"))
+            .unwrap();
+        writer
+            .write_line(&sample_line_at(BASE_NANOS + 2_000_000_000, 1, "info", "c"))
+            .unwrap();
+        writer.flush().unwrap();
+
+        let buckets = query_log_timeseries(&repo, &LogQuery::default(), 1).unwrap();
+        let errors: i64 = buckets
+            .iter()
+            .filter(|b| b.severity_text == "ERROR")
+            .map(|b| b.count)
+            .sum();
+        let infos: i64 = buckets
+            .iter()
+            .filter(|b| b.severity_text == "INFO")
+            .map(|b| b.count)
+            .sum();
+        assert_eq!(errors, 2);
+        assert_eq!(infos, 1);
+        // The two errors share a bucket, the info lands in a later one.
+        assert!(buckets.len() >= 2);
+    }
+
+    #[test]
+    fn test_timeseries_empty_without_runs() {
+        let dir = TempDir::new().unwrap();
+        let buckets =
+            query_log_timeseries(&dir.path().to_string_lossy(), &LogQuery::default(), 1).unwrap();
+        assert!(buckets.is_empty());
+    }
+
+    #[test]
+    fn test_logs_view_exposes_otel_columns() {
+        let dir = TempDir::new().unwrap();
+        let repo = dir.path().to_string_lossy().to_string();
+        let writer = LogWriter::create(&repo, 1, "build").unwrap();
+        writer.write_line(&sample_line(0, "info", "hello")).unwrap();
+        writer.flush().unwrap();
+
+        let result = run_logs_sql(
+            &repo,
+            "SELECT severity_text, body, trace_id, span_id, service_name, job_id FROM logs",
+            10,
+        )
+        .unwrap();
+        assert_eq!(
+            result.columns,
+            vec![
+                "severity_text",
+                "body",
+                "trace_id",
+                "span_id",
+                "service_name",
+                "job_id"
+            ]
+        );
+        assert_eq!(result.row_count, 1);
     }
 
     #[test]
@@ -756,7 +1112,7 @@ mod tests {
         let dest = dir.path().join("out.log").to_string_lossy().to_string();
         export_logs(&path, &dest).unwrap();
         let contents = std::fs::read_to_string(&dest).unwrap();
-        assert!(contents.contains("[error] boom"));
+        assert!(contents.contains("[ERROR] boom"));
         assert_eq!(contents.lines().count(), 2);
     }
 }

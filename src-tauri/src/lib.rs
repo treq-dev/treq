@@ -561,6 +561,7 @@ pub fn run() {
             commands::export_run_logs,
             commands::get_repo_logs,
             commands::run_logs_sql,
+            commands::get_log_timeseries,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

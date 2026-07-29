@@ -3,9 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { exportRunLogs, getRunLogs } from "../lib/api";
-import type { LogLine } from "../lib/api-types";
-import { cn } from "../lib/utils";
+import type { LogBucket, LogRecordView } from "../lib/api-types";
 import { LogLevelFilter } from "./LogLevelFilter";
+import { LogFeed } from "./LogFeed";
+import { LogsTimeseriesChart } from "./LogsTimeseriesChart";
+import { buildLogLinesPrompt } from "../lib/logs-prompt";
 
 interface Props {
 	repoPath: string;
@@ -14,21 +16,7 @@ interface Props {
 	/** Scopes the initial view to a single step when opened from a step row. */
 	initialStepIndex?: number;
 	onBack: () => void;
-}
-
-export { levelClass, formatTimestamp };
-
-/** Info stays uncolored so warnings and errors are what draw the eye. */
-function levelClass(level: string): string {
-	if (level === "error") return "text-red-600 dark:text-red-400";
-	if (level === "warning") return "text-amber-600 dark:text-amber-400";
-	return "text-foreground";
-}
-
-function formatTimestamp(ts: string): string {
-	const parsed = new Date(ts);
-	if (Number.isNaN(parsed.getTime())) return ts;
-	return parsed.toISOString().slice(11, 23);
+	onSendToAgent?: (prompt: string) => void;
 }
 
 export function LogsBrowser({
@@ -37,6 +25,7 @@ export function LogsBrowser({
 	jobId,
 	initialStepIndex,
 	onBack,
+	onSendToAgent,
 }: Props) {
 	const [levels, setLevels] = useState<string[]>([]);
 	const [search, setSearch] = useState("");
@@ -45,7 +34,7 @@ export function LogsBrowser({
 	);
 	const [exportedTo, setExportedTo] = useState<string | null>(null);
 
-	const { data: lines = [], isLoading } = useQuery({
+	const { data: records = [], isLoading } = useQuery({
 		queryKey: ["run-logs", repoPath, runId, jobId, levels, search, stepIndex],
 		queryFn: () =>
 			getRunLogs(repoPath, runId, jobId, {
@@ -58,16 +47,44 @@ export function LogsBrowser({
 	// Step names for the step filter, in first-seen order.
 	const steps = useMemo(() => {
 		const seen = new Map<number, string>();
-		for (const line of lines) {
-			if (!seen.has(line.step_index)) seen.set(line.step_index, line.step_name);
+		for (const record of records) {
+			if (!seen.has(record.step_index)) {
+				seen.set(record.step_index, record.step_name);
+			}
 		}
 		return [...seen.entries()].sort((a, b) => a[0] - b[0]);
-	}, [lines]);
+	}, [records]);
+
+	// This job's records are already loaded, so bucket them here rather than
+	// paying for a second round trip.
+	const buckets = useMemo<LogBucket[]>(() => {
+		const counts = new Map<string, LogBucket>();
+		for (const record of records) {
+			const bucket = `${record.timestamp.slice(0, 19)}Z`;
+			const key = `${bucket}|${record.severity_text}`;
+			const existing = counts.get(key);
+			if (existing) {
+				existing.count += 1;
+			} else {
+				counts.set(key, {
+					bucket,
+					severity_text: record.severity_text,
+					count: 1,
+				});
+			}
+		}
+		return [...counts.values()];
+	}, [records]);
 
 	async function handleExport() {
 		const dest = `${repoPath}/.treq/runs/${runId}/${jobId}.log`;
-		const written = await exportRunLogs(repoPath, runId, jobId, dest);
-		setExportedTo(written);
+		setExportedTo(await exportRunLogs(repoPath, runId, jobId, dest));
+	}
+
+	function handleSendToAgent(chosen: LogRecordView[]) {
+		onSendToAgent?.(
+			buildLogLinesPrompt(chosen, `job "${jobId}" of check run #${runId}`),
+		);
 	}
 
 	return (
@@ -127,37 +144,26 @@ export function LogsBrowser({
 				</div>
 			)}
 
-			<div
-				data-testid="logs-output"
-				className="flex-1 overflow-auto bg-background font-mono text-xs leading-relaxed p-3"
-			>
-				{isLoading ? (
-					<div className="flex items-center gap-2 text-muted-foreground">
-						<Loader2 className="h-4 w-4 animate-spin" />
-						Loading logs…
-					</div>
-				) : lines.length === 0 ? (
-					<div className="text-muted-foreground">
-						No log lines match the current filters.
-					</div>
-				) : (
-					lines.map((line: LogLine, idx: number) => (
-						<div
-							key={`${line.ts}-${idx}`}
-							data-testid="log-line"
-							data-level={line.level}
-							className="flex gap-3 whitespace-pre-wrap break-all hover:bg-muted/50"
-						>
-							<span className="shrink-0 select-none text-muted-foreground tabular-nums">
-								{formatTimestamp(line.ts)}
-							</span>
-							<span className={cn("min-w-0", levelClass(line.level))}>
-								{line.message}
-							</span>
-						</div>
-					))
-				)}
-			</div>
+			{records.length > 0 && (
+				<div className="px-2 pt-2 border-b">
+					<LogsTimeseriesChart buckets={buckets} />
+				</div>
+			)}
+
+			{isLoading ? (
+				<div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+					<Loader2 className="h-4 w-4 animate-spin" />
+					Loading logs…
+				</div>
+			) : (
+				<LogFeed
+					records={records}
+					testId="logs-output"
+					lineTestId="log-line"
+					emptyMessage="No log lines match the current filters."
+					onSendToAgent={handleSendToAgent}
+				/>
+			)}
 		</div>
 	);
 }

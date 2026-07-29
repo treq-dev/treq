@@ -1,5 +1,5 @@
 use crate::core::checks_logs::{
-    infer_level, job_log_relative_path, strip_ansi, LogLine, LogWriter,
+    infer_level, job_log_relative_path, make_log_line, now_unix_nano, strip_ansi, LogWriter,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -291,6 +291,7 @@ fn run_job_in_run(
         .map(|(stream_name, pipe)| {
             let writer = writer.clone();
             let step_name = step.name.clone();
+            let job_id_for_logs = job_id.to_string();
             std::thread::spawn(move || {
                 let reader: Box<dyn std::io::Read + Send> = match pipe {
                     EitherPipe::Out(o) => Box::new(o),
@@ -300,14 +301,16 @@ fn run_job_in_run(
                 for line in buf.lines() {
                     let Ok(raw) = line else { break };
                     let message = strip_ansi(&raw);
-                    let entry = LogLine {
-                        ts: Utc::now().to_rfc3339(),
-                        step_index: step_index as i64,
-                        step_name: step_name.clone(),
-                        stream: stream_name.to_string(),
-                        level: infer_level(&message).to_string(),
-                        message,
-                    };
+                    let entry = make_log_line(
+                        now_unix_nano(),
+                        run_id,
+                        &job_id_for_logs,
+                        step_index as i64,
+                        &step_name,
+                        stream_name,
+                        infer_level(&message),
+                        &message,
+                    );
                     let _ = writer.write_line(&entry);
                 }
             })
@@ -342,17 +345,19 @@ fn run_job_in_run(
         }
 
         if timed_out {
-            let _ = writer.write_line(&LogLine {
-                ts: Utc::now().to_rfc3339(),
-                step_index: step_index as i64,
-                step_name: step.name.clone(),
-                stream: "stderr".to_string(),
-                level: "error".to_string(),
-                message: format!(
+            let _ = writer.write_line(&make_log_line(
+                now_unix_nano(),
+                run_id,
+                job_id,
+                step_index as i64,
+                &step.name,
+                "stderr",
+                "error",
+                &format!(
                     "Step timed out after {} seconds and was terminated.",
                     STEP_TIMEOUT_SECS
                 ),
-            });
+            ));
             let _ = writer.flush();
             step_results.push(StepResult {
                 name: step.name.clone(),
@@ -579,7 +584,7 @@ pub fn get_run_logs_sync(
     run_id: i64,
     job_id: &str,
     query: &crate::core::checks_logs::LogQuery,
-) -> Result<Vec<LogLine>, String> {
+) -> Result<Vec<crate::core::checks_logs::LogRecordView>, String> {
     let path = resolve_log_path(repo_path, run_id, job_id)?;
     crate::core::checks_logs::query_logs(&path, query)
 }
@@ -767,7 +772,7 @@ mod tests {
         let runs = list_workflow_runs_sync(&repo, 0, "ci.yaml", 10).unwrap();
         let logs = get_run_logs_sync(&repo, runs[0].id, "greet", &Default::default()).unwrap();
         assert_eq!(logs.len(), 1);
-        assert_eq!(logs[0].message, "hello-from-step");
+        assert_eq!(logs[0].body, "hello-from-step");
     }
 
     #[test]
@@ -782,7 +787,7 @@ mod tests {
         let runs = list_workflow_runs_sync(&repo, 0, "ci.yaml", 10).unwrap();
         let logs = get_run_logs_sync(&repo, runs[0].id, "boom", &Default::default()).unwrap();
         assert_eq!(logs[0].stream, "stderr");
-        assert_eq!(logs[0].level, "error");
+        assert_eq!(logs[0].severity_text, "ERROR");
     }
 
     #[test]

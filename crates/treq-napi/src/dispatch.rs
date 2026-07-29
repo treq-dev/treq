@@ -1034,6 +1034,24 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
 
+        "get_log_timeseries" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let query = treq_lib::core::checks_logs::LogQuery {
+                levels: opt_str_vec(&args, "levels"),
+                search: opt_str(&args, "search"),
+                step_index: None,
+                limit: None,
+                offset: None,
+            };
+            let bucket_seconds = opt_i64(&args, "bucketSeconds").unwrap_or(1);
+            let result = treq_lib::core::checks_logs::query_log_timeseries(
+                &repo_path,
+                &query,
+                bucket_seconds,
+            )?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
         "run_logs_sql" => {
             let repo_path = get_str(&args, "repoPath")?;
             let sql = get_str(&args, "sql")?;
