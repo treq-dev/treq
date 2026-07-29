@@ -20,12 +20,14 @@ import type {
 	JjLogResult,
 	JjRebaseResult,
 	JjRevisionDiff,
+	JobResult,
 	MergeStrategy,
 	PullWorkspaceResult,
 	RepoBranch,
 	RenameWorkspaceResult,
 	SingleRebaseResult,
 	Workspace,
+	WorkflowInfo,
 	WorkspaceSidebarStatus,
 	WorkspaceStatus,
 } from "./api-types";
@@ -576,3 +578,23 @@ export const ghCreatePr = (
 	});
 
 // PTY API
+
+export const listWorkflows = (repoPath: string): Promise<WorkflowInfo[]> =>
+	invoke("list_workflows", { repoPath });
+
+export const runWorkflowJob = (
+	repoPath: string,
+	filename: string,
+	jobId: string,
+	workspaceId: number,
+	workspacePath: string,
+): Promise<JobResult> =>
+	invoke("run_workflow_job", { repoPath, filename, jobId, workspaceId, workspacePath });
+
+export const runWorkflow = (
+	repoPath: string,
+	filename: string,
+	workspaceId: number,
+	workspacePath: string,
+): Promise<JobResult[]> =>
+	invoke("run_workflow", { repoPath, filename, workspaceId, workspacePath });

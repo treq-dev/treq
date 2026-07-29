@@ -944,6 +944,42 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
 
+        "list_workflows" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let result = treq_lib::core::list_workflows_sync(&repo_path)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "run_workflow_job" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let filename = get_str(&args, "filename")?;
+            let job_id = get_str(&args, "jobId")?;
+            let workspace_id = get_i64(&args, "workspaceId")?;
+            let workspace_path = get_str(&args, "workspacePath")?;
+            let result = treq_lib::core::run_workflow_job_sync(
+                &repo_path,
+                &filename,
+                &job_id,
+                workspace_id,
+                &workspace_path,
+            )?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "run_workflow" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let filename = get_str(&args, "filename")?;
+            let workspace_id = get_i64(&args, "workspaceId")?;
+            let workspace_path = get_str(&args, "workspacePath")?;
+            let result = treq_lib::core::run_workflow_sync(
+                &repo_path,
+                &filename,
+                workspace_id,
+                &workspace_path,
+            )?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
         // ── Tauri-runtime-only: silent no-ops ─────────────────────────────
         "pty_create_session"
         | "pty_session_exists"

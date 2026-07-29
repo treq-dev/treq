@@ -6,6 +6,59 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import {
+	DirectoryEntry,
+	dryRunHomeRepoRebase,
+	type HomeRebaseDryRunResult,
+	type JjLogResult,
+	type SingleRebaseResult,
+	Workspace,
+	type WorkspaceBookmarkConflict,
+	checkAndRebaseWorkspaces,
+	createSession,
+	discardWorkspaceChanges,
+	getWorkspaceReadme,
+	getWorkspaceStatus,
+	listCommits,
+	lsWorkspace,
+	pullWorkspaceFromRemote,
+	pushWorkspaceToRemote,
+	rebaseHomeRepoBranch,
+	resolveBookmarkConflict,
+	updateWorkspace,
+} from "../lib/api";
+import { getStatusBgColor } from "../lib/git-status-colors";
+import { type ParsedFileChange } from "../lib/git-utils";
+import { cn, getFullWorkspacePath, resolveReadmeImageSrc } from "../lib/utils";
+
+import {
+	ChangesDiffViewer,
+	type ChangesDiffViewerHandle,
+} from "./ChangesDiffViewer";
+import { FileBrowser } from "./FileBrowser";
+import { LinearCommitHistory } from "./LinearCommitHistory";
+import { CommitDiffViewer } from "./CommitDiffViewer";
+import { WorkspaceBookmarkConflictModal } from "./WorkspaceBookmarkConflictModal";
+import { WorkspaceStackPanel } from "./WorkspaceStackPanel";
+import { ChecksTab } from "./ChecksTab";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { Button } from "./ui/button";
+import { Kbd, KbdGroup } from "./ui/kbd";
+import { useToast } from "./ui/toast";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "./ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import {
 	AlertTriangle,
 	ArrowRight,
 	ChevronLeft,
@@ -26,6 +79,7 @@ import {
 	Search,
 	Trash2,
 	Upload,
+	Workflow,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1018,6 +1072,13 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 									</span>
 								)}
 							</TabsTrigger>
+							<TabsTrigger
+								value="checks"
+								className="inline-flex items-center gap-1.5"
+							>
+								<Workflow className="w-4 h-4" />
+								<span>Checks</span>
+							</TabsTrigger>
 						</TabsList>
 					</Tabs>
 					<div className="flex items-center gap-3">
@@ -1300,6 +1361,12 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 							}
 							onViewTentativeChanges={handleViewTentativeChanges}
 							onDeleteTentativeChanges={handleDeleteTentativeChanges}
+						/>
+					) : activeTab === "checks" ? (
+						<ChecksTab
+							repoPath={effectiveRepoPath ?? ""}
+							workspaceId={workspace?.id ?? 0}
+							workspacePath={workingDirectory ?? ""}
 						/>
 					) : (
 						<ChangesDiffViewer

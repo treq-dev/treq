@@ -346,6 +346,20 @@ pub fn init_local_db(repo_path: &str) -> Result<PathBuf, String> {
     )
     .map_err(|e| format!("Failed to create instance_registry heartbeat index: {}", e))?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS workflow_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER,
+            filename TEXT NOT NULL,
+            job_id TEXT NOT NULL,
+            success INTEGER NOT NULL DEFAULT 0,
+            steps_json TEXT NOT NULL,
+            ran_at TEXT NOT NULL
+        )",
+        [],
+    )
+    .map_err(|e| format!("Failed to create workflow_runs table: {}", e))?;
+
     // Migration: rename pending_reviews columns from old schema to new schema.
     let has_old_columns: Result<i64, _> = conn.query_row(
         "SELECT COUNT(*) FROM pragma_table_info('pending_reviews') WHERE name IN ('comments_json', 'overall_comment', 'viewed_files_json')",
@@ -2352,4 +2366,61 @@ mod tests {
             initialized.lock().unwrap().remove(repo_path);
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WorkflowRunRecord {
+    pub id: i64,
+    pub filename: String,
+    pub job_id: String,
+    pub success: bool,
+    pub steps_json: String,
+    pub ran_at: String,
+}
+
+pub fn add_workflow_run(
+    repo_path: &str,
+    workspace_id: i64,
+    filename: &str,
+    job_id: &str,
+    success: bool,
+    steps_json: &str,
+) -> Result<i64, String> {
+    let conn = get_connection(repo_path)?;
+    let ran_at = Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO workflow_runs (workspace_id, filename, job_id, success, steps_json, ran_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![workspace_id, filename, job_id, success as i64, steps_json, ran_at],
+    )
+    .map_err(|e| format!("Failed to insert workflow_run: {}", e))?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn get_latest_workflow_run(
+    repo_path: &str,
+    workspace_id: i64,
+    filename: &str,
+    job_id: &str,
+) -> Result<Option<WorkflowRunRecord>, String> {
+    let conn = get_connection(repo_path)?;
+    conn.query_row(
+        "SELECT id, filename, job_id, success, steps_json, ran_at
+         FROM workflow_runs
+         WHERE workspace_id = ?1 AND filename = ?2 AND job_id = ?3
+         ORDER BY id DESC LIMIT 1",
+        params![workspace_id, filename, job_id],
+        |row| {
+            Ok(WorkflowRunRecord {
+                id: row.get(0)?,
+                filename: row.get(1)?,
+                job_id: row.get(2)?,
+                success: row.get::<_, i64>(3)? != 0,
+                steps_json: row.get(4)?,
+                ran_at: row.get(5)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| format!("Failed to query workflow_run: {}", e))
 }
