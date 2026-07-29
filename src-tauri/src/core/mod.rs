@@ -1,9 +1,11 @@
 pub mod app;
+pub mod browser_review;
 pub mod changes;
 pub mod commits;
 pub mod repo;
 pub mod workspaces;
 pub use app::*;
+pub use browser_review::*;
 pub use changes::*;
 pub use commits::*;
 pub use repo::*;

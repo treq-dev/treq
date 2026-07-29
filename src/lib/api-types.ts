@@ -322,6 +322,39 @@ export interface PendingReview {
 	updated_at: string;
 }
 
+export interface ElementComment {
+	id: string;
+	selector: string;
+	tag: string;
+	text_preview: string;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	text: string;
+	created_at: string;
+}
+
+export interface PendingPageReview {
+	id: number;
+	workspace_id: number;
+	url: string;
+	comments: ElementComment[];
+	summary_text: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface PickedElement {
+	selector: string;
+	tag: string;
+	text_preview: string;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
 export interface GitRemoteInfo {
 	owner: string;
 	repo: string;

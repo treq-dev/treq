@@ -31,6 +31,7 @@ import {
 	ChangesDiffViewer,
 	type ChangesDiffViewerHandle,
 } from "./ChangesDiffViewer";
+import { BrowserPanel } from "./browser-panel/BrowserPanel";
 import { FileBrowser } from "./FileBrowser";
 import { LinearCommitHistory } from "./LinearCommitHistory";
 import { CommitDiffViewer } from "./CommitDiffViewer";
@@ -68,6 +69,7 @@ import {
 	GitCommitHorizontal,
 	GitCompareArrows,
 	GitMerge,
+	Globe,
 	Layers2,
 	Loader2,
 	MoreVertical,
@@ -849,11 +851,13 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 			],
 		);
 
-		const handleCreateAgentWithReview = useCallback(
-			async (reviewMarkdown: string, mode: "plan" | "acceptEdits") => {
+		const createAgentWithReview = useCallback(
+			async (
+				reviewMarkdown: string,
+				mode: "plan" | "acceptEdits",
+				sessionName: string,
+			) => {
 				try {
-					const sessionName = "Code Review";
-
 					// Create new database session
 					const dbSessionId = await createSession(
 						effectiveRepoPath,
@@ -889,6 +893,18 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 				addToast,
 				onSessionCreated,
 			],
+		);
+
+		const handleCreateAgentWithReview = useCallback(
+			(reviewMarkdown: string, mode: "plan" | "acceptEdits") =>
+				createAgentWithReview(reviewMarkdown, mode, "Code Review"),
+			[createAgentWithReview],
+		);
+
+		const handleCreateAgentWithPageReview = useCallback(
+			(reviewMarkdown: string, mode: "plan" | "acceptEdits") =>
+				createAgentWithReview(reviewMarkdown, mode, "Page Review"),
+			[createAgentWithReview],
 		);
 
 		// Display all files in the list
@@ -942,6 +958,13 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 										{changedFiles.size}
 									</span>
 								)}
+							</TabsTrigger>
+							<TabsTrigger
+								value="browser"
+								className="inline-flex items-center gap-1.5"
+							>
+								<Globe className="w-4 h-4" />
+								<span>Browser</span>
 							</TabsTrigger>
 						</TabsList>
 					</Tabs>
@@ -1223,6 +1246,12 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 							}
 							onViewTentativeChanges={handleViewTentativeChanges}
 							onDeleteTentativeChanges={handleDeleteTentativeChanges}
+						/>
+					) : activeTab === "browser" ? (
+						<BrowserPanel
+							repoPath={effectiveRepoPath}
+							workspaceId={workspace?.id}
+							onCreateAgentWithReview={handleCreateAgentWithPageReview}
 						/>
 					) : (
 						<ChangesDiffViewer

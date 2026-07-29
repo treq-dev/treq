@@ -764,6 +764,40 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
 
+        // ── Pending page review (in-app browser) ─────────────────────────────
+        "load_pending_page_review" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id: i64 = get_i64(&args, "workspaceId")?;
+            let review = treq_lib::local_db::get_pending_page_review(&repo_path, workspace_id)?;
+            serde_json::to_value(review).map_err(|e| e.to_string())
+        }
+
+        "save_pending_page_review" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id: i64 = get_i64(&args, "workspaceId")?;
+            let url = get_str(&args, "url")?;
+            let comments = get_str(&args, "comments")?;
+            let summary_text: Option<String> = args
+                .get("summaryText")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let id = treq_lib::local_db::save_pending_page_review(
+                &repo_path,
+                workspace_id,
+                &url,
+                &comments,
+                summary_text.as_deref(),
+            )?;
+            Ok(Value::Number(id.into()))
+        }
+
+        "clear_pending_page_review" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id: i64 = get_i64(&args, "workspaceId")?;
+            treq_lib::local_db::clear_pending_page_review(&repo_path, workspace_id)?;
+            Ok(Value::Null)
+        }
+
         // ── Filesystem ────────────────────────────────────────────────────
         "read_file" => {
             let path = get_str(&args, "path")?;
