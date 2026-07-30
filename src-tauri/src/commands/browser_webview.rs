@@ -24,7 +24,7 @@ const SELECTION_SCRIPT: &str = r##"(function () {
   window.__treqBrowserReviewInstalled = true;
   window.__treqSelectMode = false;
 
-  var HIGHLIGHT_STYLE = "outline: 2px solid #6366f1 !important; outline-offset: -2px !important; cursor: crosshair !important;";
+  var HIGHLIGHT_STYLE = "outline: 2px solid #1e3a8a !important; outline-offset: -2px !important; cursor: crosshair !important;";
   var hovered = null;
 
   function cssSelector(el) {
