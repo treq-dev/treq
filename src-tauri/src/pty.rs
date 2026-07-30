@@ -133,6 +133,7 @@ impl PtyManager {
         session_id: String,
         working_dir: Option<String>,
         shell: Option<String>,
+        shell_args: Vec<String>,
         initial_command: Option<String>,
         suppress_echo_for: Option<String>,
         callback: Box<dyn Fn(String) + Send + 'static>,
@@ -159,6 +160,9 @@ impl PtyManager {
         });
 
         let mut cmd = CommandBuilder::new(&shell_cmd);
+        for arg in shell_args {
+            cmd.arg(arg);
+        }
         if let Some(dir) = working_dir {
             cmd.cwd(dir);
         }

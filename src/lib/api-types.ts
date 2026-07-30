@@ -457,3 +457,34 @@ export interface ConflictRegion {
 	line_map: number[];
 	comparison: ConflictComparisonView;
 }
+
+export interface SshHost {
+	alias: string;
+}
+
+export interface RemoteReadinessCheck {
+	name: string;
+	available: boolean;
+	detail: string;
+}
+
+export interface RemoteReadiness {
+	host: string;
+	connected: boolean;
+	checks: RemoteReadinessCheck[];
+}
+
+export interface RemoteRepoProbe {
+	host: string;
+	path: string;
+	exists: boolean;
+	is_repo: boolean;
+	needs_clone: boolean;
+}
+
+export interface RemoteRepository {
+	host: string;
+	path: string;
+	display_name: string;
+	repo_uri: string;
+}

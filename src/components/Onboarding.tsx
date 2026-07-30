@@ -1,4 +1,4 @@
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, Server } from "lucide-react";
 import { Button } from "./ui/button";
 import {
 	Card,
@@ -10,9 +10,13 @@ import {
 
 interface OnboardingProps {
 	onOpenRepo: () => Promise<void>;
+	onOpenRemoteSsh?: () => Promise<void>;
 }
 
-export const Onboarding: React.FC<OnboardingProps> = ({ onOpenRepo }) => (
+export const Onboarding: React.FC<OnboardingProps> = ({
+	onOpenRepo,
+	onOpenRemoteSsh,
+}) => (
 	<div className="flex h-screen items-center justify-center bg-background mx-auto">
 		<Card className="w-96">
 			<CardHeader className="text-center">
@@ -28,6 +32,16 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onOpenRepo }) => (
 				<Button onClick={onOpenRepo} className="w-full">
 					Open Repository
 				</Button>
+				{onOpenRemoteSsh && (
+					<Button
+						onClick={onOpenRemoteSsh}
+						variant="outline"
+						className="w-full"
+					>
+						<Server className="w-4 h-4 mr-2" />
+						Open via SSH
+					</Button>
+				)}
 			</CardContent>
 		</Card>
 	</div>

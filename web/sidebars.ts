@@ -32,7 +32,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Guides',
       link: {type: 'doc', id: 'guides/index'},
-      items: [],
+      items: ['how-to/remote-ssh-workspaces'],
     },
     {
       type: 'category',

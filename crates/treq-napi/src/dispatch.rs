@@ -862,6 +862,40 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
 
+        // ── Remote SSH ───────────────────────────────────────────────────
+        "list_ssh_hosts" => {
+            let hosts = treq_lib::core::remote::list_configured_hosts()?;
+            serde_json::to_value(hosts).map_err(|e| e.to_string())
+        }
+
+        "check_ssh_host" => {
+            let host = get_str(&args, "host")?;
+            let readiness = treq_lib::core::remote::check_readiness(&host)?;
+            serde_json::to_value(readiness).map_err(|e| e.to_string())
+        }
+
+        "remote_probe_repo" => {
+            let host = get_str(&args, "host")?;
+            let path = get_str(&args, "path")?;
+            let probe = treq_lib::core::remote::probe_repo(&host, &path)?;
+            serde_json::to_value(probe).map_err(|e| e.to_string())
+        }
+
+        "remote_clone_repo" => {
+            let host = get_str(&args, "host")?;
+            let repo_url = get_str(&args, "repoUrl")?;
+            let destination = get_str(&args, "destination")?;
+            let repo = treq_lib::core::remote::clone_repo(&host, &repo_url, &destination)?;
+            serde_json::to_value(repo).map_err(|e| e.to_string())
+        }
+
+        "remote_open_repo" => {
+            let host = get_str(&args, "host")?;
+            let path = get_str(&args, "path")?;
+            let repo = treq_lib::core::remote::open_repo(&host, &path);
+            serde_json::to_value(repo).map_err(|e| e.to_string())
+        }
+
         // ── Tauri-runtime-only: silent no-ops ─────────────────────────────
         "pty_create_session"
         | "pty_session_exists"

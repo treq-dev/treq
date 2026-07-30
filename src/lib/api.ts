@@ -25,6 +25,10 @@ import type {
 	Workspace,
 	WorkspaceSidebarStatus,
 	WorkspaceStatus,
+	SshHost,
+	RemoteReadiness,
+	RemoteRepoProbe,
+	RemoteRepository,
 } from "./api-types";
 
 import { invoke } from "@tauri-apps/api/core";
@@ -546,3 +550,25 @@ export const ghCreatePr = (
 	});
 
 // PTY API
+
+export const listSshHosts = (): Promise<SshHost[]> => invoke("list_ssh_hosts");
+
+export const checkSshHost = (host: string): Promise<RemoteReadiness> =>
+	invoke("check_ssh_host", { host });
+
+export const remoteProbeRepo = (
+	host: string,
+	path: string,
+): Promise<RemoteRepoProbe> => invoke("remote_probe_repo", { host, path });
+
+export const remoteCloneRepo = (
+	host: string,
+	repoUrl: string,
+	destination: string,
+): Promise<RemoteRepository> =>
+	invoke("remote_clone_repo", { host, repoUrl, destination });
+
+export const remoteOpenRepo = (
+	host: string,
+	path: string,
+): Promise<RemoteRepository> => invoke("remote_open_repo", { host, path });

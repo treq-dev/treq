@@ -1,6 +1,7 @@
 pub mod app;
 pub mod changes;
 pub mod commits;
+pub mod remote;
 pub mod repo;
 pub mod workspaces;
 pub use app::*;
