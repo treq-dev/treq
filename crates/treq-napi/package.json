@@ -12,8 +12,8 @@
     ]
   },
   "scripts": {
-    "build": "DUCKDB_DOWNLOAD_LIB=1 napi build --release --platform --js index.js",
-    "build:debug": "DUCKDB_DOWNLOAD_LIB=1 napi build --platform --js index.js"
+    "build": "napi build --release --platform --js index.js",
+    "build:debug": "napi build --platform --js index.js"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3"
