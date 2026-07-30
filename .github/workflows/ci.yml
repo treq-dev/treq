@@ -121,6 +121,7 @@ jobs:
         working-directory: src-tauri
         env:
           RUST_BACKTRACE: 1
+          DUCKDB_DOWNLOAD_LIB: "1"
         run: |
           if [ "${{ matrix.kind }}" = "verify" ] || [ "${{ matrix.task }}" = "verify" ]; then
             cargo fmt --check
