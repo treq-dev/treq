@@ -58,6 +58,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import {
 	AlertTriangle,
 	ArrowLeft,
+	ChevronDown,
 	ChevronLeft,
 	Code2,
 	Eye,
@@ -927,43 +928,85 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 		const executionPanel = workingDirectory ? (
 			<div className="flex flex-col h-full">
 				<div className="flex-shrink-0 bg-background px-4 py-2 border-b border-border flex items-center justify-between">
-					<Tabs value={activeTab} onValueChange={setActiveTab}>
-						<TabsList>
-							<TabsTrigger
-								value="overview"
-								className="inline-flex items-center"
-							>
-								<Code2 className="w-4 h-4 mr-1.5" />
-								Code
-							</TabsTrigger>
-							<TabsTrigger
-								value="commits"
-								className="inline-flex items-center gap-1.5"
-							>
-								<GitCommitHorizontal className="w-4 h-4" />
-								<span>Commits</span>
-							</TabsTrigger>
-							<TabsTrigger
-								value="changes"
-								className="inline-flex items-center gap-1.5"
-							>
-								<FileDiff className="w-4 h-4" />
-								<span>Review</span>
-								{changedFiles.size > 0 && (
-									<span
-										className={cn(
-											"rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
-											conflictCount > 0
-												? "bg-destructive text-destructive-foreground"
-												: "bg-muted text-muted-foreground",
-										)}
-									>
-										{changedFiles.size}
+					<div className="flex items-center gap-2">
+						<Tabs value={activeTab} onValueChange={setActiveTab}>
+							<TabsList>
+								<TabsTrigger
+									value="overview"
+									className="inline-flex items-center"
+								>
+									<Code2 className="w-4 h-4 mr-1.5" />
+									Code
+								</TabsTrigger>
+								<TabsTrigger
+									value="commits"
+									className="inline-flex items-center gap-1.5"
+								>
+									<GitCommitHorizontal className="w-4 h-4" />
+									<span>Commits</span>
+								</TabsTrigger>
+								<TabsTrigger
+									value="changes"
+									className="inline-flex items-center gap-1.5"
+								>
+									<FileDiff className="w-4 h-4" />
+									<span>Review</span>
+									{changedFiles.size > 0 && (
+										<span
+											className={cn(
+												"rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
+												conflictCount > 0
+													? "bg-destructive text-destructive-foreground"
+													: "bg-muted text-muted-foreground",
+											)}
+										>
+											{changedFiles.size}
+										</span>
+									)}
+								</TabsTrigger>
+							</TabsList>
+						</Tabs>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="gap-1.5"
+									aria-label="Switch review view"
+								>
+									{reviewSubView === "browser" ? (
+										<Globe className="w-4 h-4" />
+									) : (
+										<FileDiff className="w-4 h-4" />
+									)}
+									<span>
+										{reviewSubView === "browser" ? "Browser" : "Diff"}
 									</span>
-								)}
-							</TabsTrigger>
-						</TabsList>
-					</Tabs>
+									<ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" sideOffset={4}>
+								<DropdownMenuItem
+									onSelect={() => {
+										setReviewSubView("diff");
+										setActiveTab("changes");
+									}}
+								>
+									<FileDiff className="w-4 h-4 mr-2" />
+									Diff
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={() => {
+										setReviewSubView("browser");
+										setActiveTab("changes");
+									}}
+								>
+									<Globe className="w-4 h-4 mr-2" />
+									Browser
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
 					<div className="flex items-center gap-3">
 						{(rebasing || refreshingFiles) && (
 							<div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1243,61 +1286,35 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 							onViewTentativeChanges={handleViewTentativeChanges}
 							onDeleteTentativeChanges={handleDeleteTentativeChanges}
 						/>
+					) : reviewSubView === "browser" ? (
+						<BrowserPanel
+							repoPath={effectiveRepoPath}
+							workspaceId={workspace?.id}
+							onCreateAgentWithReview={handleCreateAgentWithPageReview}
+						/>
 					) : (
-						<div className="flex flex-col h-full min-h-0">
-							<div className="flex-shrink-0 flex items-center gap-1 px-4 py-1.5 border-b border-border">
-								<Button
-									size="sm"
-									variant={reviewSubView === "diff" ? "secondary" : "ghost"}
-									className="h-7 gap-1.5"
-									onClick={() => setReviewSubView("diff")}
-								>
-									<FileDiff className="w-3.5 h-3.5" />
-									Diff
-								</Button>
-								<Button
-									size="sm"
-									variant={reviewSubView === "browser" ? "secondary" : "ghost"}
-									className="h-7 gap-1.5"
-									onClick={() => setReviewSubView("browser")}
-								>
-									<Globe className="w-3.5 h-3.5" />
-									Browser
-								</Button>
-							</div>
-							<div className="flex-1 min-h-0">
-								{reviewSubView === "browser" ? (
-									<BrowserPanel
-										repoPath={effectiveRepoPath}
-										workspaceId={workspace?.id}
-										onCreateAgentWithReview={handleCreateAgentWithPageReview}
-									/>
-								) : (
-									<ChangesDiffViewer
-										key={`changes-${workingDirectory}`}
-										ref={changesDiffViewerRef}
-										workspacePath={workingDirectory}
-										workspaceId={workspace?.id}
-										repoPath={effectiveRepoPath}
-										onChangedFilesChange={handleChangedFilesUpdate}
-										onRefreshingChange={handleRefreshingChange}
-										initialSelectedFile={initialSelectedFile}
-										conflictedFiles={normalizedConflictedFiles}
-										onCreateAgentWithReview={handleCreateAgentWithReview}
-										showCommittedChanges={
-											workspace && workspace.branch_name !== defaultTargetBranch
-												? showCommittedChanges
-												: false
-										}
-										onMoveFilesToNewWorkspace={
-											onMoveFilesToNewWorkspace
-												? (files) => onMoveFilesToNewWorkspace(files, workspace)
-												: undefined
-										}
-									/>
-								)}
-							</div>
-						</div>
+						<ChangesDiffViewer
+							key={`changes-${workingDirectory}`}
+							ref={changesDiffViewerRef}
+							workspacePath={workingDirectory}
+							workspaceId={workspace?.id}
+							repoPath={effectiveRepoPath}
+							onChangedFilesChange={handleChangedFilesUpdate}
+							onRefreshingChange={handleRefreshingChange}
+							initialSelectedFile={initialSelectedFile}
+							conflictedFiles={normalizedConflictedFiles}
+							onCreateAgentWithReview={handleCreateAgentWithReview}
+							showCommittedChanges={
+								workspace && workspace.branch_name !== defaultTargetBranch
+									? showCommittedChanges
+									: false
+							}
+							onMoveFilesToNewWorkspace={
+								onMoveFilesToNewWorkspace
+									? (files) => onMoveFilesToNewWorkspace(files, workspace)
+									: undefined
+							}
+						/>
 					)}
 				</div>
 			</div>

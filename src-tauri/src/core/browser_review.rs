@@ -7,6 +7,13 @@ pub struct PickedElement {
     pub selector: String,
     pub tag: String,
     pub text_preview: String,
+    /// The element's own opening tag with attributes, as a one-line string
+    /// with no child markup (e.g. `<button class="primary"></button>`) —
+    /// computed client-side via `el.cloneNode(false).outerHTML`. Passed
+    /// through as-is; truncation for display/prompt use happens in
+    /// `browser-panel/utils.ts` (testable there, unlike this webview-only
+    /// capture path).
+    pub html_snippet: String,
     pub x: f64,
     pub y: f64,
     pub width: f64,
@@ -94,6 +101,7 @@ mod tests {
             selector: "#checkout > button.primary".to_string(),
             tag: "BUTTON".to_string(),
             text_preview: "Place order".to_string(),
+            html_snippet: "<button class=\"primary\" id=\"checkout\"></button>".to_string(),
             x: 10.5,
             y: 20.0,
             width: 120.0,
@@ -113,6 +121,7 @@ mod tests {
             selector: "div.card[data-id=\"7\"]".to_string(),
             tag: "DIV".to_string(),
             text_preview: "50% off — \"today only\"".to_string(),
+            html_snippet: "<div class=\"card\" data-id=\"7\"></div>".to_string(),
             x: 0.0,
             y: 0.0,
             width: 0.0,

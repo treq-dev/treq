@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+	MAX_ELEMENT_HTML_SNIPPET_LENGTH,
 	formatPageReviewMarkdown,
 	isAllowedBrowserUrl,
 	toApiElementComment,
 	toLocalElementComment,
 	toLocalPickedElement,
+	truncateHtmlSnippet,
 } from "./utils";
 import type { ElementComment } from "./types";
 
@@ -34,12 +36,35 @@ describe("isAllowedBrowserUrl", () => {
 	});
 });
 
+describe("truncateHtmlSnippet", () => {
+	it("returns the string unchanged when at or under the max length", () => {
+		expect(truncateHtmlSnippet("<div></div>", 20)).toBe("<div></div>");
+		const exact = "a".repeat(20);
+		expect(truncateHtmlSnippet(exact, 20)).toBe(exact);
+	});
+
+	it("truncates and appends an ellipsis when over the max length", () => {
+		const long = '<div class="x">'.repeat(20);
+		const truncated = truncateHtmlSnippet(long, 20);
+		expect(truncated.length).toBe(21); // 20 chars + ellipsis
+		expect(truncated.startsWith(long.slice(0, 20))).toBe(true);
+		expect(truncated.endsWith("…")).toBe(true);
+	});
+
+	it("defaults to MAX_ELEMENT_HTML_SNIPPET_LENGTH when no max is given", () => {
+		const long = "x".repeat(MAX_ELEMENT_HTML_SNIPPET_LENGTH + 50);
+		const truncated = truncateHtmlSnippet(long);
+		expect(truncated.length).toBe(MAX_ELEMENT_HTML_SNIPPET_LENGTH + 1);
+	});
+});
+
 describe("formatPageReviewMarkdown", () => {
 	const comment: ElementComment = {
 		id: "c1",
 		selector: "#checkout > button.primary",
 		tag: "BUTTON",
 		textPreview: "Place order",
+		htmlSnippet: '<button class="primary" id="checkout"></button>',
 		x: 0,
 		y: 0,
 		width: 10,
@@ -48,7 +73,7 @@ describe("formatPageReviewMarkdown", () => {
 		createdAt: "2026-01-01T00:00:00Z",
 	};
 
-	it("includes the URL, each comment's selector and text, and the summary", () => {
+	it("includes the URL, each comment's selector, text, HTML snippet, and the summary", () => {
 		const markdown = formatPageReviewMarkdown(
 			"http://localhost:3000/checkout",
 			[comment],
@@ -61,7 +86,21 @@ describe("formatPageReviewMarkdown", () => {
 		expect(markdown).toContain(
 			"This button should be disabled while submitting",
 		);
+		expect(markdown).toContain(
+			'<button class="primary" id="checkout"></button>',
+		);
 		expect(markdown).toContain("Overall looks good, one blocker below");
+	});
+
+	it("truncates a long HTML snippet in the markdown", () => {
+		const longSnippet = `<div class="${"x".repeat(400)}"></div>`;
+		const markdown = formatPageReviewMarkdown(
+			"http://localhost:3000/",
+			[{ ...comment, htmlSnippet: longSnippet }],
+			"",
+		);
+		expect(markdown).not.toContain(longSnippet);
+		expect(markdown).toContain(truncateHtmlSnippet(longSnippet));
 	});
 
 	it("omits the Comments section when there are no comments", () => {
@@ -91,6 +130,7 @@ describe("comment conversion round trip", () => {
 			selector: ".card",
 			tag: "DIV",
 			textPreview: "50% off",
+			htmlSnippet: '<div class="card"></div>',
 			x: 1,
 			y: 2,
 			width: 3,
@@ -104,6 +144,7 @@ describe("comment conversion round trip", () => {
 			selector: ".card",
 			tag: "DIV",
 			text_preview: "50% off",
+			html_snippet: '<div class="card"></div>',
 			x: 1,
 			y: 2,
 			width: 3,
@@ -119,6 +160,7 @@ describe("comment conversion round trip", () => {
 			selector: "#foo",
 			tag: "BUTTON",
 			text_preview: "Submit",
+			html_snippet: '<button id="foo"></button>',
 			x: 1,
 			y: 2,
 			width: 3,
@@ -128,6 +170,7 @@ describe("comment conversion round trip", () => {
 			selector: "#foo",
 			tag: "BUTTON",
 			textPreview: "Submit",
+			htmlSnippet: '<button id="foo"></button>',
 			x: 1,
 			y: 2,
 			width: 3,

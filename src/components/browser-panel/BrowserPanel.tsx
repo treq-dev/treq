@@ -137,6 +137,7 @@ export function BrowserPanel({
 				selector: pendingPick.selector,
 				tag: pendingPick.tag,
 				textPreview: pendingPick.textPreview,
+				htmlSnippet: pendingPick.htmlSnippet,
 				x: pendingPick.x,
 				y: pendingPick.y,
 				width: pendingPick.width,

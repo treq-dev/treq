@@ -45,10 +45,14 @@ async function openBrowserTab(
 	await user.click(reviewTab);
 	await screen.findByRole("tab", { name: /^Review/, selected: true });
 
-	const browserSubViewButton = await screen.findByRole("button", {
+	const viewSwitcher = await screen.findByRole("button", {
+		name: /switch review view/i,
+	});
+	await user.click(viewSwitcher);
+	const browserOption = await screen.findByRole("menuitem", {
 		name: "Browser",
 	});
-	await user.click(browserSubViewButton);
+	await user.click(browserOption);
 	await screen.findByLabelText(/browser url/i);
 }
 
@@ -71,6 +75,7 @@ const SAMPLE_ELEMENT: PickedElement = {
 	selector: "#checkout > button.primary",
 	tag: "BUTTON",
 	text_preview: "Place order",
+	html_snippet: '<button class="primary" id="checkout"></button>',
 	x: 10,
 	y: 20,
 	width: 120,

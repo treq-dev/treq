@@ -3,6 +3,7 @@ export interface ElementComment {
 	selector: string;
 	tag: string;
 	textPreview: string;
+	htmlSnippet: string;
 	x: number;
 	y: number;
 	width: number;
@@ -15,6 +16,7 @@ export interface PickedElement {
 	selector: string;
 	tag: string;
 	textPreview: string;
+	htmlSnippet: string;
 	x: number;
 	y: number;
 	width: number;

@@ -51,6 +51,14 @@ const SELECTION_SCRIPT: &str = r##"(function () {
     return parts.join(" > ");
   }
 
+  function selfOnlyHtml(el) {
+    var clone = el.cloneNode(false);
+    var html = clone.outerHTML || "";
+    // Defensive cap only (e.g. against a huge inline data-URI attribute) --
+    // the real prompt-facing truncation happens in browser-panel/utils.ts.
+    return html.length > 2000 ? html.slice(0, 2000) : html;
+  }
+
   document.addEventListener("mouseover", function (e) {
     if (!window.__treqSelectMode) return;
     if (hovered) hovered.style.cssText = hovered.__treqPrevStyle || "";
@@ -69,6 +77,7 @@ const SELECTION_SCRIPT: &str = r##"(function () {
       selector: cssSelector(el),
       tag: el.tagName,
       text_preview: (el.textContent || "").trim().slice(0, 140),
+      html_snippet: selfOnlyHtml(el),
       x: rect.x,
       y: rect.y,
       width: rect.width,
