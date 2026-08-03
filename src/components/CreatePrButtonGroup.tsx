@@ -25,12 +25,14 @@ interface CreatePrButtonGroupProps {
 	repoPath: string;
 	workspace: Workspace;
 	baseBranch: string;
+	onPush: () => Promise<void>;
 }
 
 export function CreatePrButtonGroup({
 	repoPath,
 	workspace,
 	baseBranch,
+	onPush,
 }: CreatePrButtonGroupProps) {
 	const { addToast } = useToast();
 	const queryClient = useQueryClient();
@@ -51,6 +53,9 @@ export function CreatePrButtonGroup({
 	const createPr = async (draft: boolean) => {
 		setCreating(true);
 		try {
+			if (workspace.not_on_remote) {
+				await onPush();
+			}
 			const number = await ghCreatePr(
 				remoteInfo.full_name,
 				title,

@@ -22,6 +22,7 @@ vi.mock("../../../src/lib/api", async (importOriginal) => {
 		await importOriginal<typeof import("../../../src/lib/api")>();
 	return {
 		...original,
+		pushWorkspaceToRemote: vi.fn(original.pushWorkspaceToRemote),
 		getPrInfoViaGh: vi.fn().mockResolvedValue(null),
 		ghCreatePr: vi.fn().mockResolvedValue(42),
 		ghViewPr: vi.fn(),
@@ -54,6 +55,7 @@ describe("ShowWorkspace - Create PR", () => {
 		user = userEvent.setup();
 		vi.mocked(getPrInfoViaGh).mockReset().mockResolvedValue(null);
 		vi.mocked(ghCreatePr).mockReset().mockResolvedValue(42);
+		vi.mocked(pushWorkspaceToRemote).mockClear();
 		vi.mocked(openUrl).mockReset();
 	});
 
@@ -128,7 +130,7 @@ describe("ShowWorkspace - Create PR", () => {
 		});
 	});
 
-	it("keeps Push to remote when the branch is not on remote", async () => {
+	it("shows Create PR when a GitHub branch is not on remote", async () => {
 		await createWorkspace(repoPath, "feat/unpushed");
 		setOriginUrl(repoPath, "https://github.com/acme/treq.git");
 		render(<Dashboard />);
@@ -137,11 +139,35 @@ describe("ShowWorkspace - Create PR", () => {
 		const header = await screen.findByTestId("show-workspace-header");
 
 		expect(
-			await within(header).findByRole("button", { name: /push to remote/i }),
+			await within(header).findByRole("button", { name: /^create pr$/i }),
 		).toBeVisible();
 		expect(
-			within(header).queryByRole("button", { name: /^create pr$/i }),
+			within(header).queryByRole("button", { name: /^push to remote$/i }),
 		).not.toBeInTheDocument();
+	});
+
+	it("pushes an unpushed GitHub branch before creating its PR", async () => {
+		const workspaceId = await createWorkspace(repoPath, "feat/unpushed-pr");
+		setOriginUrl(repoPath, "https://github.com/acme/treq.git");
+		let finishPush!: () => void;
+		vi.mocked(pushWorkspaceToRemote).mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					finishPush = resolve;
+				}),
+		);
+		render(<Dashboard />);
+
+		await user.click(await screen.findByText("feat/unpushed-pr"));
+		const header = await screen.findByTestId("show-workspace-header");
+		await user.click(
+			await within(header).findByRole("button", { name: /^create pr$/i }),
+		);
+
+		expect(pushWorkspaceToRemote).toHaveBeenCalledWith(repoPath, workspaceId);
+		expect(ghCreatePr).not.toHaveBeenCalled();
+		finishPush();
+		await waitFor(() => expect(ghCreatePr).toHaveBeenCalled());
 	});
 
 	it("hides Create PR when there is no GitHub remote", async () => {

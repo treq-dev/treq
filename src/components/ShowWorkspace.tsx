@@ -529,7 +529,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 		);
 
 		const handlePushToRemote = useCallback(async () => {
-			if (!effectiveRepoPath) return;
+			if (!effectiveRepoPath) return false;
 
 			_setActionPending("push");
 
@@ -544,6 +544,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 				// Refresh sync status after push
 				await refetchWorkspaceStatus();
 				queryClient?.invalidateQueries();
+				return true;
 			} catch (error) {
 				console.error("Push failed:", error);
 				addToast({
@@ -551,6 +552,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 					description: String(error),
 					type: "error",
 				});
+				return false;
 			} finally {
 				_setActionPending(null);
 			}
@@ -1511,45 +1513,23 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 								)}
 							</div>
 							<div className="flex items-center gap-2">
-								{/* Push to remote button - shown when branch not on remote */}
-								{workspace && workspace.not_on_remote && (
-									<TooltipProvider delayDuration={200}>
-										<Tooltip>
-											<TooltipTrigger asChild>
-												<Button
-													variant="default"
-													size="sm"
-													onClick={handlePushToRemote}
-													disabled={!!actionPending}
-													className="bg-blue-600 hover:bg-blue-700"
-												>
-													<Upload className="w-4 h-4" />
-													Push to remote
-												</Button>
-											</TooltipTrigger>
-											<TooltipContent>
-												This branch doesn&apos;t exist on remote yet. Push to
-												create it.
-											</TooltipContent>
-										</Tooltip>
-									</TooltipProvider>
-								)}
-
-								{/* Create / View PR once the branch is on a GitHub remote */}
+								{/* Create PR also pushes first when the GitHub branch is new. */}
 								{workspace &&
-									!workspace.not_on_remote &&
 									workspace.branch_name !== defaultBranch &&
 									effectiveRepoPath && (
 										<>
-											<ViewPrButton
-												repoPath={effectiveRepoPath}
-												branchName={workspace.branch_name}
-												onViewInApp={onViewPrInApp}
-											/>
+											{!workspace.not_on_remote && (
+												<ViewPrButton
+													repoPath={effectiveRepoPath}
+													branchName={workspace.branch_name}
+													onViewInApp={onViewPrInApp}
+												/>
+											)}
 											<CreatePrButtonGroup
 												repoPath={effectiveRepoPath}
 												workspace={workspace}
 												baseBranch={targetBranch ?? defaultTargetBranch}
+												onPush={handlePushToRemote}
 											/>
 										</>
 									)}
