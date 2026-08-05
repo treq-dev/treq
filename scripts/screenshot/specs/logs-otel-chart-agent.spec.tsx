@@ -62,7 +62,7 @@ it("captures the OTel logs tab, chart, selection and templates menu", async () =
 			"Time runs oldest-on-the-left to newest-on-the-right along the x-axis.",
 			"Ignore the chart's narrow overall width: jsdom reports a zero-width container, so ECharts falls back to a 100px canvas here instead of filling the panel.",
 			'Below the chart a toolbar shows "Multi-select", "Select all" and a disabled "Send to agent" button.',
-			"Log lines appear beneath, each with a timestamp, run id, blue job id and the message.",
+			'A header row below the toolbar labels "Timestamp", "Run", "Job", "Level" and "Message" columns; log lines beneath align a timestamp, a "#" run id, a blue job id and the message under those tightly-fit columns with the message column taking up most of the row width.',
 		],
 	});
 

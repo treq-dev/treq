@@ -111,16 +111,18 @@ export function LogsTab({ repoPath, onSendToAgent }: Props) {
 							lineTestId="repo-log-line"
 							emptyMessage="No check logs recorded yet. Run a workflow check from the Checks tab of any workspace to populate this table."
 							onSendToAgent={handleSendToAgent}
-							renderPrefix={(record) => (
-								<>
-									<span className="shrink-0 select-none text-muted-foreground">
-										#{record.run_id}
-									</span>
-									<span className="shrink-0 select-none text-blue-600 dark:text-blue-400">
-										{record.job_id}
-									</span>
-								</>
-							)}
+							prefixColumns={[
+								{
+									header: "Run",
+									className: "w-[5ch] text-muted-foreground",
+									render: (record) => `#${record.run_id}`,
+								},
+								{
+									header: "Job",
+									className: "w-[10ch] text-blue-600 dark:text-blue-400",
+									render: (record) => record.job_id,
+								},
+							]}
 						/>
 					)}
 				</>

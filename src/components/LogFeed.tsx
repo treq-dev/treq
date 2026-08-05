@@ -17,10 +17,22 @@ export function formatTimestamp(timestamp: string): string {
 	return parsed.toISOString().slice(11, 23);
 }
 
+/** Timestamps render as fixed HH:MM:SS.sss (12 chars), so the column can be sized exactly to fit. */
+const TIMESTAMP_COL_CLASS = "w-[12ch] shrink-0 whitespace-nowrap";
+/** Longest severity name (e.g. "ERROR") plus a hair of padding. */
+const LEVEL_COL_CLASS = "w-[6ch] shrink-0 whitespace-nowrap";
+
+export interface PrefixColumn {
+	header: string;
+	/** Fixed-width class shared between the header cell and each row's cell. */
+	className: string;
+	render: (record: LogRecordView) => React.ReactNode;
+}
+
 interface Props {
 	records: LogRecordView[];
-	/** Shown before the message; used by the repo-wide feed for run/job ids. */
-	renderPrefix?: (record: LogRecordView) => React.ReactNode;
+	/** Extra fixed-width columns shown before the message; e.g. run/job ids. */
+	prefixColumns?: PrefixColumn[];
 	testId: string;
 	lineTestId: string;
 	emptyMessage: React.ReactNode;
@@ -36,7 +48,7 @@ interface Props {
  */
 export function LogFeed({
 	records,
-	renderPrefix,
+	prefixColumns = [],
 	testId,
 	lineTestId,
 	emptyMessage,
@@ -118,6 +130,19 @@ export function LogFeed({
 			</div>
 
 			<div
+				className="flex w-full gap-3 px-3 py-1 border-b bg-muted/20 font-mono text-[10px] uppercase tracking-wide text-muted-foreground select-none"
+			>
+				<span className={TIMESTAMP_COL_CLASS}>Timestamp</span>
+				{prefixColumns.map((col) => (
+					<span key={col.header} className={cn(col.className, "truncate")}>
+						{col.header}
+					</span>
+				))}
+				<span className={LEVEL_COL_CLASS}>Level</span>
+				<span className="flex-1 min-w-0">Message</span>
+			</div>
+
+			<div
 				data-testid={testId}
 				// Drag-select would otherwise paint the browser's own text selection.
 				className="flex-1 overflow-auto font-mono text-xs leading-relaxed p-3 select-none"
@@ -137,12 +162,33 @@ export function LogFeed({
 							selected.has(index) ? "bg-primary/20" : "hover:bg-muted/50",
 						)}
 					>
-						<span className="shrink-0 select-none text-muted-foreground tabular-nums">
+						<span
+							className={cn(
+								TIMESTAMP_COL_CLASS,
+								"select-none text-muted-foreground tabular-nums",
+							)}
+						>
 							{formatTimestamp(record.timestamp)}
 						</span>
-						{renderPrefix?.(record)}
+						{prefixColumns.map((col) => (
+							<span
+								key={col.header}
+								className={cn(col.className, "shrink-0 select-none truncate")}
+							>
+								{col.render(record)}
+							</span>
+						))}
 						<span
-							className={cn("min-w-0", severityClass(record.severity_text))}
+							className={cn(
+								LEVEL_COL_CLASS,
+								"select-none",
+								severityClass(record.severity_text),
+							)}
+						>
+							{record.severity_text}
+						</span>
+						<span
+							className={cn("flex-1 min-w-0", severityClass(record.severity_text))}
 						>
 							{record.body}
 						</span>

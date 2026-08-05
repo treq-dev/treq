@@ -74,10 +74,8 @@ it("captures the checks run history and the logs browser", async () => {
 		name: "checks-logs-02-browser",
 		expectations: [
 			"A logs viewer is open, replacing the checks list, with a Back button and an Export button in its header.",
-			"Every log line is rendered in a monospace font with a timestamp in a left-hand column.",
-			'The line "warning: unused variable x" is amber/yellow and "error: assertion failed" is red.',
-			'Plain lines such as "Compiling treq v0.1.3" and "running 2 tests" are rendered in the default text colour, not amber or red.',
-			'A filter row shows a level multi-select button reading "All levels" plus a step dropdown and a search box.',
+			'A header row above the log lines labels "Timestamp", "Level" and "Message" columns, and each log line below aligns under those same tightly-fit columns with no gap on either side of the timestamp or level text.',
+			'The "Level" column shows "WARN" in amber and "ERROR" in red, matching the colour of the message text on those same lines; plain "INFO" lines are the default text colour.',
 		],
 	});
 
