@@ -1,6 +1,7 @@
 mod agent_dispatch;
 mod agent_runtime;
 pub mod auto_rebase;
+pub mod repo_config;
 pub mod binary_paths;
 mod cli;
 mod commands;
@@ -521,6 +522,8 @@ pub fn run() {
             commands::gh_reopen_pr,
             commands::gh_set_pr_draft,
             commands::gh_create_pr,
+            commands::load_repo_yaml_config,
+            commands::get_cached_repo_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
