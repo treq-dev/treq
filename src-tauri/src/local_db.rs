@@ -90,6 +90,18 @@ pub struct PendingReview {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PromptHistoryEntry {
+    pub id: i64,
+    pub workspace_id: Option<i64>,
+    pub session_id: Option<i64>,
+    pub prompt_text: String,
+    pub agent: Option<String>,
+    pub created_at: String,
+    /// Display label for the associated workspace (title or branch name), if any.
+    pub workspace_label: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CachedCommitDiffStat {
     pub commit_id: String,
     pub insertions: u32,
@@ -345,6 +357,33 @@ pub fn init_local_db(repo_path: &str) -> Result<PathBuf, String> {
         [],
     )
     .map_err(|e| format!("Failed to create instance_registry heartbeat index: {}", e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS prompt_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER,
+            session_id INTEGER,
+            prompt_text TEXT NOT NULL,
+            agent TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        )",
+        [],
+    )
+    .map_err(|e| format!("Failed to create prompt_history table: {}", e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_prompt_history_workspace ON prompt_history(workspace_id)",
+        [],
+    )
+    .map_err(|e| format!("Failed to create prompt_history workspace index: {}", e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_prompt_history_created_at ON prompt_history(created_at)",
+        [],
+    )
+    .map_err(|e| format!("Failed to create prompt_history created_at index: {}", e))?;
 
     // Migration: rename pending_reviews columns from old schema to new schema.
     let has_old_columns: Result<i64, _> = conn.query_row(
@@ -1307,6 +1346,84 @@ pub fn clear_pending_review(repo_path: &str, workspace_id: i64) -> Result<(), St
     )
     .map_err(|e| format!("Failed to clear pending review: {}", e))?;
     Ok(())
+}
+
+// Prompt History Functions
+
+const PROMPT_HISTORY_SELECT: &str = "SELECT ph.id, ph.workspace_id, ph.session_id, ph.prompt_text, ph.agent, ph.created_at, COALESCE(w.title, w.branch_name)
+     FROM prompt_history ph
+     LEFT JOIN workspaces w ON w.id = ph.workspace_id";
+
+fn prompt_history_from_row(row: &Row<'_>) -> rusqlite::Result<PromptHistoryEntry> {
+    Ok(PromptHistoryEntry {
+        id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        session_id: row.get(2)?,
+        prompt_text: row.get(3)?,
+        agent: row.get(4)?,
+        created_at: row.get(5)?,
+        workspace_label: row.get(6)?,
+    })
+}
+
+/// Record a prompt that was sent to an agent, so it can be reviewed later.
+pub fn add_prompt_history(
+    repo_path: &str,
+    workspace_id: Option<i64>,
+    session_id: Option<i64>,
+    prompt_text: &str,
+    agent: Option<&str>,
+) -> Result<i64, String> {
+    let conn = get_connection(repo_path)?;
+    let created_at = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "INSERT INTO prompt_history (workspace_id, session_id, prompt_text, agent, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![workspace_id, session_id, prompt_text, agent, created_at],
+    )
+    .map_err(|e| format!("Failed to insert prompt history: {}", e))?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+/// Get every prompt ever sent in this repository, most recent first.
+pub fn get_prompt_history(repo_path: &str) -> Result<Vec<PromptHistoryEntry>, String> {
+    let conn = get_connection(repo_path)?;
+    let sql = format!("{} ORDER BY ph.created_at DESC, ph.id DESC", PROMPT_HISTORY_SELECT);
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare prompt history query: {}", e))?;
+
+    let entries = stmt
+        .query_map([], prompt_history_from_row)
+        .map_err(|e| format!("Failed to query prompt history: {}", e))?;
+
+    entries
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+/// Get the earliest prompt sent for a given workspace (its "starting prompt").
+pub fn get_workspace_starting_prompt(
+    repo_path: &str,
+    workspace_id: i64,
+) -> Result<Option<PromptHistoryEntry>, String> {
+    let conn = get_connection(repo_path)?;
+    let sql = format!(
+        "{} WHERE ph.workspace_id = ?1 ORDER BY ph.created_at ASC, ph.id ASC LIMIT 1",
+        PROMPT_HISTORY_SELECT
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare starting prompt query: {}", e))?;
+
+    let entry = stmt
+        .query_row([workspace_id], prompt_history_from_row)
+        .optional()
+        .map_err(|e| format!("Failed to get workspace starting prompt: {}", e))?;
+
+    Ok(entry)
 }
 
 #[cfg(test)]
@@ -2347,6 +2464,119 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM pending_reviews", [], |row| row.get(0))
             .expect("Should count rows");
         assert_eq!(total_count, 3, "Should have exactly 3 reviews");
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn add_prompt_history_persists_and_lists_most_recent_first() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let workspace_id = add_workspace(
+            repo_path,
+            "feature-one".to_string(),
+            format!("{}/.treq/workspaces/feature-one", repo_path),
+            "feature-one".to_string(),
+            None,
+            None,
+            None,
+        )
+        .expect("add_workspace should succeed");
+
+        let first_id =
+            add_prompt_history(repo_path, Some(workspace_id), None, "first prompt", Some("claude"))
+                .expect("add_prompt_history should succeed");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let second_id = add_prompt_history(repo_path, None, None, "second prompt", None)
+            .expect("add_prompt_history should succeed");
+
+        let history = get_prompt_history(repo_path).expect("get_prompt_history should succeed");
+
+        assert_eq!(history.len(), 2, "Should have exactly 2 prompt entries");
+        // Most recent first
+        assert_eq!(history[0].id, second_id);
+        assert_eq!(history[0].prompt_text, "second prompt");
+        assert_eq!(history[0].workspace_id, None);
+        assert_eq!(history[0].workspace_label, None);
+        assert_eq!(history[1].id, first_id);
+        assert_eq!(history[1].prompt_text, "first prompt");
+        assert_eq!(history[1].agent.as_deref(), Some("claude"));
+        assert_eq!(history[1].workspace_id, Some(workspace_id));
+        assert_eq!(history[1].workspace_label.as_deref(), Some("feature-one"));
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn get_workspace_starting_prompt_returns_earliest_prompt_for_workspace() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let workspace_id = add_workspace(
+            repo_path,
+            "feature-two".to_string(),
+            format!("{}/.treq/workspaces/feature-two", repo_path),
+            "feature-two".to_string(),
+            None,
+            None,
+            None,
+        )
+        .expect("add_workspace should succeed");
+
+        add_prompt_history(
+            repo_path,
+            Some(workspace_id),
+            None,
+            "the starting prompt",
+            Some("claude"),
+        )
+        .expect("add_prompt_history should succeed");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        add_prompt_history(
+            repo_path,
+            Some(workspace_id),
+            None,
+            "a later followup prompt",
+            Some("claude"),
+        )
+        .expect("add_prompt_history should succeed");
+
+        let starting_prompt = get_workspace_starting_prompt(repo_path, workspace_id)
+            .expect("get_workspace_starting_prompt should succeed")
+            .expect("should find a starting prompt");
+
+        assert_eq!(starting_prompt.prompt_text, "the starting prompt");
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn get_workspace_starting_prompt_returns_none_when_no_prompts_recorded() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let workspace_id = add_workspace(
+            repo_path,
+            "feature-three".to_string(),
+            format!("{}/.treq/workspaces/feature-three", repo_path),
+            "feature-three".to_string(),
+            None,
+            None,
+            None,
+        )
+        .expect("add_workspace should succeed");
+
+        let starting_prompt = get_workspace_starting_prompt(repo_path, workspace_id)
+            .expect("get_workspace_starting_prompt should succeed");
+
+        assert!(starting_prompt.is_none());
 
         if let Some(initialized) = INITIALIZED_DBS.get() {
             initialized.lock().unwrap().remove(repo_path);

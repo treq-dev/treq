@@ -1,4 +1,4 @@
-use crate::local_db::{self, Session};
+use crate::local_db::{self, PromptHistoryEntry, Session};
 
 #[tauri::command]
 pub fn create_session(
@@ -27,4 +27,34 @@ pub fn get_session_model(repo_path: String, id: i64) -> Result<Option<String>, S
 #[tauri::command]
 pub fn set_session_model(repo_path: String, id: i64, model: Option<String>) -> Result<(), String> {
     local_db::set_session_model(&repo_path, id, model)
+}
+
+#[tauri::command]
+pub fn add_prompt_history(
+    repo_path: String,
+    workspace_id: Option<i64>,
+    session_id: Option<i64>,
+    prompt_text: String,
+    agent: Option<String>,
+) -> Result<i64, String> {
+    local_db::add_prompt_history(
+        &repo_path,
+        workspace_id,
+        session_id,
+        &prompt_text,
+        agent.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn get_prompt_history(repo_path: String) -> Result<Vec<PromptHistoryEntry>, String> {
+    local_db::get_prompt_history(&repo_path)
+}
+
+#[tauri::command]
+pub fn get_workspace_starting_prompt(
+    repo_path: String,
+    workspace_id: i64,
+) -> Result<Option<PromptHistoryEntry>, String> {
+    local_db::get_workspace_starting_prompt(&repo_path, workspace_id)
 }

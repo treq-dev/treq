@@ -787,6 +787,37 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
 
+        "add_prompt_history" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id: Option<i64> = opt_i64(&args, "workspaceId");
+            let session_id: Option<i64> = opt_i64(&args, "sessionId");
+            let prompt_text = get_str(&args, "promptText")?;
+            let agent: Option<String> =
+                args.get("agent").and_then(|v| v.as_str()).map(String::from);
+            let id = treq_lib::local_db::add_prompt_history(
+                &repo_path,
+                workspace_id,
+                session_id,
+                &prompt_text,
+                agent.as_deref(),
+            )?;
+            Ok(Value::Number(id.into()))
+        }
+
+        "get_prompt_history" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let entries = treq_lib::local_db::get_prompt_history(&repo_path)?;
+            serde_json::to_value(entries).map_err(|e| e.to_string())
+        }
+
+        "get_workspace_starting_prompt" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id: i64 = get_i64(&args, "workspaceId")?;
+            let entry =
+                treq_lib::local_db::get_workspace_starting_prompt(&repo_path, workspace_id)?;
+            serde_json::to_value(entry).map_err(|e| e.to_string())
+        }
+
         // ── File view tracking ────────────────────────────────────────────
         "mark_file_viewed" => {
             let workspace_path = get_str(&args, "workspacePath")?;

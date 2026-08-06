@@ -5,6 +5,7 @@ import type {
 	FileSearchResult,
 	LineComment,
 	PendingReview,
+	PromptHistoryEntry,
 	Session,
 } from "./api-types";
 
@@ -120,6 +121,33 @@ export const setSessionModel = (
 	id: number,
 	model: string | null,
 ): Promise<void> => invoke("set_session_model", { repoPath, id, model });
+
+// Prompt history API
+export const addPromptHistory = (
+	repoPath: string,
+	workspaceId: number | null,
+	sessionId: number | null,
+	promptText: string,
+	agent?: string | null,
+): Promise<number> =>
+	invoke("add_prompt_history", {
+		repoPath,
+		workspaceId,
+		sessionId,
+		promptText,
+		agent: agent ?? null,
+	});
+
+export const getPromptHistory = (
+	repoPath: string,
+): Promise<PromptHistoryEntry[]> =>
+	invoke("get_prompt_history", { repoPath });
+
+export const getWorkspaceStartingPrompt = (
+	repoPath: string,
+	workspaceId: number,
+): Promise<PromptHistoryEntry | null> =>
+	invoke("get_workspace_starting_prompt", { repoPath, workspaceId });
 
 export const markFileViewed = (
 	workspacePath: string,
