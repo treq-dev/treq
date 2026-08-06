@@ -396,7 +396,7 @@ export const TaskInput: React.FC<TaskInputProps> = ({
 			<div className="max-w-2xl min-w-0 mx-auto w-full">
 				<div
 					className={cn(
-						"min-h-28 rounded-xl border bg-background relative transition-colors",
+						"min-h-28 rounded-xl border bg-background relative transition-colors flex flex-col",
 						focused ? "border-blue-400" : "border-border",
 					)}
 				>
@@ -421,23 +421,25 @@ export const TaskInput: React.FC<TaskInputProps> = ({
 						onMentionSelect={handleMentionSelect}
 					/>
 
-					<TaskInputToolbar
-						isEmpty={isEmpty}
-						submitting={submitting}
-						selectedAgent={selectedAgent}
-						configuredDefaultAgent={configuredDefaultAgent}
-						saveAsRepoDefault={saveAsRepoDefault}
-						showSaveAsRepoDefault={showSaveAsRepoDefault}
-						onOpenFilePicker={() => setFilePickerOpen(true)}
-						onAttachFromFinder={handleAttachFromFinder}
-						onAgentChange={(nextAgent) => {
-							setSelectedAgent(nextAgent);
-							setSaveAsRepoDefault(false);
-							setShowSaveAsRepoDefault(nextAgent !== configuredDefaultAgent);
-						}}
-						onSaveAsRepoDefaultChange={setSaveAsRepoDefault}
-						onSubmit={handleSubmit}
-					/>
+					<div className="mt-auto">
+						<TaskInputToolbar
+							isEmpty={isEmpty}
+							submitting={submitting}
+							selectedAgent={selectedAgent}
+							configuredDefaultAgent={configuredDefaultAgent}
+							saveAsRepoDefault={saveAsRepoDefault}
+							showSaveAsRepoDefault={showSaveAsRepoDefault}
+							onOpenFilePicker={() => setFilePickerOpen(true)}
+							onAttachFromFinder={handleAttachFromFinder}
+							onAgentChange={(nextAgent) => {
+								setSelectedAgent(nextAgent);
+								setSaveAsRepoDefault(false);
+								setShowSaveAsRepoDefault(nextAgent !== configuredDefaultAgent);
+							}}
+							onSaveAsRepoDefaultChange={setSaveAsRepoDefault}
+							onSubmit={handleSubmit}
+						/>
+					</div>
 				</div>
 			</div>
 
