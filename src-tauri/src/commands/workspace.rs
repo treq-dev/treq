@@ -61,24 +61,32 @@ pub async fn create_workspace(
         parsed_metadata.sparse_patterns,
     );
 
-    // Read included_copy_files setting from DB
-    let included_copy_files: Option<Vec<String>> = {
+    // Read included_copy_files and symlinked_dirs settings from DB
+    let (included_copy_files, symlinked_dirs) = {
         let db = state.db.lock().unwrap();
-        db.get_repo_setting(&repo_path, "included_copy_files")
+        let parse_lines = |s: String| {
+            s.lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+        };
+        let included = db
+            .get_repo_setting(&repo_path, "included_copy_files")
             .ok()
             .flatten()
-            .map(|s| {
-                s.lines()
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| !l.is_empty())
-                    .collect::<Vec<_>>()
-            })
+            .map(parse_lines);
+        let symlinked = db
+            .get_repo_setting(&repo_path, "symlinked_dirs")
+            .ok()
+            .flatten()
+            .map(parse_lines);
+        (included, symlinked)
     };
 
     let repo_path_for_task = repo_path.clone();
     let branch_name_for_task = branch_name.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let workspace = crate::core::create_workspace(
+        let workspace = crate::core::create_workspace_with_symlinked_dirs(
             &repo_path_for_task,
             &branch_name_for_task,
             description,
@@ -86,6 +94,7 @@ pub async fn create_workspace(
             source_branch.as_deref(),
             included_copy_files,
             sparse_patterns,
+            symlinked_dirs,
         )?;
         if let Some(t) = title {
             local_db::update_workspace_title(&repo_path_for_task, workspace.id, &t)?;

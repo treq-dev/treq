@@ -53,7 +53,31 @@ describe("Settings integration", () => {
 		await user.click(repositoryTab);
 		await screen.findByLabelText(/branch name pattern/i);
 		await screen.findByLabelText(/claude code model/i);
+		await screen.findByLabelText(/symlinked directories/i);
 		expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
+	});
+
+	it("saves symlinked directories setting for the repository", async () => {
+		render(<Dashboard />);
+
+		await user.click(await screen.findByLabelText("Settings"));
+		const repositoryTab = await screen.findByRole("tab", {
+			name: /repository/i,
+		});
+		await user.click(repositoryTab);
+
+		const symlinkedDirs = await screen.findByLabelText(/symlinked directories/i);
+		await user.clear(symlinkedDirs);
+		await user.type(symlinkedDirs, "node_modules\ntarget");
+		await user.click(screen.getByRole("button", { name: /save settings/i }));
+		await screen.findByText(/repository settings have been updated successfully/i);
+
+		await user.click(await screen.findByRole("tab", { name: /application/i }));
+		await user.click(repositoryTab);
+
+		expect(await screen.findByLabelText(/symlinked directories/i)).toHaveValue(
+			"node_modules\ntarget",
+		);
 	});
 
 	it("returns to the previous page when settings is closed", async () => {
