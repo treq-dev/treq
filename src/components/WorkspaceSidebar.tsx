@@ -34,6 +34,8 @@ import {
 	getEntireStack,
 } from "../lib/workspace-tree";
 import { RenameWorkspaceDialog } from "./RenameWorkspaceDialog";
+import { TerminalSessionsSidebar } from "./TerminalSessionsSidebar";
+import { type TerminalSessionSummary } from "./terminal/types";
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -77,6 +79,13 @@ interface WorkspaceSidebarProps {
 	onSelectStack?: (workspaceIds: Set<number>) => void;
 	onStartAgent?: (workspace: Workspace) => void;
 	onStartShell?: (workspace: Workspace) => void;
+	terminalSessions?: TerminalSessionSummary[];
+	onFocusTerminalSession?: (id: string) => void;
+	onCloseTerminalSession?: (id: string) => void;
+	onCloseIdleTerminalSessions?: () => void;
+	onCloseAllTerminalSessions?: () => void;
+	onCreateAgentTerminal?: () => void;
+	onCreateShellTerminal?: () => void;
 }
 
 export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = memo(
@@ -99,6 +108,13 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = memo(
 		onSelectStack,
 		onStartAgent,
 		onStartShell,
+		terminalSessions,
+		onFocusTerminalSession,
+		onCloseTerminalSession,
+		onCloseIdleTerminalSessions,
+		onCloseAllTerminalSessions,
+		onCreateAgentTerminal,
+		onCreateShellTerminal,
 	}) => {
 		const {
 			data: workspaces = [],
@@ -477,6 +493,15 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = memo(
 							</Droppable>
 						</DragDropContext>
 					</div>
+					<TerminalSessionsSidebar
+						sessions={terminalSessions ?? []}
+						onFocus={onFocusTerminalSession}
+						onClose={onCloseTerminalSession}
+						onCloseIdle={onCloseIdleTerminalSessions}
+						onCloseAll={onCloseAllTerminalSessions}
+						onCreateAgent={onCreateAgentTerminal}
+						onCreateShell={onCreateShellTerminal}
+					/>
 				</div>
 				{renameTarget && repoPath && (
 					<RenameWorkspaceDialog

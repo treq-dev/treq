@@ -1,4 +1,7 @@
-import { type ClaudeSessionData } from "../terminal/types";
+import {
+	type ClaudeSessionData,
+	type TerminalSessionSummary,
+} from "../terminal/types";
 
 export interface ShellTerminalData {
 	id: string;
@@ -18,6 +21,10 @@ export interface WorkspaceTerminalPaneProps {
 	) => void;
 	onCloseSession?: (sessionId: number) => void;
 	onNavigateToWorkspace?: (workspaceKey: string, isMainRepo: boolean) => void;
+	/** Full workspace path -> branch name, used to resolve shell terminal branches for the sidebar list. */
+	workspaceBranchByPath?: Map<string, string>;
+	/** Reports the up-to-date list of terminal sessions for the sidebar's terminal list. */
+	onTerminalsChange?: (summaries: TerminalSessionSummary[]) => void;
 	className?: string;
 }
 
@@ -27,6 +34,10 @@ export interface WorkspaceTerminalPaneHandle {
 	createAgentSession: (agent?: "claude" | "codex" | "cursor") => void;
 	createShellSession: (workingDir?: string) => void;
 	closeTerminalsForWorkspace: (workspaceKey: string) => void;
+	focusTerminal: (id: string) => void;
+	closeTerminal: (id: string) => void;
+	closeIdleTerminals: () => void;
+	closeAllTerminals: () => void;
 }
 
 export type TerminalEntry =

@@ -21,6 +21,8 @@ interface ShellTerminalPanelProps {
 	onClose?: () => void;
 	canClose: boolean;
 	onSessionError?: (message: string) => void;
+	onTerminalOutput?: (output: string) => void;
+	onTerminalIdle?: () => void;
 	terminalRefs: React.MutableRefObject<TerminalRefsMap>;
 	width?: number | null;
 }
@@ -34,6 +36,8 @@ export const ShellTerminalPanel = memo<ShellTerminalPanelProps>(
 		onClose,
 		canClose,
 		onSessionError,
+		onTerminalOutput,
+		onTerminalIdle,
 		terminalRefs,
 		width,
 	}) => {
@@ -117,6 +121,8 @@ export const ShellTerminalPanel = memo<ShellTerminalPanelProps>(
 						workingDirectory={terminalData.workingDirectory}
 						autoCommand={pathAutoCommand}
 						onSessionError={onSessionError}
+						onTerminalOutput={onTerminalOutput}
+						onTerminalIdle={onTerminalIdle}
 						onClose={onClose}
 						containerClassName="h-full w-full overflow-hidden"
 						terminalPaneClassName="w-full h-full"
