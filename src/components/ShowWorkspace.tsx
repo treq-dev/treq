@@ -112,6 +112,8 @@ interface ShowWorkspaceProps {
 	onDeleteWorkspace?: (workspace: Workspace) => void;
 	onOpenFilePicker?: () => void;
 	onSessionCreated?: (session: SessionCreationInfo) => void;
+	/** Called when the user clicks "View full prompt" on the workspace's starting prompt */
+	onViewFullPrompt?: (promptId: number) => void;
 	taskInputFocusRequest?: number;
 	onOpenMergePreview?: () => void;
 	onOpenBranchSwitcher?: () => void;
@@ -150,6 +152,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 		onDeleteWorkspace,
 		onOpenFilePicker,
 		onSessionCreated,
+		onViewFullPrompt,
 		taskInputFocusRequest,
 		onOpenMergePreview,
 		onOpenBranchSwitcher,
@@ -254,6 +257,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 		const [bookmarkConflict, setBookmarkConflict] =
 			useState<WorkspaceBookmarkConflict | null>(null);
 		const [conflictModalOpen, setConflictModalOpen] = useState(false);
+		const [detailsOpen, setDetailsOpen] = useState(false);
 		const [resolvingBookmarkConflict, setResolvingBookmarkConflict] =
 			useState(false);
 		const [refreshingFiles, setRefreshingFiles] = useState(false);
@@ -1790,7 +1794,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 									</TooltipProvider>
 								)}
 								{workspace && (
-									<Popover>
+									<Popover open={detailsOpen} onOpenChange={setDetailsOpen}>
 										<PopoverTrigger asChild>
 											<Button
 												variant="ghost"
@@ -1857,12 +1861,25 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 														)}
 													</div>
 													{startingPromptEntry ? (
-														<p
-															className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap max-h-40 overflow-y-auto"
-															data-testid="workspace-starting-prompt-text"
-														>
-															{startingPromptEntry.prompt_text}
-														</p>
+														<>
+															<p
+																className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap max-h-40 overflow-y-auto"
+																data-testid="workspace-starting-prompt-text"
+															>
+																{startingPromptEntry.prompt_text}
+															</p>
+															<button
+																type="button"
+																className="mt-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+																data-testid="view-full-prompt-button"
+																onClick={() => {
+																	setDetailsOpen(false);
+																	onViewFullPrompt?.(startingPromptEntry.id);
+																}}
+															>
+																View full prompt
+															</button>
+														</>
 													) : (
 														<p className="mt-1 text-sm text-muted-foreground">
 															No prompt recorded for this workspace yet.

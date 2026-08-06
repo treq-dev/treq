@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { render, screen } from "../../test/test-utils";
+import { render, screen, within } from "../../test/test-utils";
 import { PromptHistoryModal } from "./PromptHistoryModal";
 import type { PromptHistoryEntry } from "../lib/api";
 
@@ -39,7 +39,7 @@ describe("PromptHistoryModal", () => {
 		vi.clearAllMocks();
 	});
 
-	it("lists every recorded prompt labeled by workspace", async () => {
+	it("lists every recorded prompt in the left pane, labeled by workspace", async () => {
 		const api = await import("../lib/api");
 		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
 
@@ -47,11 +47,61 @@ describe("PromptHistoryModal", () => {
 			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
 		);
 
-		expect(await screen.findByText("Second prompt sent")).toBeTruthy();
-		expect(await screen.findByText("First prompt sent")).toBeTruthy();
-		expect(screen.getByText("feature-one")).toBeTruthy();
-		expect(screen.getByText("Home repo")).toBeTruthy();
+		const list = await screen.findByTestId("prompt-history-list");
+		expect(within(list).getByText("Second prompt sent")).toBeTruthy();
+		expect(within(list).getByText("First prompt sent")).toBeTruthy();
+		expect(within(list).getByText("feature-one")).toBeTruthy();
+		expect(within(list).getByText("Home repo")).toBeTruthy();
 		expect(api.getPromptHistory).toHaveBeenCalledWith("/repo");
+	});
+
+	it("shows the most recent prompt in the detail pane by default", async () => {
+		const api = await import("../lib/api");
+		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
+
+		render(
+			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
+		);
+
+		expect(
+			await screen.findByTestId("prompt-history-detail-text"),
+		).toHaveTextContent("Second prompt sent");
+	});
+
+	it("switches the detail pane when a different list entry is clicked", async () => {
+		const api = await import("../lib/api");
+		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
+
+		render(
+			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
+		);
+		const list = await screen.findByTestId("prompt-history-list");
+		await within(list).findByText("Second prompt sent");
+
+		const user = userEvent.setup();
+		await user.click(within(list).getByText("First prompt sent"));
+
+		expect(
+			await screen.findByTestId("prompt-history-detail-text"),
+		).toHaveTextContent("First prompt sent");
+	});
+
+	it("pre-selects the entry passed via initialSelectedId", async () => {
+		const api = await import("../lib/api");
+		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
+
+		render(
+			<PromptHistoryModal
+				open
+				repoPath="/repo"
+				onOpenChange={vi.fn()}
+				initialSelectedId={1}
+			/>,
+		);
+
+		expect(
+			await screen.findByTestId("prompt-history-detail-text"),
+		).toHaveTextContent("First prompt sent");
 	});
 
 	it("shows an empty state when no prompts exist", async () => {
@@ -65,14 +115,14 @@ describe("PromptHistoryModal", () => {
 		expect(await screen.findByText("No prompts sent yet.")).toBeTruthy();
 	});
 
-	it("copies an individual prompt to the clipboard", async () => {
+	it("copies the selected prompt to the clipboard", async () => {
 		const api = await import("../lib/api");
 		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
 
 		render(
 			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
 		);
-		await screen.findByText("Second prompt sent");
+		await screen.findByTestId("prompt-history-detail-text");
 
 		// userEvent.setup() installs its own clipboard stub, so the spy must be
 		// created afterwards or it gets clobbered.
@@ -80,8 +130,7 @@ describe("PromptHistoryModal", () => {
 		const writeTextSpy = vi
 			.spyOn(navigator.clipboard, "writeText")
 			.mockResolvedValue(undefined);
-		const copyButtons = await screen.findAllByRole("button", { name: /^copy$/i });
-		await user.click(copyButtons[0]);
+		await user.click(await screen.findByRole("button", { name: /^copy$/i }));
 
 		expect(writeTextSpy).toHaveBeenCalledWith("Second prompt sent");
 	});

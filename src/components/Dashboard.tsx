@@ -115,6 +115,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 	const [showCommandPalette, setShowCommandPalette] = useState(false);
 	const [showAgentPromptDialog, setShowAgentPromptDialog] = useState(false);
 	const [showPromptHistory, setShowPromptHistory] = useState(false);
+	const [promptHistoryFocusId, setPromptHistoryFocusId] = useState<
+		number | null
+	>(null);
 	const [showBranchSwitcher, setShowBranchSwitcher] = useState(false);
 	const [showFilePicker, setShowFilePicker] = useState(false);
 	const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
@@ -743,6 +746,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
 		[queryClient, repoPath],
 	);
 
+	const handleViewFullPrompt = useCallback((promptId: number) => {
+		setPromptHistoryFocusId(promptId);
+		setShowPromptHistory(true);
+	}, []);
+
+	const handlePromptHistoryOpenChange = useCallback((open: boolean) => {
+		setShowPromptHistory(open);
+		if (!open) setPromptHistoryFocusId(null);
+	}, []);
+
 	const handleStartDefaultAgent = useCallback(async () => {
 		const configuredAgent =
 			(await getRepoSetting(repoPath, "default_agent")) ||
@@ -1243,6 +1256,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 									}}
 									queryClient={queryClient}
 									onSessionCreated={handleSessionCreated}
+									onViewFullPrompt={handleViewFullPrompt}
 								/>
 							</ErrorBoundary>
 						</div>
@@ -1429,7 +1443,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
 				onMaximizeTerminal={() => terminalPaneRef.current?.toggleMaximize()}
 				onStartAgentWithPrompt={() => setShowAgentPromptDialog(true)}
 				onStartAgentTerminal={() => void handleStartDefaultAgent()}
-				onOpenPromptHistory={() => setShowPromptHistory(true)}
+				onOpenPromptHistory={() => {
+					setPromptHistoryFocusId(null);
+					setShowPromptHistory(true);
+				}}
 				onCreateShellTerminal={() =>
 					terminalPaneRef.current?.createShellSession()
 				}
@@ -1459,8 +1476,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
 			<PromptHistoryModal
 				open={showPromptHistory}
-				onOpenChange={setShowPromptHistory}
+				onOpenChange={handlePromptHistoryOpenChange}
 				repoPath={repoPath}
+				initialSelectedId={promptHistoryFocusId}
 			/>
 
 			<WorkspacePicker

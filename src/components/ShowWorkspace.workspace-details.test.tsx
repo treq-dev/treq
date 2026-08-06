@@ -65,7 +65,7 @@ const workspace: Workspace = {
 	not_on_remote: false,
 };
 
-function renderWorkspace() {
+function renderWorkspace(onViewFullPrompt?: (promptId: number) => void) {
 	return render(
 		<ShowWorkspace
 			repositoryPath={workspace.repo_path}
@@ -74,6 +74,7 @@ function renderWorkspace() {
 			initialSelectedFile={null}
 			onDeleteWorkspace={vi.fn()}
 			onSessionCreated={vi.fn()}
+			onViewFullPrompt={onViewFullPrompt}
 		/>,
 	);
 }
@@ -157,5 +158,36 @@ describe("Workspace details popover", () => {
 		await user.click(copyButton);
 
 		expect(writeTextSpy).toHaveBeenCalledWith("Build the login page");
+	});
+
+	it("closes the popover and calls onViewFullPrompt with the starting prompt's id", async () => {
+		const api = await import("../lib/api");
+		const entry: PromptHistoryEntry = {
+			id: 99,
+			workspace_id: workspace.id,
+			session_id: 42,
+			prompt_text: "Build the login page",
+			agent: "claude",
+			created_at: "2026-01-01T00:00:00.000Z",
+			workspace_label: "feature-one",
+		};
+		vi.mocked(api.getWorkspaceStartingPrompt).mockResolvedValue(entry);
+
+		const onViewFullPrompt = vi.fn();
+		renderWorkspace(onViewFullPrompt);
+
+		const user = userEvent.setup();
+		const detailsButton = await screen.findByTestId("workspace-details-button");
+		await user.click(detailsButton);
+		await screen.findByTestId("workspace-starting-prompt-text");
+
+		await user.click(await screen.findByTestId("view-full-prompt-button"));
+
+		expect(onViewFullPrompt).toHaveBeenCalledWith(99);
+		await waitFor(() =>
+			expect(
+				screen.queryByTestId("workspace-details-popover"),
+			).not.toBeInTheDocument(),
+		);
 	});
 });
