@@ -24,6 +24,8 @@ interface TaskInputProps {
 	workingDirectory: string;
 	onSessionCreated?: (session: SessionCreationInfo) => void;
 	focusRequest?: number;
+	/** Pre-fill the textarea with this text on mount (e.g. re-running a past prompt). */
+	initialText?: string;
 }
 
 export const TaskInput: React.FC<TaskInputProps> = ({
@@ -33,8 +35,9 @@ export const TaskInput: React.FC<TaskInputProps> = ({
 	workingDirectory,
 	onSessionCreated,
 	focusRequest,
+	initialText,
 }) => {
-	const [taskText, setTaskText] = useState("");
+	const [taskText, setTaskText] = useState(initialText ?? "");
 	const [filePickerOpen, setFilePickerOpen] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [focused, setFocused] = useState(false);

@@ -108,4 +108,25 @@ it("captures the workspace details starting prompt and the dual-pane prompt hist
 			"The previously-selected list entry is no longer highlighted; the newly clicked entry is highlighted instead.",
 		],
 	});
+
+	// "Run prompt..." on the currently-selected entry (B) should close the
+	// history modal and open "Start a new agent session" with B's prompt
+	// text pre-filled and B's workspace pre-selected in the combobox.
+	await user.click(await screen.findByRole("button", { name: /run prompt/i }));
+	await waitFor(() =>
+		expect(screen.queryByTestId("prompt-history-modal")).not.toBeInTheDocument(),
+	);
+	await screen.findByRole("heading", { name: "Start a new agent session" });
+	const agentPromptModal = await screen.findByTestId("modal");
+	const prefilledTextarea = (await within(agentPromptModal).findByPlaceholderText(
+		"Describe a task...",
+	)) as HTMLTextAreaElement;
+	await waitFor(() => expect(prefilledTextarea.value).toBe(PROMPT_B));
+
+	await captureDocument(document, {
+		name: "prompt-history-04-run-prompt-prefilled",
+		expectations: [
+			`The "Start a new agent session" dialog is open with its workspace combobox showing "${BRANCH_B}" and its prompt textarea pre-filled with the exact text "${PROMPT_B}".`,
+		],
+	});
 }, 60000);

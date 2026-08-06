@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { Check, ChevronsUpDown, GitBranch } from "lucide-react";
 import type { Workspace } from "../lib/api";
@@ -16,6 +16,10 @@ interface AgentPromptDialogProps {
 	defaultBranch: string;
 	workspaces: Workspace[];
 	onSessionCreated: (session: SessionCreationInfo) => void;
+	/** Pre-fill the prompt textarea with this text (e.g. re-running a past prompt). */
+	initialPrompt?: string;
+	/** Pre-select the workspace this prompt originally belonged to, if any. */
+	initialWorkspaceId?: number | null;
 }
 
 export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
@@ -25,15 +29,29 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
 	defaultBranch,
 	workspaces,
 	onSessionCreated,
+	initialPrompt,
+	initialWorkspaceId = null,
 }) => {
 	const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(
 		null,
 	);
 	const [pickerOpen, setPickerOpen] = useState(false);
+	// Bump on every closed -> open transition so TaskInput remounts with a
+	// fresh initialPrompt instead of keeping stale text from a prior open.
+	const [taskInputKey, setTaskInputKey] = useState(0);
+	const wasOpenRef = useRef(false);
 
 	useEffect(() => {
-		if (open) setSelectedWorkspace(null);
-	}, [open]);
+		if (open && !wasOpenRef.current) {
+			setSelectedWorkspace(
+				initialWorkspaceId != null
+					? (workspaces.find((ws) => ws.id === initialWorkspaceId) ?? null)
+					: null,
+			);
+			setTaskInputKey((key) => key + 1);
+		}
+		wasOpenRef.current = open;
+	}, [open, initialWorkspaceId, workspaces]);
 
 	const selectableWorkspaces = useMemo(
 		() => workspaces.filter((ws) => ws.branch_name !== defaultBranch),
@@ -123,11 +141,13 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
 				</Popover>
 
 				<TaskInput
+					key={taskInputKey}
 					repoPath={repoPath}
 					workspaceId={selectedWorkspace?.id ?? null}
 					workspacePath={selectedWorkspace?.workspace_path ?? null}
 					workingDirectory={selectedWorkspace?.workspace_path ?? repoPath}
 					onSessionCreated={handleSessionCreated}
+					initialText={initialPrompt}
 				/>
 			</DialogContent>
 		</Dialog>

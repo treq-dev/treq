@@ -7,12 +7,17 @@ import { AgentPromptDialog } from "./AgentPromptDialog";
 vi.mock("./TaskInput", () => ({
 	TaskInput: ({
 		onSessionCreated,
+		initialText,
 	}: {
 		onSessionCreated: (value: unknown) => void;
+		initialText?: string;
 	}) => (
-		<button onClick={() => onSessionCreated({ sessionId: 12 })}>
-			Shared prompt input
-		</button>
+		<div>
+			<div data-testid="task-input-initial-text">{initialText ?? ""}</div>
+			<button onClick={() => onSessionCreated({ sessionId: 12 })}>
+				Shared prompt input
+			</button>
+		</div>
 	),
 }));
 
@@ -88,5 +93,45 @@ describe("AgentPromptDialog", () => {
 			"main",
 			"feat/one",
 		]);
+	});
+
+	it("pre-fills the prompt and selects its originating workspace when initialPrompt/initialWorkspaceId are set", () => {
+		render(
+			<AgentPromptDialog
+				open
+				onOpenChange={vi.fn()}
+				repoPath="/repo"
+				defaultBranch="main"
+				workspaces={[workspace]}
+				onSessionCreated={vi.fn()}
+				initialPrompt="Build the login page"
+				initialWorkspaceId={workspace.id}
+			/>,
+		);
+
+		expect(screen.getByRole("combobox")).toHaveTextContent("feat/one");
+		expect(screen.getByTestId("task-input-initial-text")).toHaveTextContent(
+			"Build the login page",
+		);
+	});
+
+	it("falls back to the default branch when initialWorkspaceId has no match", () => {
+		render(
+			<AgentPromptDialog
+				open
+				onOpenChange={vi.fn()}
+				repoPath="/repo"
+				defaultBranch="main"
+				workspaces={[workspace]}
+				onSessionCreated={vi.fn()}
+				initialPrompt="Some prompt"
+				initialWorkspaceId={999}
+			/>,
+		);
+
+		expect(screen.getByRole("combobox")).toHaveTextContent("main");
+		expect(screen.getByTestId("task-input-initial-text")).toHaveTextContent(
+			"Some prompt",
+		);
 	});
 });

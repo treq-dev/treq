@@ -135,6 +135,41 @@ describe("PromptHistoryModal", () => {
 		expect(writeTextSpy).toHaveBeenCalledWith("Second prompt sent");
 	});
 
+	it("calls onRunPrompt with the selected entry's text and workspace id", async () => {
+		const api = await import("../lib/api");
+		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
+		const onRunPrompt = vi.fn();
+
+		render(
+			<PromptHistoryModal
+				open
+				repoPath="/repo"
+				onOpenChange={vi.fn()}
+				onRunPrompt={onRunPrompt}
+			/>,
+		);
+		await screen.findByTestId("prompt-history-detail-text");
+
+		const user = userEvent.setup();
+		await user.click(screen.getByRole("button", { name: /run prompt/i }));
+
+		expect(onRunPrompt).toHaveBeenCalledWith("Second prompt sent", 7);
+	});
+
+	it("does not show a Run prompt button when onRunPrompt is not provided", async () => {
+		const api = await import("../lib/api");
+		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
+
+		render(
+			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
+		);
+		await screen.findByTestId("prompt-history-detail-text");
+
+		expect(
+			screen.queryByRole("button", { name: /run prompt/i }),
+		).not.toBeInTheDocument();
+	});
+
 	it("does not fetch prompt history when closed", async () => {
 		const api = await import("../lib/api");
 		render(

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Copy, History } from "lucide-react";
+import { Copy, History, Play } from "lucide-react";
 import { getPromptHistory, type PromptHistoryEntry } from "../lib/api";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
@@ -13,6 +13,8 @@ interface PromptHistoryModalProps {
 	repoPath: string;
 	/** Pre-select this prompt's entry when the modal opens (e.g. from "View full prompt"). */
 	initialSelectedId?: number | null;
+	/** Called with a prompt's text and originating workspace when "Run prompt..." is clicked. */
+	onRunPrompt?: (prompt: string, workspaceId: number | null) => void;
 }
 
 function workspaceLabelFor(entry: PromptHistoryEntry): string {
@@ -34,6 +36,7 @@ export const PromptHistoryModal: React.FC<PromptHistoryModalProps> = ({
 	onOpenChange,
 	repoPath,
 	initialSelectedId = null,
+	onRunPrompt,
 }) => {
 	const { addToast } = useToast();
 	const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -191,6 +194,21 @@ export const PromptHistoryModal: React.FC<PromptHistoryModalProps> = ({
 									>
 										{selectedEntry.prompt_text}
 									</p>
+									{onRunPrompt && (
+										<Button
+											variant="default"
+											size="sm"
+											onClick={() =>
+												onRunPrompt(
+													selectedEntry.prompt_text,
+													selectedEntry.workspace_id,
+												)
+											}
+										>
+											<Play className="w-3.5 h-3.5 mr-1.5" />
+											Run prompt...
+										</Button>
+									)}
 								</div>
 							) : (
 								<p className="text-sm text-muted-foreground py-8 text-center">
