@@ -65,7 +65,8 @@ export const PromptHistoryModal: React.FC<PromptHistoryModalProps> = ({
 		setSelectedId(entries[0].id);
 	}, [open, entries, selectedId]);
 
-	const selectedEntry = entries.find((entry) => entry.id === selectedId) ?? null;
+	const selectedEntry =
+		entries.find((entry) => entry.id === selectedId) ?? null;
 
 	const handleCopy = async (text: string, description: string) => {
 		try {

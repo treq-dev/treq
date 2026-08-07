@@ -43,9 +43,7 @@ describe("PromptHistoryModal", () => {
 		const api = await import("../lib/api");
 		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
 
-		render(
-			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
-		);
+		render(<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />);
 
 		const list = await screen.findByTestId("prompt-history-list");
 		expect(within(list).getByText("Second prompt sent")).toBeTruthy();
@@ -59,9 +57,7 @@ describe("PromptHistoryModal", () => {
 		const api = await import("../lib/api");
 		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
 
-		render(
-			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
-		);
+		render(<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />);
 
 		expect(
 			await screen.findByTestId("prompt-history-detail-text"),
@@ -72,9 +68,7 @@ describe("PromptHistoryModal", () => {
 		const api = await import("../lib/api");
 		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
 
-		render(
-			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
-		);
+		render(<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />);
 		const list = await screen.findByTestId("prompt-history-list");
 		await within(list).findByText("Second prompt sent");
 
@@ -108,9 +102,7 @@ describe("PromptHistoryModal", () => {
 		const api = await import("../lib/api");
 		vi.mocked(api.getPromptHistory).mockResolvedValue([]);
 
-		render(
-			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
-		);
+		render(<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />);
 
 		expect(await screen.findByText("No prompts sent yet.")).toBeTruthy();
 	});
@@ -119,9 +111,7 @@ describe("PromptHistoryModal", () => {
 		const api = await import("../lib/api");
 		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
 
-		render(
-			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
-		);
+		render(<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />);
 		await screen.findByTestId("prompt-history-detail-text");
 
 		// userEvent.setup() installs its own clipboard stub, so the spy must be
@@ -160,9 +150,7 @@ describe("PromptHistoryModal", () => {
 		const api = await import("../lib/api");
 		vi.mocked(api.getPromptHistory).mockResolvedValue(entries);
 
-		render(
-			<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />,
-		);
+		render(<PromptHistoryModal open repoPath="/repo" onOpenChange={vi.fn()} />);
 		await screen.findByTestId("prompt-history-detail-text");
 
 		expect(
@@ -173,7 +161,11 @@ describe("PromptHistoryModal", () => {
 	it("does not fetch prompt history when closed", async () => {
 		const api = await import("../lib/api");
 		render(
-			<PromptHistoryModal open={false} repoPath="/repo" onOpenChange={vi.fn()} />,
+			<PromptHistoryModal
+				open={false}
+				repoPath="/repo"
+				onOpenChange={vi.fn()}
+			/>,
 		);
 		expect(api.getPromptHistory).not.toHaveBeenCalled();
 	});

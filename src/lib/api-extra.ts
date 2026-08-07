@@ -140,8 +140,7 @@ export const addPromptHistory = (
 
 export const getPromptHistory = (
 	repoPath: string,
-): Promise<PromptHistoryEntry[]> =>
-	invoke("get_prompt_history", { repoPath });
+): Promise<PromptHistoryEntry[]> => invoke("get_prompt_history", { repoPath });
 
 export const getWorkspaceStartingPrompt = (
 	repoPath: string,

@@ -399,9 +399,14 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 		});
 
 		const { data: startingPromptEntry } = useQuery({
-			queryKey: ["workspace-starting-prompt", effectiveRepoPath, workspace?.id ?? null],
+			queryKey: [
+				"workspace-starting-prompt",
+				effectiveRepoPath,
+				workspace?.id ?? null,
+			],
 			enabled: Boolean(effectiveRepoPath) && workspace?.id !== undefined,
-			queryFn: () => getWorkspaceStartingPrompt(effectiveRepoPath, workspace!.id),
+			queryFn: () =>
+				getWorkspaceStartingPrompt(effectiveRepoPath, workspace!.id),
 		});
 
 		const handleCopyStartingPrompt = useCallback(async () => {
