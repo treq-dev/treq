@@ -96,7 +96,7 @@ export const TerminalSessionsSidebar: React.FC<
 		<div className="border-t border-border flex-shrink-0 flex flex-col">
 			<div className="h-8 flex items-center justify-between px-2">
 				<h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-					Terminals
+					Sessions
 				</h4>
 				<div className="flex items-center gap-0.5">
 					<Tooltip>

@@ -115,7 +115,17 @@ export function useTerminalSessionSummaries({
 	useEffect(() => {
 		onTerminalsChangeRef.current = onTerminalsChange;
 	}, [onTerminalsChange]);
+
+	// `allTerminals` is a fresh array reference on every parent render (it's
+	// derived inline, not memoized), so `terminalSummaries` above is too even
+	// when nothing actually changed. Only notify the parent (which stores this
+	// in state) when the derived content genuinely differs, otherwise this
+	// effect would setState every render and loop forever.
+	const lastNotifiedRef = useRef<string>("");
 	useEffect(() => {
+		const serialized = JSON.stringify(terminalSummaries);
+		if (serialized === lastNotifiedRef.current) return;
+		lastNotifiedRef.current = serialized;
 		onTerminalsChangeRef.current?.(terminalSummaries);
 	}, [terminalSummaries]);
 
