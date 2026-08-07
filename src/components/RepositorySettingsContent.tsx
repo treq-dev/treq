@@ -180,8 +180,8 @@ export const RepositorySettingsContent: React.FC<
 					className="font-mono text-sm mt-2"
 				/>
 				<p className="text-sm text-muted-foreground mt-1">
-					Heavy directories to symlink from the home repo into each new workspace
-					instead of copying (e.g. node_modules, target, .venv).
+					Heavy directories to symlink from the home repo into each new
+					workspace instead of copying (e.g. node_modules, target, .venv).
 				</p>
 			</div>
 

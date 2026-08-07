@@ -66,11 +66,15 @@ describe("Settings integration", () => {
 		});
 		await user.click(repositoryTab);
 
-		const symlinkedDirs = await screen.findByLabelText(/symlinked directories/i);
+		const symlinkedDirs = await screen.findByLabelText(
+			/symlinked directories/i,
+		);
 		await user.clear(symlinkedDirs);
 		await user.type(symlinkedDirs, "node_modules\ntarget");
 		await user.click(screen.getByRole("button", { name: /save settings/i }));
-		await screen.findByText(/repository settings have been updated successfully/i);
+		await screen.findByText(
+			/repository settings have been updated successfully/i,
+		);
 
 		await user.click(await screen.findByRole("tab", { name: /application/i }));
 		await user.click(repositoryTab);
