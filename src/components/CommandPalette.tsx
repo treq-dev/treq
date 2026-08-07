@@ -16,6 +16,7 @@ import {
 	ExternalLink,
 	FileSearch,
 	GitBranch,
+	History,
 	Home,
 	Maximize2,
 	Plus,
@@ -50,6 +51,7 @@ interface CommandPaletteProps {
 	onStartAgentWithPrompt?: () => void;
 	onStartAgentTerminal?: () => void;
 	onCreateShellTerminal?: () => void;
+	onOpenPromptHistory?: () => void;
 	hasSelectedWorkspace: boolean;
 
 	// Branch Switcher
@@ -89,6 +91,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 	onStartAgentWithPrompt,
 	onStartAgentTerminal,
 	onCreateShellTerminal,
+	onOpenPromptHistory,
 	hasSelectedWorkspace,
 	showBranchSwitcher,
 	onBranchSwitcherChange,
@@ -205,6 +208,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 			});
 		}
 
+		if (repoPath && onOpenPromptHistory) {
+			result.push({
+				id: "open-prompt-history",
+				type: "action",
+				label: "View Prompt History",
+				description: "See every prompt ever sent, labeled by workspace",
+				icon: <History className="w-4 h-4" />,
+				onSelect: onOpenPromptHistory,
+			});
+		}
+
 		if (hasSelectedWorkspace) {
 			if (onToggleTerminal) {
 				result.push({
@@ -283,6 +297,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 		onStartAgentWithPrompt,
 		onStartAgentTerminal,
 		onCreateShellTerminal,
+		onOpenPromptHistory,
 		repoPath,
 		hasSelectedWorkspace,
 		onCommandPaletteChange,

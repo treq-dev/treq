@@ -24,6 +24,8 @@ interface TaskInputProps {
 	workingDirectory: string;
 	onSessionCreated?: (session: SessionCreationInfo) => void;
 	focusRequest?: number;
+	/** Pre-fill the textarea with this text on mount (e.g. re-running a past prompt). */
+	initialText?: string;
 }
 
 export const TaskInput: React.FC<TaskInputProps> = ({
@@ -33,8 +35,9 @@ export const TaskInput: React.FC<TaskInputProps> = ({
 	workingDirectory,
 	onSessionCreated,
 	focusRequest,
+	initialText,
 }) => {
-	const [taskText, setTaskText] = useState("");
+	const [taskText, setTaskText] = useState(initialText ?? "");
 	const [filePickerOpen, setFilePickerOpen] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [focused, setFocused] = useState(false);
@@ -393,7 +396,7 @@ export const TaskInput: React.FC<TaskInputProps> = ({
 			<div className="max-w-2xl min-w-0 mx-auto w-full">
 				<div
 					className={cn(
-						"min-h-28 rounded-xl border bg-background relative transition-colors",
+						"min-h-28 rounded-xl border bg-background relative transition-colors flex flex-col",
 						focused ? "border-blue-400" : "border-border",
 					)}
 				>
@@ -418,23 +421,25 @@ export const TaskInput: React.FC<TaskInputProps> = ({
 						onMentionSelect={handleMentionSelect}
 					/>
 
-					<TaskInputToolbar
-						isEmpty={isEmpty}
-						submitting={submitting}
-						selectedAgent={selectedAgent}
-						configuredDefaultAgent={configuredDefaultAgent}
-						saveAsRepoDefault={saveAsRepoDefault}
-						showSaveAsRepoDefault={showSaveAsRepoDefault}
-						onOpenFilePicker={() => setFilePickerOpen(true)}
-						onAttachFromFinder={handleAttachFromFinder}
-						onAgentChange={(nextAgent) => {
-							setSelectedAgent(nextAgent);
-							setSaveAsRepoDefault(false);
-							setShowSaveAsRepoDefault(nextAgent !== configuredDefaultAgent);
-						}}
-						onSaveAsRepoDefaultChange={setSaveAsRepoDefault}
-						onSubmit={handleSubmit}
-					/>
+					<div className="mt-auto">
+						<TaskInputToolbar
+							isEmpty={isEmpty}
+							submitting={submitting}
+							selectedAgent={selectedAgent}
+							configuredDefaultAgent={configuredDefaultAgent}
+							saveAsRepoDefault={saveAsRepoDefault}
+							showSaveAsRepoDefault={showSaveAsRepoDefault}
+							onOpenFilePicker={() => setFilePickerOpen(true)}
+							onAttachFromFinder={handleAttachFromFinder}
+							onAgentChange={(nextAgent) => {
+								setSelectedAgent(nextAgent);
+								setSaveAsRepoDefault(false);
+								setShowSaveAsRepoDefault(nextAgent !== configuredDefaultAgent);
+							}}
+							onSaveAsRepoDefaultChange={setSaveAsRepoDefault}
+							onSubmit={handleSubmit}
+						/>
+					</div>
 				</div>
 			</div>
 

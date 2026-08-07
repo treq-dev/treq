@@ -78,6 +78,17 @@ export interface Session {
 	model?: string | null;
 }
 
+export interface PromptHistoryEntry {
+	id: number;
+	workspace_id: number | null;
+	session_id: number | null;
+	prompt_text: string;
+	agent: string | null;
+	created_at: string;
+	/** Display label for the associated workspace (title or branch name), if any. */
+	workspace_label: string | null;
+}
+
 export interface JjDiffHunk {
 	id: string;
 	header: string;

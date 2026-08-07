@@ -10,6 +10,7 @@ import {
 	ArrowRight,
 	ChevronLeft,
 	Code2,
+	Copy,
 	Eye,
 	EyeOff,
 	File,
@@ -19,6 +20,7 @@ import {
 	GitCommitHorizontal,
 	GitCompareArrows,
 	GitMerge,
+	Info,
 	Layers2,
 	Loader2,
 	MoreVertical,
@@ -45,6 +47,7 @@ import {
 	getRepoSetting,
 	getSetting,
 	getWorkspaceReadme,
+	getWorkspaceStartingPrompt,
 	getWorkspaceStatus,
 	type HomeRebaseDryRunResult,
 	type JjLogResult,
@@ -109,6 +112,8 @@ interface ShowWorkspaceProps {
 	onDeleteWorkspace?: (workspace: Workspace) => void;
 	onOpenFilePicker?: () => void;
 	onSessionCreated?: (session: SessionCreationInfo) => void;
+	/** Called when the user clicks "View full prompt" on the workspace's starting prompt */
+	onViewFullPrompt?: (promptId: number) => void;
 	taskInputFocusRequest?: number;
 	onOpenMergePreview?: () => void;
 	onOpenBranchSwitcher?: () => void;
@@ -147,6 +152,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 		onDeleteWorkspace,
 		onOpenFilePicker,
 		onSessionCreated,
+		onViewFullPrompt,
 		taskInputFocusRequest,
 		onOpenMergePreview,
 		onOpenBranchSwitcher,
@@ -251,6 +257,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 		const [bookmarkConflict, setBookmarkConflict] =
 			useState<WorkspaceBookmarkConflict | null>(null);
 		const [conflictModalOpen, setConflictModalOpen] = useState(false);
+		const [detailsOpen, setDetailsOpen] = useState(false);
 		const [resolvingBookmarkConflict, setResolvingBookmarkConflict] =
 			useState(false);
 		const [refreshingFiles, setRefreshingFiles] = useState(false);
@@ -390,6 +397,35 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 				}
 			},
 		});
+
+		const { data: startingPromptEntry } = useQuery({
+			queryKey: [
+				"workspace-starting-prompt",
+				effectiveRepoPath,
+				workspace?.id ?? null,
+			],
+			enabled: Boolean(effectiveRepoPath) && workspace?.id !== undefined,
+			queryFn: () =>
+				getWorkspaceStartingPrompt(effectiveRepoPath, workspace!.id),
+		});
+
+		const handleCopyStartingPrompt = useCallback(async () => {
+			if (!startingPromptEntry?.prompt_text) return;
+			try {
+				await navigator.clipboard.writeText(startingPromptEntry.prompt_text);
+				addToast({
+					title: "Copied",
+					description: "Starting prompt copied to clipboard",
+					type: "success",
+				});
+			} catch (error) {
+				addToast({
+					title: "Failed to copy",
+					description: error instanceof Error ? error.message : String(error),
+					type: "error",
+				});
+			}
+		}, [startingPromptEntry, addToast]);
 
 		const rootEntries = overviewData?.entries ?? [];
 		const readmeContent = overviewData?.readme ?? null;
@@ -1757,6 +1793,103 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 											)}
 										</Tooltip>
 									</TooltipProvider>
+								)}
+								{workspace && (
+									<Popover open={detailsOpen} onOpenChange={setDetailsOpen}>
+										<PopoverTrigger asChild>
+											<Button
+												variant="ghost"
+												size="sm"
+												className="gap-1 px-2"
+												data-testid="workspace-details-button"
+											>
+												<Info className="w-4 h-4" />
+												Details
+											</Button>
+										</PopoverTrigger>
+										<PopoverContent
+											className="w-96"
+											align="end"
+											data-testid="workspace-details-popover"
+										>
+											<div className="space-y-3">
+												<div>
+													<h3 className="text-sm font-semibold">
+														Workspace details
+													</h3>
+													<dl className="mt-2 space-y-1 text-sm">
+														<div className="flex justify-between gap-2">
+															<dt className="text-muted-foreground">Branch</dt>
+															<dd className="font-mono truncate">
+																{workspace.branch_name}
+															</dd>
+														</div>
+														{targetBranch && (
+															<div className="flex justify-between gap-2">
+																<dt className="text-muted-foreground">
+																	Target branch
+																</dt>
+																<dd className="font-mono truncate">
+																	{targetBranch}
+																</dd>
+															</div>
+														)}
+														<div className="flex justify-between gap-2">
+															<dt className="text-muted-foreground">Created</dt>
+															<dd>
+																{new Date(
+																	workspace.created_at,
+																).toLocaleString()}
+															</dd>
+														</div>
+													</dl>
+												</div>
+												<div>
+													<div className="flex items-center justify-between">
+														<h4 className="text-sm font-medium">
+															Starting prompt
+														</h4>
+														{startingPromptEntry && (
+															<Button
+																variant="ghost"
+																size="sm"
+																className="h-6 px-2 text-xs"
+																onClick={handleCopyStartingPrompt}
+															>
+																<Copy className="w-3 h-3 mr-1" />
+																Copy
+															</Button>
+														)}
+													</div>
+													{startingPromptEntry ? (
+														<>
+															<p
+																className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap max-h-40 overflow-y-auto"
+																data-testid="workspace-starting-prompt-text"
+															>
+																{startingPromptEntry.prompt_text}
+															</p>
+															<button
+																type="button"
+																className="mt-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+																data-testid="view-full-prompt-button"
+																onClick={() => {
+																	setDetailsOpen(false);
+																	onViewFullPrompt?.(startingPromptEntry.id);
+																}}
+															>
+																View full prompt
+															</button>
+														</>
+													) : (
+														<p className="mt-1 text-sm text-muted-foreground">
+															No prompt recorded for this workspace yet.
+														</p>
+													)}
+												</div>
+											</div>
+										</PopoverContent>
+									</Popover>
 								)}
 								<DropdownMenu>
 									<DropdownMenuTrigger asChild>
