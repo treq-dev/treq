@@ -623,6 +623,8 @@ pub fn run() {
             commands::move_workspace_changes,
             commands::move_commit_to_existing_workspace,
             commands::abandon_commit,
+            commands::undo_commit,
+            commands::revert_commit,
             commands::rename_workspace,
             commands::list_workspace_statuses,
             commands::get_workspace_status,

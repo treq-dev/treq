@@ -558,6 +558,66 @@ pub async fn abandon_commit(
   result
 }
 
+/// Undo the latest commit in a workspace's own lineage (not the working copy,
+/// not a commit on the target branch). Must be undone sequentially from the tip.
+#[tauri::command]
+pub async fn undo_commit(
+    repo_path: String,
+    workspace_id: i64,
+    commit_change_id: String,
+) -> Result<(), String> {
+    let started_at = Instant::now();
+    let repo_path_for_task = repo_path.clone();
+    let commit_change_id_for_task = commit_change_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::core::undo_commit(
+            &repo_path_for_task,
+            workspace_id,
+            &commit_change_id_for_task,
+        )
+    })
+    .await
+    .map_err(|e| format!("Failed to join undo_commit task: {}", e))?;
+    log::debug!(
+        "undo_commit(repo_path={}, workspace_id={}, commit_change_id={}) completed in {:?}",
+        repo_path,
+        workspace_id,
+        commit_change_id,
+        started_at.elapsed()
+    );
+    result
+}
+
+/// Revert a commit by creating a new commit that reverses its changes on top
+/// of the workspace's current tip. Can target any commit except the working copy.
+#[tauri::command]
+pub async fn revert_commit(
+    repo_path: String,
+    workspace_id: i64,
+    commit_change_id: String,
+) -> Result<(), String> {
+    let started_at = Instant::now();
+    let repo_path_for_task = repo_path.clone();
+    let commit_change_id_for_task = commit_change_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::core::revert_commit(
+            &repo_path_for_task,
+            workspace_id,
+            &commit_change_id_for_task,
+        )
+    })
+    .await
+    .map_err(|e| format!("Failed to join revert_commit task: {}", e))?;
+    log::debug!(
+        "revert_commit(repo_path={}, workspace_id={}, commit_change_id={}) completed in {:?}",
+        repo_path,
+        workspace_id,
+        commit_change_id,
+        started_at.elapsed()
+    );
+    result
+}
+
 #[tauri::command]
 pub async fn rebase_home_repo_branch(
   repo_path: String,

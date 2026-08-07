@@ -278,6 +278,89 @@ pub fn undo_repo_operation(
     .map_err(|e| format!("Failed to undo operation: {}", e))
 }
 
+/// Undoes the latest commit in a workspace's own lineage by change-id.
+///
+/// Only the workspace's current tip commit can be undone — not the working
+/// copy, and not a commit inherited from the target branch. To undo an older
+/// commit, undo newer commits first, one at a time.
+///
+/// # Arguments
+/// * `repo_path`         - Path to the repository root
+/// * `workspace_id`      - ID of the workspace that owns the commit
+/// * `commit_change_id`  - The short change-id of the commit to undo
+///
+/// # Returns
+/// `Ok(())` on success, or an error string.
+pub fn undo_commit(
+    repo_path: &str,
+    workspace_id: i64,
+    commit_change_id: &str,
+) -> Result<(), String> {
+    let workspace = local_db::get_workspace_by_id(repo_path, workspace_id)
+        .map_err(|e| format!("Failed to get workspace: {}", e))?
+        .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+
+    let workspace_dir = Path::new(repo_path)
+        .join(".treq")
+        .join("workspaces")
+        .join(&workspace.workspace_path);
+    let workspace_dir_str = workspace_dir
+        .to_str()
+        .ok_or("Failed to convert workspace path to string")?;
+
+    let default_branch = jj::get_default_branch(repo_path)
+        .map_err(|e| format!("Failed to resolve default branch: {}", e))?;
+    let target_branch = workspace
+        .target_branch
+        .as_deref()
+        .unwrap_or(&default_branch);
+
+    jj::jj_undo_commit(workspace_dir_str, target_branch, commit_change_id)
+        .map_err(|e| format!("Failed to undo commit: {}", e))?;
+
+    jj::update_stale_workspace(workspace_dir_str)
+        .map_err(|e| format!("Failed to update workspace working copy: {}", e))?;
+
+    Ok(())
+}
+
+/// Reverts a specific commit by change-id, creating a new commit that reverses
+/// its changes on top of the workspace's current tip. Can target any real
+/// commit reachable from the workspace except the working-copy commit itself.
+///
+/// # Arguments
+/// * `repo_path`         - Path to the repository root
+/// * `workspace_id`      - ID of the workspace that owns the commit
+/// * `commit_change_id`  - The short change-id of the commit to revert
+///
+/// # Returns
+/// `Ok(())` on success, or an error string.
+pub fn revert_commit(
+    repo_path: &str,
+    workspace_id: i64,
+    commit_change_id: &str,
+) -> Result<(), String> {
+    let workspace = local_db::get_workspace_by_id(repo_path, workspace_id)
+        .map_err(|e| format!("Failed to get workspace: {}", e))?
+        .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+
+    let workspace_dir = Path::new(repo_path)
+        .join(".treq")
+        .join("workspaces")
+        .join(&workspace.workspace_path);
+    let workspace_dir_str = workspace_dir
+        .to_str()
+        .ok_or("Failed to convert workspace path to string")?;
+
+    jj::jj_revert_commit(workspace_dir_str, commit_change_id)
+        .map_err(|e| format!("Failed to revert commit: {}", e))?;
+
+    jj::update_stale_workspace(workspace_dir_str)
+        .map_err(|e| format!("Failed to update workspace working copy: {}", e))?;
+
+    Ok(())
+}
+
 /// Returns the full (multi-line) description of a specific commit.
 ///
 /// # Arguments

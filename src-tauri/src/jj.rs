@@ -60,7 +60,7 @@ use jj_lib::git;
 use jj_lib::gitignore::GitIgnoreFile;
 use jj_lib::lock::FileLock;
 use jj_lib::matchers::{Matcher, NothingMatcher, PrefixMatcher};
-use jj_lib::merge::Diff;
+use jj_lib::merge::{Diff, Merge};
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::merged_tree_builder::MergedTreeBuilder;
 use jj_lib::object_id::{HexPrefix, ObjectId};
@@ -2685,6 +2685,144 @@ pub fn jj_undo_operation(workspace_path: &str, operation_id: &str) -> Result<Str
     .map_err(|e| JjError::IoError(format!("Failed to commit undo: {}", e)))?;
   update_workspace_after_history_edit(&mut loaded, &new_repo, None, CheckoutMode::Immediate)?;
   Ok(new_repo.op_id().hex())
+}
+
+/// Undo the latest commit in a workspace's own lineage.
+///
+/// Only allowed when `change_id` resolves to the workspace's current tip commit
+/// (`@-`) — i.e. not the working-copy commit itself, and not a commit inherited
+/// from the target branch. Callers must undo commits sequentially, from the tip
+/// backwards: once the tip is undone, its parent becomes the new tip and can then
+/// be undone in turn.
+///
+/// Implemented as a validated abandon: the commit is removed from history and its
+/// changes are folded back into the (rebased) working copy, exactly reversing the
+/// act of committing.
+pub fn jj_undo_commit(
+    workspace_path: &str,
+    target_branch: &str,
+    change_id: &str,
+) -> Result<String, JjError> {
+    validate_branch_name(target_branch, "target")?;
+    let loaded = load_workspace_repo(workspace_path)?;
+    let commit = resolve_commit_by_revision(&loaded, change_id)?;
+    let tip = resolve_commit_by_revision(&loaded, "@-")?;
+    if commit.id() != tip.id() {
+        return Err(JjError::IoError(
+            "Only the latest commit in the workspace can be undone. Undo commits sequentially, starting from the most recent.".to_string(),
+        ));
+    }
+
+    let target_symbol = resolve_target_branch_symbol(&loaded, workspace_path, target_branch)?;
+    let target_commit = resolve_commit_by_revision(&loaded, &target_symbol)?;
+    let tip_is_on_target = loaded
+        .repo
+        .index()
+        .is_ancestor(tip.id(), target_commit.id())
+        .map_err(|e| JjError::IoError(format!("Failed ancestry check: {}", e)))?;
+    if tip_is_on_target {
+        return Err(JjError::IoError(
+            "Cannot undo a commit that belongs to the target branch".to_string(),
+        ));
+    }
+
+    drop(loaded);
+    jj_abandon(workspace_path, change_id)
+}
+
+/// Create a new commit that reverses the changes of `change_id`, applied on top of
+/// the workspace's current tip commit. Can target any real commit reachable from
+/// the workspace (including immutable or target-branch commits) except the
+/// working-copy commit itself.
+pub fn jj_revert_commit(workspace_path: &str, change_id: &str) -> Result<String, JjError> {
+    let loaded = load_workspace_repo(workspace_path)?;
+    let commit = resolve_commit_by_revision(&loaded, change_id)?;
+
+    let workspace_name = loaded.workspace.workspace_name().to_owned();
+    let wc_commit_id = loaded
+        .repo
+        .view()
+        .get_wc_commit_id(&workspace_name)
+        .cloned()
+        .ok_or_else(|| JjError::IoError("Workspace has no working-copy commit".to_string()))?;
+    if commit.id() == &wc_commit_id {
+        return Err(JjError::IoError("Cannot revert the working copy".to_string()));
+    }
+
+    let wc_commit = loaded
+        .repo
+        .store()
+        .get_commit(&wc_commit_id)
+        .map_err(|e| JjError::IoError(format!("Failed to load working-copy commit: {}", e)))?;
+    let wc_parents = block_on(wc_commit.parents())
+        .map_err(|e| JjError::InitFailed(format!("Failed to load working-copy parents: {}", e)))?;
+    let head_commit = wc_parents.into_iter().next().ok_or_else(|| {
+        JjError::IoError("Workspace working copy has no parent commit".to_string())
+    })?;
+
+    let parents = block_on(commit.parents())
+        .map_err(|e| JjError::InitFailed(format!("Failed to load commit parents: {}", e)))?;
+    let parent_tree = block_on(merge_commit_trees(loaded.repo.as_ref(), &parents))
+        .map_err(|e| JjError::InitFailed(format!("Failed to merge parent trees: {}", e)))?;
+
+    // Diff from the commit's own tree back to its parent tree is exactly the
+    // reverse of the commit; applying it onto the current tip's tree (3-way
+    // merge, using the commit's own tree as the merge base) is a backout.
+    let reverted_diff = Diff::new(
+        (commit.tree(), commit.conflict_label()),
+        (
+            parent_tree,
+            format!("{} (before revert)", commit.conflict_label()),
+        ),
+    );
+    let new_tree = block_on(MergedTree::merge(Merge::from_diffs(
+        (head_commit.tree(), head_commit.conflict_label()),
+        vec![reverted_diff],
+    )))
+    .map_err(|e| JjError::IoError(format!("Failed to compute reverted tree: {}", e)))?;
+
+    let original_first_line = commit
+        .description()
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_string();
+    let description = format!(
+        "Revert \"{}\"\n\nThis reverts commit {}.",
+        original_first_line,
+        commit.id().hex()
+    );
+
+    let mut tx = loaded.repo.start_transaction();
+
+    let new_commit = block_on(
+        tx.repo_mut()
+            .new_commit(vec![head_commit.id().clone()], new_tree)
+            .set_description(description)
+            .write(),
+    )
+    .map_err(|e| JjError::IoError(format!("Failed to create revert commit: {}", e)))?;
+
+    let rebased_wc = block_on(rewrite::rebase_commit(
+        tx.repo_mut(),
+        wc_commit,
+        vec![new_commit.id().clone()],
+    ))
+    .map_err(|e| JjError::IoError(format!("Failed to rebase working copy: {}", e)))?;
+    block_on(tx.repo_mut().edit(workspace_name, &rebased_wc))
+        .map_err(|e| JjError::IoError(format!("Failed to update working-copy pointer: {}", e)))?;
+
+    block_on(tx.repo_mut().rebase_descendants())
+        .map_err(|e| JjError::InitFailed(format!("Failed to rebase descendants: {}", e)))?;
+    block_on(tx.commit("revert commit"))
+        .map_err(|e| JjError::InitFailed(format!("Failed to revert commit: {}", e)))?;
+
+    // rebase_descendants() may have rewritten WC commits of every workspace; reconcile all.
+    let repo_path = derive_repo_path_from_workspace(workspace_path)
+        .unwrap_or_else(|| workspace_path.to_string());
+    let _ = reconcile_all_workspaces_after_rewrite(&repo_path, None);
+
+    Ok(String::new())
 }
 
 /// Get the full (multi-line) description of a specific commit.

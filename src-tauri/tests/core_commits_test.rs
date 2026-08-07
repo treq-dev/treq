@@ -638,6 +638,172 @@ fn test_undo_repo_operation_rejects_stale_operation() {
 }
 
 #[test]
+fn test_undo_commit_only_allows_latest_commit_sequentially() {
+    let repo = TestRepo::new().expect("Failed to create test repo");
+    let default_branch = repo.default_branch();
+
+    let workspace = treq_lib::core::create_workspace(
+        &repo.repo_path,
+        "feat/undo-test",
+        Some("undo test".to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("Failed to create workspace");
+
+    let workspace_path = repo.workspaces_dir().join(&workspace.workspace_path);
+    let workspace_path_str = workspace_path.to_str().unwrap();
+
+    TestRepo::write_workspace_file(workspace_path_str, "first.txt", "first")
+        .expect("Failed to write first.txt");
+    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "First commit")
+        .expect("Failed to commit first change");
+
+    TestRepo::write_workspace_file(workspace_path_str, "second.txt", "second")
+        .expect("Failed to write second.txt");
+    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Second commit")
+        .expect("Failed to commit second change");
+
+    let commits_ahead = treq_lib::jj::jj_get_commits_ahead(workspace_path_str, default_branch)
+        .expect("Failed to get commits ahead");
+    assert_eq!(commits_ahead.commits.len(), 2, "Should have 2 commits ahead");
+    let newest_change_id = commits_ahead.commits[0].change_id.clone();
+    let oldest_change_id = commits_ahead.commits[1].change_id.clone();
+
+    // Cannot undo an older commit while a newer commit still sits on top of it.
+    let err = treq_lib::core::undo_commit(&repo.repo_path, workspace.id, &oldest_change_id)
+        .expect_err("Should not allow undoing a non-tip commit");
+    assert!(
+        err.contains("Only the latest commit"),
+        "unexpected error: {}",
+        err
+    );
+
+    // Undoing the tip commit succeeds.
+    treq_lib::core::undo_commit(&repo.repo_path, workspace.id, &newest_change_id)
+        .expect("Failed to undo tip commit");
+
+    let commits_after = treq_lib::jj::jj_get_commits_ahead(workspace_path_str, default_branch)
+        .expect("Failed to get commits after undo");
+    assert_eq!(commits_after.commits.len(), 1);
+    assert_eq!(commits_after.commits[0].change_id, oldest_change_id);
+    assert!(!workspace_path.join("second.txt").exists());
+
+    // The now-tip commit (previously the older one) can be undone in turn.
+    treq_lib::core::undo_commit(&repo.repo_path, workspace.id, &oldest_change_id)
+        .expect("Failed to undo the now-latest commit");
+
+    let commits_final = treq_lib::jj::jj_get_commits_ahead(workspace_path_str, default_branch)
+        .expect("Failed to get commits after second undo");
+    assert!(commits_final.commits.is_empty());
+    assert!(!workspace_path.join("first.txt").exists());
+}
+
+#[test]
+fn test_undo_commit_rejects_commit_on_target_branch() {
+    let repo = TestRepo::new().expect("Failed to create test repo");
+    let default_branch = repo.default_branch();
+
+    let workspace = treq_lib::core::create_workspace(
+        &repo.repo_path,
+        "feat/undo-target-test",
+        Some("undo target test".to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("Failed to create workspace");
+
+    // No new commits made in this workspace — its tip is the target branch tip itself.
+    let err = treq_lib::core::undo_commit(&repo.repo_path, workspace.id, default_branch)
+        .expect_err("Should not allow undoing a commit that belongs to the target branch");
+    assert!(
+        err.contains("target branch"),
+        "unexpected error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_revert_commit_creates_backout_commit() {
+    let repo = TestRepo::new().expect("Failed to create test repo");
+    let default_branch = repo.default_branch();
+
+    let workspace = treq_lib::core::create_workspace(
+        &repo.repo_path,
+        "feat/revert-test",
+        Some("revert test".to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("Failed to create workspace");
+
+    let workspace_path = repo.workspaces_dir().join(&workspace.workspace_path);
+    let workspace_path_str = workspace_path.to_str().unwrap();
+
+    TestRepo::write_workspace_file(workspace_path_str, "revert-me.txt", "hello")
+        .expect("Failed to write revert-me.txt");
+    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Add revert-me")
+        .expect("Failed to commit");
+
+    let commits_ahead = treq_lib::jj::jj_get_commits_ahead(workspace_path_str, default_branch)
+        .expect("Failed to get commits ahead");
+    let change_id = commits_ahead.commits[0].change_id.clone();
+
+    treq_lib::core::revert_commit(&repo.repo_path, workspace.id, &change_id)
+        .expect("Failed to revert commit");
+
+    let commits_after = treq_lib::jj::jj_get_commits_ahead(workspace_path_str, default_branch)
+        .expect("Failed to get commits after revert");
+    assert_eq!(
+        commits_after.commits.len(),
+        2,
+        "Should have the original commit plus the new revert commit"
+    );
+    assert!(
+        commits_after.commits[0]
+            .description
+            .starts_with("Revert \"Add revert-me\""),
+        "unexpected description: {}",
+        commits_after.commits[0].description
+    );
+
+    assert!(
+        !workspace_path.join("revert-me.txt").exists(),
+        "revert-me.txt should be removed by the revert commit"
+    );
+}
+
+#[test]
+fn test_revert_commit_rejects_working_copy() {
+    let repo = TestRepo::new().expect("Failed to create test repo");
+
+    let workspace = treq_lib::core::create_workspace(
+        &repo.repo_path,
+        "feat/revert-wc-test",
+        Some("revert wc test".to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("Failed to create workspace");
+
+    let err = treq_lib::core::revert_commit(&repo.repo_path, workspace.id, "@")
+        .expect_err("Should not allow reverting the working copy");
+    assert!(
+        err.contains("Cannot revert the working copy"),
+        "unexpected error: {}",
+        err
+    );
+}
+
+#[test]
 fn test_commit_diff_added_files() {
   let repo = TestRepo::new().expect("Failed to create test repo");
 

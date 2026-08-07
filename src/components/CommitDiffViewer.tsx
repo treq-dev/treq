@@ -13,7 +13,9 @@ import {
   Pencil,
   Plus,
   Clock,
+  RotateCcw,
   Trash2,
+  Undo2,
 } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import {
@@ -25,8 +27,10 @@ import {
   type JjLogCommit,
   type JjRevisionDiff,
   listCommits,
+  revertCommit,
   shiftMutableCommitsToNow,
   stashCommit,
+  undoCommit,
   undoRepoOperation,
 } from "../lib/api";
 import { resolvableConflictedCommits } from "../lib/resolvable-conflicted-commits";
@@ -571,6 +575,79 @@ export const CommitDiffViewer = ({
     }
   };
 
+  const handleUndo = async (commit: JjLogCommit) => {
+    if (!repoPath || !workspaceId) return;
+
+    const firstLine = commit.description.split("\n")[0] || "(no message)";
+    const confirmed = await ask(
+      `Undo commit ${commit.short_id} — ${firstLine}? Its changes will be returned to your working copy.`,
+      { title: "Undo Commit", kind: "warning" },
+    );
+    if (!confirmed) return;
+
+    try {
+      await undoCommit(repoPath, workspaceId, commit.change_id);
+      setRemovingCommitIds((prev) => new Set(prev).add(commit.commit_id));
+
+      window.setTimeout(() => {
+        setRemovedCommitIds((prev) => new Set(prev).add(commit.commit_id));
+        setRemovingCommitIds((prev) => {
+          const next = new Set(prev);
+          next.delete(commit.commit_id);
+          return next;
+        });
+        onCommitAbandoned?.();
+      }, REMOVE_ANIMATION_MS);
+
+      addToast({
+        title: "Commit undone",
+        description: `Undid commit ${commit.short_id}`,
+        type: "success",
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      addToast({
+        title: "Failed to undo commit",
+        description: errorMsg,
+        type: "error",
+      });
+    }
+  };
+
+  const handleRevert = async (commit: JjLogCommit) => {
+    if (!repoPath || !workspaceId) return;
+
+    const firstLine = commit.description.split("\n")[0] || "(no message)";
+    const confirmed = await ask(
+      `Revert commit ${commit.short_id} — ${firstLine}? This creates a new commit that reverses its changes.`,
+      { title: "Revert Commit", kind: "warning" },
+    );
+    if (!confirmed) return;
+
+    try {
+      await revertCommit(repoPath, workspaceId, commit.change_id);
+      void invalidateQueries([
+        "commit-diff-viewer-commits",
+        repoPath,
+        workspaceId,
+      ]);
+      onCommitAbandoned?.();
+
+      addToast({
+        title: "Commit reverted",
+        description: `Reverted commit ${commit.short_id}`,
+        type: "success",
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      addToast({
+        title: "Failed to revert commit",
+        description: errorMsg,
+        type: "error",
+      });
+    }
+  };
+
   // Scroll to commit when scrollToCommitId changes
   useEffect(() => {
     if (!scrollToCommitId || loading) return;
@@ -884,6 +961,8 @@ export const CommitDiffViewer = ({
                         onMoveToExisting={handleMoveToExisting}
                         onAbandon={handleAbandon}
                         onStash={handleStashCommit}
+                        onUndo={handleUndo}
+                        onRevert={handleRevert}
                         onEditDescription={handleEditDescription}
                         onEditTimestamp={handleEditTimestamp}
                         onResolveConflict={
@@ -988,6 +1067,7 @@ export const CommitDiffViewer = ({
                             onMoveToExisting={() => {}}
                             onAbandon={() => {}}
                             onStash={() => {}}
+                            onRevert={handleRevert}
                             onEditDescription={() => {}}
                             onEditTimestamp={() => {}}
                             onCreateAgentWithComment={onCreateAgentWithComment}
@@ -1105,6 +1185,10 @@ interface CommitWithDiffProps {
   onMoveToExisting: (commit: JjLogCommit) => void;
   onAbandon: (commit: JjLogCommit) => void;
   onStash: (commit: JjLogCommit) => void;
+  /** Undo the latest commit in the workspace's own lineage. Only valid when `isFirst`. */
+  onUndo?: (commit: JjLogCommit) => void;
+  /** Revert any commit (except the working copy) by creating a new commit that reverses it. */
+  onRevert?: (commit: JjLogCommit) => void;
   onEditDescription: (commit: JjLogCommit) => void;
   onEditTimestamp: (commit: JjLogCommit) => void;
   onResolveConflict?: (commit: JjLogCommit) => void;
@@ -1134,6 +1218,8 @@ function CommitWithDiff({
   onMoveToExisting,
   onAbandon,
   onStash,
+  onUndo,
+  onRevert,
   onEditDescription,
   onEditTimestamp,
   onResolveConflict,
@@ -1309,6 +1395,29 @@ function CommitWithDiff({
                   <Pencil className="w-4 h-4" />
                   Edit description
                 </Button>
+                {isFirst && onUndo && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => onUndo(commit)}
+                    disabled={isRemoving}
+                  >
+                    <Undo2 className="w-4 h-4" />
+                    Undo commit
+                  </Button>
+                )}
+                {onRevert && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => onRevert(commit)}
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    Revert commit
+                  </Button>
+                )}
                 {canAction && !commit.is_immutable && (
                   <Button
                     variant="outline"
