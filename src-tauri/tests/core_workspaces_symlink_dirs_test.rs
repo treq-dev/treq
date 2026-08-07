@@ -11,8 +11,11 @@ fn symlink_included_dirs_links_directory_to_home_repo() {
     let home = temp.path().join("home");
     let workspace = temp.path().join("workspace");
     fs::create_dir_all(home.join("node_modules/pkg")).expect("create source dir");
-    fs::write(home.join("node_modules/pkg/index.js"), "module.exports = 1;\n")
-        .expect("write source file");
+    fs::write(
+        home.join("node_modules/pkg/index.js"),
+        "module.exports = 1;\n",
+    )
+    .expect("write source file");
     fs::create_dir_all(&workspace).expect("create workspace");
 
     treq_lib::core::symlink_included_dirs(
@@ -79,12 +82,11 @@ fn symlink_included_dirs_creates_parent_dirs_for_nested_path() {
     .expect("nested symlink should succeed");
 
     let link = workspace.join("vendor/cache");
-    assert!(
-        link.symlink_metadata()
-            .expect("link metadata")
-            .file_type()
-            .is_symlink()
-    );
+    assert!(link
+        .symlink_metadata()
+        .expect("link metadata")
+        .file_type()
+        .is_symlink());
     assert_eq!(
         fs::read_to_string(link.join("data.bin")).expect("read"),
         "cached"
@@ -109,12 +111,11 @@ fn symlink_included_dirs_links_files() {
     .expect("file symlink should succeed");
 
     let link = workspace.join(".env.local");
-    assert!(
-        link.symlink_metadata()
-            .expect("link metadata")
-            .file_type()
-            .is_symlink()
-    );
+    assert!(link
+        .symlink_metadata()
+        .expect("link metadata")
+        .file_type()
+        .is_symlink());
     assert_eq!(fs::read_to_string(&link).expect("read"), "SECRET=1\n");
 }
 

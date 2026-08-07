@@ -1822,12 +1822,9 @@ pub fn symlink_included_dirs(
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create directory {:?}: {}", parent, e))?;
         }
-        let abs_source = source.canonicalize().map_err(|e| {
-            format!(
-                "Failed to resolve absolute path for {:?}: {}",
-                source, e
-            )
-        })?;
+        let abs_source = source
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve absolute path for {:?}: {}", source, e))?;
         create_symlink(&abs_source, &dest)?;
     }
     Ok(())
@@ -1836,12 +1833,8 @@ pub fn symlink_included_dirs(
 fn create_symlink(source: &Path, dest: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(source, dest).map_err(|e| {
-            format!(
-                "Failed to create symlink {:?} -> {:?}: {}",
-                dest, source, e
-            )
-        })
+        std::os::unix::fs::symlink(source, dest)
+            .map_err(|e| format!("Failed to create symlink {:?} -> {:?}: {}", dest, source, e))
     }
     #[cfg(windows)]
     {
@@ -1850,12 +1843,7 @@ fn create_symlink(source: &Path, dest: &Path) -> Result<(), String> {
         } else {
             std::os::windows::fs::symlink_file(source, dest)
         };
-        result.map_err(|e| {
-            format!(
-                "Failed to create symlink {:?} -> {:?}: {}",
-                dest, source, e
-            )
-        })
+        result.map_err(|e| format!("Failed to create symlink {:?} -> {:?}: {}", dest, source, e))
     }
 }
 
