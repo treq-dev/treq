@@ -26,6 +26,8 @@ import {
 	Search,
 	Trash2,
 	Upload,
+	Workflow,
+	Database,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -68,11 +70,13 @@ import {
 	ChangesDiffViewer,
 	type ChangesDiffViewerHandle,
 } from "./ChangesDiffViewer";
+import { ChecksTab } from "./ChecksTab";
 import { CiStatusIndicator } from "./CiStatusIndicator";
 import { CommitDiffViewer } from "./CommitDiffViewer";
 import { CreatePrButtonGroup } from "./CreatePrButtonGroup";
 import { FileBrowser } from "./FileBrowser";
 import { LinearCommitHistory } from "./LinearCommitHistory";
+import { LogsTab } from "./LogsTab";
 import { MarkdownContent } from "./MarkdownContent";
 import {
 	type BranchListItem,
@@ -891,6 +895,42 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 			],
 		);
 
+		/** Opens a fresh agent session seeded with the selected log content. */
+		const handleSendLogsToAgent = useCallback(
+			async (prompt: string) => {
+				try {
+					const sessionName = "Logs";
+					const dbSessionId = await createSession(
+						effectiveRepoPath,
+						workspace?.id ?? null,
+						sessionName,
+					);
+					onSessionCreated?.({
+						sessionId: dbSessionId,
+						sessionName,
+						workspaceId: workspace?.id ?? null,
+						workspacePath: workspace?.workspace_path ?? null,
+						repoPath: effectiveRepoPath || workingDirectory,
+						pendingPrompt: prompt,
+						permissionMode: "plan",
+					});
+				} catch (error) {
+					addToast({
+						title: "Failed to send logs to agent",
+						description: error instanceof Error ? error.message : String(error),
+						type: "error",
+					});
+				}
+			},
+			[
+				effectiveRepoPath,
+				workspace,
+				workingDirectory,
+				onSessionCreated,
+				addToast,
+			],
+		);
+
 		const handleCreateAgentWithReview = useCallback(
 			async (reviewMarkdown: string, mode: "plan" | "acceptEdits") => {
 				try {
@@ -1018,6 +1058,22 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 									</span>
 								)}
 							</TabsTrigger>
+							<TabsTrigger
+								value="checks"
+								className="inline-flex items-center gap-1.5"
+							>
+								<Workflow className="w-4 h-4" />
+								<span>Checks</span>
+							</TabsTrigger>
+							{!workspace && (
+								<TabsTrigger
+									value="logs"
+									className="inline-flex items-center gap-1.5"
+								>
+									<Database className="w-4 h-4" />
+									<span>Logs</span>
+								</TabsTrigger>
+							)}
 						</TabsList>
 					</Tabs>
 					<div className="flex items-center gap-3">
@@ -1300,6 +1356,18 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 							}
 							onViewTentativeChanges={handleViewTentativeChanges}
 							onDeleteTentativeChanges={handleDeleteTentativeChanges}
+						/>
+					) : activeTab === "logs" ? (
+						<LogsTab
+							repoPath={effectiveRepoPath ?? ""}
+							onSendToAgent={handleSendLogsToAgent}
+						/>
+					) : activeTab === "checks" ? (
+						<ChecksTab
+							repoPath={effectiveRepoPath ?? ""}
+							workspaceId={workspace?.id ?? 0}
+							workspacePath={workingDirectory ?? ""}
+							onSendToAgent={handleSendLogsToAgent}
 						/>
 					) : (
 						<ChangesDiffViewer

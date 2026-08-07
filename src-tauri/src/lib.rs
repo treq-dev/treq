@@ -551,6 +551,17 @@ pub fn run() {
             commands::gh_set_pr_draft,
             commands::gh_create_pr,
             commands::gh_list_pr_review_threads,
+            commands::list_workflows,
+            commands::run_workflow_job,
+            commands::run_workflow,
+            commands::is_repo_trusted,
+            commands::trust_repo,
+            commands::list_workflow_runs,
+            commands::get_run_logs,
+            commands::export_run_logs,
+            commands::get_repo_logs,
+            commands::run_logs_sql,
+            commands::get_log_timeseries,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

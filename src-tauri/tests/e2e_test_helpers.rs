@@ -5,6 +5,36 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
 
+#[allow(dead_code)]
+pub const PASSING_WORKFLOW: &str = "
+name: Passing CI
+on:
+  workflow_dispatch: {}
+jobs:
+  greet:
+    name: Greet Job
+    steps:
+      - name: Say hello
+        run: echo hello
+      - name: Say world
+        run: echo world
+";
+
+#[allow(dead_code)]
+pub const FAILING_WORKFLOW: &str = "
+name: Failing CI
+on:
+  workflow_dispatch: {}
+jobs:
+  check:
+    name: Check Job
+    steps:
+      - name: Fail here
+        run: exit 1
+      - name: Never runs
+        run: echo skipped
+";
+
 fn random_default_branch_name() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -253,6 +283,11 @@ impl TestRepo {
         Self::write_file_at_path(file_path.clone(), content, false)?;
 
         Ok(file_path)
+    }
+
+    /// Write a YAML workflow file to `.treq/workflows/{filename}` in the repo.
+    pub fn write_workflow(&self, filename: &str, content: &str) -> Result<PathBuf, String> {
+        self.create_file(&format!(".treq/workflows/{}", filename), content)
     }
 
     /// Write or append file content at an absolute path.

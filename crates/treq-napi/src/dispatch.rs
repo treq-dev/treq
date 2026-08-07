@@ -944,6 +944,132 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
 
+        "list_workflows" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let result = treq_lib::core::list_workflows_sync(&repo_path)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "run_workflow_job" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let filename = get_str(&args, "filename")?;
+            let job_id = get_str(&args, "jobId")?;
+            let workspace_id = get_i64(&args, "workspaceId")?;
+            let workspace_path = get_str(&args, "workspacePath")?;
+            let result = treq_lib::core::run_workflow_job_sync(
+                &repo_path,
+                &filename,
+                &job_id,
+                workspace_id,
+                &workspace_path,
+            )?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "run_workflow" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let filename = get_str(&args, "filename")?;
+            let workspace_id = get_i64(&args, "workspaceId")?;
+            let workspace_path = get_str(&args, "workspacePath")?;
+            let result = treq_lib::core::run_workflow_sync(
+                &repo_path,
+                &filename,
+                workspace_id,
+                &workspace_path,
+            )?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "is_repo_trusted" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let trusted = treq_lib::local_db::is_repo_trusted(&repo_path);
+            Ok(serde_json::Value::Bool(trusted))
+        }
+
+        "trust_repo" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            treq_lib::local_db::trust_repo(&repo_path)?;
+            Ok(serde_json::Value::Null)
+        }
+
+        "list_workflow_runs" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id = get_i64(&args, "workspaceId")?;
+            let filename = get_str(&args, "filename")?;
+            let limit = opt_i64(&args, "limit").unwrap_or(20);
+            let result = treq_lib::core::list_workflow_runs_sync(
+                &repo_path,
+                workspace_id,
+                &filename,
+                limit,
+            )?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "get_run_logs" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let run_id = get_i64(&args, "runId")?;
+            let job_id = get_str(&args, "jobId")?;
+            let query = treq_lib::core::checks_logs::LogQuery {
+                levels: opt_str_vec(&args, "levels"),
+                search: opt_str(&args, "search"),
+                step_index: opt_i64(&args, "stepIndex"),
+                limit: opt_i64(&args, "limit"),
+                offset: opt_i64(&args, "offset"),
+            };
+            let result = treq_lib::core::get_run_logs_sync(&repo_path, run_id, &job_id, &query)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "get_repo_logs" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let query = treq_lib::core::checks_logs::LogQuery {
+                levels: opt_str_vec(&args, "levels"),
+                search: opt_str(&args, "search"),
+                step_index: None,
+                limit: opt_i64(&args, "limit"),
+                offset: opt_i64(&args, "offset"),
+            };
+            let result = treq_lib::core::checks_logs::query_repo_logs(&repo_path, &query)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "get_log_timeseries" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let query = treq_lib::core::checks_logs::LogQuery {
+                levels: opt_str_vec(&args, "levels"),
+                search: opt_str(&args, "search"),
+                step_index: None,
+                limit: None,
+                offset: None,
+            };
+            let bucket_seconds = opt_i64(&args, "bucketSeconds").unwrap_or(1);
+            let result = treq_lib::core::checks_logs::query_log_timeseries(
+                &repo_path,
+                &query,
+                bucket_seconds,
+            )?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "run_logs_sql" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let sql = get_str(&args, "sql")?;
+            let max_rows = opt_i64(&args, "maxRows").unwrap_or(500);
+            let result = treq_lib::core::checks_logs::run_logs_sql(&repo_path, &sql, max_rows)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "export_run_logs" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let run_id = get_i64(&args, "runId")?;
+            let job_id = get_str(&args, "jobId")?;
+            let dest_path = get_str(&args, "destPath")?;
+            let result =
+                treq_lib::core::export_run_logs_sync(&repo_path, run_id, &job_id, &dest_path)?;
+            Ok(serde_json::Value::String(result))
+        }
+
         // ── Tauri-runtime-only: silent no-ops ─────────────────────────────
         "pty_create_session"
         | "pty_session_exists"
@@ -1121,6 +1247,18 @@ mod tests {
 
 fn opt_i64(args: &Value, key: &str) -> Option<i64> {
     args.get(key).and_then(|v| v.as_i64())
+}
+
+fn opt_str(args: &Value, key: &str) -> Option<String> {
+    args.get(key).and_then(|v| v.as_str()).map(String::from)
+}
+
+fn opt_str_vec(args: &Value, key: &str) -> Option<Vec<String>> {
+    args.get(key).and_then(|v| v.as_array()).map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    })
 }
 
 fn opt_str_to_value(s: Option<String>) -> Value {
