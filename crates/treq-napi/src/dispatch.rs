@@ -633,6 +633,22 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
 
+        "undo_commit" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id: i64 = get_i64(&args, "workspaceId")?;
+            let commit_change_id = get_str(&args, "commitChangeId")?;
+            treq_lib::core::undo_commit(&repo_path, workspace_id, &commit_change_id)?;
+            Ok(Value::Null)
+        }
+
+        "revert_commit" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspace_id: i64 = get_i64(&args, "workspaceId")?;
+            let commit_change_id = get_str(&args, "commitChangeId")?;
+            treq_lib::core::revert_commit(&repo_path, workspace_id, &commit_change_id)?;
+            Ok(Value::Null)
+        }
+
         "get_commit_description" => {
             let repo_path = get_str(&args, "repoPath")?;
             let workspace_id: i64 = get_i64(&args, "workspaceId")?;
