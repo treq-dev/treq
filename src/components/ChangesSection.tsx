@@ -104,6 +104,8 @@ export const ChangesSection = memo<ChangesSectionProps>(
 										<TooltipTrigger asChild>
 											<button
 												type="button"
+												aria-label={discardAllLabel}
+												title={discardAllLabel}
 												className="p-1 rounded transition-colors bg-transparent hover:bg-foreground/10 text-muted-foreground"
 												onClick={(e) => {
 													e.stopPropagation();

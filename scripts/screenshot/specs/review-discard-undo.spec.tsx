@@ -61,6 +61,11 @@ it("captures Undo on the discard-all toast restoring the change", async () => {
 	});
 
 	await user.click(discardAllTrigger);
+	await screen.findByText("Discard all changes?");
+	const confirmButtons = screen.getAllByRole("button", {
+		name: /discard all changes/i,
+	});
+	await user.click(confirmButtons[confirmButtons.length - 1]);
 	const toast = await screen.findByText("All changes discarded");
 	// Disk-level check, independent of the UI: the backend restore actually
 	// happened (the toast is added after `await jjRestoreAll(...)` resolves).

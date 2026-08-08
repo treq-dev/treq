@@ -12,10 +12,10 @@ import {
 } from "../../../hooks/useMergeQueueStatus";
 import {
 	createCommit,
+	discardWorkspaceChanges,
+	discardWorkspaceFile,
 	getWorkspaceFileLines,
 	ghCreatePr,
-	jjRestoreAll,
-	jjRestoreFile,
 	jjRestoreSnapshot,
 	jjSnapshotWorkingCopy,
 	jjSplit,
@@ -41,7 +41,6 @@ interface UseFileActionsParams {
 	diffLineSelection: DiffLineSelection | null;
 	setContextMenuPosition: (pos: { x: number; y: number } | null) => void;
 	invalidateCache: () => Promise<void>;
-	refresh: () => void;
 	loadChangedFiles: () => Promise<void>;
 	refreshCommittedChanges: () => void;
 	setCommittedSectionCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
@@ -63,7 +62,6 @@ export function useFileActions({
 	diffLineSelection,
 	setContextMenuPosition,
 	invalidateCache,
-	refresh,
 	loadChangedFiles,
 	refreshCommittedChanges,
 	setCommittedSectionCollapsed,
@@ -95,7 +93,6 @@ export function useFileActions({
 			try {
 				await jjRestoreSnapshot(workspacePath, snapshotId);
 				await invalidateCache();
-				refresh();
 				await loadChangedFiles();
 				addToast({
 					description: "Discarded changes have been restored",
@@ -110,14 +107,14 @@ export function useFileActions({
 				});
 			}
 		},
-		[workspacePath, refresh, addToast, invalidateCache, loadChangedFiles],
+		[workspacePath, addToast, invalidateCache, loadChangedFiles],
 	);
 
 	const handleDiscardAll = useCallback(async () => {
 		if (readOnly) return;
 		try {
 			const snapshotId = await jjSnapshotWorkingCopy(workspacePath);
-			await jjRestoreAll(workspacePath);
+			await discardWorkspaceChanges(workspacePath);
 			addToast({
 				description: "All changes discarded",
 				title: "Discarded",
@@ -128,7 +125,6 @@ export function useFileActions({
 				},
 			});
 			await invalidateCache();
-			refresh();
 			await loadChangedFiles();
 		} catch (error) {
 			addToast({
@@ -140,7 +136,6 @@ export function useFileActions({
 	}, [
 		workspacePath,
 		readOnly,
-		refresh,
 		addToast,
 		invalidateCache,
 		loadChangedFiles,
@@ -158,7 +153,9 @@ export function useFileActions({
 			try {
 				const snapshotId = await jjSnapshotWorkingCopy(workspacePath);
 				await Promise.all(
-					filesToDiscard.map((file) => jjRestoreFile(workspacePath, file)),
+					filesToDiscard.map((file) =>
+						discardWorkspaceFile(workspacePath, file),
+					),
 				);
 				const count = filesToDiscard.length;
 				addToast({
@@ -175,7 +172,6 @@ export function useFileActions({
 				});
 				setSelectedUnstagedFiles(new Set());
 				await invalidateCache();
-				refresh();
 				await loadChangedFiles();
 			} catch (error) {
 				addToast({
@@ -190,7 +186,6 @@ export function useFileActions({
 		[
 			readOnly,
 			selectedUnstagedFiles,
-			refresh,
 			addToast,
 			invalidateCache,
 			loadChangedFiles,

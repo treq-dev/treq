@@ -176,26 +176,32 @@ export const jjRestoreFile = (
 	workspacePath: string,
 	filePath: string,
 ): Promise<string> =>
-	invoke("jj_restore_file", {
+	invoke("discard_workspace_file", {
 		workspacePath,
 		filePath,
 	});
 
 export const jjRestoreAll = (workspacePath: string): Promise<string> =>
-	invoke("jj_restore_all", { workspacePath });
+	invoke("discard_workspace_changes", { workspacePath });
 
 export const jjSnapshotWorkingCopy = (workspacePath: string): Promise<string> =>
-	invoke("jj_snapshot_working_copy", { workspacePath });
+	invoke("snapshot_working_copy", { workspacePath });
 
 export const jjRestoreSnapshot = (
 	workspacePath: string,
 	snapshotId: string,
 ): Promise<string> =>
-	invoke("jj_restore_snapshot", { workspacePath, snapshotId });
+	invoke("restore_working_copy_snapshot", { workspacePath, snapshotId });
 
 export const discardWorkspaceChanges = (
 	workspacePath: string,
 ): Promise<string> => invoke("discard_workspace_changes", { workspacePath });
+
+export const discardWorkspaceFile = (
+	workspacePath: string,
+	filePath: string,
+): Promise<string> =>
+	invoke("discard_workspace_file", { workspacePath, filePath });
 
 export const createCommit = (
 	repoPath: string,

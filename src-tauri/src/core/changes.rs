@@ -53,3 +53,14 @@ pub fn get_file_lines(
     jj::jj_get_file_lines(&path, file_path, from_parent, start_line, end_line)
         .map_err(|e| format!("Failed to get file lines: {}", e))
 }
+
+/// Discard all uncommitted working-copy changes in a workspace directory.
+pub fn discard_all_changes(workspace_path: &str) -> Result<String, String> {
+    jj::jj_restore_all(workspace_path).map_err(|e| format!("Failed to discard changes: {}", e))
+}
+
+/// Discard uncommitted changes for a single file in a workspace directory.
+pub fn discard_file_changes(workspace_path: &str, file_path: &str) -> Result<String, String> {
+    jj::jj_restore_file(workspace_path, file_path)
+        .map_err(|e| format!("Failed to discard file changes: {}", e))
+}

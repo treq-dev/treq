@@ -91,7 +91,6 @@ export const ChangesDiffViewer = memo(
 				initialLoading,
 				committedFiles,
 				invalidateCache,
-				refresh,
 				loadChangedFiles,
 				refreshCommittedChanges,
 			} = useFileLoading({
@@ -420,7 +419,6 @@ export const ChangesDiffViewer = memo(
 				diffLineSelection,
 				setContextMenuPosition,
 				invalidateCache,
-				refresh,
 				loadChangedFiles,
 				refreshCommittedChanges,
 				setCommittedSectionCollapsed,

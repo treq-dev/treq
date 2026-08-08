@@ -2737,9 +2737,67 @@ pub fn jj_get_file_lines(
 
 // Mutation Operations (CLI fallbacks)
 
+/// Snapshot dirty on-disk files into the working-copy commit.
+///
+/// Restore compares against `wc_commit.tree()`. If disk is dirty but the WC
+/// commit was never rewritten to match, restore early-returns as a no-op —
+/// which is exactly the Review-tab "Discard" failure mode. Calling this first
+/// makes discard see the real working-copy state.
+fn snapshot_working_copy_into_commit(workspace_path: &str) -> Result<(), JjError> {
+    if !Path::new(workspace_path).exists() {
+        return Ok(());
+    }
+    let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
+    let workspace_name = loaded.workspace.workspace_name().to_owned();
+    let Some(wc_commit) = get_workspace_wc_commit(&loaded)? else {
+        return Ok(());
+    };
+
+    let ignore_root = derive_repo_path_from_workspace(workspace_path)
+        .unwrap_or_else(|| workspace_path.to_string());
+    let matcher = repo_root_matcher();
+    let opts = snapshot_options_for_all_paths(&ignore_root, &matcher);
+
+    let mut locked_ws = loaded
+        .workspace
+        .start_working_copy_mutation()
+        .map_err(|e| JjError::IoError(format!("Failed to lock working copy: {}", e)))?;
+    let (new_tree, _) = block_on(locked_ws.locked_wc().snapshot(&opts))
+        .map_err(|e| JjError::IoError(format!("Failed to snapshot working copy: {}", e)))?;
+
+    if new_tree.tree_ids() == wc_commit.tree_ids() {
+        block_on(locked_ws.finish(loaded.repo.op_id().clone())).map_err(|e| {
+            JjError::IoError(format!("Failed to finish working copy snapshot: {}", e))
+        })?;
+        return Ok(());
+    }
+
+    let mut tx = loaded.repo.start_transaction();
+    let rewritten = block_on(
+        tx.repo_mut()
+            .rewrite_commit(&wc_commit)
+            .set_tree(new_tree)
+            .write(),
+    )
+    .map_err(|e| JjError::IoError(format!("Failed to rewrite working-copy commit: {}", e)))?;
+    block_on(tx.repo_mut().edit(workspace_name, &rewritten)).map_err(|e| {
+        JjError::IoError(format!(
+            "Failed to update working-copy commit pointer: {}",
+            e
+        ))
+    })?;
+    block_on(tx.repo_mut().rebase_descendants())
+        .map_err(|e| JjError::IoError(format!("Failed to rebase descendants: {}", e)))?;
+    let new_repo = block_on(tx.commit("snapshot working copy"))
+        .map_err(|e| JjError::IoError(format!("Failed to commit working-copy snapshot: {}", e)))?;
+    block_on(locked_ws.finish(new_repo.op_id().clone()))
+        .map_err(|e| JjError::IoError(format!("Failed to finish working copy snapshot: {}", e)))?;
+    Ok(())
+}
+
 /// Restore a file to parent state (discard changes)
-/// Uses CLI as jj-lib mutation APIs are complex
 pub fn jj_restore_file(workspace_path: &str, file_path: &str) -> Result<String, JjError> {
+    snapshot_working_copy_into_commit(workspace_path)?;
     let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
     let ws_name = loaded.workspace.workspace_name().to_owned();
     let wc_commit = get_workspace_wc_commit(&loaded)?
@@ -2794,6 +2852,7 @@ pub fn jj_restore_file(workspace_path: &str, file_path: &str) -> Result<String, 
 
 /// Restore all changes
 pub fn jj_restore_all(workspace_path: &str) -> Result<String, JjError> {
+    snapshot_working_copy_into_commit(workspace_path)?;
     let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
     let ws_name = loaded.workspace.workspace_name().to_owned();
     let wc_commit = get_workspace_wc_commit(&loaded)?
