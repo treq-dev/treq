@@ -7,7 +7,15 @@ import type {
 } from "../../lib/api";
 import type { Workspace } from "../../lib/api-types";
 import type { ParsedFileChange } from "../../lib/git-utils";
+import {
+	FILE_COMMENT_HUNK_ID,
+	type LineComment,
+	type PendingComment,
+} from "../../lib/review";
 import type { useToast } from "../ui/toast";
+
+export { FILE_COMMENT_HUNK_ID };
+export type { LineComment, PendingComment };
 
 export interface ChangesDiffViewerProps {
 	workspacePath: string;
@@ -34,26 +42,6 @@ export interface ChangesDiffViewerProps {
 export interface ChangesDiffViewerHandle {
 	focusCommitInput: () => void;
 	refresh: () => void;
-}
-
-/** Sentinel hunkId marking a comment as attached to a whole file rather than a specific line. */
-export const FILE_COMMENT_HUNK_ID = "__file__";
-
-export interface LineComment {
-	id: string;
-	filePath: string;
-	hunkId: string;
-	startLine: number;
-	endLine: number;
-	lineContent: string[];
-	text: string;
-	createdAt: string;
-	lineSide?: "old" | "new";
-	/** Set when this comment was seeded by quoting a GitHub review comment. */
-	source?: "github";
-	githubAuthor?: string;
-	githubAvatarUrl?: string;
-	githubCommentUrl?: string;
 }
 
 export interface ConflictComment {
@@ -90,22 +78,6 @@ export interface DiffSearchData {
 		matchIndexInLine: number;
 	}>;
 	matchesByKey: Map<string, { firstGlobalIndex: number; count: number }>;
-}
-
-export interface PendingComment {
-	filePath: string;
-	hunkId: string;
-	displayAtLineIndex: number;
-	startLine: number;
-	endLine: number;
-	lineContent: string[];
-	lineSide: "old" | "new";
-	/** Set when this pending comment was seeded by quoting a GitHub review comment. */
-	githubMeta?: {
-		author: string;
-		avatarUrl?: string;
-		commentUrl?: string;
-	};
 }
 
 export interface CommentLineQuery {

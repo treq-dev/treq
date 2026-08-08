@@ -2,6 +2,7 @@ import type {
 	CachedDirectoryEntry,
 	DiffCacheEntry,
 	DirectoryEntry,
+	FileBrowserPendingReview,
 	FileSearchResult,
 	LineComment,
 	PendingReview,
@@ -185,6 +186,42 @@ export const clearPendingReview = (
 	repoPath: string,
 	workspaceId: number,
 ): Promise<void> => invoke("clear_pending_review", { repoPath, workspaceId });
+
+export const loadFileBrowserReview = (
+	repoPath: string,
+	workspaceId: number,
+): Promise<FileBrowserPendingReview | null> =>
+	invoke("load_file_browser_review", { repoPath, workspaceId }).then(
+		(review) => {
+			if (!review) return null;
+			const normalized = { ...review } as FileBrowserPendingReview & {
+				comments: unknown;
+			};
+			if (typeof normalized.comments === "string") {
+				normalized.comments = JSON.parse(normalized.comments);
+			}
+			return normalized as FileBrowserPendingReview;
+		},
+	);
+
+export const saveFileBrowserReview = (
+	repoPath: string,
+	workspaceId: number,
+	comments: LineComment[],
+	summaryText?: string,
+): Promise<number> =>
+	invoke("save_file_browser_review", {
+		repoPath,
+		workspaceId,
+		comments: JSON.stringify(comments),
+		summaryText: summaryText ?? null,
+	});
+
+export const clearFileBrowserReview = (
+	repoPath: string,
+	workspaceId: number,
+): Promise<void> =>
+	invoke("clear_file_browser_review", { repoPath, workspaceId });
 
 // File Watcher API
 export const startFileWatcher = (

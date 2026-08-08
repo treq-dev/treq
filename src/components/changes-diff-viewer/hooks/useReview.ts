@@ -8,40 +8,18 @@ import {
 	unmarkFileViewed,
 } from "../../../lib/api";
 import type { ParsedFileChange } from "../../../lib/git-utils";
-import { useDebounce } from "../../../hooks/useDebounce";
-import type { useToast } from "../../ui/toast";
 import {
 	FILE_COMMENT_HUNK_ID,
-	type ConflictComment,
-	type FileHunksData,
-	type LineComment,
-} from "../types";
+	formatReviewMarkdown as formatReviewMarkdownShared,
+} from "../../../lib/review";
+import { useDebounce } from "../../../hooks/useDebounce";
+import type { useToast } from "../../ui/toast";
+import type { ConflictComment, FileHunksData, LineComment } from "../types";
 import {
 	computeHunksHash,
 	toApiLineComment,
 	toLocalLineComment,
 } from "../utils";
-
-function formatCommentMarkdown(comment: LineComment, filePath: string): string {
-	if (comment.hunkId === FILE_COMMENT_HUNK_ID) {
-		return `${filePath}\n> ${comment.text}\n\n`;
-	}
-	const lineRef =
-		comment.startLine === comment.endLine
-			? `${filePath}:${comment.startLine}`
-			: `${filePath}:${comment.startLine}:${comment.endLine}`;
-	let block = `${lineRef}\n`;
-	if (comment.source === "github") {
-		block += `> Quoting GitHub review comment by @${comment.githubAuthor}:\n`;
-		block += `> ${comment.lineContent.join("\n> ")}\n\n`;
-	} else {
-		block += "```\n";
-		block += `${comment.lineContent.join("\n")}\n`;
-		block += "```\n";
-	}
-	block += `> ${comment.text}\n\n`;
-	return block;
-}
 
 interface UseReviewParams {
 	comments: LineComment[];
@@ -229,65 +207,23 @@ export function useReview({
 		[workspacePath, setCollapsedFiles],
 	);
 
-	const formatReviewMarkdown = useCallback(() => {
-		let markdown = "";
-		if (conflictComments.size > 0) {
-			markdown += "## Conflict Resolution\n\n";
-			for (const comment of conflictComments.values()) {
-				if (comment.text.trim()) {
-					const regions = conflictRegionsByFile.get(comment.filePath);
-					const region = regions?.find(
-						(r) => r.conflict_number === comment.conflictNumber,
-					);
-					let header = `### ${comment.filePath} - Conflict ${comment.conflictNumber}`;
-					if (region)
-						header += ` (lines ${region.start_line}-${region.end_line})`;
-					markdown += `${header}\n`;
-					markdown += `> ${comment.text}\n\n`;
-				}
-			}
-		}
-		if (
-			comments.length > 0 ||
-			finalReviewComment.trim() ||
-			actualConflictedFiles.length > 0
-		) {
-			markdown += "## Code Review\n\n";
-			if (actualConflictedFiles.length > 0) {
-				markdown += "### Conflicted Files\n\n";
-				for (const filePath of actualConflictedFiles)
-					markdown += `- ${filePath}\n`;
-				markdown += "\n";
-			}
-			if (finalReviewComment.trim()) {
-				markdown += "### Summary\n";
-				markdown += `${finalReviewComment.trim()}\n\n`;
-			}
-			if (comments.length > 0) {
-				markdown += "### Comments\n\n";
-				const commentsByFile = comments.reduce(
-					(acc, comment) => {
-						if (!acc[comment.filePath]) acc[comment.filePath] = [];
-						acc[comment.filePath].push(comment);
-						return acc;
-					},
-					{} as Record<string, LineComment[]>,
-				);
-				for (const [filePath, fileComments] of Object.entries(commentsByFile)) {
-					for (const comment of fileComments) {
-						markdown += formatCommentMarkdown(comment, filePath);
-					}
-				}
-			}
-		}
-		return markdown;
-	}, [
-		comments,
-		conflictComments,
-		finalReviewComment,
-		conflictRegionsByFile,
-		actualConflictedFiles,
-	]);
+	const formatReviewMarkdown = useCallback(
+		() =>
+			formatReviewMarkdownShared({
+				comments,
+				finalReviewComment,
+				conflictComments,
+				conflictRegionsByFile,
+				actualConflictedFiles,
+			}),
+		[
+			comments,
+			conflictComments,
+			finalReviewComment,
+			conflictRegionsByFile,
+			actualConflictedFiles,
+		],
+	);
 
 	const handleRequestChanges = useCallback(
 		async (mode: "plan" | "acceptEdits") => {

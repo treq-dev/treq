@@ -1121,7 +1121,7 @@ export const ShowWorkspace = memo<ShowWorkspaceProps>(
 										repoPath={effectiveRepoPath}
 										initialSelectedFile={initialSelectedFileForBrowser}
 										initialExpandedDir={initialExpandedDir}
-										onCreateAgentWithComment={handleCreateAgentWithComment}
+										onCreateAgentWithReview={handleCreateAgentWithReview}
 									/>
 								</div>
 							</div>

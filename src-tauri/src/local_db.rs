@@ -89,6 +89,18 @@ pub struct PendingReview {
     pub updated_at: String,
 }
 
+/// Pending review session for the FileBrowser, kept separate from `PendingReview`
+/// (the Review/Changes-tab session) — see `file_browser_reviews` table.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FileBrowserPendingReview {
+    pub id: i64,
+    pub workspace_id: i64,
+    pub comments: String, // JSON string
+    pub summary_text: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CachedCommitDiffStat {
     pub commit_id: String,
@@ -324,6 +336,28 @@ pub fn init_local_db(repo_path: &str) -> Result<PathBuf, String> {
         [],
     )
     .map_err(|e| format!("Failed to create pending_reviews workspace index: {}", e))?;
+
+    // Separate pending-review session for the FileBrowser's "review any file" flow —
+    // intentionally not shared with pending_reviews (the Review/Changes-tab session).
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_browser_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER NOT NULL UNIQUE,
+            comments TEXT NOT NULL,
+            summary_text TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| format!("Failed to create file_browser_reviews table: {}", e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_browser_reviews_workspace ON file_browser_reviews(workspace_id)",
+        [],
+    )
+    .map_err(|e| format!("Failed to create file_browser_reviews workspace index: {}", e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS instance_registry (
@@ -1306,6 +1340,76 @@ pub fn clear_pending_review(repo_path: &str, workspace_id: i64) -> Result<(), St
         [workspace_id],
     )
     .map_err(|e| format!("Failed to clear pending review: {}", e))?;
+    Ok(())
+}
+
+// FileBrowser Pending Review Functions
+
+/// Get the FileBrowser's pending review for a workspace
+pub fn get_file_browser_review(
+    repo_path: &str,
+    workspace_id: i64,
+) -> Result<Option<FileBrowserPendingReview>, String> {
+    let conn = get_connection(repo_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, workspace_id, comments, summary_text, created_at, updated_at
+             FROM file_browser_reviews
+             WHERE workspace_id = ?1",
+        )
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let review = stmt
+        .query_row([workspace_id], |row| {
+            Ok(FileBrowserPendingReview {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                comments: row.get(2)?,
+                summary_text: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })
+        .optional()
+        .map_err(|e| format!("Failed to get file browser review: {}", e))?;
+
+    Ok(review)
+}
+
+/// Save or update the FileBrowser's pending review for a workspace
+pub fn save_file_browser_review(
+    repo_path: &str,
+    workspace_id: i64,
+    comments: &str,
+    summary_text: Option<&str>,
+) -> Result<i64, String> {
+    let conn = get_connection(repo_path)?;
+    let now = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO file_browser_reviews (workspace_id, comments, summary_text, created_at, updated_at)
+         VALUES (
+             ?1,
+             ?2,
+             ?3,
+             COALESCE((SELECT created_at FROM file_browser_reviews WHERE workspace_id = ?1), ?4),
+             ?4
+         )",
+        params![workspace_id, comments, summary_text, now],
+    )
+    .map_err(|e| format!("Failed to save file browser review: {}", e))?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+/// Clear the FileBrowser's pending review for a workspace
+pub fn clear_file_browser_review(repo_path: &str, workspace_id: i64) -> Result<(), String> {
+    let conn = get_connection(repo_path)?;
+    conn.execute(
+        "DELETE FROM file_browser_reviews WHERE workspace_id = ?1",
+        [workspace_id],
+    )
+    .map_err(|e| format!("Failed to clear file browser review: {}", e))?;
     Ok(())
 }
 

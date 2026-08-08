@@ -1,43 +1,10 @@
-import type { JjDiffHunk, LineComment as ApiLineComment } from "../../lib/api";
+import type { JjDiffHunk } from "../../lib/api";
 import type { ParsedFileChange } from "../../lib/git-utils";
-import type { LineComment, PendingComment } from "./types";
+import { toApiLineComment, toLocalLineComment } from "../../lib/review";
+import type { PendingComment } from "./types";
 import type { GithubQuote } from "./GithubCommentCard";
 
-export function toLocalLineComment(c: ApiLineComment): LineComment {
-	return {
-		id: c.id,
-		filePath: c.file_path,
-		hunkId: c.hunk_id,
-		startLine: c.start_line,
-		endLine: c.end_line,
-		lineContent: c.line_content,
-		text: c.text,
-		createdAt: c.created_at,
-		lineSide: c.line_side,
-		source: c.source,
-		githubAuthor: c.github_author,
-		githubAvatarUrl: c.github_avatar_url,
-		githubCommentUrl: c.github_comment_url,
-	};
-}
-
-export function toApiLineComment(c: LineComment): ApiLineComment {
-	return {
-		id: c.id,
-		file_path: c.filePath,
-		hunk_id: c.hunkId,
-		start_line: c.startLine,
-		end_line: c.endLine,
-		line_content: c.lineContent,
-		text: c.text,
-		created_at: c.createdAt,
-		line_side: c.lineSide,
-		source: c.source,
-		github_author: c.githubAuthor,
-		github_avatar_url: c.githubAvatarUrl,
-		github_comment_url: c.githubCommentUrl,
-	};
-}
+export { toApiLineComment, toLocalLineComment };
 
 export function buildQuotedPendingComment(
 	args: {

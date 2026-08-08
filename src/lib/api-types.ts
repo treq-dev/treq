@@ -335,6 +335,16 @@ export interface PendingReview {
 	updated_at: string;
 }
 
+/** Pending review session for the FileBrowser, kept separate from PendingReview. */
+export interface FileBrowserPendingReview {
+	id: number;
+	workspace_id: number;
+	comments: LineComment[];
+	summary_text: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
 export interface GitRemoteInfo {
 	owner: string;
 	repo: string;

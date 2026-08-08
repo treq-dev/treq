@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, max-params, max-nested-callbacks */
+/* eslint-disable max-lines, max-nested-callbacks */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -11,6 +11,7 @@ import {
 	Folder,
 	FolderOpen,
 	Loader2,
+	MessageSquare,
 	Plus,
 } from "lucide-react";
 import { List, type ListImperativeAPI } from "react-window";
@@ -66,8 +67,10 @@ import {
 } from "./ui/context-menu";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEditorApps } from "../hooks/useEditorApps";
+import { useFileBrowserReview } from "../hooks/useFileBrowserReview";
 import { CommentInput } from "./CommentInput";
 import { MarkdownContent } from "./MarkdownContent";
+import { ReviewActionBar } from "./changes-diff-viewer/ReviewActionBar";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
 // Helper to check if file is binary
@@ -113,14 +116,20 @@ interface FileBrowserProps {
 	repoPath: string | null;
 	initialSelectedFile: string | null;
 	initialExpandedDir: string | null;
-	onCreateAgentWithComment?: (
-		filePath: string,
-		startLine: number,
-		endLine: number,
-		lineContent: string[],
-		commentText: string,
-	) => void;
+	onCreateAgentWithReview?: (
+		reviewMarkdown: string,
+		mode: "plan" | "acceptEdits",
+	) => Promise<void>;
 }
+
+/** Placeholder hunkId for FileBrowser comments — there's no jj diff hunk to anchor to. */
+const FILE_BROWSER_COMMENT_HUNK_ID = "browser";
+
+// FileBrowser has no diff-staleness concept, so these are always empty/no-ops
+// when driving the shared ReviewActionBar.
+const EMPTY_STALE_FILES = new Set<string>();
+const EMPTY_COMMENTS_GETTER = () => [];
+const noop = () => {};
 
 // Filter out .git and .treq files/directories (but keep .github, .gitignore, etc.)
 function filterHiddenEntries(entries: DirectoryEntry[]): DirectoryEntry[] {
@@ -143,6 +152,7 @@ interface TreeNodeProps {
 	hasChanges: boolean;
 	selectedFile: string | null;
 	changedFiles: Map<string, ParsedFileChange>;
+	commentCounts: Map<string, number>;
 	basePath: string;
 	onDirectoryClick: (path: string) => void;
 	onFileClick: (path: string) => void;
@@ -829,6 +839,7 @@ const TreeNode = memo(
 		hasChanges,
 		selectedFile,
 		changedFiles,
+		commentCounts,
 		basePath,
 		onDirectoryClick,
 		onFileClick,
@@ -909,6 +920,7 @@ const TreeNode = memo(
 			: entry.path;
 		const fileStatus = changedFiles.get(relativePath);
 		const status = fileStatus?.workspaceStatus;
+		const reviewCommentCount = commentCounts.get(relativePath) ?? 0;
 		return (
 			<FileTreeContextMenu
 				key={entry.path}
@@ -935,6 +947,15 @@ const TreeNode = memo(
 					>
 						{entry.name}
 					</span>
+					{reviewCommentCount > 0 && (
+						<span
+							className="flex items-center gap-0.5 text-[10px] text-primary flex-shrink-0 ml-auto"
+							title={`${reviewCommentCount} pending review comment${reviewCommentCount !== 1 ? "s" : ""}`}
+						>
+							<MessageSquare className="w-3 h-3" />
+							{reviewCommentCount}
+						</span>
+					)}
 					{status && (
 						<span
 							className={cn(
@@ -964,7 +985,7 @@ export const FileBrowser = memo(
 		repoPath,
 		initialSelectedFile,
 		initialExpandedDir,
-		onCreateAgentWithComment,
+		onCreateAgentWithReview,
 	}: FileBrowserProps) => {
 		// Determine the path and branch to use
 		const basePath = workspace
@@ -1016,6 +1037,19 @@ export const FileBrowser = memo(
 		const { addToast } = useToast();
 		const { fontSize } = useTerminalSettings();
 		const listRef = useRef<ListImperativeAPI>(null);
+		const fileBrowserReview = useFileBrowserReview({
+			repoPath,
+			workspaceId: workspace?.id,
+			onCreateAgentWithReview,
+			addToast,
+		});
+		const commentCountsByFile = useMemo(() => {
+			const counts = new Map<string, number>();
+			for (const comment of fileBrowserReview.comments) {
+				counts.set(comment.filePath, (counts.get(comment.filePath) ?? 0) + 1);
+			}
+			return counts;
+		}, [fileBrowserReview.comments]);
 
 		// Ensure workspace is indexed on mount
 		useEffect(() => {
@@ -1355,22 +1389,26 @@ export const FileBrowser = memo(
 			(text: string) => {
 				if (!pendingComment || !selectedFile) return;
 
-				// Call the callback to create agent and send comment
-				if (onCreateAgentWithComment) {
-					onCreateAgentWithComment(
-						selectedFile,
-						pendingComment.startLine,
-						pendingComment.endLine,
-						pendingComment.lineContent,
-						text,
-					);
-				}
+				// Add to the FileBrowser's review session (batched, sent later via
+				// "Finish review") instead of firing off a new agent session immediately.
+				fileBrowserReview.addComment(
+					{
+						filePath: getRelativePath(selectedFile),
+						hunkId: FILE_BROWSER_COMMENT_HUNK_ID,
+						displayAtLineIndex: pendingComment.endLine - 1,
+						startLine: pendingComment.startLine,
+						endLine: pendingComment.endLine,
+						lineContent: pendingComment.lineContent,
+						lineSide: "new",
+					},
+					text,
+				);
 
 				setShowCommentInput(false);
 				setPendingComment(null);
 				setLineSelection(null);
 			},
-			[pendingComment, selectedFile, onCreateAgentWithComment],
+			[pendingComment, selectedFile, fileBrowserReview, getRelativePath],
 		);
 
 		const handleCancelComment = useCallback(() => {
@@ -1525,6 +1563,7 @@ export const FileBrowser = memo(
 						hasChanges={hasChanges}
 						selectedFile={selectedFile}
 						changedFiles={changedFiles}
+						commentCounts={commentCountsByFile}
 						basePath={basePath}
 						onDirectoryClick={handleDirectoryClick}
 						onFileClick={handleFileClick}
@@ -1541,6 +1580,7 @@ export const FileBrowser = memo(
 				hasChangedFilesInDirectory,
 				selectedFile,
 				changedFiles,
+				commentCountsByFile,
 				basePath,
 				handleDirectoryClick,
 				handleFileClick,
@@ -1654,8 +1694,31 @@ export const FileBrowser = memo(
 				</div>
 
 				{/* File Content */}
-				<div className="flex-1 min-w-0 bg-background overflow-auto">
-					{renderFileContent()}
+				<div className="flex-1 min-w-0 bg-background flex flex-col overflow-hidden">
+					<ReviewActionBar
+						showActionBar={fileBrowserReview.comments.length > 0}
+						hasConflicts={false}
+						totalComments={fileBrowserReview.comments.length}
+						comments={fileBrowserReview.comments}
+						staleFiles={EMPTY_STALE_FILES}
+						reviewPopoverOpen={fileBrowserReview.reviewPopoverOpen}
+						setReviewPopoverOpen={fileBrowserReview.setReviewPopoverOpen}
+						finalReviewComment={fileBrowserReview.finalReviewComment}
+						setFinalReviewComment={fileBrowserReview.setFinalReviewComment}
+						showCancelDialog={fileBrowserReview.showCancelDialog}
+						setShowCancelDialog={fileBrowserReview.setShowCancelDialog}
+						copiedReview={fileBrowserReview.copiedReview}
+						sendingReview={fileBrowserReview.sendingReview}
+						handleCopyReview={fileBrowserReview.handleCopyReview}
+						handleCancelReview={fileBrowserReview.handleCancelReview}
+						handleRequestChanges={fileBrowserReview.handleRequestChanges}
+						handleReloadWithPendingChanges={noop}
+						getAllOutdatedComments={EMPTY_COMMENTS_GETTER}
+						handleCopyOutdatedComments={noop}
+					/>
+					<div className="flex-1 min-w-0 overflow-auto">
+						{renderFileContent()}
+					</div>
 				</div>
 			</div>
 		);
