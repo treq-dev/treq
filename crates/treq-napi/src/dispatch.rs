@@ -1035,11 +1035,13 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
              Migrate UI code to use a core::* equivalent instead.",
             command
         )),
-        "jj_get_commits_ahead" => Err(format!(
-            "not_implemented: '{}' — this command calls jj::* directly. \
-             Migrate UI code to use a core::* equivalent instead.",
-            command
-        )),
+        "jj_get_commits_ahead" => {
+            let workspace_path = get_str(&args, "workspacePath")?;
+            let target_branch = get_str(&args, "targetBranch")?;
+            let result = treq_lib::jj::jj_get_commits_ahead(&workspace_path, &target_branch)
+                .map_err(|e| e.to_string())?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
 
         _ => Err(format!("unknown_command: '{}'", command)),
     }
@@ -1121,6 +1123,18 @@ mod tests {
             let error = dispatch(command, args).unwrap_err();
             assert!(error.contains("positive integer"), "{command}: {error}");
         }
+    }
+
+    #[test]
+    fn jj_get_commits_ahead_routes_to_backend_validation() {
+        let args = serde_json::json!({
+            "workspacePath": "/path/that/does/not/exist",
+            "targetBranch": ""
+        });
+
+        let error = dispatch("jj_get_commits_ahead", args).unwrap_err();
+
+        assert!(error.contains("Invalid target branch name"), "{error}");
     }
 }
 
