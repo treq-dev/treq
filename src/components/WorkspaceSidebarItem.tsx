@@ -2,6 +2,7 @@ import { Draggable } from "@hello-pangea/dnd";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
 	AlertTriangle,
+	Archive,
 	Bot,
 	Copy,
 	FolderOpen,
@@ -125,6 +126,7 @@ interface WorkspaceSidebarItemProps {
 	onStartAgent?: (workspace: Workspace) => void;
 	onStartShell?: (workspace: Workspace) => void;
 	onDeleteWorkspace?: (workspace: Workspace) => void;
+	onArchiveWorkspace?: (workspace: Workspace) => void;
 	onRenameWorkspace: (workspace: Workspace) => void;
 	onDoubleClick?: (workspace: Workspace, event: React.MouseEvent) => void;
 	queueStatus?: QueueEntryStatus;
@@ -188,6 +190,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
 	onStartAgent,
 	onStartShell,
 	onDeleteWorkspace,
+	onArchiveWorkspace,
 	onRenameWorkspace,
 	onDoubleClick,
 	queueStatus,
@@ -397,6 +400,14 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
 									<Pencil className="w-4 h-4 mr-2" />
 									Rename Workspace
 								</ContextMenuItem>
+								{onArchiveWorkspace && (
+									<ContextMenuItem
+										onClick={() => onArchiveWorkspace(workspace)}
+									>
+										<Archive className="w-4 h-4 mr-2" />
+										Archive Workspace
+									</ContextMenuItem>
+								)}
 								<ContextMenuSeparator />
 								<PathContextMenuItems
 									relativePath={

@@ -98,6 +98,7 @@ describe("ShowWorkspace - Add to Queue feature flag", () => {
 		title: "feature-one",
 		created_at: new Date().toISOString(),
 		not_on_remote: false,
+		archived: false,
 	};
 
 	beforeEach(() => {

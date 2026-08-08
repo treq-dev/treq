@@ -1,12 +1,12 @@
 import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { useQuery } from "@tanstack/react-query";
 import {
+	Archive,
 	GitBranch,
 	Github,
 	Home,
 	Search,
 	Settings,
-	Trash2,
 } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
 import {
@@ -63,6 +63,8 @@ interface WorkspaceSidebarProps {
 	) => void;
 	onBulkDelete?: () => void;
 	onDeleteWorkspace?: (workspace: Workspace) => void;
+	onBulkArchive?: () => void;
+	onArchiveWorkspace?: (workspace: Workspace) => void;
 	openSettings?: (tab?: string) => void;
 	navigateToDashboard?: () => void;
 	onOpenCommandPalette?: () => void;
@@ -85,8 +87,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = memo(
 		selectedWorkspaceIds,
 		onWorkspaceClick,
 		onWorkspaceMultiSelect,
-		onBulkDelete,
 		onDeleteWorkspace,
+		onBulkArchive,
+		onArchiveWorkspace,
 		openSettings,
 		onOpenCommandPalette,
 		onOpenBranchSwitcher,
@@ -440,6 +443,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = memo(
 												onStartAgent={onStartAgent}
 												onStartShell={onStartShell}
 												onDeleteWorkspace={onDeleteWorkspace}
+												onArchiveWorkspace={onArchiveWorkspace}
 												onRenameWorkspace={setRenameTarget}
 												onDoubleClick={handleDoubleClick}
 												queueStatus={branchQueueStatuses?.get(
@@ -449,17 +453,21 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = memo(
 										))}
 										{droppableProvided.placeholder}
 										{selectedWorkspaceIds && selectedWorkspaceIds.size > 0 && (
-											<button
-												type="button"
-												onClick={onBulkDelete}
-												className="flex items-center justify-center gap-1 w-full px-2 py-1.5 text-destructive hover:bg-destructive/10 rounded-md transition-colors"
-											>
-												<Trash2 className="w-3 h-3" />
-												<span>
-													Delete {selectedWorkspaceIds.size} workspace
-													{selectedWorkspaceIds.size > 1 ? "s" : ""}
-												</span>
-											</button>
+											<div className="flex items-center gap-1">
+												{onBulkArchive && (
+													<button
+														type="button"
+														onClick={onBulkArchive}
+														className="flex items-center justify-center gap-1 flex-1 px-2 py-1.5 text-muted-foreground hover:bg-muted/50 rounded-md transition-colors"
+													>
+														<Archive className="w-3 h-3" />
+														<span>
+															Archive {selectedWorkspaceIds.size} workspace
+															{selectedWorkspaceIds.size > 1 ? "s" : ""}
+														</span>
+													</button>
+												)}
+											</div>
 										)}
 									</div>
 								)}

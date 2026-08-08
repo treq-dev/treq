@@ -25,6 +25,7 @@ pub struct Workspace {
     pub moved_files: Option<Vec<String>>,
     pub not_on_remote: bool,
     pub sparse_patterns: Option<Vec<String>>,
+    pub archived: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -61,8 +62,11 @@ fn workspace_from_row(repo_path: &str, row: &Row<'_>) -> rusqlite::Result<Worksp
         description: row.get(11)?,
         moved_files,
         sparse_patterns,
+        archived: row.get::<_, i64>(13)? != 0,
     })
 }
+
+const WORKSPACE_COLUMNS: &str = "id, workspace_name, workspace_path, branch_name, created_at, refreshed_at, metadata, target_branch, COALESCE(not_on_remote, 0), COALESCE(title, branch_name), moved_files, description, sparse_patterns, COALESCE(archived, 0)";
 
 /// Cached file information for workspace file indexing
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -525,10 +529,14 @@ pub fn prune_stale_instance_registry(
     Ok(())
 }
 
+/// Active (non-archived) workspaces only. Use `get_archived_workspaces` for archived ones.
 pub fn get_workspaces(repo_path: &str) -> Result<Vec<Workspace>, String> {
     let conn = get_connection(repo_path)?;
     let mut stmt = conn
-        .prepare("SELECT id, workspace_name, workspace_path, branch_name, created_at, refreshed_at, metadata, target_branch, COALESCE(not_on_remote, 0), COALESCE(title, branch_name), moved_files, description, sparse_patterns FROM workspaces ORDER BY branch_name COLLATE NOCASE ASC")
+        .prepare(&format!(
+            "SELECT {} FROM workspaces WHERE COALESCE(archived, 0) = 0 ORDER BY branch_name COLLATE NOCASE ASC",
+            WORKSPACE_COLUMNS
+        ))
         .map_err(|e| format!("Failed to prepare workspaces query: {}", e))?;
 
     let workspaces = stmt
@@ -540,10 +548,46 @@ pub fn get_workspaces(repo_path: &str) -> Result<Vec<Workspace>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Archived workspaces only — the directory is gone, but the DB row and its
+/// history (sessions, pending reviews) are preserved for `restore_workspace`.
+pub fn get_archived_workspaces(repo_path: &str) -> Result<Vec<Workspace>, String> {
+    let conn = get_connection(repo_path)?;
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {} FROM workspaces WHERE archived = 1 ORDER BY branch_name COLLATE NOCASE ASC",
+            WORKSPACE_COLUMNS
+        ))
+        .map_err(|e| format!("Failed to prepare archived workspaces query: {}", e))?;
+
+    let workspaces = stmt
+        .query_map([], |row| workspace_from_row(repo_path, row))
+        .map_err(|e| format!("Failed to query archived workspaces: {}", e))?;
+
+    workspaces
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+/// Set the archived flag for a workspace. Does not touch the filesystem or jj —
+/// callers are responsible for the workspace directory / jj registration.
+pub fn update_workspace_archived(repo_path: &str, id: i64, archived: bool) -> Result<(), String> {
+    let conn = get_connection(repo_path)?;
+    conn.execute(
+        "UPDATE workspaces SET archived = ?1 WHERE id = ?2",
+        params![archived as i64, id],
+    )
+    .map_err(|e| format!("Failed to update workspace archived flag: {}", e))?;
+    Ok(())
+}
+
+/// Looks up a workspace by id regardless of its archived state.
 pub fn get_workspace_by_id(repo_path: &str, id: i64) -> Result<Option<Workspace>, String> {
     let conn = get_connection(repo_path)?;
     let mut stmt = conn
-        .prepare("SELECT id, workspace_name, workspace_path, branch_name, created_at, refreshed_at, metadata, target_branch, COALESCE(not_on_remote, 0), COALESCE(title, branch_name), moved_files, description, sparse_patterns FROM workspaces WHERE id = ?1")
+        .prepare(&format!(
+            "SELECT {} FROM workspaces WHERE id = ?1",
+            WORKSPACE_COLUMNS
+        ))
         .map_err(|e| format!("Failed to prepare workspace query: {}", e))?;
 
     let workspace = stmt
@@ -560,7 +604,10 @@ pub fn get_workspace_by_path(
 ) -> Result<Option<Workspace>, String> {
     let conn = get_connection(repo_path)?;
     let mut stmt = conn
-        .prepare("SELECT id, workspace_name, workspace_path, branch_name, created_at, refreshed_at, metadata, target_branch, COALESCE(not_on_remote, 0), COALESCE(title, branch_name), moved_files, description, sparse_patterns FROM workspaces WHERE workspace_path = ?1")
+        .prepare(&format!(
+            "SELECT {} FROM workspaces WHERE workspace_path = ?1",
+            WORKSPACE_COLUMNS
+        ))
         .map_err(|e| format!("Failed to prepare workspace query: {}", e))?;
 
     let workspace = stmt
@@ -577,7 +624,10 @@ pub fn get_workspace_by_branch(
 ) -> Result<Option<Workspace>, String> {
     let conn = get_connection(repo_path)?;
     let mut stmt = conn
-        .prepare("SELECT id, workspace_name, workspace_path, branch_name, created_at, refreshed_at, metadata, target_branch, COALESCE(not_on_remote, 0), COALESCE(title, branch_name), moved_files, description, sparse_patterns FROM workspaces WHERE branch_name = ?1")
+        .prepare(&format!(
+            "SELECT {} FROM workspaces WHERE branch_name = ?1",
+            WORKSPACE_COLUMNS
+        ))
         .map_err(|e| format!("Failed to prepare workspace query: {}", e))?;
 
     let workspace = stmt
@@ -790,7 +840,10 @@ pub fn get_workspaces_by_target_branch(
 ) -> Result<Vec<Workspace>, String> {
     let conn = get_connection(repo_path)?;
     let mut stmt = conn
-        .prepare("SELECT id, workspace_name, workspace_path, branch_name, created_at, refreshed_at, metadata, target_branch, COALESCE(not_on_remote, 0), COALESCE(title, branch_name), moved_files, description, sparse_patterns FROM workspaces WHERE target_branch = ?1 ORDER BY branch_name COLLATE NOCASE ASC")
+        .prepare(&format!(
+            "SELECT {} FROM workspaces WHERE target_branch = ?1 ORDER BY branch_name COLLATE NOCASE ASC",
+            WORKSPACE_COLUMNS
+        ))
         .map_err(|e| format!("Failed to prepare workspaces query: {}", e))?;
 
     let workspaces = stmt
@@ -891,7 +944,10 @@ pub fn sync_discovered_workspaces(
         .map(|workspace| workspace.workspace_path.as_str())
         .collect();
     let mut stmt = conn
-        .prepare("SELECT id, workspace_name, workspace_path, branch_name, created_at, refreshed_at, metadata, target_branch, COALESCE(not_on_remote, 0), COALESCE(title, branch_name), moved_files, description, sparse_patterns FROM workspaces ORDER BY branch_name COLLATE NOCASE ASC")
+        .prepare(&format!(
+            "SELECT {} FROM workspaces ORDER BY branch_name COLLATE NOCASE ASC",
+            WORKSPACE_COLUMNS
+        ))
         .map_err(|e| format!("Failed to prepare synced workspaces query: {}", e))?;
 
     let workspaces = stmt
@@ -1672,6 +1728,105 @@ mod tests {
         assert!(workspace.not_on_remote);
         assert_eq!(workspace.created_at, original_created_at);
         assert_eq!(workspace.refreshed_at.as_deref(), Some(refreshed_at));
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn test_new_workspace_is_not_archived() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let id = add_workspace(
+            repo_path,
+            "workspace-fresh".to_string(),
+            "workspace-fresh".to_string(),
+            "branch-fresh".to_string(),
+            None,
+            None,
+            None,
+        )
+        .expect("add_workspace should succeed");
+
+        let workspace = get_workspace_by_id(repo_path, id)
+            .expect("lookup should succeed")
+            .expect("workspace should exist");
+        assert!(!workspace.archived);
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn test_update_workspace_archived_hides_from_get_workspaces() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let id = add_workspace(
+            repo_path,
+            "workspace-to-archive".to_string(),
+            "workspace-to-archive".to_string(),
+            "branch-to-archive".to_string(),
+            None,
+            None,
+            None,
+        )
+        .expect("add_workspace should succeed");
+
+        update_workspace_archived(repo_path, id, true)
+            .expect("update_workspace_archived should succeed");
+
+        let active = get_workspaces(repo_path).expect("get_workspaces should succeed");
+        assert!(
+            active.iter().all(|w| w.id != id),
+            "Archived workspace should not appear in get_workspaces"
+        );
+
+        let archived =
+            get_archived_workspaces(repo_path).expect("get_archived_workspaces should succeed");
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, id);
+        assert!(archived[0].archived);
+
+        // Still directly reachable by id/branch for restore + lookup purposes.
+        let by_id = get_workspace_by_id(repo_path, id)
+            .expect("lookup should succeed")
+            .expect("workspace should exist");
+        assert!(by_id.archived);
+
+        if let Some(initialized) = INITIALIZED_DBS.get() {
+            initialized.lock().unwrap().remove(repo_path);
+        }
+    }
+
+    #[test]
+    fn test_update_workspace_archived_false_restores_visibility() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let id = add_workspace(
+            repo_path,
+            "workspace-roundtrip".to_string(),
+            "workspace-roundtrip".to_string(),
+            "branch-roundtrip".to_string(),
+            None,
+            None,
+            None,
+        )
+        .expect("add_workspace should succeed");
+
+        update_workspace_archived(repo_path, id, true).expect("archive should succeed");
+        update_workspace_archived(repo_path, id, false).expect("unarchive should succeed");
+
+        let active = get_workspaces(repo_path).expect("get_workspaces should succeed");
+        assert!(active.iter().any(|w| w.id == id));
+
+        let archived =
+            get_archived_workspaces(repo_path).expect("get_archived_workspaces should succeed");
+        assert!(archived.iter().all(|w| w.id != id));
 
         if let Some(initialized) = INITIALIZED_DBS.get() {
             initialized.lock().unwrap().remove(repo_path);

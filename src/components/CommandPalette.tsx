@@ -5,11 +5,13 @@ import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BranchSwitcher } from "./BranchSwitcher";
 import { WorkspaceDeletion } from "./WorkspaceDeletion";
+import { ArchivedWorkspacesModal } from "./ArchivedWorkspacesModal";
 import { FilePicker } from "./FilePicker";
 import { CmdkFooter } from "./ui/cmdk-footer";
 import { Workspace } from "../lib/api";
 import { usePrInfoViaGh } from "../hooks/useMergeQueueStatus";
 import {
+	Archive,
 	AppWindow,
 	Bot,
 	ChevronsUpDown,
@@ -44,6 +46,7 @@ interface CommandPaletteProps {
 	onOpenFilePicker: () => void;
 	onOpenWorkspacePicker: () => void;
 	onOpenWorkspaceDeletion: () => void;
+	onOpenArchivedWorkspaces: () => void;
 	onCreateStackedWorkspace: () => void;
 	onToggleTerminal?: () => void;
 	onMaximizeTerminal?: () => void;
@@ -62,6 +65,10 @@ interface CommandPaletteProps {
 	onWorkspaceDeletionChange: (open: boolean) => void;
 	currentWorkspace: Workspace | null;
 	onDeleteWorkspace: (workspace: Workspace) => void;
+
+	// Archived Workspaces
+	showArchivedWorkspaces: boolean;
+	onArchivedWorkspacesChange: (open: boolean) => void;
 
 	// File Picker
 	showFilePicker: boolean;
@@ -83,6 +90,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 	onOpenFilePicker,
 	onOpenWorkspacePicker,
 	onOpenWorkspaceDeletion,
+	onOpenArchivedWorkspaces,
 	onCreateStackedWorkspace,
 	onToggleTerminal,
 	onMaximizeTerminal,
@@ -97,6 +105,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 	onWorkspaceDeletionChange,
 	currentWorkspace,
 	onDeleteWorkspace,
+	showArchivedWorkspaces,
+	onArchivedWorkspacesChange,
 	showFilePicker,
 	onFilePickerChange,
 	onFileSelected,
@@ -180,6 +190,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 				description: "Delete a workspace",
 				icon: <Trash2 className="w-4 h-4" />,
 				onSelect: onOpenWorkspaceDeletion,
+			});
+		}
+
+		if (repoPath && onOpenArchivedWorkspaces) {
+			result.push({
+				id: "archived-workspaces",
+				type: "action",
+				label: "Archived Workspaces",
+				description: "View and restore archived workspaces",
+				icon: <Archive className="w-4 h-4" />,
+				onSelect: onOpenArchivedWorkspaces,
 			});
 		}
 
@@ -277,6 +298,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 		onOpenFilePicker,
 		onOpenWorkspacePicker,
 		onOpenWorkspaceDeletion,
+		onOpenArchivedWorkspaces,
 		onCreateStackedWorkspace,
 		onToggleTerminal,
 		onMaximizeTerminal,
@@ -367,6 +389,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 						repoPath={repoPath}
 						currentWorkspace={currentWorkspace}
 						onDeleteWorkspace={onDeleteWorkspace}
+					/>
+
+					<ArchivedWorkspacesModal
+						open={showArchivedWorkspaces}
+						onOpenChange={onArchivedWorkspacesChange}
+						repoPath={repoPath}
 					/>
 
 					<FilePicker

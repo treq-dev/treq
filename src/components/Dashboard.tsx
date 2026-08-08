@@ -19,6 +19,7 @@ import {
 } from "../lib/agentDeepLink";
 import {
 	acknowledgeAgentDispatch,
+	archiveWorkspace,
 	checkAndRebaseWorkspaces,
 	createSession,
 	deleteWorkspace,
@@ -117,6 +118,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 	const [showFilePicker, setShowFilePicker] = useState(false);
 	const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
 	const [showWorkspaceDeletion, setShowWorkspaceDeletion] = useState(false);
+	const [showArchivedWorkspaces, setShowArchivedWorkspaces] = useState(false);
 	const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
 	const [pendingSessionData, setPendingSessionData] = useState<
 		Map<
@@ -449,6 +451,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
 		onError: (error) => {
 			addToast({
 				title: "Delete Failed",
+				description: error instanceof Error ? error.message : String(error),
+				type: "error",
+			});
+		},
+	});
+
+	const archiveWorkspaceMutation = useMutation({
+		mutationFn: async (workspace: Workspace) => {
+			await archiveWorkspace(workspace.repo_path, workspace.id);
+		},
+		onSuccess: (_data, workspace) => {
+			terminalPaneRef.current?.closeTerminalsForWorkspace(
+				getFullWorkspacePath(workspace),
+			);
+			queryClient.invalidateQueries({ queryKey: ["workspaces", repoPath] });
+			queryClient.invalidateQueries({
+				queryKey: ["workspace-statuses", repoPath],
+			});
+			queryClient.invalidateQueries({
+				queryKey: ["archived-workspaces", repoPath],
+			});
+			handleReturnToDashboard(); // Navigate to dashboard & clear selected workspace
+			addToast({
+				title: "Workspace Archived",
+				description: "You can restore it from the Archived Workspaces list",
+				type: "success",
+			});
+		},
+		onError: (error) => {
+			addToast({
+				title: "Archive Failed",
 				description: error instanceof Error ? error.message : String(error),
 				type: "error",
 			});
@@ -1053,6 +1086,63 @@ export const Dashboard: React.FC<DashboardProps> = ({
 		}
 	};
 
+	const handleBulkArchive = async () => {
+		const count = selectedWorkspaceIds.size;
+		const confirmed = await ask(
+			`Archive ${count} workspace${count > 1 ? "s" : ""}? You can restore ${
+				count > 1 ? "them" : "it"
+			} later from the Archived Workspaces list.`,
+			{ title: "Archive Workspaces", kind: "warning" },
+		);
+		if (confirmed) {
+			const workspacesToArchive = workspaces.filter((w) =>
+				selectedWorkspaceIds.has(w.id),
+			);
+			try {
+				await Promise.all(
+					workspacesToArchive.map((workspace) =>
+						archiveWorkspace(workspace.repo_path, workspace.id),
+					),
+				);
+				for (const workspace of workspacesToArchive) {
+					terminalPaneRef.current?.closeTerminalsForWorkspace(
+						getFullWorkspacePath(workspace),
+					);
+				}
+				queryClient.invalidateQueries({ queryKey: ["workspaces", repoPath] });
+				queryClient.invalidateQueries({
+					queryKey: ["workspace-statuses", repoPath],
+				});
+				queryClient.invalidateQueries({
+					queryKey: ["archived-workspaces", repoPath],
+				});
+				handleReturnToDashboard();
+				addToast({
+					title: `${count} Workspace${count > 1 ? "s" : ""} Archived`,
+					description: "You can restore them from the Archived Workspaces list",
+					type: "success",
+				});
+			} catch (error) {
+				addToast({
+					title: "Archive Failed",
+					description: error instanceof Error ? error.message : String(error),
+					type: "error",
+				});
+			}
+			setSelectedWorkspaceIds(new Set());
+		}
+	};
+
+	const handleArchive = async (workspace: Workspace) => {
+		const confirmed = await ask(
+			`Archive workspace ${workspace.branch_name}? You can restore it later from the Archived Workspaces list.`,
+			{ title: "Archive Workspace", kind: "warning" },
+		);
+		if (confirmed) {
+			archiveWorkspaceMutation.mutate(workspace);
+		}
+	};
+
 	// Handle branch change after switching
 	const handleBranchChanged = useCallback(
 		(branchName?: string) => {
@@ -1131,6 +1221,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 				onWorkspaceMultiSelect={handleWorkspaceMultiSelect}
 				onBulkDelete={handleBulkDelete}
 				onDeleteWorkspace={handleDelete}
+				onBulkArchive={handleBulkArchive}
+				onArchiveWorkspace={handleArchive}
 				openSettings={openSettings}
 				navigateToDashboard={handleReturnToDashboard}
 				onOpenCommandPalette={() => setShowCommandPalette(true)}
@@ -1396,6 +1488,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 				onOpenFilePicker={() => setShowFilePicker(true)}
 				onOpenWorkspacePicker={() => setShowWorkspacePicker(true)}
 				onOpenWorkspaceDeletion={() => setShowWorkspaceDeletion(true)}
+				onOpenArchivedWorkspaces={() => setShowArchivedWorkspaces(true)}
 				onCreateStackedWorkspace={handleCreateStackedWorkspace}
 				onToggleTerminal={() => terminalPaneRef.current?.toggleCollapse()}
 				onMaximizeTerminal={() => terminalPaneRef.current?.toggleMaximize()}
@@ -1412,6 +1505,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 				onWorkspaceDeletionChange={setShowWorkspaceDeletion}
 				currentWorkspace={selectedWorkspace}
 				onDeleteWorkspace={handleDelete}
+				showArchivedWorkspaces={showArchivedWorkspaces}
+				onArchivedWorkspacesChange={setShowArchivedWorkspaces}
 				showFilePicker={showFilePicker}
 				onFilePickerChange={setShowFilePicker}
 				onFileSelected={(filePath) => setSessionSelectedFile(filePath)}

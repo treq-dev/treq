@@ -390,6 +390,32 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
 
+        "get_archived_workspaces" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let workspaces = treq_lib::core::list_archived_workspaces(&repo_path)?;
+            serde_json::to_value(workspaces).map_err(|e| e.to_string())
+        }
+        "get_archived_workspace_commits" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let id = get_i64(&args, "id")?;
+            let result = treq_lib::core::list_archived_workspace_commits(&repo_path, id)?;
+            serde_json::to_value(result).map_err(|e| e.to_string())
+        }
+
+        "archive_workspace" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let id: i64 = get_i64(&args, "id")?;
+            treq_lib::core::archive_workspace(&repo_path, &id)?;
+            Ok(Value::Null)
+        }
+
+        "restore_workspace" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let id: i64 = get_i64(&args, "id")?;
+            let workspace = treq_lib::core::restore_workspace(&repo_path, &id)?;
+            serde_json::to_value(workspace).map_err(|e| e.to_string())
+        }
+
         "update_workspace" => {
             let repo_path = get_str(&args, "repoPath")?;
             let workspace_id: i64 = get_i64(&args, "workspaceId")?;
