@@ -10,12 +10,12 @@ import {
 } from "react";
 import { type ConsolidatedTerminalHandle } from "./ConsolidatedTerminal";
 import { ptyClose } from "../lib/api";
-import { useKeyboardShortcut } from "../hooks/useKeyboard";
 import { type ClaudeSessionData } from "./terminal/types";
 import { WorkspaceTerminalPaneView } from "./WorkspaceTerminalPaneView";
 import { buildWorkspaceGroups } from "./workspace-terminal-pane/buildWorkspaceGroups";
 import { useScrollContainerWidth } from "./workspace-terminal-pane/useScrollContainerWidth";
 import { useTerminalPaneHeightResize } from "./workspace-terminal-pane/useTerminalPaneHeightResize";
+import { useTerminalPaneKeyboardShortcuts } from "./workspace-terminal-pane/useTerminalPaneKeyboardShortcuts";
 import { useTerminalSessionActions } from "./workspace-terminal-pane/useTerminalSessionActions";
 import { useTerminalSessionSummaries } from "./workspace-terminal-pane/useTerminalSessionSummaries";
 import {
@@ -297,30 +297,6 @@ const WorkspaceTerminalPaneInner = forwardRef<
 			],
 		);
 
-		// Close every terminal (shell + agent) belonging to a workspace, killing their
-		// PTY processes. Used when the owning workspace itself is being deleted, so
-		// terminals don't linger as orphaned processes.
-		const closeTerminalsForWorkspace = useCallback(
-			(workspaceKey: string) => {
-				shellTerminals
-					.filter((t) => t.workingDirectory === workspaceKey)
-					.forEach((t) => handleCloseShell(t.id));
-
-				claudeSessions
-					.filter((s) => (s.workspacePath || s.repoPath) === workspaceKey)
-					.forEach((s) => {
-						ptyClose(s.ptySessionId).catch(console.error);
-						handleCloseClaudeSession(s.sessionId);
-					});
-			},
-			[
-				shellTerminals,
-				claudeSessions,
-				handleCloseShell,
-				handleCloseClaudeSession,
-			],
-		);
-
 		// Terminal width resize handler
 		const handleTerminalResize = useCallback(
 			(leftId: string, rightId: string, deltaX: number) => {
@@ -385,78 +361,17 @@ const WorkspaceTerminalPaneInner = forwardRef<
 			return isActiveSession || mountedClaudeSessions.has(s.sessionId);
 		});
 
-		// Cmd+J: Toggle bottom terminal pane
-		useKeyboardShortcut(
-			"j",
-			true,
-			() => {
-				setCollapsed((prev) => !prev);
-			},
-			[],
-		);
-
-		// Cmd+Control+J: Toggle maximize/restore terminal pane
-		useKeyboardShortcut(
-			"j",
-			true,
-			() => {
-				if (maximized) {
-					// If already maximized, restore to expanded state
-					setMaximized(false);
-				} else {
-					// If collapsed or expanded, maximize
-					setCollapsed(false);
-					setMaximized(true);
-				}
-			},
-			[maximized],
-			{ requireBothCmdAndCtrl: true },
-		);
-
-		// Cmd+]: Create new agent terminal
-		useKeyboardShortcut(
-			"]",
-			true,
-			() => {
-				handleCreateAgentSession();
-			},
-			[handleCreateAgentSession],
-		);
-
-		// Cmd+\: Create new shell terminal
-		useKeyboardShortcut(
-			"\\",
-			true,
-			() => {
-				handleAddShell();
-			},
-			[handleAddShell],
-		);
-
-		// Cmd+W: Close the selected terminal (never closes the treq window)
-		useKeyboardShortcut(
-			"w",
-			true,
-			() => {
-				if (!activePtySessionId) return;
-				if (activePtySessionId.startsWith("shell-")) {
-					handleCloseShell(activePtySessionId);
-					return;
-				}
-				const claudeSession = claudeSessions.find(
-					(s) => s.ptySessionId === activePtySessionId,
-				);
-				if (claudeSession) {
-					handleCloseClaudeSession(claudeSession.sessionId);
-				}
-			},
-			[
-				activePtySessionId,
-				claudeSessions,
-				handleCloseShell,
-				handleCloseClaudeSession,
-			],
-		);
+		useTerminalPaneKeyboardShortcuts({
+			setCollapsed,
+			maximized,
+			setMaximized,
+			handleCreateAgentSession,
+			handleAddShell,
+			activePtySessionId,
+			claudeSessions,
+			handleCloseShell,
+			handleCloseClaudeSession,
+		});
 
 		// Build ordered list of all terminals for rendering based on terminalOrder
 		const shellTerminalMap = new Map(shellTerminals.map((t) => [t.id, t]));
@@ -517,6 +432,7 @@ const WorkspaceTerminalPaneInner = forwardRef<
 			handleCloseTerminalById,
 			handleCloseIdleTerminals,
 			handleCloseAllTerminals,
+			closeTerminalsForWorkspace,
 		} = useTerminalSessionActions({
 			claudeSessions,
 			shellTerminals,

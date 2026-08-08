@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { ptyClose } from "../../lib/api";
 import {
 	TERMINAL_IDLE_THRESHOLD_MS,
 	type ClaudeSessionData,
@@ -107,10 +108,30 @@ export function useTerminalSessionActions({
 		}
 	}, [handleCloseTerminalById, terminalSummariesRef]);
 
+	// Close every terminal (shell + agent) belonging to a workspace, killing their
+	// PTY processes. Used when the owning workspace itself is being deleted, so
+	// terminals don't linger as orphaned processes.
+	const closeTerminalsForWorkspace = useCallback(
+		(workspaceKey: string) => {
+			shellTerminals
+				.filter((t) => t.workingDirectory === workspaceKey)
+				.forEach((t) => handleCloseShell(t.id));
+
+			claudeSessions
+				.filter((s) => (s.workspacePath || s.repoPath) === workspaceKey)
+				.forEach((s) => {
+					ptyClose(s.ptySessionId).catch(console.error);
+					handleCloseClaudeSession(s.sessionId);
+				});
+		},
+		[shellTerminals, claudeSessions, handleCloseShell, handleCloseClaudeSession],
+	);
+
 	return {
 		handleFocusTerminalById,
 		handleCloseTerminalById,
 		handleCloseIdleTerminals,
 		handleCloseAllTerminals,
+		closeTerminalsForWorkspace,
 	};
 }
