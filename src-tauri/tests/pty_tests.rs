@@ -474,70 +474,81 @@ fn test_utf8_output() {
 }
 
 #[test]
-fn test_strip_ansi_codes_plain() {
-    assert_eq!(strip_ansi_codes("hello world"), "hello world");
+fn test_strip_ansi_codes_cases() {
+    // Table-driven: each case is a (name, input, expected) triple. Used to be four
+    // near-identical single-assertion tests for different escape sequence kinds.
+    let cases: Vec<(&str, &str, &str)> = vec![
+        ("plain text is untouched", "hello world", "hello world"),
+        ("CSI color codes are stripped", "\x1b[32mhello\x1b[0m", "hello"),
+        ("CSI codes with multiple params are stripped", "\x1b[1;31mred\x1b[0m", "red"),
+        ("OSC title-setting sequence is stripped", "\x1b]0;title\x07text", "text"),
+        ("charset selection sequence is stripped", "\x1b(Bhello", "hello"),
+    ];
+
+    for (name, input, expected) in cases {
+        assert_eq!(strip_ansi_codes(input), expected, "case: {name}");
+    }
 }
 
 #[test]
-fn test_strip_ansi_codes_csi() {
-    assert_eq!(strip_ansi_codes("\x1b[32mhello\x1b[0m"), "hello");
-    assert_eq!(strip_ansi_codes("\x1b[1;31mred\x1b[0m"), "red");
-}
+fn test_line_matches_auto_command_cases() {
+    // Table-driven: each case is (name, line, auto_cmd, expected_match). Used to be
+    // five near-identical tests exercising line_matches_auto_command's substring
+    // matching heuristic.
+    struct Case {
+        name: &'static str,
+        line: &'static str,
+        auto_cmd: &'static str,
+        expected: bool,
+    }
 
-#[test]
-fn test_strip_ansi_codes_osc() {
-    assert_eq!(strip_ansi_codes("\x1b]0;title\x07text"), "text");
-}
+    let cases = vec![
+        Case {
+            name: "lines shorter than 20 chars never match",
+            line: "short",
+            auto_cmd: "some long auto command that is definitely long enough",
+            expected: false,
+        },
+        Case {
+            name: "exact substring match",
+            line: "claude --permission-mode acceptEdits --append-system-prompt 'some long prompt'",
+            auto_cmd: "claude --permission-mode acceptEdits --append-system-prompt 'some long prompt'",
+            expected: true,
+        },
+        Case {
+            name: "line contains a 20+ char substring of the auto command",
+            line: "$ claude --permission-mode acceptEdits --append-system-prompt 'very long system prompt text here'",
+            auto_cmd: "claude --permission-mode acceptEdits --append-system-prompt 'very long system prompt text here'",
+            expected: true,
+        },
+        Case {
+            name: "unrelated long line does not match",
+            line: "total 42\ndrwxr-xr-x  5 user  staff  160 Jan  1 00:00 .",
+            auto_cmd: "claude --permission-mode acceptEdits --append-system-prompt 'some prompt'",
+            expected: false,
+        },
+        Case {
+            name: "normal CLI output does not match (greeting)",
+            line: "Hello! How can I help you today?",
+            auto_cmd: "claude --permission-mode acceptEdits --append-system-prompt 'hello world this is a test'",
+            expected: false,
+        },
+        Case {
+            name: "normal CLI output does not match (progress message)",
+            line: "Processing your request...",
+            auto_cmd: "claude --permission-mode acceptEdits --append-system-prompt 'hello world this is a test'",
+            expected: false,
+        },
+    ];
 
-#[test]
-fn test_strip_ansi_codes_charset() {
-    assert_eq!(strip_ansi_codes("\x1b(Bhello"), "hello");
-}
-
-#[test]
-fn test_line_matches_auto_command_short_line() {
-    // Lines shorter than 20 chars should never match
-    assert!(!line_matches_auto_command(
-        "short",
-        "some long auto command that is definitely long enough"
-    ));
-}
-
-#[test]
-fn test_line_matches_auto_command_exact_substring() {
-    let auto_cmd = "claude --permission-mode acceptEdits --append-system-prompt 'some long prompt'";
-    let line = "claude --permission-mode acceptEdits --append-system-prompt 'some long prompt'";
-    assert!(line_matches_auto_command(line, auto_cmd));
-}
-
-#[test]
-fn test_line_matches_auto_command_partial_overlap() {
-    let auto_cmd = "claude --permission-mode acceptEdits --append-system-prompt 'very long system prompt text here'";
-    // A line that contains a 20+ char substring of the auto command
-    let line = "$ claude --permission-mode acceptEdits --append-system-prompt 'very long system prompt text here'";
-    assert!(line_matches_auto_command(line, auto_cmd));
-}
-
-#[test]
-fn test_line_matches_auto_command_no_match() {
-    let auto_cmd = "claude --permission-mode acceptEdits --append-system-prompt 'some prompt'";
-    let line = "total 42\ndrwxr-xr-x  5 user  staff  160 Jan  1 00:00 .";
-    assert!(!line_matches_auto_command(line, auto_cmd));
-}
-
-#[test]
-fn test_line_matches_auto_command_normal_output() {
-    let auto_cmd =
-        "claude --permission-mode acceptEdits --append-system-prompt 'hello world this is a test'";
-    // Normal CLI output should not match
-    assert!(!line_matches_auto_command(
-        "Hello! How can I help you today?",
-        auto_cmd
-    ));
-    assert!(!line_matches_auto_command(
-        "Processing your request...",
-        auto_cmd
-    ));
+    for case in cases {
+        assert_eq!(
+            line_matches_auto_command(case.line, case.auto_cmd),
+            case.expected,
+            "case: {}",
+            case.name
+        );
+    }
 }
 
 #[test]

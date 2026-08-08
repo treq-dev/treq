@@ -81,29 +81,6 @@ fn test_workspace_sync_status_local_only_multiple_commits_integration() {
 }
 
 #[test]
-fn test_workspace_sync_status_in_sync_after_push_pull_integration() {
-    let (repo, workspace, workspace_path_str) = setup_workspace_with_remote();
-
-    TestRepo::write_workspace_file(&workspace_path_str, "local-1.txt", "local content\n")
-        .expect("Failed to write file");
-    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Local commit 1")
-        .expect("Failed to commit");
-    treq_lib::core::push_workspace_to_remote(&repo.repo_path, Some(workspace.id))
-        .expect("Failed to push");
-    treq_lib::core::pull_workspace_from_remote(&repo.repo_path, Some(workspace.id), "git")
-        .expect("Failed to pull");
-
-    let status = workspace_status(&repo.repo_path, Some(workspace.id))
-        .expect("workspace_status should succeed");
-    assert_eq!(
-        status.remote_sync,
-        RemoteSyncStatus::InSync,
-        "expected in sync after push+pull, got {:?}",
-        status.remote_sync
-    );
-}
-
-#[test]
 fn test_workspace_sync_status_true_divergence_integration() {
     let (repo, workspace, workspace_path_str) = setup_workspace_with_remote();
     let branch_name = workspace.branch_name.clone();
@@ -249,54 +226,6 @@ fn test_workspace_status_behind_remote() {
 }
 
 #[test]
-fn test_jj_get_sync_status_ahead_after_local_commit() {
-    let repo = TestRepo::with_remote().expect("Failed to create test repo with remote");
-
-    let workspace = treq_lib::core::create_workspace(
-        &repo.repo_path,
-        "feat/sync-ahead",
-        Some("sync status ahead test".to_string()),
-        None,
-        None,
-        None,
-        None,
-    )
-    .expect("Failed to create workspace");
-
-    let workspace_path = repo.workspaces_dir().join(&workspace.workspace_path);
-    let workspace_path_str = workspace_path.to_str().unwrap();
-
-    // Establish remote branch
-    TestRepo::write_workspace_file(workspace_path_str, "initial.txt", "initial content\n")
-        .expect("Failed to write file");
-    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Initial commit on branch")
-        .expect("Failed to commit");
-    treq_lib::core::push_workspace_to_remote(&repo.repo_path, Some(workspace.id))
-        .expect("Failed to push");
-    treq_lib::core::pull_workspace_from_remote(&repo.repo_path, Some(workspace.id), "git")
-        .expect("Failed to pull");
-
-    // Make a local-only commit → expect (1, 0)
-    TestRepo::write_workspace_file(workspace_path_str, "local_only.txt", "local content\n")
-        .expect("Failed to write file");
-    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Local only commit")
-        .expect("Failed to commit");
-
-    let (ahead, behind) = jj::jj_get_sync_status(workspace_path_str, &workspace.branch_name, false)
-        .expect("Failed to get sync status after local commit");
-    assert_eq!(
-        ahead, 1,
-        "After local commit, should be 1 ahead, got {}",
-        ahead
-    );
-    assert_eq!(
-        behind, 0,
-        "After local commit, should be 0 behind, got {}",
-        behind
-    );
-}
-
-#[test]
 fn test_jj_get_sync_status_returns_to_sync_after_push() {
     let repo = TestRepo::with_remote().expect("Failed to create test repo with remote");
 
@@ -364,58 +293,6 @@ fn test_jj_get_sync_status_returns_to_sync_after_push() {
         (0, 0),
         "After push+fetch, should be in sync (0, 0), got ({}, {})",
         ahead,
-        behind
-    );
-}
-
-#[test]
-fn test_jj_get_sync_status_multiple_commits_ahead() {
-    let repo = TestRepo::with_remote().expect("Failed to create test repo with remote");
-
-    let workspace = treq_lib::core::create_workspace(
-        &repo.repo_path,
-        "feat/sync-multi",
-        Some("sync status multiple ahead test".to_string()),
-        None,
-        None,
-        None,
-        None,
-    )
-    .expect("Failed to create workspace");
-
-    let workspace_path = repo.workspaces_dir().join(&workspace.workspace_path);
-    let workspace_path_str = workspace_path.to_str().unwrap();
-
-    // Establish remote branch
-    TestRepo::write_workspace_file(workspace_path_str, "initial.txt", "initial content\n")
-        .expect("Failed to write file");
-    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Initial commit on branch")
-        .expect("Failed to commit");
-    treq_lib::core::push_workspace_to_remote(&repo.repo_path, Some(workspace.id))
-        .expect("Failed to push");
-    treq_lib::core::pull_workspace_from_remote(&repo.repo_path, Some(workspace.id), "git")
-        .expect("Failed to pull");
-
-    // Make two local commits → expect (2, 0)
-    TestRepo::write_workspace_file(workspace_path_str, "local_2.txt", "content 2\n")
-        .expect("Failed to write file");
-    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Second local commit")
-        .expect("Failed to commit");
-    TestRepo::write_workspace_file(workspace_path_str, "local_3.txt", "content 3\n")
-        .expect("Failed to write file");
-    treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Third local commit")
-        .expect("Failed to commit");
-
-    let (ahead, behind) = jj::jj_get_sync_status(workspace_path_str, &workspace.branch_name, false)
-        .expect("Failed to get sync status after two local commits");
-    assert_eq!(
-        ahead, 2,
-        "After two local commits, should be 2 ahead, got {}",
-        ahead
-    );
-    assert_eq!(
-        behind, 0,
-        "After two local commits, should be 0 behind, got {}",
         behind
     );
 }

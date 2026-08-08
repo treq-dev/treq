@@ -249,62 +249,90 @@ fn test_repo_status_with_remote_no_fetch_error() {
 }
 
 #[test]
-fn test_repo_status_with_remote_in_sync() {
-    let repo = TestRepo::with_remote().expect("Failed to create test repo with remote");
-
-    let status = repo_status(&repo.repo_path).expect("repo_status should succeed");
-
-    // After TestRepo::with_remote(), main is pushed — should be in sync
-    assert_eq!(
-        status.remote_sync,
-        RemoteSyncStatus::InSync,
-        "repo should be in sync after push, got: {:?}",
-        status.remote_sync
-    );
-}
-
-#[test]
-fn test_repo_status_with_remote_ahead() {
-    let repo = TestRepo::with_remote().expect("Failed to create test repo with remote");
-
-    // Make a local commit that hasn't been pushed
-    repo.commit_file(
-        "local_only.txt",
-        "local content",
-        "Local commit not yet pushed",
-    )
-    .expect("Failed to commit file");
-
-    let status = repo_status(&repo.repo_path).expect("repo_status should succeed");
-
-    match status.remote_sync {
-        RemoteSyncStatus::Ahead { count } => {
-            assert!(count > 0, "should be at least 1 commit ahead");
-        }
-        other => panic!("expected Ahead, got {:?}", other),
+fn test_repo_status_remote_sync_variants() {
+    // Table-driven: each case sets up a repo with a remote, applies a local/remote
+    // action, and checks the resulting RemoteSyncStatus variant. These used to be
+    // three near-identical tests differing only in the setup action and expected
+    // variant.
+    enum Expected {
+        InSync,
+        Ahead,
+        Behind,
     }
-}
 
-#[test]
-fn test_repo_status_with_remote_behind() {
-    let repo = TestRepo::with_remote().expect("Failed to create test repo with remote");
+    struct Case {
+        name: &'static str,
+        // Returns the repo, after applying whatever local/remote action this case needs.
+        setup: fn() -> TestRepo,
+        expected: Expected,
+    }
 
-    // Push a commit from the "remote" side only
-    repo.remote_commit_file(
-        "remote_only.txt",
-        "remote content",
-        "Remote commit not yet fetched",
-    )
-    .expect("Failed to create remote commit");
+    let cases = vec![
+        Case {
+            name: "in sync after push (no further action needed)",
+            setup: || TestRepo::with_remote().expect("Failed to create test repo with remote"),
+            expected: Expected::InSync,
+        },
+        Case {
+            name: "ahead after an unpushed local commit",
+            setup: || {
+                let repo =
+                    TestRepo::with_remote().expect("Failed to create test repo with remote");
+                repo.commit_file(
+                    "local_only.txt",
+                    "local content",
+                    "Local commit not yet pushed",
+                )
+                .expect("Failed to commit file");
+                repo
+            },
+            expected: Expected::Ahead,
+        },
+        Case {
+            name: "behind after a remote-only commit",
+            setup: || {
+                let repo =
+                    TestRepo::with_remote().expect("Failed to create test repo with remote");
+                repo.remote_commit_file(
+                    "remote_only.txt",
+                    "remote content",
+                    "Remote commit not yet fetched",
+                )
+                .expect("Failed to create remote commit");
+                repo
+            },
+            expected: Expected::Behind,
+        },
+    ];
 
-    // repo_status includes fetch, so it will pull the new remote commit info
-    let status = repo_status(&repo.repo_path).expect("repo_status should succeed");
+    for case in cases {
+        let repo = (case.setup)();
 
-    match status.remote_sync {
-        RemoteSyncStatus::Behind { count } => {
-            assert!(count > 0, "should be at least 1 commit behind");
+        // repo_status includes fetch, so behind-remote cases observe the new commits.
+        let status = repo_status(&repo.repo_path)
+            .unwrap_or_else(|error| panic!("[{}] repo_status should succeed: {:?}", case.name, error));
+
+        match case.expected {
+            Expected::InSync => assert_eq!(
+                status.remote_sync,
+                RemoteSyncStatus::InSync,
+                "[{}] repo should be in sync, got: {:?}",
+                case.name,
+                status.remote_sync
+            ),
+            Expected::Ahead => match status.remote_sync {
+                RemoteSyncStatus::Ahead { count } => {
+                    assert!(count > 0, "[{}] should be at least 1 commit ahead", case.name);
+                }
+                other => panic!("[{}] expected Ahead, got {:?}", case.name, other),
+            },
+            Expected::Behind => match status.remote_sync {
+                RemoteSyncStatus::Behind { count } => {
+                    assert!(count > 0, "[{}] should be at least 1 commit behind", case.name);
+                }
+                other => panic!("[{}] expected Behind, got {:?}", case.name, other),
+            },
         }
-        other => panic!("expected Behind, got {:?}", other),
     }
 }
 
