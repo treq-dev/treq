@@ -4648,6 +4648,33 @@ pub fn check_remote_branch_exists(repo_path: &str, branch_ref: &str) -> Result<b
     Ok(!remote_ref.target.is_absent())
 }
 
+/// Returns true when the Git local branch tip is an ancestor of its remote tip.
+/// This distinguishes a stale local tracking branch from local-only or diverged work.
+pub fn is_local_branch_behind_remote(repo_path: &str, branch_name: &str) -> bool {
+    let Some(local_id) = git_local_branch_commit_hex(repo_path, branch_name) else {
+        return false;
+    };
+    let Some(remote_id) = git_remote_branch_commit_hex(repo_path, "origin", branch_name) else {
+        return false;
+    };
+    if local_id == remote_id {
+        return false;
+    }
+
+    let Ok(loaded) = load_workspace_repo(repo_path) else {
+        return false;
+    };
+    let expr = format!(
+        "{} & {}::",
+        format_revset_symbol(&remote_id),
+        format_revset_symbol(&local_id)
+    );
+    evaluate_revset(&loaded, &expr)
+        .ok()
+        .and_then(|revset| revset.iter().next().transpose().ok().flatten())
+        .is_some()
+}
+
 /// Build the revset string for jj_get_log based on context
 fn build_jj_get_log_revset(target_ref: &str, is_home_repo: bool, _limit: Option<usize>) -> String {
     let target_ref = format_revset_symbol(target_ref);

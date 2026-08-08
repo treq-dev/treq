@@ -170,6 +170,53 @@ fn test_list_commits_workspace_after_home_repo_jj_commits() {
 }
 
 #[test]
+fn list_commits_includes_history_when_workspace_is_cloned_from_remote_branch() {
+    let repo = TestRepo::with_remote().expect("Failed to create test repo with remote");
+    repo.remote_commit_on_branch(
+        "feature-remote",
+        "remote-only.txt",
+        "new content from the remote\n",
+        "Remote-only feature commit",
+    )
+    .expect("Failed to advance remote branch");
+    treq_lib::jj::jj_git_fetch(&repo.repo_path).expect("Failed to fetch remote branch update");
+    let workspace = repo
+        .create_workspace_simple("feature-remote")
+        .expect("Failed to clone remote branch into workspace");
+
+    let result =
+        treq_lib::core::list_commits(&repo.repo_path, Some(workspace.id), false, None, None)
+            .expect("Failed to list cloned remote branch commits");
+    let descriptions: Vec<_> = result
+        .commits
+        .iter()
+        .map(|commit| commit.description.as_str())
+        .collect();
+
+    assert!(
+        descriptions.contains(&"Add feature.txt")
+            && descriptions.contains(&"Remote-only feature commit"),
+        "Remote branch history should belong to the workspace branch, got: {:?}",
+        descriptions
+    );
+
+    let status = treq_lib::core::workspace_status(&repo.repo_path, Some(workspace.id))
+        .expect("Failed to load cloned remote workspace status");
+    assert!(
+        status
+            .commits_ahead_of_target
+            .iter()
+            .any(|commit| commit.message == "Add feature.txt")
+            && status
+                .commits_ahead_of_target
+                .iter()
+                .any(|commit| commit.message == "Remote-only feature commit"),
+        "Linear history should include the cloned remote commit, got: {:?}",
+        status.commits_ahead_of_target
+    );
+}
+
+#[test]
 fn list_commits_excludes_unsquashed_parent_after_stacked_base_is_squash_merged() {
     let repo = TestRepo::with_remote().expect("Failed to create test repo");
     let base = repo

@@ -357,10 +357,14 @@ pub fn create_workspace(
     let branch_exists_on_remote = jj::check_remote_branch_exists(repo_path, &remote_ref)
         .map_err(|e| format!("Failed to check remote branch: {}", e))?;
 
-    let resolved_source_branch = if !branch_exists && source_branch.is_none() {
-        // New branch, check if we should create from remote
-        if branch_exists_on_remote {
-            Some(remote_ref)
+    let resolved_source_branch = if source_branch.is_none() {
+        // A local tracking branch can lag its remote after fetching. In that case,
+        // cloning the branch must start at the remote tip rather than whichever
+        // side of the imported bookmark conflict happens to sort first.
+        if branch_exists_on_remote
+            && (!branch_exists || jj::is_local_branch_behind_remote(repo_path, branch_name))
+        {
+            Some(remote_ref.clone())
         } else {
             None
         }
@@ -375,7 +379,7 @@ pub fn create_workspace(
         jj::get_default_branch(repo_path).unwrap_or_else(|_| "main".to_string())
     };
 
-    let new_branch: bool = !branch_exists;
+    let new_branch: bool = !branch_exists || resolved_source_branch.as_deref() == Some(&remote_ref);
     let workspace_full_path = jj::create_workspace(
         repo_path,
         branch_name,
