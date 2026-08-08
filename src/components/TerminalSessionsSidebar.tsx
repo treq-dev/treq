@@ -37,10 +37,7 @@ export const TerminalSessionsSidebar: React.FC<
 }) => {
 	const [, setTick] = useState(0);
 	useEffect(() => {
-		const interval = setInterval(
-			() => setTick((t) => t + 1),
-			TICK_INTERVAL_MS,
-		);
+		const interval = setInterval(() => setTick((t) => t + 1), TICK_INTERVAL_MS);
 		return () => clearInterval(interval);
 	}, []);
 

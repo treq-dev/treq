@@ -129,5 +129,9 @@ export function useTerminalSessionSummaries({
 		onTerminalsChangeRef.current?.(terminalSummaries);
 	}, [terminalSummaries]);
 
-	return { handleTerminalOutput, handleTerminalIdlePulse, terminalSummariesRef };
+	return {
+		handleTerminalOutput,
+		handleTerminalIdlePulse,
+		terminalSummariesRef,
+	};
 }

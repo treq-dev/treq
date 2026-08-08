@@ -406,7 +406,9 @@ export const WorkspaceTerminalPaneView: React.FC<
 														handleCloseClaudeSession(terminal.data.sessionId)
 													}
 													onSessionError={onSessionError}
-													onTerminalOutput={() => onTerminalOutput?.(terminalId)}
+													onTerminalOutput={() =>
+														onTerminalOutput?.(terminalId)
+													}
 													onTerminalIdle={() => onTerminalIdle?.(terminalId)}
 													terminalRefs={
 														terminalRefs as React.MutableRefObject<

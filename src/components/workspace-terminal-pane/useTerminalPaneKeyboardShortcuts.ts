@@ -90,6 +90,11 @@ export function useTerminalPaneKeyboardShortcuts({
 				handleCloseClaudeSession(claudeSession.sessionId);
 			}
 		},
-		[activePtySessionId, claudeSessions, handleCloseShell, handleCloseClaudeSession],
+		[
+			activePtySessionId,
+			claudeSessions,
+			handleCloseShell,
+			handleCloseClaudeSession,
+		],
 	);
 }

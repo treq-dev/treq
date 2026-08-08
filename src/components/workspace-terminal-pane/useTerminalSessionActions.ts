@@ -124,7 +124,12 @@ export function useTerminalSessionActions({
 					handleCloseClaudeSession(s.sessionId);
 				});
 		},
-		[shellTerminals, claudeSessions, handleCloseShell, handleCloseClaudeSession],
+		[
+			shellTerminals,
+			claudeSessions,
+			handleCloseShell,
+			handleCloseClaudeSession,
+		],
 	);
 
 	return {

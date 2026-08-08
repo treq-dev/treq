@@ -58,7 +58,10 @@ import { Onboarding } from "./Onboarding";
 import { SettingsPage } from "./SettingsPage";
 import { ShowWorkspace } from "./ShowWorkspace";
 import type { BranchListItem } from "./TargetBranchSelector";
-import type { ClaudeSessionData, TerminalSessionSummary } from "./terminal/types";
+import type {
+	ClaudeSessionData,
+	TerminalSessionSummary,
+} from "./terminal/types";
 import {
 	UnifiedWorkspaceDialog,
 	type WorkspaceDialogDefaults,
