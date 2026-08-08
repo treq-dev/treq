@@ -6,11 +6,37 @@ import type {
 	LineComment,
 	PendingReview,
 	Session,
+	Workspace,
+	JjLogCommit,
 } from "./api-types";
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+
+export const getArchivedWorkspaces = (repoPath: string): Promise<Workspace[]> =>
+	invoke("get_archived_workspaces", { repoPath });
+
+export const getArchivedWorkspaceCommits = (
+	repoPath: string,
+	id: number,
+): Promise<JjLogCommit[]> =>
+	invoke("get_archived_workspace_commits", { repoPath, id });
+
+export const archiveWorkspace = (repoPath: string, id: number): Promise<void> =>
+	invoke("archive_workspace", {
+		repoPath,
+		id,
+	});
+
+export const restoreWorkspace = (
+	repoPath: string,
+	id: number,
+): Promise<Workspace> =>
+	invoke("restore_workspace", {
+		repoPath,
+		id,
+	});
 
 export const ptyCreateSession = (
 	sessionId: string,

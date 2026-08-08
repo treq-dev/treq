@@ -580,6 +580,83 @@ fn delete_workspace_impl(
     }
 }
 
+/// Archives a workspace: forgets it with jj and removes its directory under
+/// `.treq/workspaces/…`, but keeps the database row (and its branch/bookmark)
+/// intact so it can later be brought back with `restore_workspace`.
+///
+/// Unlike `delete_workspace`, child workspaces are left targeting this
+/// workspace's branch — the bookmark isn't going anywhere, only its working
+/// copy is.
+pub fn archive_workspace(repo_path: &str, workspace_id: &i64) -> Result<bool, String> {
+    let workspace = local_db::get_workspace_by_id(repo_path, *workspace_id)
+        .map_err(|e| format!("Failed to get workspace from db: {}", e))?
+        .ok_or_else(|| format!("Workspace not found in database: {}", workspace_id))?;
+
+    if workspace.archived {
+        return Ok(true);
+    }
+
+    let workspace_path = Path::new(repo_path)
+        .join(".treq")
+        .join("workspaces")
+        .join(&workspace.workspace_path);
+
+    // Best effort only: the archived flag must be set even if jj/directory removal fails,
+    // matching delete_workspace's disk-cleanup tolerance.
+    if let Err(e) = jj::remove_workspace(repo_path, workspace_path.to_str().unwrap()) {
+        eprintln!(
+            "Warning: Failed to remove workspace directory while archiving: {}",
+            e
+        );
+    }
+
+    local_db::update_workspace_archived(repo_path, *workspace_id, true)
+        .map_err(|e| format!("Failed to mark workspace as archived: {}", e))?;
+
+    Ok(true)
+}
+
+/// Restores a previously archived workspace: recreates its jj working copy at
+/// the branch's current tip and its directory under `.treq/workspaces/…`,
+/// then clears the archived flag. The workspace keeps its original id, title,
+/// description, sessions, and pending reviews — only archive_workspace
+/// touched the disk state.
+pub fn restore_workspace(
+    repo_path: &str,
+    workspace_id: &i64,
+) -> Result<local_db::Workspace, String> {
+    let workspace = local_db::get_workspace_by_id(repo_path, *workspace_id)
+        .map_err(|e| format!("Failed to get workspace from db: {}", e))?
+        .ok_or_else(|| format!("Workspace not found in database: {}", workspace_id))?;
+
+    if !workspace.archived {
+        return Err(format!("Workspace {} is not archived", workspace_id));
+    }
+
+    jj::create_workspace(
+        repo_path,
+        &workspace.workspace_name,
+        &workspace.branch_name,
+        false,
+        None,
+        workspace.target_branch.as_deref(),
+        workspace.sparse_patterns.as_deref(),
+    )
+    .map_err(|e| format!("Failed to restore workspace: {}", e))?;
+
+    local_db::update_workspace_archived(repo_path, *workspace_id, false)
+        .map_err(|e| format!("Failed to clear archived flag: {}", e))?;
+
+    local_db::get_workspace_by_id(repo_path, *workspace_id)
+        .map_err(|e| format!("Failed to get workspace from db: {}", e))?
+        .ok_or_else(|| {
+            format!(
+                "Workspace not found in database after restore: {}",
+                workspace_id
+            )
+        })
+}
+
 /// Push workspace to remote and update not_on_remote flag if successful.
 /// # Arguments
 /// * `repo_path` - Path to the repository root
@@ -650,6 +727,28 @@ pub fn restore_working_copy_snapshot(
 
 pub fn list_workspaces(repo_path: &str) -> Result<Vec<local_db::Workspace>, String> {
     local_db::get_workspaces(repo_path).map_err(|e| format!("Failed to get workspaces: {}", e))
+}
+
+pub fn list_archived_workspaces(repo_path: &str) -> Result<Vec<local_db::Workspace>, String> {
+    local_db::get_archived_workspaces(repo_path)
+        .map_err(|e| format!("Failed to get archived workspaces: {}", e))
+}
+
+/// Lists the commits still reachable from an archived workspace's bookmark.
+/// Archived working-copy directories no longer exist, so the repository is used
+/// directly rather than the normal workspace log path.
+pub fn list_archived_workspace_commits(
+    repo_path: &str,
+    workspace_id: i64,
+) -> Result<Vec<jj::JjLogCommit>, String> {
+    let workspace = local_db::get_workspace_by_id(repo_path, workspace_id)
+        .map_err(|e| format!("Failed to get workspace: {}", e))?
+        .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+    if !workspace.archived {
+        return Err(format!("Workspace {} is not archived", workspace_id));
+    }
+    jj::jj_get_target_branch_log(repo_path, &workspace.branch_name, 50)
+        .map_err(|e| format!("Failed to list archived workspace commits: {}", e))
 }
 
 /// Prunes workspaces whose `.treq/workspaces/…` directories are missing (e.g. deleted outside treq),
@@ -769,6 +868,7 @@ pub fn workspace_status(
                 moved_files: None,
                 not_on_remote: false,
                 sparse_patterns: None,
+                archived: false,
             };
 
             let conflicted_files =
@@ -926,8 +1026,8 @@ pub fn workspace_status(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_hunk_spec, parse_workspace_metadata, plan_workspace_target_move,
-        resolve_workspace_diff_base_revision_from_last_rebased,
+        list_archived_workspace_commits, parse_hunk_spec, parse_workspace_metadata,
+        plan_workspace_target_move, resolve_workspace_diff_base_revision_from_last_rebased,
         resolve_workspace_diff_conflict_marker_style,
         resolve_workspace_diff_tip_revision_from_workspace_state, HunkSpec, WorkspaceMoveRequest,
         WorkspaceTargetMoveStep,
@@ -936,6 +1036,15 @@ mod tests {
     use rusqlite::Connection;
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
+
+    #[test]
+    fn returns_error_when_archived_commit_workspace_is_missing() {
+        let repo = TempDir::new().unwrap();
+        crate::local_db::init_local_db(repo.path().to_str().unwrap()).unwrap();
+        let error = list_archived_workspace_commits(repo.path().to_str().unwrap(), 999)
+            .expect_err("missing workspace should fail");
+        assert!(error.contains("Workspace not found"));
+    }
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -958,6 +1067,7 @@ mod tests {
             moved_files: None,
             not_on_remote: false,
             sparse_patterns: None,
+            archived: false,
         }
     }
 

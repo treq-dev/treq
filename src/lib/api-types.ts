@@ -5,12 +5,14 @@ export interface Workspace {
 	workspace_path: string;
 	branch_name: string;
 	created_at: string;
+	refreshed_at?: string | null;
 	metadata?: string;
 	target_branch?: string | null;
 	title: string;
 	description?: string | null;
 	not_on_remote: boolean;
 	sparse_patterns?: string[] | null;
+	archived: boolean;
 }
 
 export type RemoteSyncStatus =

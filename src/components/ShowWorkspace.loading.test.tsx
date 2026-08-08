@@ -30,6 +30,7 @@ const workspace: Workspace = {
 	title: "Feature two",
 	created_at: new Date().toISOString(),
 	not_on_remote: false,
+	archived: false,
 };
 
 describe("ShowWorkspace loading", () => {

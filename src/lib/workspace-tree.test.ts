@@ -22,6 +22,7 @@ function makeWorkspace(
 		target_branch: targetBranch,
 		title: branchName,
 		not_on_remote: false,
+		archived: false,
 	};
 }
 

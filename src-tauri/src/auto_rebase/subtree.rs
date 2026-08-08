@@ -201,6 +201,7 @@ mod tests {
             moved_files: None,
             not_on_remote: false,
             sparse_patterns: None,
+            archived: false,
         }
     }
 

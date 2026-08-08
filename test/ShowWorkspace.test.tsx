@@ -95,6 +95,7 @@ const workspace: Workspace = {
 	branch_name: "feature-one",
 	created_at: new Date().toISOString(),
 	not_on_remote: false,
+	archived: false,
 };
 
 describe("ShowWorkspace agent comments", () => {

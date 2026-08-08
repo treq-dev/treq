@@ -12,6 +12,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
 		created_at: "2026-01-01T00:00:00.000Z",
 		title: "",
 		not_on_remote: false,
+		archived: false,
 		...overrides,
 	};
 }

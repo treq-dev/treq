@@ -25,6 +25,7 @@ const workspace: Workspace = {
 	created_at: "now",
 	title: "Feature one",
 	not_on_remote: false,
+	archived: false,
 };
 
 describe("AgentPromptDialog", () => {

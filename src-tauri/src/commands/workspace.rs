@@ -127,6 +127,66 @@ pub async fn delete_workspace(repo_path: String, id: i64) -> Result<(), String> 
     result
 }
 
+/// List archived workspaces for the "Archived Workspaces" modal.
+#[tauri::command]
+pub async fn get_archived_workspaces(repo_path: String) -> Result<Vec<Workspace>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::core::list_archived_workspaces(&repo_path))
+        .await
+        .map_err(|e| format!("Failed to join get_archived_workspaces task: {}", e))?
+}
+
+#[tauri::command]
+pub async fn get_archived_workspace_commits(
+    repo_path: String,
+    id: i64,
+) -> Result<Vec<crate::jj::JjLogCommit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::core::list_archived_workspace_commits(&repo_path, id)
+    })
+    .await
+    .map_err(|e| format!("Failed to join get_archived_workspace_commits task: {}", e))?
+}
+
+/// Archives a workspace: forgets it with jj and removes its directory, but
+/// keeps the database row so it can be restored later.
+#[tauri::command]
+pub async fn archive_workspace(repo_path: String, id: i64) -> Result<(), String> {
+    let started_at = Instant::now();
+    let repo_path_for_task = repo_path.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::core::archive_workspace(&repo_path_for_task, &id).map(|_| ())
+    })
+    .await
+    .map_err(|e| format!("Failed to join archive_workspace task: {}", e))?;
+    log::debug!(
+        "archive_workspace(repo_path={}, id={}) completed in {:?}",
+        repo_path,
+        id,
+        started_at.elapsed()
+    );
+    result
+}
+
+/// Restores a previously archived workspace: recreates its jj working copy
+/// and directory, then clears the archived flag.
+#[tauri::command]
+pub async fn restore_workspace(repo_path: String, id: i64) -> Result<Workspace, String> {
+    let started_at = Instant::now();
+    let repo_path_for_task = repo_path.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::core::restore_workspace(&repo_path_for_task, &id)
+    })
+    .await
+    .map_err(|e| format!("Failed to join restore_workspace task: {}", e))?;
+    log::debug!(
+        "restore_workspace(repo_path={}, id={}) completed in {:?}",
+        repo_path,
+        id,
+        started_at.elapsed()
+    );
+    result
+}
+
 /// Push workspace to remote and update not_on_remote flag
 #[tauri::command]
 pub async fn push_workspace_to_remote(
@@ -620,5 +680,120 @@ mod tests {
             0,
             "Workspace should be removed from database even if directory was missing"
         );
+    }
+
+    // Unit tests cover DB state only; full jj forget/recreate is e2e-tested.
+    #[test]
+    fn test_archive_workspace_hides_row_without_deleting_it() {
+        use crate::local_db;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().to_str().unwrap();
+        let workspace_dir = temp_dir
+            .path()
+            .join(".treq")
+            .join("workspaces")
+            .join("test_workspace");
+        fs::create_dir_all(&workspace_dir).unwrap();
+
+        local_db::add_workspace(
+            repo_path,
+            "test".to_string(),
+            "test_workspace".to_string(),
+            "test-branch".to_string(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let workspace_id = local_db::get_workspaces(repo_path).unwrap()[0].id;
+
+        // Act: archive; jj forget is expected best-effort without a real jj repo.
+        let result =
+            tauri::async_runtime::block_on(archive_workspace(repo_path.to_string(), workspace_id));
+        assert!(
+            result.is_ok(),
+            "archive_workspace should succeed: {:?}",
+            result
+        );
+
+        // Assert: hidden from the active list but still present in the DB.
+        assert!(local_db::get_workspaces(repo_path).unwrap().is_empty());
+        let archived = local_db::get_archived_workspaces(repo_path).unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, workspace_id);
+        assert!(archived[0].archived);
+    }
+
+    #[test]
+    fn test_get_archived_workspaces_returns_only_archived() {
+        use crate::local_db;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let active_id = local_db::add_workspace(
+            repo_path,
+            "active".to_string(),
+            "active".to_string(),
+            "active-branch".to_string(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let archived_id = local_db::add_workspace(
+            repo_path,
+            "archived".to_string(),
+            "archived".to_string(),
+            "archived-branch".to_string(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        local_db::update_workspace_archived(repo_path, archived_id, true).unwrap();
+
+        let archived =
+            tauri::async_runtime::block_on(get_archived_workspaces(repo_path.to_string())).unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, archived_id);
+        assert_ne!(archived[0].id, active_id);
+    }
+
+    #[test]
+    fn test_restore_workspace_fails_without_real_jj_repo_and_keeps_archived_flag() {
+        use crate::local_db;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().to_str().unwrap();
+
+        let workspace_id = local_db::add_workspace(
+            repo_path,
+            "test_workspace".to_string(),
+            "test_workspace".to_string(),
+            "test-branch".to_string(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        local_db::update_workspace_archived(repo_path, workspace_id, true).unwrap();
+
+        // Act: restore against a directory that isn't a real jj repo.
+        let result =
+            tauri::async_runtime::block_on(restore_workspace(repo_path.to_string(), workspace_id));
+
+        // Assert: fails cleanly, and the archived flag is left untouched (no
+        // partial state — we only flip it after a successful jj recreation).
+        assert!(
+            result.is_err(),
+            "restore_workspace should fail: {:?}",
+            result
+        );
+        let workspace = local_db::get_workspace_by_id(repo_path, workspace_id)
+            .unwrap()
+            .unwrap();
+        assert!(workspace.archived);
     }
 }

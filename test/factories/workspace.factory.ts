@@ -32,6 +32,7 @@ export function createMockWorkspace(
 		title: branchName,
 		created_at: new Date().toISOString(),
 		not_on_remote: false,
+		archived: false,
 		...overrides,
 	};
 }
