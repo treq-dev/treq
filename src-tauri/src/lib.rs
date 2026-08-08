@@ -486,6 +486,7 @@ pub fn run() {
             commands::get_file_modified_at,
             commands::list_directory,
             commands::ls_workspace,
+            commands::list_gitignored_path_suggestions,
             commands::get_workspace_readme,
             commands::list_directory_cached,
             commands::search_workspace_files,

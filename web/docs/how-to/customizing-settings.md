@@ -22,7 +22,7 @@ Common patterns are `feature/{name}`, `dev/{user}`, and `bugfix/{name}-{date}`.
 
 **Copy files** copies specific files listed in `.gitignore`, such as `.env`, into each new workspace. Use it for small config files that should be independent copies.
 
-**Symlinked directories** creates symlinks from each new workspace back to heavy directories in the home repo, such as `node_modules/`, `target/`, or `.venv/`. Prefer this over copying when the directory is large and already installed in the home working copy. Workspaces share one tree on disk instead of duplicating it.
+**Symlink from home repo** is a per-workspace create option under Advanced. Pick heavy directories such as `node_modules/`, `target/`, or `.venv/` so the new workspace links them from the home working copy instead of copying. The dialog suggests root paths from `.gitignore`.
 
 ## Terminal Settings
 

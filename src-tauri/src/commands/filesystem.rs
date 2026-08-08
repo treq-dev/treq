@@ -89,6 +89,12 @@ pub fn ls_workspace(
     crate::core::ls_workspace(&repo_path, workspace_id)
 }
 
+/// Suggests gitignored root paths for workspace create overlays (symlinks/copies).
+#[tauri::command]
+pub fn list_gitignored_path_suggestions(repo_path: String) -> Result<Vec<String>, String> {
+    crate::core::list_gitignored_path_suggestions(&repo_path)
+}
+
 #[tauri::command]
 pub fn get_workspace_readme(
     repo_path: String,

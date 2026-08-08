@@ -145,6 +145,10 @@ pub struct WorkspaceMetadata {
     pub moved_files: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sparse_patterns: Option<Vec<String>>,
+    /// Paths relative to the repo root to symlink from the home working copy
+    /// into the new workspace (e.g. `node_modules`). Applied at create time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symlinked_dirs: Option<Vec<String>>,
 }
 
 /// Parse the creation metadata JSON sent by the frontend/NAPI callers.
@@ -155,6 +159,7 @@ pub fn parse_workspace_metadata(metadata: Option<&str>) -> WorkspaceMetadata {
     let mut parsed = parsed.unwrap_or_default();
     parsed.moved_files = parsed.moved_files.filter(|v| !v.is_empty());
     parsed.sparse_patterns = parsed.sparse_patterns.filter(|v| !v.is_empty());
+    parsed.symlinked_dirs = parsed.symlinked_dirs.filter(|v| !v.is_empty());
     parsed
 }
 
@@ -954,7 +959,7 @@ mod tests {
     #[test]
     fn parse_workspace_metadata_full_json() {
         let parsed = parse_workspace_metadata(Some(
-            r#"{"title":"T","description":"D","moved_files":["a.rs"],"sparse_patterns":["src","docs"]}"#,
+            r#"{"title":"T","description":"D","moved_files":["a.rs"],"sparse_patterns":["src","docs"],"symlinked_dirs":["node_modules"]}"#,
         ));
         assert_eq!(parsed.title.as_deref(), Some("T"));
         assert_eq!(parsed.description.as_deref(), Some("D"));
@@ -963,12 +968,16 @@ mod tests {
             parsed.sparse_patterns,
             Some(vec!["src".to_string(), "docs".to_string()])
         );
+        assert_eq!(
+            parsed.symlinked_dirs,
+            Some(vec!["node_modules".to_string()])
+        );
     }
 
     #[test]
     fn parse_workspace_metadata_missing_fields_and_empty_arrays() {
         let parsed = parse_workspace_metadata(Some(
-            r#"{"title":"T","moved_files":[],"sparse_patterns":[]}"#,
+            r#"{"title":"T","moved_files":[],"sparse_patterns":[],"symlinked_dirs":[]}"#,
         ));
         assert_eq!(parsed.title.as_deref(), Some("T"));
         assert_eq!(parsed.description, None);
@@ -977,14 +986,20 @@ mod tests {
             parsed.sparse_patterns, None,
             "empty array should become None"
         );
+        assert_eq!(
+            parsed.symlinked_dirs, None,
+            "empty array should become None"
+        );
 
         let absent = parse_workspace_metadata(None);
         assert_eq!(absent.title, None);
         assert_eq!(absent.sparse_patterns, None);
+        assert_eq!(absent.symlinked_dirs, None);
 
         let invalid = parse_workspace_metadata(Some("not json"));
         assert_eq!(invalid.title, None);
         assert_eq!(invalid.sparse_patterns, None);
+        assert_eq!(invalid.symlinked_dirs, None);
     }
 
     #[test]

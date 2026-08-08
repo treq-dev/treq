@@ -366,26 +366,18 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
 
             let parsed_metadata = treq_lib::core::parse_workspace_metadata(metadata.as_deref());
             let title = parsed_metadata.title;
-            let parse_lines = |s: String| {
-                s.lines()
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| !l.is_empty())
-                    .collect::<Vec<_>>()
-            };
-            let (included_copy_files, symlinked_dirs) = {
+            let included_copy_files = {
                 let state = state::get()?;
                 let db = state.db.lock().map_err(|e| e.to_string())?;
-                let included = db
-                    .get_repo_setting(&repo_path, "included_copy_files")
+                db.get_repo_setting(&repo_path, "included_copy_files")
                     .ok()
                     .flatten()
-                    .map(parse_lines);
-                let symlinked = db
-                    .get_repo_setting(&repo_path, "symlinked_dirs")
-                    .ok()
-                    .flatten()
-                    .map(parse_lines);
-                (included, symlinked)
+                    .map(|s| {
+                        s.lines()
+                            .map(|l| l.trim().to_string())
+                            .filter(|l| !l.is_empty())
+                            .collect::<Vec<_>>()
+                    })
             };
             let workspace = treq_lib::core::create_workspace_with_symlinked_dirs(
                 &repo_path,
@@ -395,7 +387,7 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
                 source_branch.as_deref(),
                 included_copy_files,
                 parsed_metadata.sparse_patterns,
-                symlinked_dirs,
+                parsed_metadata.symlinked_dirs,
             )?;
             if let Some(t) = title {
                 treq_lib::local_db::update_workspace_title(&repo_path, workspace.id, &t)?;
@@ -484,6 +476,12 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             let workspace_id: Option<i64> = opt_i64(&args, "workspaceId");
             let entries = treq_lib::core::ls_workspace(&repo_path, workspace_id)?;
             serde_json::to_value(entries).map_err(|e| e.to_string())
+        }
+
+        "list_gitignored_path_suggestions" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let suggestions = treq_lib::core::list_gitignored_path_suggestions(&repo_path)?;
+            serde_json::to_value(suggestions).map_err(|e| e.to_string())
         }
 
         "get_workspace_readme" => {

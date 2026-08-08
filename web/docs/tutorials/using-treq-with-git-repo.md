@@ -55,7 +55,7 @@ Treq uses whatever Git authentication your system already has. Set up a credenti
 
 ## Large Repositories
 
-For a repository over 1GB, consider sparse checkout so a workspace only pulls the files it needs, shallow clones with `--depth 1`, or Git LFS for large binaries. Put build output and dependencies such as `dist/`, `node_modules/`, and `venv/` in `.gitignore` to speed up file watching and keep workspaces small. In Settings → Repository, add those heavy directories under **Symlinked Directories** so new workspaces link to the home copy instead of duplicating them.
+For a repository over 1GB, consider sparse checkout so a workspace only pulls the files it needs, shallow clones with `--depth 1`, or Git LFS for large binaries. Put build output and dependencies such as `dist/`, `node_modules/`, and `venv/` in `.gitignore` to speed up file watching and keep workspaces small. When creating a workspace, open Advanced and add those heavy directories under **Symlink from home repo** (suggestions come from `.gitignore`) so the workspace links to the home copy instead of duplicating them.
 
 ## Switching Repositories
 

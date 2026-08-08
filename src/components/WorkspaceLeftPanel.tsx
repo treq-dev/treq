@@ -17,6 +17,8 @@ import {
 import { getValidTargets, type TreeLine } from "../lib/workspace-tree";
 import { type Workspace } from "../lib/api";
 import { cn } from "../lib/utils";
+import { appendPathSuggestion } from "../lib/workspaceMetadata";
+import { Button } from "./ui/button";
 
 export interface WorkspaceLeftPanelProps {
 	showRightPanel: boolean;
@@ -41,6 +43,9 @@ export interface WorkspaceLeftPanelProps {
 	onSetTitle: (val: string) => void;
 	sparsePaths: string;
 	onSetSparsePaths: (val: string) => void;
+	symlinkedDirs: string;
+	onSetSymlinkedDirs: (val: string) => void;
+	gitignoreSuggestions: string[];
 	branchName: string;
 	onSetBranchName: (val: string) => void;
 	onSetIsEditingBranch: (val: boolean) => void;
@@ -73,6 +78,9 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
 	onSetTitle,
 	sparsePaths,
 	onSetSparsePaths,
+	symlinkedDirs,
+	onSetSymlinkedDirs,
+	gitignoreSuggestions,
 	branchName,
 	onSetBranchName,
 	onSetIsEditingBranch,
@@ -251,7 +259,7 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
 				</div>
 			)}
 
-			{/* Advanced options: sparse checkout paths (only for plain creation, where they are applied) */}
+			{/* Advanced options: sparse checkout + symlink dirs (plain creation only) */}
 			{!moveToExisting && !sourceWorkspace && (
 				<div className="grid gap-1.5">
 					<button
@@ -267,18 +275,57 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
 						<span>Advanced</span>
 					</button>
 					{advancedOpen && (
-						<div className="grid gap-1.5">
-							<Label htmlFor="sparse-paths" className="text-xs">
-								Sparse paths (optional, one per line)
-							</Label>
-							<Textarea
-								id="sparse-paths"
-								value={sparsePaths}
-								onChange={(e) => onSetSparsePaths(e.target.value)}
-								placeholder={"e.g., src/api\ndocs"}
-								rows={2}
-								className="resize-none text-sm"
-							/>
+						<div className="grid gap-3">
+							<div className="grid gap-1.5">
+								<Label htmlFor="sparse-paths" className="text-xs">
+									Sparse paths (optional, one per line)
+								</Label>
+								<Textarea
+									id="sparse-paths"
+									value={sparsePaths}
+									onChange={(e) => onSetSparsePaths(e.target.value)}
+									placeholder={"e.g., src/api\ndocs"}
+									rows={2}
+									className="resize-none text-sm"
+								/>
+							</div>
+							<div className="grid gap-1.5">
+								<Label htmlFor="symlinked-dirs" className="text-xs">
+									Symlink from home repo (optional, one per line)
+								</Label>
+								<Textarea
+									id="symlinked-dirs"
+									value={symlinkedDirs}
+									onChange={(e) => onSetSymlinkedDirs(e.target.value)}
+									placeholder={"e.g., node_modules\ntarget"}
+									rows={2}
+									className="resize-none text-sm"
+								/>
+								<p className="text-xs text-muted-foreground">
+									Heavy dirs are linked instead of copied so each workspace
+									shares the home tree.
+								</p>
+								{gitignoreSuggestions.length > 0 && (
+									<div className="flex flex-wrap gap-1.5">
+										{gitignoreSuggestions.map((suggestion) => (
+											<Button
+												key={suggestion}
+												type="button"
+												variant="outline"
+												size="sm"
+												className="h-6 text-xs"
+												onClick={() =>
+													onSetSymlinkedDirs(
+														appendPathSuggestion(symlinkedDirs, suggestion),
+													)
+												}
+											>
+												+ {suggestion}
+											</Button>
+										))}
+									</div>
+								)}
+							</div>
 						</div>
 					)}
 				</div>

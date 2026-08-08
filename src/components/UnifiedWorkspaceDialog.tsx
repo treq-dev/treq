@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	Dialog,
 	DialogContent,
@@ -15,6 +15,7 @@ import {
 	type JjFileChange,
 	type Workspace,
 	type WorkspaceStatus,
+	listGitignoredPathSuggestions,
 } from "../lib/api";
 import type { BranchListItem } from "./TargetBranchSelector";
 import {
@@ -65,6 +66,10 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
 	const [description, setIntent] = useState("");
 	const [title, setTitle] = useState("");
 	const [sparsePaths, setSparsePaths] = useState("");
+	const [symlinkedDirs, setSymlinkedDirs] = useState("");
+	const [gitignoreSuggestions, setGitignoreSuggestions] = useState<string[]>(
+		[],
+	);
 	const [branchName, setBranchName] = useState("");
 	const [branchPattern, setBranchPattern] = useState("treq/{name}");
 	const [isEditingBranch, setIsEditingBranch] = useState(false);
@@ -294,6 +299,33 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
 		(w) => w.id !== sourceWorkspace?.id,
 	);
 
+	// Load gitignore suggestions for symlink chips when the create dialog opens.
+	useEffect(() => {
+		if (!open || sourceWorkspace) {
+			setGitignoreSuggestions([]);
+			return;
+		}
+		let cancelled = false;
+		listGitignoredPathSuggestions(repoPath)
+			.then((suggestions) => {
+				if (!cancelled) setGitignoreSuggestions(suggestions);
+			})
+			.catch(() => {
+				if (!cancelled) setGitignoreSuggestions([]);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [open, repoPath, sourceWorkspace]);
+
+	// Reset advanced overlay fields when the dialog closes/reopens.
+	useEffect(() => {
+		if (open) {
+			setSparsePaths("");
+			setSymlinkedDirs("");
+		}
+	}, [open]);
+
 	// ── effects (extracted to hook) ──────────────────────────────────────────
 	useWorkspaceDialogEffects({
 		open,
@@ -342,6 +374,7 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
 		description,
 		title,
 		sparsePaths,
+		symlinkedDirs,
 		branchName,
 		moveToExisting,
 		isHomeRepo,
@@ -426,6 +459,9 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
 						onSetTitle={setTitle}
 						sparsePaths={sparsePaths}
 						onSetSparsePaths={setSparsePaths}
+						symlinkedDirs={symlinkedDirs}
+						onSetSymlinkedDirs={setSymlinkedDirs}
+						gitignoreSuggestions={gitignoreSuggestions}
 						branchName={branchName}
 						onSetBranchName={setBranchName}
 						onSetIsEditingBranch={setIsEditingBranch}

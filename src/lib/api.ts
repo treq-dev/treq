@@ -144,6 +144,11 @@ export const lsWorkspace = (
 ): Promise<DirectoryEntry[]> =>
 	invoke("ls_workspace", { repoPath, workspaceId });
 
+export const listGitignoredPathSuggestions = (
+	repoPath: string,
+): Promise<string[]> =>
+	invoke("list_gitignored_path_suggestions", { repoPath });
+
 export const getWorkspaceReadme = (
 	repoPath: string,
 	workspaceId: number | null,

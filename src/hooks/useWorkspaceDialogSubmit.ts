@@ -17,6 +17,7 @@ export interface UseWorkspaceDialogSubmitParams {
 	title: string;
 	description: string;
 	sparsePaths: string;
+	symlinkedDirs: string;
 	branchName: string;
 	moveToExisting: boolean;
 	isHomeRepo: boolean;
@@ -46,6 +47,7 @@ export function useWorkspaceDialogSubmit(
 		title,
 		description,
 		sparsePaths,
+		symlinkedDirs,
 		branchName,
 		moveToExisting,
 		isHomeRepo,
@@ -246,6 +248,7 @@ export function useWorkspaceDialogSubmit(
 					description,
 					movedFiles: selectedFilePaths,
 					sparsePaths,
+					symlinkedDirs,
 				});
 				const workspaceId = await createWorkspace(
 					repoPath,
@@ -305,6 +308,7 @@ export function useWorkspaceDialogSubmit(
 					title,
 					description,
 					sparsePaths,
+					symlinkedDirs,
 				});
 
 				let effectiveSourceBranch: string | undefined;

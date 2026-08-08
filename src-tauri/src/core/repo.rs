@@ -186,3 +186,152 @@ pub fn list_repo_branches(repo_path: &str) -> Result<Vec<jj::JjBranch>, String> 
 pub fn switch_repo_branch(repo_path: &str, bookmark_name: &str) -> Result<String, String> {
     jj::jj_edit_bookmark(repo_path, bookmark_name).map_err(|e| e.to_string())
 }
+
+const SKIP_GITIGNORE_SUGGESTION_NAMES: &[&str] = &[".git", ".jj", ".treq", ".vscode"];
+
+/// Suggests paths suitable for workspace symlinks / copy overlays.
+///
+/// Combines:
+/// 1. Root-level entries that exist and are ignored by `.gitignore`
+/// 2. Simple (non-glob) root patterns listed in `.gitignore`
+///
+/// Results are deduped and sorted. Internal treq/jj/git dirs are excluded.
+pub fn list_gitignored_path_suggestions(repo_path: &str) -> Result<Vec<String>, String> {
+    let repo = Path::new(repo_path);
+    if !repo.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut suggestions = std::collections::BTreeSet::new();
+
+    for pattern in simple_gitignore_root_patterns(repo)? {
+        suggestions.insert(pattern);
+    }
+
+    for name in list_ignored_root_entries(repo)? {
+        suggestions.insert(name);
+    }
+
+    Ok(suggestions.into_iter().collect())
+}
+
+fn list_ignored_root_entries(repo: &Path) -> Result<Vec<String>, String> {
+    let walker = ignore::WalkBuilder::new(repo)
+        .max_depth(Some(1))
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .build();
+
+    let all_entries: Vec<_> = fs::read_dir(repo)
+        .map_err(|e| format!("Failed to read directory: {}", e))?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .map(|name| !SKIP_GITIGNORE_SUGGESTION_NAMES.contains(&name))
+                .unwrap_or(false)
+        })
+        .map(|e| e.path())
+        .collect();
+
+    let non_ignored: std::collections::HashSet<_> = walker
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().to_path_buf())
+        .collect();
+
+    let mut ignored = Vec::new();
+    for entry_path in all_entries {
+        if !non_ignored.contains(&entry_path) {
+            if let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) {
+                ignored.push(name.to_string());
+            }
+        }
+    }
+    Ok(ignored)
+}
+
+fn simple_gitignore_root_patterns(repo: &Path) -> Result<Vec<String>, String> {
+    let gitignore_path = repo.join(".gitignore");
+    if !gitignore_path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(&gitignore_path)
+        .map_err(|e| format!("Failed to read .gitignore: {}", e))?;
+
+    let mut patterns = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
+            continue;
+        }
+        if line.contains('*') || line.contains('?') || line.contains('[') {
+            continue;
+        }
+        let pattern = line.trim_start_matches('/').trim_end_matches('/');
+        if pattern.is_empty() || pattern.contains("..") {
+            continue;
+        }
+        // Only suggest single-segment root paths (e.g. node_modules, .venv).
+        if pattern.contains('/') {
+            continue;
+        }
+        if SKIP_GITIGNORE_SUGGESTION_NAMES.contains(&pattern) {
+            continue;
+        }
+        patterns.push(pattern.to_string());
+    }
+    Ok(patterns)
+}
+
+#[cfg(test)]
+mod gitignore_suggestion_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn suggests_ignored_root_entries_and_gitignore_patterns() {
+        let temp = TempDir::new().expect("temp dir");
+        let repo = temp.path();
+        // WalkBuilder git_ignore discovers ignores relative to a git root.
+        fs::create_dir_all(repo.join(".git")).expect("mkdir .git");
+        fs::write(
+            repo.join(".gitignore"),
+            "node_modules/\ntarget/\n*.log\nnested/cache/\n",
+        )
+        .expect("write gitignore");
+        fs::create_dir_all(repo.join("node_modules")).expect("mkdir node_modules");
+        fs::create_dir_all(repo.join("src")).expect("mkdir src");
+        fs::write(repo.join("src/main.rs"), "fn main() {}\n").expect("write src");
+
+        let suggestions = list_gitignored_path_suggestions(repo.to_str().unwrap())
+            .expect("suggestions should succeed");
+        assert!(
+            suggestions.contains(&"node_modules".to_string()),
+            "existing ignored dir should be suggested: {:?}",
+            suggestions
+        );
+        assert!(
+            suggestions.contains(&"target".to_string()),
+            "gitignore pattern target/ should be suggested: {:?}",
+            suggestions
+        );
+        assert!(
+            !suggestions.iter().any(|s| s.contains('*')),
+            "glob patterns must not be suggested"
+        );
+        assert!(
+            !suggestions.iter().any(|s| s.contains('/')),
+            "nested patterns must not be suggested"
+        );
+        assert!(!suggestions.contains(&"src".to_string()));
+    }
+
+    #[test]
+    fn returns_empty_when_repo_missing() {
+        let suggestions = list_gitignored_path_suggestions("/tmp/treq-does-not-exist-xyz")
+            .expect("missing path should not error");
+        assert!(suggestions.is_empty());
+    }
+}

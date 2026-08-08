@@ -54,33 +54,26 @@ pub async fn create_workspace(
 ) -> Result<i64, String> {
     let started_at = Instant::now();
     let parsed_metadata = crate::core::parse_workspace_metadata(metadata.as_deref());
-    let (title, description, moved_files, sparse_patterns) = (
+    let (title, description, moved_files, sparse_patterns, symlinked_dirs) = (
         parsed_metadata.title,
         parsed_metadata.description,
         parsed_metadata.moved_files,
         parsed_metadata.sparse_patterns,
+        parsed_metadata.symlinked_dirs,
     );
 
-    // Read included_copy_files and symlinked_dirs settings from DB
-    let (included_copy_files, symlinked_dirs) = {
+    // Read included_copy_files setting from DB (small files to copy into every workspace)
+    let included_copy_files: Option<Vec<String>> = {
         let db = state.db.lock().unwrap();
-        let parse_lines = |s: String| {
-            s.lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
-                .collect::<Vec<_>>()
-        };
-        let included = db
-            .get_repo_setting(&repo_path, "included_copy_files")
+        db.get_repo_setting(&repo_path, "included_copy_files")
             .ok()
             .flatten()
-            .map(parse_lines);
-        let symlinked = db
-            .get_repo_setting(&repo_path, "symlinked_dirs")
-            .ok()
-            .flatten()
-            .map(parse_lines);
-        (included, symlinked)
+            .map(|s| {
+                s.lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>()
+            })
     };
 
     let repo_path_for_task = repo_path.clone();
