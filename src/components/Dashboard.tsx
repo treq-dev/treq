@@ -58,7 +58,10 @@ import { Onboarding } from "./Onboarding";
 import { SettingsPage } from "./SettingsPage";
 import { ShowWorkspace } from "./ShowWorkspace";
 import type { BranchListItem } from "./TargetBranchSelector";
-import type { ClaudeSessionData } from "./terminal/types";
+import type {
+	ClaudeSessionData,
+	TerminalSessionSummary,
+} from "./terminal/types";
 import {
 	UnifiedWorkspaceDialog,
 	type WorkspaceDialogDefaults,
@@ -141,6 +144,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 		AgentDeepLinkRequest[]
 	>([]);
 	const [, setShowWorkspaceActiveTab] = useState("overview");
+	const [terminalSessionSummaries, setTerminalSessionSummaries] = useState<
+		TerminalSessionSummary[]
+	>([]);
 
 	const terminalPaneRef = useRef<WorkspaceTerminalPaneHandle>(null);
 
@@ -849,6 +855,46 @@ export const Dashboard: React.FC<DashboardProps> = ({
 		);
 	}, []);
 
+	// Full workspace path -> branch name, used to resolve shell terminal
+	// branches for the sidebar's terminal sessions list.
+	const workspaceBranchByPath = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const ws of workspaces) {
+			map.set(getFullWorkspacePath(ws), ws.branch_name);
+		}
+		return map;
+	}, [workspaces]);
+
+	const handleCreateAgentTerminalFromSidebar = useCallback(() => {
+		terminalPaneRef.current?.createAgentSession();
+	}, []);
+
+	const handleCreateShellTerminalFromSidebar = useCallback(() => {
+		terminalPaneRef.current?.createShellSession();
+	}, []);
+
+	const handleFocusTerminalSession = useCallback((id: string) => {
+		terminalPaneRef.current?.focusTerminal(id);
+	}, []);
+
+	const handleCloseTerminalSession = useCallback((id: string) => {
+		terminalPaneRef.current?.closeTerminal(id);
+	}, []);
+
+	const handleCloseIdleTerminalSessions = useCallback(() => {
+		terminalPaneRef.current?.closeIdleTerminals();
+	}, []);
+
+	const handleCloseAllTerminalSessions = useCallback(async () => {
+		const confirmed = await ask(
+			"Close all terminal sessions? This will stop all running agent and shell terminals.",
+			{ title: "Close All Terminals", kind: "warning" },
+		);
+		if (confirmed) {
+			terminalPaneRef.current?.closeAllTerminals();
+		}
+	}, []);
+
 	const handleStartAgentRequest = useCallback(
 		async (request: AgentDeepLinkRequest) => {
 			const workspace = findWorkspaceByBranch(workspaces, request.branch);
@@ -1143,6 +1189,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 					handleCreateSessionFromSidebar(workspace.id)
 				}
 				onStartShell={handleStartShellFromSidebar}
+				terminalSessions={terminalSessionSummaries}
+				onFocusTerminalSession={handleFocusTerminalSession}
+				onCloseTerminalSession={handleCloseTerminalSession}
+				onCloseIdleTerminalSessions={handleCloseIdleTerminalSessions}
+				onCloseAllTerminalSessions={handleCloseAllTerminalSessions}
+				onCreateAgentTerminal={handleCreateAgentTerminalFromSidebar}
+				onCreateShellTerminal={handleCreateShellTerminalFromSidebar}
 				onOpenGitHub={openGitHub}
 				currentPage={
 					viewMode === "settings"
@@ -1231,6 +1284,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 						currentBranch={effectiveDefaultBranch}
 						claudeSessions={claudeSessionsForPane}
 						activeClaudeSessionId={isSessionView ? activeSessionId : null}
+						workspaceBranchByPath={workspaceBranchByPath}
+						onTerminalsChange={setTerminalSessionSummaries}
 						onActiveSessionChange={(sessionId) => {
 							if (sessionId === null) {
 								setActiveSessionId(null);

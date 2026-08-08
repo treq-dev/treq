@@ -71,7 +71,7 @@ describe("default agent configuration", () => {
 		const savedRepo = await getRepoSetting(repoPath, "default_agent");
 		expect(savedRepo).toBe("claude");
 
-		await user.click(await screen.findByRole("button", { name: /close/i }));
+		await user.click(await screen.findByRole("button", { name: "Close" }));
 
 		await user.click(
 			await findSidebarBranchElement("feat/agent-settings-test"),
@@ -188,7 +188,7 @@ describe("default agent configuration", () => {
 		);
 
 		const agentButton = await within(container).findByRole("button", {
-			name: /new agent/i,
+			name: "New Agent",
 		});
 		await user.click(agentButton);
 

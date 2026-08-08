@@ -21,3 +21,25 @@ export interface ShellTerminalData {
 }
 
 export type TerminalRefsMap = Map<string, ConsolidatedTerminalHandle | null>;
+
+/** No output for this long marks a terminal session as idle in the sidebar list. */
+export const TERMINAL_IDLE_THRESHOLD_MS = 60_000;
+
+/**
+ * Unified summary of a single terminal (agent or shell) surfaced in the
+ * workspace sidebar's terminal sessions list.
+ */
+export interface TerminalSessionSummary {
+	/** Matches the id used in WorkspaceTerminalPane's terminalOrder ("shell-..." or "claude-<sessionId>"). */
+	id: string;
+	kind: "agent" | "shell";
+	name: string;
+	/** null when the terminal belongs to the main repo (not a workspace). */
+	branchName: string | null;
+	isMainRepo: boolean;
+	agent?: "claude" | "codex" | "cursor";
+	/** Epoch ms of the last output/creation event. */
+	lastActivityAt: number;
+	/** True while output is actively streaming (shows a spinner). */
+	isStreaming: boolean;
+}
