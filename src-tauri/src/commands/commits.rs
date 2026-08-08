@@ -94,7 +94,8 @@ pub async fn create_commit(
             repo_path,
             workspace_id
         );
-        let result = crate::core::commit_workspace(&repo_path, workspace_id, &message);
+        let result =
+            crate::core::commit_workspace_with_auto_push(&repo_path, workspace_id, &message);
         log::debug!(
             "create_commit end: repo_path={}, workspace_id={:?}, success={}",
             repo_path,
