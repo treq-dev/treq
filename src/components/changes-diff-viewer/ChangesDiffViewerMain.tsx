@@ -249,6 +249,7 @@ export const ChangesDiffViewer = memo(
 				repoPath,
 				branchName,
 				allFileHunks,
+				committedFileHunks,
 			});
 
 			const {

@@ -6,36 +6,28 @@ import {
 	useGitRemoteInfo,
 	usePrInfoViaGh,
 } from "../../../hooks/useMergeQueueStatus";
-import { computeHunkLineNumbers } from "../utils";
+import { placeGithubReviewThreads } from "../placeGithubReviewThreads";
 import type { CommentLineQuery, FileHunksData } from "../types";
 
 interface UseGithubReviewThreadsParams {
 	repoPath: string | undefined;
 	branchName: string | undefined;
 	allFileHunks: Map<string, FileHunksData>;
-}
-
-function pushToMap<K>(
-	map: Map<K, GhReviewThread[]>,
-	key: K,
-	thread: GhReviewThread,
-) {
-	const existing = map.get(key);
-	if (existing) existing.push(thread);
-	else map.set(key, [thread]);
+	/** Committed PR/workspace hunks shown in the Review tab. */
+	committedFileHunks?: Map<string, FileHunksData>;
 }
 
 /**
  * Read-only GitHub PR review comment threads for the current workspace's
- * branch. Threads are matched onto the *current* local diff so they can
- * render inline at the right line -- a thread that no longer matches any
- * line (GitHub reports it outdated, or the local diff has simply since
- * diverged from the PR's diff) is reported as "unplaced" instead.
+ * branch. Threads are matched onto the *current* local diff (uncommitted and
+ * committed Review-tab hunks) so they can render inline at the right line --
+ * a thread that no longer matches any visible line is reported as "unplaced".
  */
 export function useGithubReviewThreads({
 	repoPath,
 	branchName,
 	allFileHunks,
+	committedFileHunks,
 }: UseGithubReviewThreadsParams) {
 	const { data: remoteInfo } = useGitRemoteInfo(repoPath);
 	const { data: prInfo } = usePrInfoViaGh(repoPath, branchName);
@@ -56,43 +48,12 @@ export function useGithubReviewThreads({
 	});
 
 	const { threadsByLineKey, unplacedThreadsByFile } = useMemo(() => {
-		const byLineKey = new Map<string, GhReviewThread[]>();
-		const unplaced = new Map<string, GhReviewThread[]>();
-
-		for (const thread of threads) {
-			if (thread.is_outdated || thread.line == null) {
-				pushToMap(unplaced, thread.path, thread);
-				continue;
-			}
-
-			const fileData = allFileHunks.get(thread.path);
-			const expectedSide: "old" | "new" =
-				thread.diff_side === "LEFT" ? "old" : "new";
-			let placed = false;
-
-			if (fileData?.hunks) {
-				for (const hunk of fileData.hunks) {
-					const lineNumbers = computeHunkLineNumbers(hunk);
-					const hasMatch = lineNumbers.some((ln) => {
-						const actualLineNum = ln.new ?? ln.old ?? 0;
-						const side: "old" | "new" =
-							ln.old !== undefined && ln.new === undefined ? "old" : "new";
-						return actualLineNum === thread.line && side === expectedSide;
-					});
-					if (hasMatch) {
-						const key = `${thread.path}:${hunk.id}:${thread.line}:${expectedSide}`;
-						pushToMap(byLineKey, key, thread);
-						placed = true;
-						break;
-					}
-				}
-			}
-
-			if (!placed) pushToMap(unplaced, thread.path, thread);
+		const hunkMaps: Array<Map<string, FileHunksData>> = [allFileHunks];
+		if (committedFileHunks && committedFileHunks.size > 0) {
+			hunkMaps.push(committedFileHunks);
 		}
-
-		return { threadsByLineKey: byLineKey, unplacedThreadsByFile: unplaced };
-	}, [threads, allFileHunks]);
+		return placeGithubReviewThreads(threads, hunkMaps);
+	}, [threads, allFileHunks, committedFileHunks]);
 
 	const getThreadsForLine = useCallback(
 		({
