@@ -82,7 +82,7 @@ Worktrees fit parallel work in one trusted repository. Commits and branches show
 
 Shared state is the catch. A fetch, a branch deletion, a tag update, a stash, or a maintenance command can hit every linked worktree. Hooks come from the common Git directory unless something like `core.hooksPath` says otherwise. Git can hold some config per worktree through `extensions.worktreeConfig`, but you have to turn that on yourself.
 
-Clones fit jobs that need their own refs, config, maintenance, or deletion. They are not a security boundary on their own. Two clones running as the same OS user still reach the same files, credentials, processes, and network.
+Clones fit jobs that need their own refs, config, maintenance, or deletion. They are not a security boundary on their own. Two clones running as the same OS user still reach the same files, credentials, processes, and network. When one project must pin another project's history inside its tree, use [Git submodules](./git-submodules) instead of a second clone.
 
 ## Scaling and Operations
 

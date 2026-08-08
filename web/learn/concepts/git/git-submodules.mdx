@@ -1,0 +1,110 @@
+---
+sidebar_position: 6
+---
+
+import DefinitionCard from "@site/src/components/DefinitionCard";
+
+# What are Git Submodules?
+
+_Git submodules embed another repository inside a parent repository and pin it to an exact commit._
+
+## Introduction
+
+A **Git submodule** lets a primary repository, called the **superproject**, record an independent Git [repository](./version-control) as a subdirectory. The superproject does not copy the submodule's blobs or trees into its own object store. It stores a pointer to one commit in the submodule's history.
+
+<DefinitionCard
+  term="Git Submodule"
+  definition="An independent Git repository nested inside a superproject and versioned by a commit pointer rather than by absorbing its object database."
+/>
+
+<DefinitionCard
+  term="Superproject"
+  definition="The parent Git repository that records submodule paths and the commit each submodule should check out."
+/>
+
+That design keeps each dependency's history separate. Clones can still rebuild the same composite project from recorded pins.
+
+## Understanding the Concept
+
+Git records a submodule as a **gitlink**: a tree entry with file mode `160000`. That mode means the entry is a commit pointer. It is not a normal file blob, and it is not a nested subdirectory tree. The hash in the tree is the submodule commit the superproject expects.
+
+<DefinitionCard
+  term="Gitlink"
+  definition="A Git tree entry with mode 160000 that stores a commit hash for an embedded repository instead of a blob or tree."
+/>
+
+When you check out a superproject commit, Git places the submodule at that recorded commit. The submodule working tree is usually in a detached `HEAD` state. The superproject pins history by hash. It does not follow a moving branch tip unless you ask it to.
+
+Submodule metadata lives in `.gitmodules` at the root of the superproject. That versioned file maps each submodule's name to its path and remote URL. Clones use those entries to recreate the same nesting.
+
+```ini
+[submodule "vendor/lib"]
+	path = vendor/lib
+	url = https://github.com/example/lib.git
+```
+
+Modern Git keeps the submodule's real repository data under the superproject at `.git/modules/<name>/`. Inside the submodule working tree, `.git` is a file with a `gitdir:` line that points at that central store. You can switch branches or remove the working tree without deleting the downloaded submodule objects.
+
+{/* TODO: Diagram: superproject gitlink (160000) to submodule commit, and working-tree .git file to .git/modules/<name>/. */}
+
+## Applying It in Practice
+
+After cloning a superproject, map `.gitmodules` into local config and check out the recorded commits:
+
+```bash
+git submodule init
+git submodule update
+```
+
+`git submodule init` copies submodule URLs from `.gitmodules` into `.git/config`. `git submodule update` fetches the needed objects and checks out each registered gitlink commit. Many teams combine those steps with `git submodule update --init`. You can also clone with `--recurse-submodules`.
+
+To move a submodule to a newer upstream commit on its configured remote-tracking branch:
+
+```bash
+git submodule update --remote
+```
+
+That fetch updates the submodule checkout past the commit recorded in the superproject index. Stage the new gitlink in the superproject if you want the parent history to track that newer pin.
+
+Before you push the superproject, confirm remotes already have those submodule commits:
+
+```bash
+git push --recurse-submodules=check
+```
+
+The check fails if the push would publish a parent commit that points at a submodule commit nobody else can fetch. That stops broken clones for collaborators.
+
+If someone changes a submodule URL in `.gitmodules`, local config can still point at the old origin. Sync the URLs, then update again:
+
+```bash
+git submodule sync
+git submodule update --init
+```
+
+`git submodule sync` rewrites the remote URLs in `.git/config` from the current `.gitmodules` values. Later fetches then use the new origin.
+
+## Engineering Considerations
+
+Treat the gitlink as the contract between repositories. The superproject history is only reproducible when clones can fetch the referenced submodule commit.
+
+Detached `HEAD` is intentional for that pin. If you need to change the submodule, check out a branch inside it before you commit. Commits made on a detached `HEAD` are easy to lose on the next `git submodule update` unless a branch or remote ref still points at them.
+
+Submodules and [worktrees](./git-worktrees) solve different isolation problems. A worktree adds another checkout of the same repository. A submodule nests a different repository and versions it by commit. Use [clones](./git-worktrees-vs-clones) when you need fully separate remotes and config without nesting. Use submodules when one project must pin another project's history in-tree.
+
+Keep `.gitmodules` and the staged gitlink hashes in sync during review. A parent commit that updates only one of those two records is hard to reason about later.
+
+## Scaling and Operations
+
+Large monorepos that vendor many submodules pay for an extra fetch and checkout step on every fresh clone. Automate `git submodule update --init` in onboarding and CI so missing checkouts fail early.
+
+Coordinate submodule pushes with superproject pushes. Prefer `git push --recurse-submodules=check` or `on-demand` in shared workflows. That keeps parent history from referencing submodule commits that remotes do not have.
+
+When a submodule remote moves, share the `.gitmodules` change and require `git submodule sync` before people update. URL drift often shows up as "commit not found" errors that look like network problems.
+
+Agents and scripts should treat the submodule directory as its own repository. Run Git commands with an explicit working directory or `-C` path. Expect detached `HEAD` after a normal update.
+
+## Next Steps
+
+- [Git Worktrees vs Clones](./git-worktrees-vs-clones): choose shared checkouts versus separate repositories
+- [Parallel Development Workflow](/learn/workflows/git/parallel-development): run concurrent tasks in isolated directories
+- [What are Coding Agents?](/learn/concepts/ai-engineering/coding-agents): give agents separate working directories
