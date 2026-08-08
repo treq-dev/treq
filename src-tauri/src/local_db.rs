@@ -866,12 +866,13 @@ pub fn sync_discovered_workspaces(
         .transaction()
         .map_err(|e| format!("Failed to start discovery transaction: {}", e))?;
     for workspace in discovered {
+        let update_identity = !workspace.has_conflicts;
         tx.execute(
             "INSERT INTO workspaces (workspace_name, workspace_path, branch_name, created_at, refreshed_at)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(workspace_path) DO UPDATE SET
-                 workspace_name = excluded.workspace_name,
-                 branch_name = excluded.branch_name,
+                 workspace_name = CASE WHEN ?6 THEN excluded.workspace_name ELSE workspaces.workspace_name END,
+                 branch_name = CASE WHEN ?6 THEN excluded.branch_name ELSE workspaces.branch_name END,
                  refreshed_at = excluded.refreshed_at",
             params![
                 workspace.workspace_name,
@@ -879,6 +880,7 @@ pub fn sync_discovered_workspaces(
                 workspace.branch_name,
                 refreshed_at,
                 refreshed_at,
+                update_identity,
             ],
         )
         .map_err(|e| format!("Failed to upsert discovered workspace: {}", e))?;

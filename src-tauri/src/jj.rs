@@ -1158,18 +1158,26 @@ pub fn create_workspace(
         .join("workspaces")
         .join(&sanitized_name);
 
-    // If a prior (possibly partial) workspace init left a .jj behind, tear it down cleanly so init can proceed.
+    // Never remove a registered workspace. It may contain work even when the DB
+    // registration was interrupted or lost.
+    if list_jj_workspaces(repo_path)?
+        .iter()
+        .any(|name| name == &sanitized_name)
+    {
+        return Err(JjError::GitWorkspaceError(format!(
+            "Workspace '{}' is already registered; refusing to replace existing work",
+            branch_name
+        )));
+    }
+
+    // A directory is safe to clean only after proving JJ does not register it.
+    // This permits recovery from an interrupted init without making retries
+    // destructive.
     if workspace_dir.join(".jj").exists() {
         let workspace_dir_str = workspace_dir.to_string_lossy();
-        // Attempt a full jj-aware teardown first; fall back to raw removal for orphans.
-        if remove_workspace(repo_path, &workspace_dir_str).is_err() {
-            remove_workspace_directory_only(&workspace_dir_str).map_err(|e| {
-                JjError::GitWorkspaceError(format!(
-                    "Failed to remove existing workspace dir: {}",
-                    e
-                ))
-            })?;
-        }
+        remove_workspace_directory_only(&workspace_dir_str).map_err(|e| {
+            JjError::GitWorkspaceError(format!("Failed to remove orphaned workspace dir: {}", e))
+        })?;
     }
 
     // Ensure workspace directory exists (init_workspace_with_existing_repo requires it)
@@ -1451,8 +1459,37 @@ pub fn create_workspace(
     let final_repo = block_on(tx.commit("create_workspace"))
         .map_err(|e| JjError::GitWorkspaceError(format!("Failed to commit transaction: {}", e)))?;
 
+    // Reload at the latest operation head: another process may have committed
+    // from our stale head and JJ will preserve both bookmark targets.
+    let latest_repo = block_on(parent_workspace.repo_loader().load_at_head()).map_err(|e| {
+        JjError::GitWorkspaceError(format!("Failed to verify workspace creation: {}", e))
+    })?;
+    let target = latest_repo
+        .view()
+        .get_local_bookmark(RefName::new(branch_name));
+    let verified_repo = if target.as_normal() == Some(new_wc.id()) {
+        latest_repo
+    } else if target.has_conflict() && target.added_ids().any(|id| id == new_wc.id()) {
+        let mut repair_tx = latest_repo.start_transaction();
+        repair_tx.repo_mut().set_local_bookmark_target(
+            RefName::new(branch_name),
+            RefTarget::normal(new_wc.id().clone()),
+        );
+        git::export_refs(repair_tx.repo_mut()).map_err(|e| {
+            JjError::GitWorkspaceError(format!("Failed to export repaired bookmark: {}", e))
+        })?;
+        block_on(repair_tx.commit("resolve workspace creation bookmark conflict")).map_err(|e| {
+            JjError::GitWorkspaceError(format!("Failed to resolve workspace bookmark: {}", e))
+        })?
+    } else {
+        return Err(JjError::GitWorkspaceError(format!(
+            "Workspace creation needs recovery: bookmark '{}' is ambiguous and does not safely identify the registered working-copy commit; existing targets were left unchanged",
+            branch_name
+        )));
+    };
+
     // Update the physical working copy to match the new wc commit
-    block_on(new_workspace.check_out(final_repo.op_id().clone(), None, &new_wc))
+    block_on(new_workspace.check_out(verified_repo.op_id().clone(), None, &new_wc))
         .map_err(|e| JjError::GitWorkspaceError(format!("Failed to checkout workspace: {}", e)))?;
 
     Ok(sanitized_name)
@@ -1538,14 +1575,14 @@ fn list_registered_workspaces(repo_path: &str) -> Result<Vec<RegisteredWorkspace
             .store()
             .get_commit(wc_commit_id)
             .map_err(|e| JjError::IoError(format!("Failed to load working-copy commit: {}", e)))?;
-        let branch_name =
+        let (branch_name, bookmark_has_conflict) =
             branch_name_for_workspace_commit(repo.as_ref(), workspace_name.as_str(), &wc_commit);
 
         workspaces.push(RegisteredWorkspace {
             workspace_name: workspace_name.as_str().to_string(),
             workspace_path,
             branch_name,
-            has_conflicts: !wc_commit.tree_ids().is_resolved(),
+            has_conflicts: bookmark_has_conflict || !wc_commit.tree_ids().is_resolved(),
         });
     }
 
@@ -1565,7 +1602,7 @@ fn branch_name_for_workspace_commit(
     repo: &dyn jj_lib::repo::Repo,
     workspace_name: &str,
     wc_commit: &jj_lib::commit::Commit,
-) -> String {
+) -> (String, bool) {
     let bookmark_matches_workspace = |bookmark_name: &str| {
         bookmark_name == workspace_name || sanitize_workspace_name(bookmark_name) == workspace_name
     };
@@ -1581,7 +1618,18 @@ fn branch_name_for_workspace_commit(
         .iter()
         .find(|name| bookmark_matches_workspace(name.as_str()))
     {
-        return name.clone();
+        return (name.clone(), false);
+    }
+
+    // A conflicted bookmark is not returned by local_bookmarks_for_commit as a
+    // normal target. Still associate it with the WC when the WC is one of its
+    // added targets, while surfacing ambiguity to discovery.
+    if let Some((name, _)) = repo.view().local_bookmarks().find(|(name, target)| {
+        bookmark_matches_workspace(name.as_str())
+            && target.has_conflict()
+            && target.added_ids().any(|id| id == wc_commit.id())
+    }) {
+        return (name.as_str().to_string(), true);
     }
 
     let parent_bookmarks: Vec<String> = wc_commit
@@ -1599,10 +1647,10 @@ fn branch_name_for_workspace_commit(
         .iter()
         .find(|name| bookmark_matches_workspace(name.as_str()))
     {
-        return name.clone();
+        return (name.clone(), false);
     }
 
-    workspace_name.to_string()
+    (workspace_name.to_string(), false)
 }
 
 pub fn discover_workspaces_with_conflicts(

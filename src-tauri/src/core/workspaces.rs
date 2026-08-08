@@ -309,6 +309,21 @@ pub fn create_workspace(
     included_copy_files: Option<Vec<String>>,
     sparse_patterns: Option<Vec<String>>,
 ) -> Result<local_db::Workspace, String> {
+    // Creation is a repository mutation just like commit and auto-rebase. Holding
+    // the same lock prevents two in-process callers from starting from the same
+    // operation head.
+    let repo_mutation_lock = commit_lock_for_repo(repo_path);
+    let _repo_mutation_guard = repo_mutation_lock.lock().unwrap();
+
+    if let Some(existing) = local_db::get_workspace_by_branch(repo_path, branch_name)
+        .map_err(|e| format!("Failed to check existing workspace: {}", e))?
+    {
+        return Err(format!(
+            "Workspace '{}' is already registered at '{}'; creation is retry-safe and will not replace it",
+            branch_name, existing.workspace_path
+        ));
+    }
+
     // None and an empty list both mean a full checkout.
     let sparse_patterns = sparse_patterns.filter(|patterns| !patterns.is_empty());
 
@@ -416,11 +431,6 @@ pub fn create_workspace(
             .map_err(|e| format!("Failed to create .claude dir in workspace: {}", e))?;
         std::fs::copy(&claude_src, claude_dst_dir.join("settings.local.json"))
             .map_err(|e| format!("Failed to copy .claude/settings.local.json: {}", e))?;
-    }
-
-    // Remove any stale db record for this branch so re-creates don't leave duplicates.
-    if let Ok(Some(existing)) = local_db::get_workspace_by_branch(repo_path, branch_name) {
-        let _ = local_db::delete_workspace(repo_path, existing.id);
     }
 
     let workspace_id = local_db::add_workspace(
@@ -2443,6 +2453,52 @@ pub fn check_and_rebase_workspaces(
             bookmark_conflicts,
         })
     }
+}
+
+/// Reads the repo-level "auto_push" setting from the app database.
+/// Defaults to `false` when unset, unparseable, or the database is unavailable.
+fn resolve_auto_push(repo_path: &str) -> bool {
+    let app_db_path = crate::core::resolve_app_db_path(repo_path);
+    if !app_db_path.exists() {
+        return false;
+    }
+    let Ok(db) = crate::db::Database::new(app_db_path) else {
+        return false;
+    };
+    db.get_repo_setting(repo_path, "auto_push")
+        .ok()
+        .flatten()
+        .map(|value| value == "true")
+        .unwrap_or(false)
+}
+
+/// Commits the workspace (or home repo) and, when the repository's "auto_push"
+/// setting is enabled, pushes the result to the remote.
+///
+/// # Arguments
+/// * `repo_path`     - Path to the repository root
+/// * `workspace_id`  - ID of the workspace to commit, or `None` for the home repo
+/// * `message`       - Commit message
+///
+/// # Returns
+/// The commit result message on success, or an error string. A failed auto-push
+/// is returned as an error even though the commit itself already succeeded.
+pub fn commit_workspace_with_auto_push<T>(
+    repo_path: &str,
+    workspace_id: T,
+    message: &str,
+) -> Result<String, String>
+where
+    T: Into<Option<i64>>,
+{
+    let workspace_id = workspace_id.into();
+    let result = commit_workspace(repo_path, workspace_id, message)?;
+
+    if resolve_auto_push(repo_path) {
+        push_workspace_to_remote(repo_path, workspace_id)?;
+    }
+
+    Ok(result)
 }
 
 pub fn commit_workspace<T>(

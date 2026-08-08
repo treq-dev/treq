@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
+import { Switch } from "./ui/switch";
 import { getRepoSetting, setRepoSetting } from "../lib/api";
 import { useToast } from "./ui/toast";
 
@@ -23,6 +24,7 @@ export const RepositorySettingsContent = forwardRef<
 	const [includedFiles, setIncludedFiles] = useState("");
 	const [defaultModel, setDefaultModel] = useState<string>("");
 	const [defaultAgent, setDefaultAgent] = useState<string>("");
+	const [autoPush, setAutoPush] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [availableFiles, setAvailableFiles] = useState<string[]>([]);
@@ -39,21 +41,32 @@ export const RepositorySettingsContent = forwardRef<
 				getRepoSetting(repoPath, "included_copy_files"),
 				getRepoSetting(repoPath, "default_model"),
 				getRepoSetting(repoPath, "default_agent"),
+				getRepoSetting(repoPath, "auto_push"),
 			])
-				.then(([branchPattern, includedPatterns, model, agent]) => {
-					setBranchNamePattern(branchPattern || "treq/{name}");
-					setIncludedFiles(includedPatterns || "");
-					setDefaultModel(model || "");
-					setDefaultAgent(agent || "");
-					// Note: gitignored files listing removed - was git-specific
-					setAvailableFiles([]);
-				})
+				.then(
+					([
+						branchPattern,
+						includedPatterns,
+						model,
+						agent,
+						autoPushSetting,
+					]) => {
+						setBranchNamePattern(branchPattern || "treq/{name}");
+						setIncludedFiles(includedPatterns || "");
+						setDefaultModel(model || "");
+						setDefaultAgent(agent || "");
+						setAutoPush(autoPushSetting === "true");
+						// Note: gitignored files listing removed - was git-specific
+						setAvailableFiles([]);
+					},
+				)
 				.catch((err) => {
 					setError(`Failed to load settings: ${err}`);
 					setBranchNamePattern("treq/{name}");
 					setIncludedFiles("");
 					setDefaultModel("");
 					setDefaultAgent("");
+					setAutoPush(false);
 					setAvailableFiles([]);
 				})
 				.finally(() => {
@@ -72,6 +85,7 @@ export const RepositorySettingsContent = forwardRef<
 				setRepoSetting(repoPath, "included_copy_files", includedFiles),
 				setRepoSetting(repoPath, "default_model", defaultModel),
 				setRepoSetting(repoPath, "default_agent", defaultAgent),
+				setRepoSetting(repoPath, "auto_push", autoPush ? "true" : "false"),
 			]);
 			addToast({
 				title: "Settings saved",
@@ -199,6 +213,21 @@ export const RepositorySettingsContent = forwardRef<
 					Default agent for new sessions in this repository (overrides
 					application default)
 				</p>
+			</div>
+
+			<div className="flex items-center justify-between gap-4">
+				<div>
+					<Label htmlFor="auto-push">Auto-push to remote</Label>
+					<p className="text-sm text-muted-foreground mt-1">
+						Automatically push to the remote after every commit in this
+						repository
+					</p>
+				</div>
+				<Switch
+					id="auto-push"
+					checked={autoPush}
+					onCheckedChange={setAutoPush}
+				/>
 			</div>
 
 			{error && <div className="text-sm text-destructive">{error}</div>}
