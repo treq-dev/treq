@@ -309,6 +309,33 @@ pub fn create_workspace(
     included_copy_files: Option<Vec<String>>,
     sparse_patterns: Option<Vec<String>>,
 ) -> Result<local_db::Workspace, String> {
+    create_workspace_with_symlinked_dirs(
+        repo_path,
+        branch_name,
+        description,
+        moved_files,
+        source_branch,
+        included_copy_files,
+        sparse_patterns,
+        None,
+    )
+}
+
+/// Creates a workspace and optionally symlinks heavy directories from the home repo.
+///
+/// `symlinked_dirs` are paths relative to the repo root (e.g. `node_modules`). Each
+/// existing path is linked into the new workspace instead of being copied, so large
+/// dependency trees are shared with the home working copy.
+pub fn create_workspace_with_symlinked_dirs(
+    repo_path: &str,
+    branch_name: &str,
+    description: Option<String>,
+    moved_files: Option<Vec<String>>,
+    source_branch: Option<&str>,
+    included_copy_files: Option<Vec<String>>,
+    sparse_patterns: Option<Vec<String>>,
+    symlinked_dirs: Option<Vec<String>>,
+) -> Result<local_db::Workspace, String> {
     // None and an empty list both mean a full checkout.
     let sparse_patterns = sparse_patterns.filter(|patterns| !patterns.is_empty());
 
@@ -403,6 +430,13 @@ pub fn create_workspace(
     if let Some(ref patterns) = included_copy_files {
         if !patterns.is_empty() {
             copy_included_files(repo_path, ws_full.to_str().unwrap_or_default(), patterns)?;
+        }
+    }
+
+    // Symlink heavy directories (e.g. node_modules) to the home repo instead of copying.
+    if let Some(ref patterns) = symlinked_dirs {
+        if !patterns.is_empty() {
+            symlink_included_dirs(repo_path, ws_full.to_str().unwrap_or_default(), patterns)?;
         }
     }
 
@@ -2155,6 +2189,64 @@ pub fn copy_included_files(
         }
     }
     Ok(())
+}
+
+/// Creates symlinks in `workspace_dir` pointing at paths in `repo_path`.
+///
+/// Each pattern is an exact file or directory path relative to the repo root
+/// (e.g. `node_modules`, `vendor/cache`). Missing patterns are silently skipped.
+/// Symlink targets are absolute so the link remains valid from the workspace tree.
+pub fn symlink_included_dirs(
+    repo_path: &str,
+    workspace_dir: &str,
+    patterns: &[String],
+) -> Result<(), String> {
+    let repo = Path::new(repo_path);
+    let workspace = Path::new(workspace_dir);
+
+    for pattern in patterns {
+        let pattern = pattern.trim().trim_end_matches('/');
+        if pattern.is_empty() {
+            continue;
+        }
+        let source = repo.join(pattern);
+        if !source.exists() {
+            continue;
+        }
+        let dest = workspace.join(pattern);
+        if dest.exists() || dest.symlink_metadata().is_ok() {
+            return Err(format!(
+                "Cannot symlink '{}': destination already exists at {:?}",
+                pattern, dest
+            ));
+        }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory {:?}: {}", parent, e))?;
+        }
+        let abs_source = source
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve absolute path for {:?}: {}", source, e))?;
+        create_symlink(&abs_source, &dest)?;
+    }
+    Ok(())
+}
+
+fn create_symlink(source: &Path, dest: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(source, dest)
+            .map_err(|e| format!("Failed to create symlink {:?} -> {:?}: {}", dest, source, e))
+    }
+    #[cfg(windows)]
+    {
+        let result = if source.is_dir() {
+            std::os::windows::fs::symlink_dir(source, dest)
+        } else {
+            std::os::windows::fs::symlink_file(source, dest)
+        };
+        result.map_err(|e| format!("Failed to create symlink {:?} -> {:?}: {}", dest, source, e))
+    }
 }
 
 /// Gets the combined diff of all workspace commits relative to the target branch.

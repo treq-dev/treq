@@ -21,6 +21,7 @@ export const RepositorySettingsContent = forwardRef<
 >(({ repoPath, onSavingChange }, ref) => {
 	const [branchNamePattern, setBranchNamePattern] = useState("treq/{name}");
 	const [includedFiles, setIncludedFiles] = useState("");
+	const [symlinkedDirs, setSymlinkedDirs] = useState("");
 	const [defaultModel, setDefaultModel] = useState<string>("");
 	const [defaultAgent, setDefaultAgent] = useState<string>("");
 	const [loading, setLoading] = useState(false);
@@ -37,21 +38,32 @@ export const RepositorySettingsContent = forwardRef<
 			Promise.all([
 				getRepoSetting(repoPath, "branch_name_pattern"),
 				getRepoSetting(repoPath, "included_copy_files"),
+				getRepoSetting(repoPath, "symlinked_dirs"),
 				getRepoSetting(repoPath, "default_model"),
 				getRepoSetting(repoPath, "default_agent"),
 			])
-				.then(([branchPattern, includedPatterns, model, agent]) => {
-					setBranchNamePattern(branchPattern || "treq/{name}");
-					setIncludedFiles(includedPatterns || "");
-					setDefaultModel(model || "");
-					setDefaultAgent(agent || "");
-					// Note: gitignored files listing removed - was git-specific
-					setAvailableFiles([]);
-				})
+				.then(
+					([
+						branchPattern,
+						includedPatterns,
+						symlinkedPatterns,
+						model,
+						agent,
+					]) => {
+						setBranchNamePattern(branchPattern || "treq/{name}");
+						setIncludedFiles(includedPatterns || "");
+						setSymlinkedDirs(symlinkedPatterns || "");
+						setDefaultModel(model || "");
+						setDefaultAgent(agent || "");
+						// Note: gitignored files listing removed - was git-specific
+						setAvailableFiles([]);
+					},
+				)
 				.catch((err) => {
 					setError(`Failed to load settings: ${err}`);
 					setBranchNamePattern("treq/{name}");
 					setIncludedFiles("");
+					setSymlinkedDirs("");
 					setDefaultModel("");
 					setDefaultAgent("");
 					setAvailableFiles([]);
@@ -70,6 +82,7 @@ export const RepositorySettingsContent = forwardRef<
 			await Promise.all([
 				setRepoSetting(repoPath, "branch_name_pattern", branchNamePattern),
 				setRepoSetting(repoPath, "included_copy_files", includedFiles),
+				setRepoSetting(repoPath, "symlinked_dirs", symlinkedDirs),
 				setRepoSetting(repoPath, "default_model", defaultModel),
 				setRepoSetting(repoPath, "default_agent", defaultAgent),
 			]);
@@ -131,12 +144,13 @@ export const RepositorySettingsContent = forwardRef<
 					id="included-files"
 					value={includedFiles}
 					onChange={(e) => setIncludedFiles(e.target.value)}
-					placeholder="e.g., node_modules&#10;**/target/**&#10;.env"
-					rows={6}
+					placeholder="e.g., .env&#10;.env.local"
+					rows={4}
 					className="font-mono text-sm mt-2"
 				/>
 				<p className="text-sm text-muted-foreground mt-1">
-					Patterns to copy (e.g., node_modules, .env*)
+					Paths to copy into each new workspace (e.g. .env). Prefer symlinks
+					below for large directories.
 				</p>
 				{availableFiles.length > 0 && (
 					<div className="flex flex-wrap gap-2 mt-2">
@@ -159,6 +173,22 @@ export const RepositorySettingsContent = forwardRef<
 						No .gitignored files found in repository root
 					</p>
 				)}
+			</div>
+
+			<div>
+				<Label htmlFor="symlinked-dirs">Symlinked Directories</Label>
+				<Textarea
+					id="symlinked-dirs"
+					value={symlinkedDirs}
+					onChange={(e) => setSymlinkedDirs(e.target.value)}
+					placeholder="e.g., node_modules&#10;target&#10;.venv"
+					rows={4}
+					className="font-mono text-sm mt-2"
+				/>
+				<p className="text-sm text-muted-foreground mt-1">
+					Heavy directories to symlink from the home repo into each new
+					workspace instead of copying (e.g. node_modules, target, .venv).
+				</p>
 			</div>
 
 			<div>

@@ -366,14 +366,36 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
 
             let parsed_metadata = treq_lib::core::parse_workspace_metadata(metadata.as_deref());
             let title = parsed_metadata.title;
-            let workspace = treq_lib::core::create_workspace(
+            let parse_lines = |s: String| {
+                s.lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>()
+            };
+            let (included_copy_files, symlinked_dirs) = {
+                let state = state::get()?;
+                let db = state.db.lock().map_err(|e| e.to_string())?;
+                let included = db
+                    .get_repo_setting(&repo_path, "included_copy_files")
+                    .ok()
+                    .flatten()
+                    .map(parse_lines);
+                let symlinked = db
+                    .get_repo_setting(&repo_path, "symlinked_dirs")
+                    .ok()
+                    .flatten()
+                    .map(parse_lines);
+                (included, symlinked)
+            };
+            let workspace = treq_lib::core::create_workspace_with_symlinked_dirs(
                 &repo_path,
                 &branch_name,
                 parsed_metadata.description,
                 parsed_metadata.moved_files,
                 source_branch.as_deref(),
-                None, // included_copy_files
+                included_copy_files,
                 parsed_metadata.sparse_patterns,
+                symlinked_dirs,
             )?;
             if let Some(t) = title {
                 treq_lib::local_db::update_workspace_title(&repo_path, workspace.id, &t)?;
