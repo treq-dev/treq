@@ -60,6 +60,13 @@
               "takesValue": true,
               "multiple": true,
               "description": "Sparse checkout path prefix; repeatable, only matching paths are materialized"
+            },
+            {
+              "name": "symlink",
+              "short": "k",
+              "takesValue": true,
+              "multiple": true,
+              "description": "Path to symlink from the home repo into the new workspace; repeatable (e.g. node_modules)"
             }
           ]
         },

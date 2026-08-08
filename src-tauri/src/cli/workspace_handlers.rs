@@ -49,7 +49,7 @@ pub(super) fn handle_workspace_add(matches: &Matches) {
         None => {
             eprintln!("Error: branch name is required");
             eprintln!(
-                "Usage: treq add <branch_name> [-d description] [-l title] [-s source_branch] [-p sparse_path]..."
+                "Usage: treq add <branch_name> [-d description] [-l title] [-s source_branch] [-p sparse_path]... [-k symlink_path]..."
             );
             return;
         }
@@ -59,6 +59,8 @@ pub(super) fn handle_workspace_add(matches: &Matches) {
     let source_branch = get_arg_value(matches, "source-branch");
     let sparse_patterns = get_arg_values(matches, "sparse");
     let sparse_patterns = (!sparse_patterns.is_empty()).then_some(sparse_patterns);
+    let symlinked_dirs = get_arg_values(matches, "symlink");
+    let symlinked_dirs = (!symlinked_dirs.is_empty()).then_some(symlinked_dirs);
 
     let repo_path = match detect_repo_path() {
         Ok(p) => p,
@@ -74,7 +76,7 @@ pub(super) fn handle_workspace_add(matches: &Matches) {
         return;
     }
 
-    match core::create_workspace(
+    match core::create_workspace_with_symlinked_dirs(
         &repo_path,
         &branch_name,
         description,
@@ -82,11 +84,15 @@ pub(super) fn handle_workspace_add(matches: &Matches) {
         source_branch.as_deref(),
         None,
         sparse_patterns,
+        symlinked_dirs.clone(),
     ) {
         Ok(workspace) => {
             println!("Created workspace: {}", workspace.branch_name);
             if let Some(ref description) = workspace.description {
                 println!("  Description: {}", description);
+            }
+            if let Some(ref dirs) = symlinked_dirs {
+                println!("  Symlinked: {}", dirs.join(", "));
             }
             let full_path = Path::new(&repo_path)
                 .join(".treq")

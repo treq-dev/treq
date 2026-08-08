@@ -15,13 +15,21 @@ The `treq` command lets you create and inspect [workspaces](/docs/concepts/works
 Create a new workspace.
 
 ```bash
-treq add <branch_name> [-d <description>] [-l <title>] [-s <source_branch>]
+treq add <branch_name> [-d <description>] [-l <title>] [-s <source_branch>] [-p <sparse_path>]... [-k <symlink_path>]...
 ```
 
 - `branch_name`: branch name for the workspace.
 - `-d, --description`: optional workspace description.
 - `-l, --title`: optional workspace title.
 - `-s, --source-branch`: branch to stack the new workspace on.
+- `-p, --sparse`: sparse checkout path prefix; repeatable. Only matching paths are materialized.
+- `-k, --symlink`: path to symlink from the home repo into the new workspace; repeatable (e.g. `node_modules`).
+
+Example:
+
+```bash
+treq add feat/deps -k node_modules -k target
+```
 
 ### `treq set`
 

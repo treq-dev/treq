@@ -100,7 +100,7 @@ fn print_cli_help() {
     println!("Treq - Stacking ADE");
     println!();
     println!("Usage:");
-    println!("  treq add <branch_name> [-d description] [-l title] [-s source_branch]");
+    println!("  treq add <branch_name> [-d description] [-l title] [-s source_branch] [-p sparse]... [-k symlink]...");
     println!("  treq set <workspace_name> [-d description] [-l title] [-t target_branch]");
     println!("  treq st [workspace_name]");
     println!(
