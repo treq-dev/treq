@@ -72,7 +72,7 @@ it("captures adding review comments across two files in the FileBrowser", async 
 	await captureDocument(document, {
 		name: "filebrowser-review-02-first-comment",
 		expectations: [
-			'A review action bar at the top reads "1 comment pending" with Discard and Finish review controls.',
+			'The same header row as the "Back" button also reads "1 comment pending" with Discard and Finish review controls, all in one row.',
 			"app.ts's row in the file tree shows a small comment-count badge reading 1.",
 		],
 	});
@@ -94,19 +94,24 @@ it("captures adding review comments across two files in the FileBrowser", async 
 	await captureDocument(document, {
 		name: "filebrowser-review-03-second-file-comment",
 		expectations: [
-			'The review action bar now reads "2 comments pending", proving comments accumulate across files in one session.',
+			'The header row next to "Back" now reads "2 comments pending", proving comments accumulate across files in one session.',
 			"Both app.ts and helper.ts show a comment-count badge of 1 each in the file tree.",
 		],
 	});
 
 	// Open the "Finish review" popover to confirm it surfaces the batched send controls.
+	// NOTE: the screenshot harness rasterizes a jsdom-serialized DOM with no real
+	// layout engine, so Radix Popover/floating-ui can't compute real anchor
+	// coordinates here — the popover card renders detached from its trigger in
+	// this capture even though it anchors correctly in the real running app.
+	// Only its content (not position) is a meaningful claim below.
 	await user.click(fileBrowser.getByRole("button", { name: /finish review/i }));
 	await screen.findByText("Finish your review");
 	await captureDocument(document, {
 		name: "filebrowser-review-04-finish-popover",
 		expectations: [
-			'A popover titled "Finish your review" is open, stating 2 comments will be submitted.',
-			'The popover shows "Copy", "Plan", and "Edit" buttons for sending the batched review.',
+			'A "Finish your review" card is present, stating 2 comments will be submitted.',
+			'The card shows "Copy", "Plan", and "Edit" buttons for sending the batched review.',
 		],
 	});
 }, 60000);

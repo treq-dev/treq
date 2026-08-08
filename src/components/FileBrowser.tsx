@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	AlertCircle,
 	Check,
+	ChevronLeft,
 	Code2,
 	Copy,
 	Eye,
@@ -13,6 +14,8 @@ import {
 	Loader2,
 	MessageSquare,
 	Plus,
+	Send,
+	X,
 } from "lucide-react";
 import { List, type ListImperativeAPI } from "react-window";
 import {
@@ -68,10 +71,22 @@ import {
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEditorApps } from "../hooks/useEditorApps";
 import { useFileBrowserReview } from "../hooks/useFileBrowserReview";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "./ui/alert-dialog";
+import { Button } from "./ui/button";
 import { CommentInput } from "./CommentInput";
 import { MarkdownContent } from "./MarkdownContent";
-import { ReviewActionBar } from "./changes-diff-viewer/ReviewActionBar";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { Textarea } from "./ui/textarea";
 
 // Helper to check if file is binary
 function isBinaryFile(path: string): boolean {
@@ -116,6 +131,7 @@ interface FileBrowserProps {
 	repoPath: string | null;
 	initialSelectedFile: string | null;
 	initialExpandedDir: string | null;
+	onBack?: () => void;
 	onCreateAgentWithReview?: (
 		reviewMarkdown: string,
 		mode: "plan" | "acceptEdits",
@@ -124,12 +140,6 @@ interface FileBrowserProps {
 
 /** Placeholder hunkId for FileBrowser comments — there's no jj diff hunk to anchor to. */
 const FILE_BROWSER_COMMENT_HUNK_ID = "browser";
-
-// FileBrowser has no diff-staleness concept, so these are always empty/no-ops
-// when driving the shared ReviewActionBar.
-const EMPTY_STALE_FILES = new Set<string>();
-const EMPTY_COMMENTS_GETTER = () => [];
-const noop = () => {};
 
 // Filter out .git and .treq files/directories (but keep .github, .gitignore, etc.)
 function filterHiddenEntries(entries: DirectoryEntry[]): DirectoryEntry[] {
@@ -985,6 +995,7 @@ export const FileBrowser = memo(
 		repoPath,
 		initialSelectedFile,
 		initialExpandedDir,
+		onBack,
 		onCreateAgentWithReview,
 	}: FileBrowserProps) => {
 		// Determine the path and branch to use
@@ -1675,48 +1686,178 @@ export const FileBrowser = memo(
 			/>
 		);
 
+		const pendingCommentCount = fileBrowserReview.comments.length;
+
 		return (
 			<div
-				className="h-full flex bg-background overflow-hidden"
+				className="h-full flex flex-col bg-background overflow-hidden"
 				data-testid="file-browser"
 			>
-				{/* File Tree */}
-				<div className="w-72 flex-shrink-0 border-r bg-sidebar overflow-auto">
-					{isLoadingDir && rootEntries.length === 0 ? (
-						<div className="flex items-center justify-center p-4">
-							<Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-						</div>
-					) : (
-						<div className="p-3 space-y-1">
-							{sortedRootEntries.map((entry) => renderTreeNode(entry, 0))}
+				{/* Header: Back + review controls, sharing one row */}
+				<div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2 border-b border-border flex-shrink-0">
+					<div>
+						{onBack && (
+							<button
+								type="button"
+								onClick={onBack}
+								className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+							>
+								<ChevronLeft className="w-4 h-4" />
+								Back
+							</button>
+						)}
+					</div>
+					{pendingCommentCount > 0 && (
+						<div className="flex items-center gap-2">
+							<span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+								<MessageSquare className="w-4 h-4 text-primary" />
+								{pendingCommentCount} comment
+								{pendingCommentCount !== 1 ? "s" : ""} pending
+							</span>
+							<Button
+								size="sm"
+								variant="outline"
+								onClick={() => fileBrowserReview.setShowCancelDialog(true)}
+							>
+								Discard
+							</Button>
+							<Popover
+								open={fileBrowserReview.reviewPopoverOpen}
+								onOpenChange={fileBrowserReview.setReviewPopoverOpen}
+							>
+								<PopoverTrigger asChild>
+									<Button size="sm" variant="default" className="gap-2">
+										<Send className="w-3 h-3" />
+										Finish review
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent
+									align="end"
+									side="bottom"
+									className="w-80 relative"
+								>
+									<button
+										type="button"
+										onClick={() =>
+											fileBrowserReview.setReviewPopoverOpen(false)
+										}
+										className="h-8 w-8 absolute top-2 right-2 flex items-center justify-center rounded hover:bg-muted"
+										aria-label="Close"
+										title="Close"
+										disabled={fileBrowserReview.sendingReview}
+									>
+										<X className="w-4 h-4" />
+									</button>
+									<div className="space-y-3">
+										<div>
+											<h4 className="font-medium text-sm mb-1">
+												Finish your review
+											</h4>
+											<p className="text-sm text-muted-foreground">
+												{pendingCommentCount} comment
+												{pendingCommentCount !== 1 ? "s" : ""} will be
+												submitted.
+											</p>
+										</div>
+										<Textarea
+											value={fileBrowserReview.finalReviewComment}
+											onChange={(event) =>
+												fileBrowserReview.setFinalReviewComment(
+													event.target.value,
+												)
+											}
+											placeholder="Add a summary comment (optional)..."
+											className="min-h-[80px] text-sm"
+										/>
+										<div className="flex justify-between gap-2">
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={fileBrowserReview.handleCopyReview}
+												className="gap-2"
+												disabled={fileBrowserReview.sendingReview}
+											>
+												{fileBrowserReview.copiedReview ? (
+													<>
+														<Check className="w-3 h-3" />
+														Copied
+													</>
+												) : (
+													<>
+														<Copy className="w-3 h-3" />
+														Copy
+													</>
+												)}
+											</Button>
+											<div className="flex gap-2">
+												<Button
+													size="sm"
+													variant="secondary"
+													onClick={() =>
+														fileBrowserReview.handleRequestChanges("plan")
+													}
+													disabled={fileBrowserReview.sendingReview}
+												>
+													Plan
+												</Button>
+												<Button
+													size="sm"
+													onClick={() =>
+														fileBrowserReview.handleRequestChanges(
+															"acceptEdits",
+														)
+													}
+													disabled={fileBrowserReview.sendingReview}
+												>
+													Edit
+												</Button>
+											</div>
+										</div>
+									</div>
+								</PopoverContent>
+							</Popover>
 						</div>
 					)}
 				</div>
 
-				{/* File Content */}
-				<div className="flex-1 min-w-0 bg-background flex flex-col overflow-hidden">
-					<ReviewActionBar
-						showActionBar={fileBrowserReview.comments.length > 0}
-						hasConflicts={false}
-						totalComments={fileBrowserReview.comments.length}
-						comments={fileBrowserReview.comments}
-						staleFiles={EMPTY_STALE_FILES}
-						reviewPopoverOpen={fileBrowserReview.reviewPopoverOpen}
-						setReviewPopoverOpen={fileBrowserReview.setReviewPopoverOpen}
-						finalReviewComment={fileBrowserReview.finalReviewComment}
-						setFinalReviewComment={fileBrowserReview.setFinalReviewComment}
-						showCancelDialog={fileBrowserReview.showCancelDialog}
-						setShowCancelDialog={fileBrowserReview.setShowCancelDialog}
-						copiedReview={fileBrowserReview.copiedReview}
-						sendingReview={fileBrowserReview.sendingReview}
-						handleCopyReview={fileBrowserReview.handleCopyReview}
-						handleCancelReview={fileBrowserReview.handleCancelReview}
-						handleRequestChanges={fileBrowserReview.handleRequestChanges}
-						handleReloadWithPendingChanges={noop}
-						getAllOutdatedComments={EMPTY_COMMENTS_GETTER}
-						handleCopyOutdatedComments={noop}
-					/>
-					<div className="flex-1 min-w-0 overflow-auto">
+				<AlertDialog
+					open={fileBrowserReview.showCancelDialog}
+					onOpenChange={fileBrowserReview.setShowCancelDialog}
+				>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Discard review?</AlertDialogTitle>
+							<AlertDialogDescription>
+								This will discard all {pendingCommentCount} pending comment
+								{pendingCommentCount !== 1 ? "s" : ""}. This action cannot be
+								undone.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>Keep reviewing</AlertDialogCancel>
+							<AlertDialogAction onClick={fileBrowserReview.handleCancelReview}>
+								Discard
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+
+				<div className="flex-1 flex min-h-0 overflow-hidden">
+					{/* File Tree */}
+					<div className="w-72 flex-shrink-0 border-r bg-sidebar overflow-auto">
+						{isLoadingDir && rootEntries.length === 0 ? (
+							<div className="flex items-center justify-center p-4">
+								<Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+							</div>
+						) : (
+							<div className="p-3 space-y-1">
+								{sortedRootEntries.map((entry) => renderTreeNode(entry, 0))}
+							</div>
+						)}
+					</div>
+
+					{/* File Content */}
+					<div className="flex-1 min-w-0 bg-background overflow-auto">
 						{renderFileContent()}
 					</div>
 				</div>
