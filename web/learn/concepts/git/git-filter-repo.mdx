@@ -1,0 +1,110 @@
+---
+sidebar_position: 6
+---
+
+import DefinitionCard from "@site/src/components/DefinitionCard";
+
+# What is git filter-repo?
+
+_`git filter-repo` rewrites Git history by editing fast-export streams. It replaces the older `git filter-branch` tool._
+
+## Introduction
+
+**`git filter-repo`** is the tool the Git project recommends when you need to change past commits across a repository. It replaces **`git filter-branch`**, an older built-in that checks out each commit's tree and runs shell scripts against it.
+
+<DefinitionCard
+  term="git filter-repo"
+  definition="A Python Git history rewriting tool that changes commits by editing fast-export and fast-import streams in memory."
+/>
+
+<DefinitionCard
+  term="git filter-branch"
+  definition="A legacy Git command that rewrites history by checking out each commit's tree and running shell filters. The Git project advises against using it."
+/>
+
+`filter-branch` is slow on large repositories and can damage history without clear errors. `filter-repo` rewrites object streams instead of working trees, and it finishes much faster on the same data.
+
+Branch-level history edits such as [rebase](./merge-vs-rebase) replay a line of commits onto a new base. `filter-repo` rewrites the whole repository when a path, blob, or string must change everywhere.
+
+## Understanding the Concept
+
+`git filter-branch` runs shell commands such as `sed` and `xargs` against one checkout after another. That design creates heavy disk work and slows down as the commit graph grows. It also has known safety failures. It can leave empty commits that filtering produced. It can miss short commit hashes inside old commit messages. It can corrupt paths that contain unusual characters or double quotes.
+
+`git filter-repo` works differently. It reads the repository as a fast-export stream, applies filters in memory, and writes a fast-import stream back. It does not check out a [working tree](./git-worktrees) for each commit. The rewrite keeps the original commit graph shape while changing only the objects your filters touch.
+
+| | `git filter-branch` | `git filter-repo` |
+| --- | --- | --- |
+| Mechanism | Checkout each tree, run shell filters | Edit fast-export streams in memory |
+| Speed on large histories | Extremely slow | Much faster |
+| Empty commits from filtering | Often left behind | Removed automatically |
+| Intentionally empty commits | Hard to tell apart | Kept |
+| Path and encoding safety | Fragile with special characters | Handles paths safely |
+| Commit-message SHA updates | Incomplete | Rewrites references to new objects |
+
+Common rewrites include pulling one directory into its own history, replacing leaked secrets across all blobs, and updating commit-message hashes so they point at the new commit objects. When filtering removes every change from a commit, `filter-repo` drops that commit. Commits that were empty before filtering stay in the history.
+
+## Applying It in Practice
+
+Rewrite history only on an isolated [clone](./git-worktrees-vs-clones). Use a bare mirror. That keeps the rewrite away from your working tree and local tracking refs:
+
+```bash
+git clone --mirror git@github.com:example/repo.git repo.git
+cd repo.git
+```
+
+Before you remove anything, inspect what the history contains:
+
+```bash
+git filter-repo --analyze
+```
+
+That command writes reports under `.git/filter-repo/analysis/`, including `path-all-sizes.txt` and `path-deleted-sizes.txt`. Use those files to find large blobs and deleted paths before you choose a filter.
+
+Drop a path from every commit:
+
+```bash
+git filter-repo --path secrets/ --invert-paths
+```
+
+Replace leaked strings across blobs and commit messages with a replacements file:
+
+```bash
+git filter-repo --replace-text replacements.txt
+```
+
+A `replacements.txt` file uses `literal:` or `regex:` lines to map sensitive values to placeholders. After the rewrite, [force-push](/docs/how-to/pushing-to-remote) the new history to the remote:
+
+```bash
+git push --force origin
+```
+
+`--force-with-lease` does not apply here. A disconnected mirror clone has no current upstream tracking ref to compare against, so a plain `--force` push is the usual update.
+
+## Engineering Considerations
+
+History rewriting changes every commit object ID that depends on a filtered tree or parent. Anyone who cloned before the rewrite still holds the old objects. They must re-clone or carefully reset to the new tips. Treat the operation as a planned switch for the whole team, not a routine cleanup.
+
+Filtering drops references to unwanted blobs and trees, but the objects stay in the local object database until garbage collection runs. Expire reflogs and prune right after the rewrite:
+
+```bash
+git reflog expire --expire=now --all
+git gc --prune=now --aggressive
+```
+
+Without that step, clones of the rewritten repository can still contain the purged data. Remote hosts keep unused objects until their own garbage collection runs. Request server-side cleanup after the force-push if the host does not prune on its own.
+
+Prefer `filter-repo` over `filter-branch` for every new rewrite. The Git docs mark `filter-branch` as dangerous. The speed gap alone makes `filter-branch` a poor default on any large repository.
+
+## Scaling and Operations
+
+On large repositories, start with `--analyze` and target only the paths or strings you must remove. Broad filters rewrite more of the commit graph, produce larger force-pushes, and force more collaborators to resync.
+
+Keep the mirror clone disposable. Delete it after the force-push and remote prune succeed. Leftover local objects should not be mistaken for a clean copy of the rewritten history.
+
+Document the rewrite for the team: which filters ran, when the force-push landed, and which branches or tags moved. Dependent forks, CI caches, and local worktrees all need a clear recovery step once object IDs change.
+
+## Next Steps
+
+- [What is Version Control?](./version-control): review how commits, trees, and blobs relate
+- [Cherry-pick vs Rebase](./cherry-pick-vs-rebase): distinguish selected patch copying from branch rewriting
+- [What are Stacked PRs?](./stacked-prs): coordinate dependent branches after object IDs change

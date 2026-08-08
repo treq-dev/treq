@@ -93,6 +93,8 @@ git log --first-parent --oneline main
 
 Rebase is good for tidying private work and for moving a branch onto the base it should have had. A straight line is easier to scan, but you lose the shape of the original branches. Never rewrite commits colleagues have built on unless everyone agrees how to recover. A [stack of dependent branches](./stacked-prs) needs that agreement on every rebase.
 
+Removing a path or secret from every commit is a different operation. Use [git filter-repo](./git-filter-repo), not rebase.
+
 `git bisect` works on straight and merged histories alike. A merge commit can muddy a regression when neither parent reproduces it on its own, and a squash can bury the step that caused the bug. What makes history useful is commits that build and stay focused, not the shape of the graph.
 
 `git blame` also works across merges. Options such as `-M` and `-C` help detect moved or copied lines. Rebase does not automatically make blame more accurate.

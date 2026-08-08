@@ -111,7 +111,7 @@ Large repositories may need partial clone, sparse checkout, commit-graph upkeep,
 
 Guard `main` and release branches with required review and CI. Reject force pushes wherever history has to stay put, and decide up front whether a feature branch can be rewritten once review starts.
 
-Keep generated files, credentials, and build output out of commits unless the project versions them on purpose. Deleting a secret in a later commit does not remove it from old history, so revoke the credential first and clean the history second.
+Keep generated files, credentials, and build output out of commits unless the project versions them on purpose. Deleting a secret in a later commit does not remove it from old history, so revoke the credential first and clean the history second with [git filter-repo](./git-filter-repo).
 
 ## Next Steps
 
