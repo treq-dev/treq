@@ -12,23 +12,28 @@ fn gh_bin() -> Result<String, String> {
 /// Run `gh pr view` for the given branch in the given repo directory.
 /// Returns None if gh is not installed, not authenticated, or no PR exists.
 /// Also updates the background PR-status cache so sidebar reads stay fresh.
+/// Runs off the UI/command thread via `spawn_blocking`.
 #[tauri::command]
-pub fn get_pr_info_via_gh(
+pub async fn get_pr_info_via_gh(
     repo_path: String,
     branch_name: String,
 ) -> Result<Option<PrInfo>, String> {
-    let gh = get_binary_path("gh")
-        .or_else(|| detect_binary("gh"))
-        .ok_or_else(|| "gh CLI not found".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let gh = get_binary_path("gh")
+            .or_else(|| detect_binary("gh"))
+            .ok_or_else(|| "gh CLI not found".to_string())?;
 
-    let info = crate::github::get_pr_info_via_gh_impl(
-        &gh,
-        &repo_path,
-        &branch_name,
-        &get_extended_path(),
-    )?;
-    crate::pr_status::global().put_cached(&repo_path, &branch_name, info.clone());
-    Ok(info)
+        let info = crate::github::get_pr_info_via_gh_impl(
+            &gh,
+            &repo_path,
+            &branch_name,
+            &get_extended_path(),
+        )?;
+        crate::pr_status::global().put_cached(&repo_path, &branch_name, info.clone());
+        Ok(info)
+    })
+    .await
+    .map_err(|e| format!("Failed to join get_pr_info_via_gh task: {e}"))?
 }
 
 /// Start background PR-status polling for every workspace branch in `repo_path`.
@@ -67,6 +72,27 @@ pub fn get_cached_pr_info(
         .flatten())
 }
 
+/// Return the cached CI statuses for a repo (`branch_name -> Option<PrCiStatus>`).
+/// Never shells out to `gh` — the background poller owns that work.
+#[tauri::command]
+pub fn list_cached_pr_ci_statuses(
+    repo_path: String,
+) -> Result<std::collections::HashMap<String, Option<PrCiStatus>>, String> {
+    Ok(crate::pr_status::global().list_cached_ci(&repo_path))
+}
+
+/// Return a single cached CI rollup. `None` means not yet polled, no PR, or
+/// no checks reported yet.
+#[tauri::command]
+pub fn get_cached_pr_ci_status(
+    repo_path: String,
+    branch_name: String,
+) -> Result<Option<PrCiStatus>, String> {
+    Ok(crate::pr_status::global()
+        .get_cached_ci(&repo_path, &branch_name)
+        .flatten())
+}
+
 /// Force a refresh of all workspace PR statuses for a repo.
 /// Used after creating a PR so the sidebar updates immediately.
 /// Runs off the UI/command thread via `spawn_blocking`.
@@ -86,28 +112,51 @@ pub async fn refresh_pr_statuses(repo_path: String) -> Result<(), String> {
 /// roll the individual check runs up into an overall CI status.
 /// Returns None if gh is not installed, not authenticated, there is no PR,
 /// or the PR has no checks reported yet.
+/// Prefer cache reads for UI polling; this force-fetches and warms the cache.
+/// Runs off the UI/command thread via `spawn_blocking`.
 #[tauri::command]
-pub fn get_pr_checks_via_gh(
+pub async fn get_pr_checks_via_gh(
     repo_path: String,
     branch_name: String,
 ) -> Result<Option<PrCiStatus>, String> {
-    let gh = get_binary_path("gh")
-        .or_else(|| detect_binary("gh"))
-        .ok_or_else(|| "gh CLI not found".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let gh = get_binary_path("gh")
+            .or_else(|| detect_binary("gh"))
+            .ok_or_else(|| "gh CLI not found".to_string())?;
 
-    crate::github::get_pr_checks_via_gh_impl(&gh, &repo_path, &branch_name, &get_extended_path())
+        let status = crate::github::get_pr_checks_via_gh_impl(
+            &gh,
+            &repo_path,
+            &branch_name,
+            &get_extended_path(),
+        )?;
+        crate::pr_status::global().put_cached_ci(&repo_path, &branch_name, status.clone());
+        Ok(status)
+    })
+    .await
+    .map_err(|e| format!("Failed to join get_pr_checks_via_gh task: {e}"))?
 }
 
 /// Run `gh pr checks` for a specific PR number in a repo (not necessarily
 /// checked out locally), for the GitHub panel's PR detail view. Shares the
 /// same rollup as `get_pr_checks_via_gh` so both surfaces agree.
+/// Runs off the UI/command thread via `spawn_blocking`.
 #[tauri::command]
-pub fn get_pr_checks_for_pr(
+pub async fn get_pr_checks_for_pr(
     repo_full_name: String,
     pr_number: u64,
 ) -> Result<Option<PrCiStatus>, String> {
-    let gh = gh_bin()?;
-    crate::github::get_pr_checks_for_pr_impl(&gh, &repo_full_name, pr_number, &get_extended_path())
+    tauri::async_runtime::spawn_blocking(move || {
+        let gh = gh_bin()?;
+        crate::github::get_pr_checks_for_pr_impl(
+            &gh,
+            &repo_full_name,
+            pr_number,
+            &get_extended_path(),
+        )
+    })
+    .await
+    .map_err(|e| format!("Failed to join get_pr_checks_for_pr task: {e}"))?
 }
 
 /// Read the GitHub remote URL from .git/config and parse owner/repo.
@@ -241,20 +290,25 @@ pub fn gh_set_pr_draft(repo_full_name: String, pr_number: u64, draft: bool) -> R
 
 /// List every review-comment thread on a PR, including resolved/outdated
 /// state. Read-only: no replies, resolves, or other mutations are issued.
+/// Runs off the UI/command thread via `spawn_blocking`.
 #[tauri::command]
-pub fn gh_list_pr_review_threads(
+pub async fn gh_list_pr_review_threads(
     owner: String,
     repo: String,
     pr_number: u64,
 ) -> Result<Vec<GhReviewThread>, String> {
-    let gh = gh_bin()?;
-    crate::github::gh_list_pr_review_threads_impl(
-        &gh,
-        &owner,
-        &repo,
-        pr_number,
-        &get_extended_path(),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        let gh = gh_bin()?;
+        crate::github::gh_list_pr_review_threads_impl(
+            &gh,
+            &owner,
+            &repo,
+            pr_number,
+            &get_extended_path(),
+        )
+    })
+    .await
+    .map_err(|e| format!("Failed to join gh_list_pr_review_threads task: {e}"))?
 }
 
 /// Create a GitHub PR via `gh`. Runs on the blocking pool so the network

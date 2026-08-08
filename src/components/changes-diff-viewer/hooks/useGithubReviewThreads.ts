@@ -51,8 +51,9 @@ export function useGithubReviewThreads({
 				prInfo!.number,
 			),
 		enabled,
-		staleTime: 30_000,
-		refetchInterval: 60_000,
+		staleTime: 60_000,
+		// Low-urgency read; keep off the ShowWorkspace hot path cadence.
+		refetchInterval: 2 * 60_000,
 	});
 
 	const { threadsByLineKey, unplacedThreadsByFile } = useMemo(() => {

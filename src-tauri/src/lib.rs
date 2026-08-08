@@ -566,6 +566,8 @@ pub fn run() {
             commands::stop_pr_status_polling,
             commands::list_cached_pr_statuses,
             commands::get_cached_pr_info,
+            commands::list_cached_pr_ci_statuses,
+            commands::get_cached_pr_ci_status,
             commands::refresh_pr_statuses,
             commands::get_pr_checks_via_gh,
             commands::get_pr_checks_for_pr,

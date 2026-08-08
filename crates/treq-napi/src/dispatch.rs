@@ -81,6 +81,21 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
             serde_json::to_value(info).map_err(|e| e.to_string())
         }
 
+        "list_cached_pr_ci_statuses" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let statuses = treq_lib::pr_status::global().list_cached_ci(&repo_path);
+            serde_json::to_value(statuses).map_err(|e| e.to_string())
+        }
+
+        "get_cached_pr_ci_status" => {
+            let repo_path = get_str(&args, "repoPath")?;
+            let branch_name = get_str(&args, "branchName")?;
+            let status = treq_lib::pr_status::global()
+                .get_cached_ci(&repo_path, &branch_name)
+                .flatten();
+            serde_json::to_value(status).map_err(|e| e.to_string())
+        }
+
         "refresh_pr_statuses" => {
             let repo_path = get_str(&args, "repoPath")?;
             treq_lib::pr_status::global().watch_repo(&repo_path);
@@ -100,6 +115,7 @@ pub fn dispatch(command: &str, args: Value) -> Result<Value, String> {
                 &branch_name,
                 &extended_path,
             )?;
+            treq_lib::pr_status::global().put_cached_ci(&repo_path, &branch_name, status.clone());
             serde_json::to_value(status).map_err(|e| e.to_string())
         }
 

@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import {
 	getCachedPrInfo,
+	getCachedPrCiStatus,
 	getGitRemoteUrl,
 	getPrChecksForPr,
 	getPrChecksViaGh,
 	getPrInfoViaGh,
+	listCachedPrCiStatuses,
 	listCachedPrStatuses,
 	refreshPrStatuses,
 	startPrStatusPolling,
@@ -32,6 +34,12 @@ export const cachedPrStatusesKey = (repoPath: string | undefined) => [
 	repoPath,
 ];
 
+/** Query key for the Rust-side cached CI statuses map for a repo. */
+export const cachedPrCiStatusesKey = (repoPath: string | undefined) => [
+	"cached-pr-ci-statuses",
+	repoPath,
+];
+
 /**
  * Shared mutation key for "create a PR for this workspace" actions. Multiple
  * surfaces can trigger PR creation for the same workspace (the header's
@@ -48,16 +56,27 @@ export const createPrMutationKey = (
 type PrStatusesPayload = {
 	repo_path: string;
 	statuses: Record<string, PrInfo | null>;
+	ci_statuses?: Record<string, PrCiStatus | null>;
 };
 
 function applyPrStatusesToQueryCache(
 	queryClient: ReturnType<typeof useQueryClient>,
-	repoPath: string,
-	statuses: Record<string, PrInfo | null>,
+	payload: {
+		repoPath: string;
+		statuses: Record<string, PrInfo | null>;
+		ciStatuses?: Record<string, PrCiStatus | null>;
+	},
 ) {
+	const { repoPath, statuses, ciStatuses } = payload;
 	queryClient.setQueryData(cachedPrStatusesKey(repoPath), statuses);
 	for (const [branch, info] of Object.entries(statuses)) {
 		queryClient.setQueryData(["pr-info-gh", repoPath, branch], info);
+	}
+	if (ciStatuses) {
+		queryClient.setQueryData(cachedPrCiStatusesKey(repoPath), ciStatuses);
+		for (const [branch, status] of Object.entries(ciStatuses)) {
+			queryClient.setQueryData(["pr-ci-status", repoPath, branch], status);
+		}
 	}
 }
 
@@ -91,11 +110,11 @@ export function usePrStatusPolling(repoPath: string | undefined) {
 		let unlisten: (() => void) | undefined;
 		void listen<PrStatusesPayload>("pr-statuses-updated", (event) => {
 			if (event.payload.repo_path !== repoPath) return;
-			applyPrStatusesToQueryCache(
-				queryClient,
+			applyPrStatusesToQueryCache(queryClient, {
 				repoPath,
-				event.payload.statuses,
-			);
+				statuses: event.payload.statuses,
+				ciStatuses: event.payload.ci_statuses,
+			});
 		}).then((fn) => {
 			unlisten = fn;
 		});
@@ -106,7 +125,18 @@ export function usePrStatusPolling(repoPath: string | undefined) {
 
 	return useQuery({
 		queryKey: cachedPrStatusesKey(repoPath),
-		queryFn: () => listCachedPrStatuses(repoPath!),
+		queryFn: async () => {
+			const [statuses, ciStatuses] = await Promise.all([
+				listCachedPrStatuses(repoPath!),
+				listCachedPrCiStatuses(repoPath!),
+			]);
+			applyPrStatusesToQueryCache(queryClient, {
+				repoPath: repoPath!,
+				statuses,
+				ciStatuses,
+			});
+			return statuses;
+		},
 		enabled: !!repoPath,
 		// Cheap cache read only — the Rust poller owns the refresh cadence.
 		staleTime: 5_000,
@@ -134,11 +164,11 @@ export function usePrInfoViaGh(
 		let unlisten: (() => void) | undefined;
 		void listen<PrStatusesPayload>("pr-statuses-updated", (event) => {
 			if (event.payload.repo_path !== repoPath) return;
-			applyPrStatusesToQueryCache(
-				queryClient,
+			applyPrStatusesToQueryCache(queryClient, {
 				repoPath,
-				event.payload.statuses,
-			);
+				statuses: event.payload.statuses,
+				ciStatuses: event.payload.ci_statuses,
+			});
 		}).then((fn) => {
 			unlisten = fn;
 		});
@@ -168,7 +198,10 @@ export async function invalidatePrStatuses(
 			// Single-branch force-fetch warms the Rust cache without re-polling
 			// every workspace. Failures must not fail the caller (e.g. create PR
 			// already succeeded and still needs its success toast).
-			await getPrInfoViaGh(repoPath, branchName);
+			await Promise.all([
+				getPrInfoViaGh(repoPath, branchName),
+				getPrChecksViaGh(repoPath, branchName),
+			]);
 		} else {
 			await refreshPrStatuses(repoPath);
 		}
@@ -179,32 +212,62 @@ export async function invalidatePrStatuses(
 		queryKey: cachedPrStatusesKey(repoPath),
 	});
 	await queryClient.invalidateQueries({ queryKey: ["pr-info-gh", repoPath] });
+	await queryClient.invalidateQueries({
+		queryKey: cachedPrCiStatusesKey(repoPath),
+	});
+	await queryClient.invalidateQueries({ queryKey: ["pr-ci-status", repoPath] });
 }
 
 /**
- * CI status for the branch's PR, rolled up from `gh pr checks`. Polls every
- * 15s so the indicator next to the View PR button stays live while the
- * workspace is on screen; React Query pauses the interval automatically
- * once the tab/window loses focus.
+ * CI status for the branch's PR, served from the Rust background cache.
+ * Starts the poller if needed; never invokes `gh` from the UI thread.
+ * Rust refreshes CI every 30s; the UI only reads the cache (and pauses
+ * automatically once the tab/window loses focus).
  */
 export function usePrCiStatus(
 	repoPath: string | undefined,
 	branchName: string | undefined,
 ) {
+	const queryClient = useQueryClient();
+
+	useEffect(() => {
+		if (!repoPath) return;
+		void startPrStatusPolling(repoPath);
+	}, [repoPath]);
+
+	useEffect(() => {
+		if (!repoPath) return;
+		let unlisten: (() => void) | undefined;
+		void listen<PrStatusesPayload>("pr-statuses-updated", (event) => {
+			if (event.payload.repo_path !== repoPath) return;
+			applyPrStatusesToQueryCache(queryClient, {
+				repoPath,
+				statuses: event.payload.statuses,
+				ciStatuses: event.payload.ci_statuses,
+			});
+		}).then((fn) => {
+			unlisten = fn;
+		});
+		return () => {
+			unlisten?.();
+		};
+	}, [repoPath, queryClient]);
+
 	return useQuery<PrCiStatus | null>({
 		queryKey: ["pr-ci-status", repoPath, branchName],
-		queryFn: () => getPrChecksViaGh(repoPath!, branchName!),
+		queryFn: () => getCachedPrCiStatus(repoPath!, branchName!),
 		enabled: !!repoPath && !!branchName,
 		staleTime: 10_000,
-		refetchInterval: 15_000,
+		// Cache-only; Rust owns the 30s `gh pr checks` cadence.
+		refetchInterval: 30_000,
 	});
 }
 
 /**
  * CI status for a specific PR, rolled up from `gh pr checks`. Used by the
  * GitHub panel's PR detail view, which browses PRs by number rather than by
- * a locally checked-out branch. Shares the same rollup and polling cadence
- * as `usePrCiStatus` so both surfaces always agree.
+ * a locally checked-out branch. Cadence matches the branch-based cache (30s);
+ * runs via spawn_blocking on the command side so it does not stall IPC.
  */
 export function usePrChecksForPr(
 	repoFullName: string | undefined,
@@ -215,7 +278,7 @@ export function usePrChecksForPr(
 		queryFn: () => getPrChecksForPr(repoFullName!, prNumber!),
 		enabled: !!repoFullName && prNumber !== undefined,
 		staleTime: 10_000,
-		refetchInterval: 15_000,
+		refetchInterval: 30_000,
 	});
 }
 

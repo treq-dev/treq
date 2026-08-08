@@ -156,29 +156,19 @@ const SUCCESS_CI: PrCiStatus = {
 };
 
 describe("usePrCiStatus", () => {
-	it("returns the rolled-up CI status", async () => {
+	it("reads from the Rust CI-status cache", async () => {
 		const { repoPath } = createTestRepo(false);
-		const spy = vi.spyOn(api, "getPrChecksViaGh").mockResolvedValue(SUCCESS_CI);
+		const spy = vi
+			.spyOn(api, "getCachedPrCiStatus")
+			.mockResolvedValue(SUCCESS_CI);
+		vi.spyOn(api, "startPrStatusPolling").mockResolvedValue(undefined);
 
 		const { result } = renderHook(() => usePrCiStatus(repoPath, "feat"), {
 			wrapper: makeWrapper(),
 		});
 		await waitFor(() => expect(result.current.isSuccess).toBe(true));
 		expect(result.current.data).toEqual(SUCCESS_CI);
-		spy.mockRestore();
-	});
-
-	it("surfaces gh operational failures", async () => {
-		const { repoPath } = createTestRepo(false);
-		const spy = vi
-			.spyOn(api, "getPrChecksViaGh")
-			.mockRejectedValue(new Error("gh authentication failed"));
-
-		const { result } = renderHook(() => usePrCiStatus(repoPath, "feat"), {
-			wrapper: makeWrapper(),
-		});
-		await waitFor(() => expect(result.current.isError).toBe(true));
-		expect(result.current.error).toEqual(new Error("gh authentication failed"));
+		expect(spy).toHaveBeenCalledWith(repoPath, "feat");
 		spy.mockRestore();
 	});
 

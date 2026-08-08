@@ -26,10 +26,10 @@ vi.mock("../../../src/lib/features", () => ({
 	},
 }));
 
-const { mockGetCachedPrInfo, mockGetPrChecksViaGh, mockGetGitRemoteUrl } =
+const { mockGetCachedPrInfo, mockGetCachedPrCiStatus, mockGetGitRemoteUrl } =
 	vi.hoisted(() => ({
 		mockGetCachedPrInfo: vi.fn(),
-		mockGetPrChecksViaGh: vi.fn(),
+		mockGetCachedPrCiStatus: vi.fn(),
 		mockGetGitRemoteUrl: vi.fn(),
 	}));
 
@@ -43,7 +43,7 @@ vi.mock("../../../src/lib/api", async () => {
 		startPrStatusPolling: vi.fn(async () => undefined),
 		stopPrStatusPolling: vi.fn(async () => undefined),
 		refreshPrStatuses: vi.fn(async () => undefined),
-		getPrChecksViaGh: mockGetPrChecksViaGh,
+		getCachedPrCiStatus: mockGetCachedPrCiStatus,
 		// createTestRepo's remote is a local bare repo, so the real
 		// get_git_remote_url returns null and the PR/CI hooks short-circuit.
 		// Stub it to the GitHub remote a real user would have.
@@ -139,7 +139,7 @@ async function setupPushedWorkspace(user: ReturnType<typeof userEvent.setup>) {
 it("captures the outline-green Merge button when CI is not all passing", async () => {
 	const user = userEvent.setup();
 	stubPr();
-	mockGetPrChecksViaGh.mockResolvedValue(
+	mockGetCachedPrCiStatus.mockResolvedValue(
 		ciStatus({
 			state: "pending",
 			passed: 1,
@@ -166,7 +166,7 @@ it("captures the outline-green Merge button when CI is not all passing", async (
 it("captures the solid-green Merge button when CI is fully passing", async () => {
 	const user = userEvent.setup();
 	stubPr();
-	mockGetPrChecksViaGh.mockResolvedValue(ciStatus());
+	mockGetCachedPrCiStatus.mockResolvedValue(ciStatus());
 
 	await setupPushedWorkspace(user);
 

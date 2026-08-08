@@ -5,6 +5,7 @@ import type {
 	FileSearchResult,
 	LineComment,
 	PendingReview,
+	PrCiStatus,
 	PrInfo,
 	Session,
 } from "./api-types";
@@ -297,6 +298,22 @@ export const getCachedPrInfo = (
 	branchName: string,
 ): Promise<PrInfo | null> =>
 	invoke("get_cached_pr_info", { repoPath, branchName });
+
+/**
+ * Cached CI rollups (`branch -> PrCiStatus | null`) from the Rust background
+ * poller. Never shells out to `gh` from the UI thread.
+ */
+export const listCachedPrCiStatuses = (
+	repoPath: string,
+): Promise<Record<string, PrCiStatus | null>> =>
+	invoke("list_cached_pr_ci_statuses", { repoPath });
+
+/** Single-branch CI read from the Rust cache (no `gh` call). */
+export const getCachedPrCiStatus = (
+	repoPath: string,
+	branchName: string,
+): Promise<PrCiStatus | null> =>
+	invoke("get_cached_pr_ci_status", { repoPath, branchName });
 
 /** Force a full-repo cache refresh (e.g. after bulk workspace changes). */
 export const refreshPrStatuses = (repoPath: string): Promise<void> =>
