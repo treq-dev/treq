@@ -6,7 +6,7 @@
 
 # treq
 
-Treq is the open-source Stacking Agent Development Environment (ADE) and Graphite alternative for parallel development, review, and delivery. It gives teams isolated workspaces, stacked branches, and AI-assisted workflows without giving up control of their code.
+Treq is the open-source Stacking Agent Development Environment (ADE) for parallel development, review, and delivery. It gives teams isolated workspaces, stacked branches, and AI-assisted workflows without giving up control of their code.
 
 ![Code Overview](./assets/screenshots/code.png)
 
