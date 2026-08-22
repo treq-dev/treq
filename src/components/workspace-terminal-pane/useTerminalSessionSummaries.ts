@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatTerminalPreview } from "../terminal-mission-control/formatTerminalPreview";
 import { type TerminalSessionSummary } from "../terminal/types";
 import { type TerminalEntry } from "./types";
@@ -65,43 +65,42 @@ export function useTerminalSessionSummaries({
     });
   }, [allTerminals]);
 
-  const handleTerminalOutput = useCallback(
-    (id: string, output?: string, fromProcess = true) => {
-      const previewOutput =
-        output === undefined ? undefined : formatTerminalPreview(output);
-      setActivity((prev) => {
-        const existing = prev.get(id);
-        const nextPreview = previewOutput ?? existing?.previewOutput ?? "";
-        const lastActivityAt = fromProcess
-          ? Date.now()
-          : (existing?.lastActivityAt ?? Date.now());
-        const isStreaming = fromProcess
-          ? true
-          : (existing?.isStreaming ?? false);
-        const lastUserInputAt = existing?.lastUserInputAt ?? 0;
-        if (
-          existing &&
-          existing.lastActivityAt === lastActivityAt &&
-          existing.isStreaming === isStreaming &&
-          existing.previewOutput === nextPreview
-        ) {
-          return prev;
-        }
+  const handleTerminalOutput = (
+    id: string,
+    output?: string,
+    fromProcess = true,
+  ) => {
+    const previewOutput =
+      output === undefined ? undefined : formatTerminalPreview(output);
+    setActivity((prev) => {
+      const existing = prev.get(id);
+      const nextPreview = previewOutput ?? existing?.previewOutput ?? "";
+      const lastActivityAt = fromProcess
+        ? Date.now()
+        : (existing?.lastActivityAt ?? Date.now());
+      const isStreaming = fromProcess ? true : (existing?.isStreaming ?? false);
+      const lastUserInputAt = existing?.lastUserInputAt ?? 0;
+      if (
+        existing &&
+        existing.lastActivityAt === lastActivityAt &&
+        existing.isStreaming === isStreaming &&
+        existing.previewOutput === nextPreview
+      ) {
+        return prev;
+      }
 
-        const next = new Map(prev);
-        next.set(id, {
-          lastActivityAt,
-          lastUserInputAt,
-          isStreaming,
-          previewOutput: nextPreview,
-        });
-        return next;
+      const next = new Map(prev);
+      next.set(id, {
+        lastActivityAt,
+        lastUserInputAt,
+        isStreaming,
+        previewOutput: nextPreview,
       });
-    },
-    [],
-  );
+      return next;
+    });
+  };
 
-  const handleTerminalInput = useCallback((id: string) => {
+  const handleTerminalInput = (id: string) => {
     setActivity((prev) => {
       const existing = prev.get(id);
       const next = new Map(prev);
@@ -113,9 +112,9 @@ export function useTerminalSessionSummaries({
       });
       return next;
     });
-  }, []);
+  };
 
-  const handleTerminalIdlePulse = useCallback((id: string) => {
+  const handleTerminalIdlePulse = (id: string) => {
     setActivity((prev) => {
       const existing = prev.get(id);
       if (!existing || !existing.isStreaming) return prev;
@@ -123,49 +122,43 @@ export function useTerminalSessionSummaries({
       next.set(id, { ...existing, isStreaming: false });
       return next;
     });
-  }, []);
+  };
 
-  const terminalSummaries = useMemo<TerminalSessionSummary[]>(
-    () =>
-      allTerminals.map((t) => {
-        const id = getTerminalSummaryId(t);
-        const act = activity.get(id) ?? {
-          lastActivityAt: 0,
-          lastUserInputAt: 0,
-          isStreaming: false,
-          previewOutput: "",
-        };
-        if (t.type === "claude") {
-          return {
-            id,
-            kind: "agent" as const,
-            name: t.data.sessionName,
-            branchName: t.data.workspaceName ?? null,
-            isMainRepo: !t.data.workspaceName,
-            agent: t.data.agent,
-            lastActivityAt: act.lastActivityAt,
-            lastUserInputAt: act.lastUserInputAt,
-            isStreaming: act.isStreaming,
-            previewOutput: act.previewOutput,
-          };
-        }
-        const resolvedBranch = workspaceBranchByPath?.get(
-          t.data.workingDirectory,
-        );
-        return {
-          id,
-          kind: "shell" as const,
-          name: "Shell",
-          branchName: resolvedBranch ?? currentBranch ?? null,
-          isMainRepo: resolvedBranch === undefined,
-          lastActivityAt: act.lastActivityAt,
-          lastUserInputAt: act.lastUserInputAt,
-          isStreaming: act.isStreaming,
-          previewOutput: act.previewOutput,
-        };
-      }),
-    [allTerminals, activity, workspaceBranchByPath, currentBranch],
-  );
+  const terminalSummaries: TerminalSessionSummary[] = allTerminals.map((t) => {
+    const id = getTerminalSummaryId(t);
+    const act = activity.get(id) ?? {
+      lastActivityAt: 0,
+      lastUserInputAt: 0,
+      isStreaming: false,
+      previewOutput: "",
+    };
+    if (t.type === "claude") {
+      return {
+        id,
+        kind: "agent" as const,
+        name: t.data.sessionName,
+        branchName: t.data.workspaceName ?? null,
+        isMainRepo: !t.data.workspaceName,
+        agent: t.data.agent,
+        lastActivityAt: act.lastActivityAt,
+        lastUserInputAt: act.lastUserInputAt,
+        isStreaming: act.isStreaming,
+        previewOutput: act.previewOutput,
+      };
+    }
+    const resolvedBranch = workspaceBranchByPath?.get(t.data.workingDirectory);
+    return {
+      id,
+      kind: "shell" as const,
+      name: "Shell",
+      branchName: resolvedBranch ?? currentBranch ?? null,
+      isMainRepo: resolvedBranch === undefined,
+      lastActivityAt: act.lastActivityAt,
+      lastUserInputAt: act.lastUserInputAt,
+      isStreaming: act.isStreaming,
+      previewOutput: act.previewOutput,
+    };
+  });
 
   const terminalSummariesRef = useRef<TerminalSessionSummary[]>([]);
   useEffect(() => {

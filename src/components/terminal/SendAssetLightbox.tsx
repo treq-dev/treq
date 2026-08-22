@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -80,7 +79,7 @@ export function SendAssetLightbox({
   const [lineComposerOpen, setLineComposerOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [sending, setSending] = useState(false);
-  const revealLabel = useMemo(() => revealInFileManagerLabel(), []);
+  const revealLabel = revealInFileManagerLabel();
 
   const current = assets[currentIndex] ?? assets[0];
   const showingImage = current?.mediaType === "image";

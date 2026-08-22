@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -133,10 +132,10 @@ export const ConsolidatedTerminal = ({
     setTerminalError(null);
   }, [sessionId, instanceKey]);
 
-  const handleRetryTerminal = useCallback(() => {
+  const handleRetryTerminal = () => {
     setTerminalError(null);
     setInstanceKey((prev) => prev + 1);
-  }, []);
+  };
 
   // Main terminal setup effect - all handlers are inlined to avoid stale closures
   useEffect(() => {

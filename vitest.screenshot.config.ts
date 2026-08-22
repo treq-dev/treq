@@ -7,7 +7,13 @@ import react from "@vitejs/plugin-react";
 // header comment), and points at scripts/screenshot specs instead of
 // test/integration so screenshot runs stay out of `npm test`.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
+      },
+    }),
+  ],
   test: {
     environment: "jsdom",
     setupFiles: ["./test/setup.screenshot.ts"],

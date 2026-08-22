@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Command } from "cmdk";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
@@ -41,9 +41,8 @@ export const WorkspaceDeletion: React.FC<WorkspaceDeletionProps> = ({
   }, [open, currentWorkspace]);
 
   // Filter out home repo (workspaces that match the main repo path)
-  const deletableWorkspaces = useMemo(
-    () => workspaces.filter((w) => w.workspace_path !== repoPath),
-    [workspaces, repoPath],
+  const deletableWorkspaces = workspaces.filter(
+    (w) => w.workspace_path !== repoPath,
   );
 
   const handleSelect = (value: string) => {

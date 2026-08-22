@@ -1,5 +1,5 @@
 import { GitBranch, Home, Loader2, Moon, Terminal, X } from "lucide-react";
-import { useMemo } from "react";
+
 import type { Workspace } from "../lib/api";
 import { cn } from "../lib/utils";
 import type { WorkspaceDiffStats } from "../lib/workspace-stack";
@@ -70,7 +70,7 @@ export const TerminalMissionControl: React.FC<TerminalMissionControlProps> = ({
   workspaces,
   diffStatsByWorkspaceKey: diffStatsOverride,
 }) => {
-  const groups = useMemo(() => buildMissionControlGroups(sessions), [sessions]);
+  const groups = buildMissionControlGroups(sessions);
   const fetched = useMissionControlDiffStats({
     open,
     repoPath,

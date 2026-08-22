@@ -6,7 +6,13 @@ import react from "@vitejs/plugin-react";
  * Safe to run with fileParallelism enabled.
  */
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
+      },
+    }),
+  ],
   test: {
     name: "unit",
     environment: "jsdom",

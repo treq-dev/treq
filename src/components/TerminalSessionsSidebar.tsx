@@ -1,6 +1,6 @@
 import { Moon, SquareTerminal, Trash2 } from "lucide-react";
 import { ClaudeIcon } from "./icons/AgentIcons";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   isTerminalSessionIdle,
   type TerminalSessionSummary,
@@ -48,7 +48,7 @@ export const TerminalSessionsSidebar: React.FC<
   }, []);
 
   const orderStateRef = useRef(createSessionOrderState());
-  const orderedSessions = useMemo(() => {
+  const orderedSessions = (() => {
     orderStateRef.current = nextTerminalSessionOrder(
       orderStateRef.current,
       sessions,
@@ -59,12 +59,11 @@ export const TerminalSessionsSidebar: React.FC<
       const session = byId.get(id);
       return session ? [session] : [];
     });
-  }, [sessions, now]);
+  })();
 
-  const idleCount = useMemo(
-    () => orderedSessions.filter((s) => isTerminalSessionIdle(s, now)).length,
-    [orderedSessions, now],
-  );
+  const idleCount = orderedSessions.filter((s) =>
+    isTerminalSessionIdle(s, now),
+  ).length;
 
   const orderedSessionIds = orderedSessions.map((session) => session.id).join();
 

@@ -3,7 +3,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { useLocation } from "wouter";
 import { useAutoUpdate } from "../hooks/useAutoUpdate";
@@ -209,60 +209,52 @@ export const Dashboard: React.FC<DashboardProps> = ({
     autoCheck: import.meta.env.MODE !== "test",
     listenMenu: import.meta.env.MODE !== "test",
   });
-  const handleReturnToDashboard = useCallback(() => {
+  const handleReturnToDashboard = () => {
     // Navigate to main repo ShowWorkspace > Code
     setSelectedWorkspace(null);
     setActiveSessionId(null);
-  }, []);
+  };
 
-  const openSettings = useCallback(
-    (tab?: string) => {
-      void tab;
-      if (viewMode !== "settings") {
-        previousViewModeRef.current = viewMode;
-      }
-      setViewMode("settings");
-    },
-    [viewMode],
-  );
+  const openSettings = (tab?: string) => {
+    void tab;
+    if (viewMode !== "settings") {
+      previousViewModeRef.current = viewMode;
+    }
+    setViewMode("settings");
+  };
 
-  const closeSettings = useCallback(() => {
+  const closeSettings = () => {
     setViewMode(previousViewModeRef.current);
-  }, []);
+  };
 
-  const openArtifacts = useCallback(() => {
+  const openArtifacts = () => {
     if (viewMode !== "artifacts") {
       previousViewModeRef.current = viewMode;
     }
     setViewMode("artifacts");
     navigate(artifactsPath());
-  }, [viewMode, navigate]);
+  };
 
-  const closeArtifacts = useCallback(() => {
+  const closeArtifacts = () => {
     setViewMode(previousViewModeRef.current);
     navigate("/", { replace: true });
-  }, [navigate]);
+  };
 
-  const openGitHub = useCallback(() => {
+  const openGitHub = () => {
     if (viewMode !== "github") {
       previousViewModeRef.current = viewMode;
     }
     setViewMode("github");
     navigate(githubListPath("issues"));
-  }, [viewMode, navigate]);
+  };
 
-  const openGitHubPr = useCallback(
-    (prNumber: number, prState: string) => {
-      if (viewMode !== "github") {
-        previousViewModeRef.current = viewMode;
-      }
-      setViewMode("github");
-      navigate(
-        githubDetailPath("prs", prNumber, stateFilterForPrState(prState)),
-      );
-    },
-    [viewMode, navigate],
-  );
+  const openGitHubPr = (prNumber: number, prState: string) => {
+    if (viewMode !== "github") {
+      previousViewModeRef.current = viewMode;
+    }
+    setViewMode("github");
+    navigate(githubDetailPath("prs", prNumber, stateFilterForPrState(prState)));
+  };
 
   // Browser back/forward can pop the URL out of the GitHub section (e.g. the
   // user opened it via the sidebar, then hit Back) without going through
@@ -302,12 +294,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   }, [viewMode, location, navigate]);
 
-  const handleOpenMergePreview = useCallback(() => {
+  const handleOpenMergePreview = () => {
     if (selectedWorkspace) {
       setMergeWorkspace(selectedWorkspace);
       setViewMode("merge-preview");
     }
-  }, [selectedWorkspace]);
+  };
 
   const { data: repoBranch } = useSWR(
     repoPath ? ["repo-branch", repoPath] : null,
@@ -327,7 +319,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const effectiveDefaultBranch = currentBranch || repoDefaultBranch || "main";
 
-  const handleCreateStackedWorkspace = useCallback(() => {
+  const handleCreateStackedWorkspace = () => {
     if (!repoPath) return;
 
     if (selectedWorkspace) {
@@ -347,7 +339,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         type: "error",
       });
     }
-  }, [repoPath, selectedWorkspace, effectiveDefaultBranch, addToast]);
+  };
 
   // Keyboard shortcuts
   useKeyboardShortcut("n", true, () => {
@@ -449,10 +441,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     },
   );
 
-  const handleLoadAvailableBranches = useCallback(() => {
+  const handleLoadAvailableBranches = () => {
     if (!repoPath) return;
     void loadAvailableBranches();
-  }, [repoPath, loadAvailableBranches]);
+  };
 
   // Manage file watcher lifecycle for selected workspace
   // useEffect(() => {
@@ -517,14 +509,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     { refreshInterval: pollMs(10000) },
   );
 
-  const visibleWorkspaces = useMemo(() => {
+  const visibleWorkspaces = (() => {
     if (workspaceStatuses.length === 0) {
       return workspaces;
     }
     return flattenWorkspaceTree(buildWorkspaceTree(workspaceStatuses)).map(
       (node) => node.status.current,
     );
-  }, [workspaceStatuses, workspaces]);
+  })();
 
   // Note: Git cache preloader removed since we're using JJ now
 
@@ -554,7 +546,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     },
   });
 
-  const handleOpenRepository = useCallback(async () => {
+  const handleOpenRepository = async () => {
     const selected = await selectFolder();
     if (!selected) return;
 
@@ -586,7 +578,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       description: `Now viewing ${selected.split("/").pop() || selected}`,
       type: "success",
     });
-  }, [addToast]);
+  };
 
   // Consolidate all Tauri event listeners
   useEffect(() => {
@@ -703,157 +695,142 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Note: Git merge functionality removed - using JJ now
 
   // Helper to create or get session
-  const getOrCreateSession = useCallback(
-    async (
-      workspaceId: number | null,
-      options?: {
-        workspaceBranchName?: string;
-        forceNew?: boolean;
-        name?: string;
-        agent?: "claude" | "codex" | "cursor";
-      },
-    ): Promise<number> => {
-      const sessions = await getSessions(repoPath);
-      if (!options?.forceNew) {
-        const existing = sessions.find((s) => s.workspace_id === workspaceId);
-        if (existing) {
-          await updateSessionAccess(repoPath, existing.id);
-          return existing.id;
-        }
-      }
-
-      const scopedSessions = sessions.filter(
-        (s) => s.workspace_id === workspaceId,
-      );
-      const index = scopedSessions.length + 1;
-      let name = options?.name;
-      if (!name) {
-        const agentLabel =
-          options?.agent === "codex"
-            ? "Codex"
-            : options?.agent === "cursor"
-              ? "Cursor"
-              : "Claude";
-        name = `${agentLabel} ${index}`;
-      }
-
-      const sessionId = await createSession(repoPath, workspaceId, name);
-
-      // Apply default model from settings (repo-level overrides application-level)
-      try {
-        const repoDefaultModel = await getRepoSetting(
-          repoPath,
-          "default_model",
-        );
-        const appDefaultModel = await getSetting("default_model");
-        const defaultModel = repoDefaultModel || appDefaultModel;
-
-        if (defaultModel) {
-          await setSessionModel(repoPath, sessionId, defaultModel);
-        }
-      } catch (error) {
-        console.warn("Failed to set default model for session:", error);
-      }
-
-      void invalidateQueries(["sessions"]);
-      return sessionId;
-    },
-    [workspaces, repoPath],
-  );
-
-  const handleOpenSession = useCallback(
-    async (workspace: Workspace | null, options?: SessionOpenOptions) => {
-      setSelectedWorkspace(workspace);
-      setSessionSelectedFile(options?.selectedFilePath ?? null);
-    },
-    [getOrCreateSession],
-  );
-
-  const handleSessionCreated = useCallback(
-    (sessionData: {
-      sessionId: number;
-      workspaceId?: number | null;
-      workspacePath?: string | null;
-      pendingPrompt?: string;
-      permissionMode?: "plan" | "acceptEdits";
+  const getOrCreateSession = async (
+    workspaceId: number | null,
+    options?: {
+      workspaceBranchName?: string;
+      forceNew?: boolean;
+      name?: string;
       agent?: "claude" | "codex" | "cursor";
-    }) => {
-      void invalidateQueries(["sessions"]);
-      setActiveSessionId(sessionData.sessionId);
-      if (
-        sessionData.pendingPrompt ||
-        sessionData.permissionMode ||
-        sessionData.agent ||
-        sessionData.workspacePath
-      ) {
-        setPendingSessionData((prev) => {
-          const next = new Map(prev);
-          next.set(sessionData.sessionId, {
-            pendingPrompt: sessionData.pendingPrompt,
-            permissionMode: sessionData.permissionMode,
-            agent: sessionData.agent,
-            workspacePath: sessionData.workspacePath,
-          });
-          return next;
-        });
-      }
-      if (sessionData.pendingPrompt) {
-        addPromptHistory(
-          repoPath,
-          sessionData.workspaceId ?? null,
-          sessionData.sessionId,
-          sessionData.pendingPrompt,
-          sessionData.agent,
-        )
-          .then(() => {
-            void invalidateQueries(["prompt-history"]);
-            invalidateQueries(["workspace-starting-prompt"]);
-          })
-          .catch((error) => {
-            console.error("Failed to record prompt history:", error);
-          });
-      }
     },
-    [repoPath],
-  );
+  ): Promise<number> => {
+    const sessions = await getSessions(repoPath);
+    if (!options?.forceNew) {
+      const existing = sessions.find((s) => s.workspace_id === workspaceId);
+      if (existing) {
+        await updateSessionAccess(repoPath, existing.id);
+        return existing.id;
+      }
+    }
 
-  const handleViewFullPrompt = useCallback((promptId: number) => {
+    const scopedSessions = sessions.filter(
+      (s) => s.workspace_id === workspaceId,
+    );
+    const index = scopedSessions.length + 1;
+    let name = options?.name;
+    if (!name) {
+      const agentLabel =
+        options?.agent === "codex"
+          ? "Codex"
+          : options?.agent === "cursor"
+            ? "Cursor"
+            : "Claude";
+      name = `${agentLabel} ${index}`;
+    }
+
+    const sessionId = await createSession(repoPath, workspaceId, name);
+
+    // Apply default model from settings (repo-level overrides application-level)
+    try {
+      const repoDefaultModel = await getRepoSetting(repoPath, "default_model");
+      const appDefaultModel = await getSetting("default_model");
+      const defaultModel = repoDefaultModel || appDefaultModel;
+
+      if (defaultModel) {
+        await setSessionModel(repoPath, sessionId, defaultModel);
+      }
+    } catch (error) {
+      console.warn("Failed to set default model for session:", error);
+    }
+
+    void invalidateQueries(["sessions"]);
+    return sessionId;
+  };
+
+  const handleOpenSession = async (
+    workspace: Workspace | null,
+    options?: SessionOpenOptions,
+  ) => {
+    setSelectedWorkspace(workspace);
+    setSessionSelectedFile(options?.selectedFilePath ?? null);
+  };
+
+  const handleSessionCreated = (sessionData: {
+    sessionId: number;
+    workspaceId?: number | null;
+    workspacePath?: string | null;
+    pendingPrompt?: string;
+    permissionMode?: "plan" | "acceptEdits";
+    agent?: "claude" | "codex" | "cursor";
+  }) => {
+    void invalidateQueries(["sessions"]);
+    setActiveSessionId(sessionData.sessionId);
+    if (
+      sessionData.pendingPrompt ||
+      sessionData.permissionMode ||
+      sessionData.agent ||
+      sessionData.workspacePath
+    ) {
+      setPendingSessionData((prev) => {
+        const next = new Map(prev);
+        next.set(sessionData.sessionId, {
+          pendingPrompt: sessionData.pendingPrompt,
+          permissionMode: sessionData.permissionMode,
+          agent: sessionData.agent,
+          workspacePath: sessionData.workspacePath,
+        });
+        return next;
+      });
+    }
+    if (sessionData.pendingPrompt) {
+      addPromptHistory(
+        repoPath,
+        sessionData.workspaceId ?? null,
+        sessionData.sessionId,
+        sessionData.pendingPrompt,
+        sessionData.agent,
+      )
+        .then(() => {
+          void invalidateQueries(["prompt-history"]);
+          invalidateQueries(["workspace-starting-prompt"]);
+        })
+        .catch((error) => {
+          console.error("Failed to record prompt history:", error);
+        });
+    }
+  };
+
+  const handleViewFullPrompt = (promptId: number) => {
     setPromptHistoryFocusId(promptId);
     setShowPromptHistory(true);
-  }, []);
+  };
 
-  const handlePromptHistoryOpenChange = useCallback((open: boolean) => {
+  const handlePromptHistoryOpenChange = (open: boolean) => {
     setShowPromptHistory(open);
     if (!open) setPromptHistoryFocusId(null);
-  }, []);
+  };
 
-  const handleRunPrompt = useCallback(
-    (prompt: string, workspaceId: number | null) => {
-      setShowPromptHistory(false);
-      setPromptHistoryFocusId(null);
-      setRunPromptRequest({ prompt, workspaceId });
-      setShowAgentPromptDialog(true);
-    },
-    [],
-  );
+  const handleRunPrompt = (prompt: string, workspaceId: number | null) => {
+    setShowPromptHistory(false);
+    setPromptHistoryFocusId(null);
+    setRunPromptRequest({ prompt, workspaceId });
+    setShowAgentPromptDialog(true);
+  };
 
-  const handleStartPromptFromIssue = useCallback(
-    (issue: GitHubIssueAttachment) => {
-      setRunPromptRequest({
-        workspaceId: null,
-        githubIssue: issue,
-      });
-      setShowAgentPromptDialog(true);
-    },
-    [],
-  );
+  const handleStartPromptFromIssue = (issue: GitHubIssueAttachment) => {
+    setRunPromptRequest({
+      workspaceId: null,
+      githubIssue: issue,
+    });
+    setShowAgentPromptDialog(true);
+  };
 
-  const handleAgentPromptDialogOpenChange = useCallback((open: boolean) => {
+  const handleAgentPromptDialogOpenChange = (open: boolean) => {
     setShowAgentPromptDialog(open);
     if (!open) setRunPromptRequest(null);
-  }, []);
+  };
 
-  const handleStartDefaultAgent = useCallback(async () => {
+  const handleStartDefaultAgent = async () => {
     const configuredAgent =
       (await getRepoSetting(repoPath, "default_agent")) ||
       (await getSetting("default_agent"));
@@ -868,26 +845,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
       agent,
     });
     handleSessionCreated({ sessionId, agent });
-  }, [
-    repoPath,
-    selectedWorkspace,
-    effectiveDefaultBranch,
-    getOrCreateSession,
-    handleSessionCreated,
-  ]);
+  };
 
   // Navigate to workspace without creating an agent session
-  const handleSelectWorkspace = useCallback(
-    (workspace: Workspace | null) => {
-      const next = workspace ?? null;
-      setSelectedWorkspace(next);
-      setViewMode("show-workspace");
-      if (repoPath) {
-        void invalidateReviewChangeCount(repoPath, next?.id ?? null);
-      }
-    },
-    [repoPath],
-  );
+  const handleSelectWorkspace = (workspace: Workspace | null) => {
+    const next = workspace ?? null;
+    setSelectedWorkspace(next);
+    setViewMode("show-workspace");
+    if (repoPath) {
+      void invalidateReviewChangeCount(repoPath, next?.id ?? null);
+    }
+  };
 
   const { moveWorkspace } = useWorkspaceHierarchy({
     repoPath,
@@ -895,49 +863,46 @@ export const Dashboard: React.FC<DashboardProps> = ({
     defaultBranch: effectiveDefaultBranch,
   });
 
-  const handleAddAfter = useCallback((workspace: Workspace) => {
+  const handleAddAfter = (workspace: Workspace) => {
     setUnifiedDialogDefaults({
       targetBranch: workspace.branch_name,
       sourceWorkspace: workspace,
     });
-  }, []);
+  };
 
-  const handleAddBefore = useCallback((workspace: Workspace) => {
+  const handleAddBefore = (workspace: Workspace) => {
     setUnifiedDialogDefaults({
       targetBranch: workspace.branch_name,
       sourceWorkspace: workspace,
     });
-  }, []);
+  };
 
-  const handleMoveWorkspace = useCallback(
-    async (workspace: Workspace, targetBranch: string | null) => {
-      try {
-        await moveWorkspace(workspace, targetBranch);
-      } catch (error) {
-        addToast({
-          title: "Failed to move workspace",
-          description: error instanceof Error ? error.message : String(error),
-          type: "error",
-        });
-      }
-    },
-    [moveWorkspace, addToast],
-  );
+  const handleMoveWorkspace = async (
+    workspace: Workspace,
+    targetBranch: string | null,
+  ) => {
+    try {
+      await moveWorkspace(workspace, targetBranch);
+    } catch (error) {
+      addToast({
+        title: "Failed to move workspace",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
 
-  const handleDropChangeFiles = useCallback(
-    (request: ChangeFilesMoveRequest) => {
-      if (
-        request.files.length === 0 ||
-        request.sourceBranch === request.destinationBranch
-      ) {
-        return;
-      }
-      setPendingChangeMove(request);
-    },
-    [],
-  );
+  const handleDropChangeFiles = (request: ChangeFilesMoveRequest) => {
+    if (
+      request.files.length === 0 ||
+      request.sourceBranch === request.destinationBranch
+    ) {
+      return;
+    }
+    setPendingChangeMove(request);
+  };
 
-  const handleConfirmChangeMove = useCallback(async () => {
+  const handleConfirmChangeMove = async () => {
     if (!pendingChangeMove || !repoPath) return;
     setChangeMovePending(true);
     try {
@@ -973,79 +938,76 @@ export const Dashboard: React.FC<DashboardProps> = ({
     } finally {
       setChangeMovePending(false);
     }
-  }, [pendingChangeMove, repoPath, addToast, selectedWorkspace?.id]);
+  };
 
-  const handleSelectStack = useCallback((workspaceIds: Set<number>) => {
+  const handleSelectStack = (workspaceIds: Set<number>) => {
     setSelectedWorkspaceIds(workspaceIds);
-  }, []);
+  };
 
-  const handleCreateSessionFromSidebar = useCallback(
-    async (
-      workspaceId: number | null,
-      agent?: "claude" | "codex" | "cursor",
-    ) => {
-      const workspace = workspaceId
-        ? (workspaces.find((w) => w.id === workspaceId) ?? null)
-        : null;
+  const handleCreateSessionFromSidebar = async (
+    workspaceId: number | null,
+    agent?: "claude" | "codex" | "cursor",
+  ) => {
+    const workspace = workspaceId
+      ? (workspaces.find((w) => w.id === workspaceId) ?? null)
+      : null;
 
-      // When no agent is specified explicitly, resolve from settings (repo-level
-      // overrides app-level, both fall back to "claude").
-      const resolvedAgent = await (async (): Promise<
-        "claude" | "codex" | "cursor" | undefined
-      > => {
-        if (agent) return agent;
-        let repoDefault: string | null = null;
-        let appDefault: string | null = null;
-        try {
-          repoDefault = await getRepoSetting(repoPath, "default_agent");
-        } catch {
-          // repo may not be initialized yet; fall through to app-level
-        }
-        try {
-          appDefault = await getSetting("default_agent");
-        } catch {
-          // ignore
-        }
-        const defaultAgent = repoDefault || appDefault;
-        if (defaultAgent === "codex" || defaultAgent === "cursor") {
-          return defaultAgent;
-        }
-        return undefined;
-      })();
-
-      const sessionId = await getOrCreateSession(workspaceId, {
-        forceNew: true,
-        agent: resolvedAgent,
-      });
-      void invalidateQueries(["sessions"]);
-      setActiveSessionId(sessionId);
-      setSelectedWorkspace(workspace);
-      if (resolvedAgent) {
-        setPendingSessionData((prev) => {
-          const next = new Map(prev);
-          next.set(sessionId, { agent: resolvedAgent! });
-          return next;
-        });
+    // When no agent is specified explicitly, resolve from settings (repo-level
+    // overrides app-level, both fall back to "claude").
+    const resolvedAgent = await (async (): Promise<
+      "claude" | "codex" | "cursor" | undefined
+    > => {
+      if (agent) return agent;
+      let repoDefault: string | null = null;
+      let appDefault: string | null = null;
+      try {
+        repoDefault = await getRepoSetting(repoPath, "default_agent");
+      } catch {
+        // repo may not be initialized yet; fall through to app-level
       }
-    },
-    [getOrCreateSession, workspaces, repoPath],
-  );
+      try {
+        appDefault = await getSetting("default_agent");
+      } catch {
+        // ignore
+      }
+      const defaultAgent = repoDefault || appDefault;
+      if (defaultAgent === "codex" || defaultAgent === "cursor") {
+        return defaultAgent;
+      }
+      return undefined;
+    })();
 
-  const handleStartShellFromSidebar = useCallback((workspace: Workspace) => {
+    const sessionId = await getOrCreateSession(workspaceId, {
+      forceNew: true,
+      agent: resolvedAgent,
+    });
+    void invalidateQueries(["sessions"]);
+    setActiveSessionId(sessionId);
+    setSelectedWorkspace(workspace);
+    if (resolvedAgent) {
+      setPendingSessionData((prev) => {
+        const next = new Map(prev);
+        next.set(sessionId, { agent: resolvedAgent! });
+        return next;
+      });
+    }
+  };
+
+  const handleStartShellFromSidebar = (workspace: Workspace) => {
     setSelectedWorkspace(workspace);
     terminalPaneRef.current?.createShellSession(
       getFullWorkspacePath(workspace),
     );
-  }, []);
+  };
 
-  const handleStartHomeShellFromSidebar = useCallback(() => {
+  const handleStartHomeShellFromSidebar = () => {
     setSelectedWorkspace(null);
     if (repoPath) {
       terminalPaneRef.current?.createShellSession(repoPath);
     }
-  }, [repoPath]);
+  };
 
-  const handleStackHomeFromSidebar = useCallback(() => {
+  const handleStackHomeFromSidebar = () => {
     if (!repoPath) return;
     if (!effectiveDefaultBranch) {
       addToast({
@@ -1059,39 +1021,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
       targetBranch: effectiveDefaultBranch,
       sourceWorkspace: null,
     });
-  }, [repoPath, effectiveDefaultBranch, addToast]);
+  };
 
   // Full workspace path -> branch name, used to resolve shell terminal
   // branches for the sidebar's terminal sessions list.
-  const workspaceBranchByPath = useMemo(() => {
+  const workspaceBranchByPath = (() => {
     const map = new Map<string, string>();
     for (const ws of workspaces) {
       map.set(getFullWorkspacePath(ws), ws.branch_name);
     }
     return map;
-  }, [workspaces]);
+  })();
 
-  const handleCreateAgentTerminalFromSidebar = useCallback(() => {
+  const handleCreateAgentTerminalFromSidebar = () => {
     terminalPaneRef.current?.createAgentSession();
-  }, []);
+  };
 
-  const handleCreateShellTerminalFromSidebar = useCallback(() => {
+  const handleCreateShellTerminalFromSidebar = () => {
     terminalPaneRef.current?.createShellSession();
-  }, []);
+  };
 
-  const handleFocusTerminalSession = useCallback((id: string) => {
+  const handleFocusTerminalSession = (id: string) => {
     terminalPaneRef.current?.focusTerminal(id);
-  }, []);
+  };
 
-  const handleCloseTerminalSession = useCallback((id: string) => {
+  const handleCloseTerminalSession = (id: string) => {
     terminalPaneRef.current?.closeTerminal(id);
-  }, []);
+  };
 
-  const handleCloseIdleTerminalSessions = useCallback(() => {
+  const handleCloseIdleTerminalSessions = () => {
     terminalPaneRef.current?.closeIdleTerminals();
-  }, []);
+  };
 
-  const handleCloseAllTerminalSessions = useCallback(async () => {
+  const handleCloseAllTerminalSessions = async () => {
     const confirmed = await ask(
       "Close all terminal sessions? This will stop all running agent and shell terminals.",
       { title: "Close All Terminals", kind: "warning" },
@@ -1099,67 +1061,66 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (confirmed) {
       terminalPaneRef.current?.closeAllTerminals();
     }
-  }, []);
+  };
 
-  const handleStartAgentRequest = useCallback(
-    async (request: AgentDeepLinkRequest) => {
-      const workspace = findWorkspaceByBranch(workspaces, request.branch);
-      if (!workspace) {
-        addToast({
-          title: "Workspace not found",
-          description: `Branch '${request.branch}' is not available in this window.`,
-          type: "error",
-        });
-        await acknowledgeAgentDispatch(
-          request.requestId,
-          "rejected",
-          `Workspace branch '${request.branch}' was not found`,
-        );
-        return;
-      }
+  const handleStartAgentRequest = async (request: AgentDeepLinkRequest) => {
+    const workspace = findWorkspaceByBranch(workspaces, request.branch);
+    if (!workspace) {
+      addToast({
+        title: "Workspace not found",
+        description: `Branch '${request.branch}' is not available in this window.`,
+        type: "error",
+      });
+      await acknowledgeAgentDispatch(
+        request.requestId,
+        "rejected",
+        `Workspace branch '${request.branch}' was not found`,
+      );
+      return;
+    }
 
-      try {
-        const sessionId = await getOrCreateSession(workspace.id, {
-          forceNew: true,
+    try {
+      const sessionId = await getOrCreateSession(workspace.id, {
+        forceNew: true,
+        agent: request.agent,
+      });
+      setActiveSessionId(sessionId);
+      setSelectedWorkspace(workspace);
+      setViewMode("show-workspace");
+      setPendingSessionData((prev) => {
+        const next = new Map(prev);
+        next.set(sessionId, {
+          pendingPrompt: request.prompt,
+          permissionMode: request.mode,
           agent: request.agent,
         });
-        setActiveSessionId(sessionId);
-        setSelectedWorkspace(workspace);
-        setViewMode("show-workspace");
-        setPendingSessionData((prev) => {
-          const next = new Map(prev);
-          next.set(sessionId, {
-            pendingPrompt: request.prompt,
-            permissionMode: request.mode,
-            agent: request.agent,
+        return next;
+      });
+      if (request.prompt) {
+        addPromptHistory(
+          repoPath,
+          workspace.id,
+          sessionId,
+          request.prompt,
+          request.agent,
+        )
+          .then(() => {
+            void invalidateQueries(["prompt-history"]);
+            invalidateQueries(["workspace-starting-prompt"]);
+          })
+          .catch((error) => {
+            console.error("Failed to record prompt history:", error);
           });
-          return next;
-        });
-        if (request.prompt) {
-          addPromptHistory(
-            repoPath,
-            workspace.id,
-            sessionId,
-            request.prompt,
-            request.agent,
-          )
-            .then(() => {
-              void invalidateQueries(["prompt-history"]);
-              invalidateQueries(["workspace-starting-prompt"]);
-            })
-            .catch((error) => {
-              console.error("Failed to record prompt history:", error);
-            });
-        }
-        markProcessedAgentRequest(request.requestId);
-        await acknowledgeAgentDispatch(request.requestId, "accepted");
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        await acknowledgeAgentDispatch(request.requestId, "rejected", reason);
       }
-    },
-    [addToast, getOrCreateSession, workspaces, repoPath],
-  );
+      markProcessedAgentRequest(request.requestId);
+      await acknowledgeAgentDispatch(request.requestId, "accepted");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await acknowledgeAgentDispatch(request.requestId, "rejected", reason);
+    }
+  };
+  const handleStartAgentRequestRef = useRef(handleStartAgentRequest);
+  handleStartAgentRequestRef.current = handleStartAgentRequest;
 
   useEffect(() => {
     const setup = async () =>
@@ -1168,7 +1129,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         await processAgentDeepLinkRequests(requests, {
           repoPath,
           workspacesLength: workspaces.length,
-          onSameRepoRequest: handleStartAgentRequest,
+          onSameRepoRequest: (request) =>
+            handleStartAgentRequestRef.current(request),
           deferRequest: (request) => {
             setDeferredAgentRequests((prev) => [...prev, request]);
           },
@@ -1194,7 +1156,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return () => {
       unlistenPromise.then((fn) => fn());
     };
-  }, [handleStartAgentRequest, repoPath, workspaces.length]);
+  }, [repoPath, workspaces.length]);
 
   useEffect(() => {
     if (!repoPath || workspaces.length === 0) return;
@@ -1204,68 +1166,63 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setDeferredAgentRequests([]);
     for (const request of pending) {
       if (isProcessedAgentRequest(request.requestId)) continue;
-      void handleStartAgentRequest(request);
+      void handleStartAgentRequestRef.current(request);
     }
-  }, [
-    deferredAgentRequests,
-    handleStartAgentRequest,
-    repoPath,
-    workspaces.length,
-  ]);
+  }, [deferredAgentRequests, repoPath, workspaces.length]);
 
-  const handleWorkspaceMultiSelect = useCallback(
-    (workspace: Workspace | null, event: React.MouseEvent) => {
-      // Handle clicking away to clear selection
-      if (workspace === null) {
-        setSelectedWorkspaceIds(new Set());
-        lastSelectedWorkspaceIndexRef.current = null;
-        return;
-      }
+  const handleWorkspaceMultiSelect = (
+    workspace: Workspace | null,
+    event: React.MouseEvent,
+  ) => {
+    // Handle clicking away to clear selection
+    if (workspace === null) {
+      setSelectedWorkspaceIds(new Set());
+      lastSelectedWorkspaceIndexRef.current = null;
+      return;
+    }
 
-      const workspaceIndex = visibleWorkspaces.findIndex(
-        (w) => w.id === workspace.id,
+    const workspaceIndex = visibleWorkspaces.findIndex(
+      (w) => w.id === workspace.id,
+    );
+    if (workspaceIndex === -1) return;
+
+    const isMetaKey = event.metaKey || event.ctrlKey;
+    const isShiftKey = event.shiftKey;
+
+    if (isShiftKey && lastSelectedWorkspaceIndexRef.current !== null) {
+      // Range selection
+      const start = Math.min(
+        lastSelectedWorkspaceIndexRef.current,
+        workspaceIndex,
       );
-      if (workspaceIndex === -1) return;
-
-      const isMetaKey = event.metaKey || event.ctrlKey;
-      const isShiftKey = event.shiftKey;
-
-      if (isShiftKey && lastSelectedWorkspaceIndexRef.current !== null) {
-        // Range selection
-        const start = Math.min(
-          lastSelectedWorkspaceIndexRef.current,
-          workspaceIndex,
-        );
-        const end = Math.max(
-          lastSelectedWorkspaceIndexRef.current,
-          workspaceIndex,
-        );
-        const newSelection = new Set<number>();
-        for (let i = start; i <= end; i++) {
-          newSelection.add(visibleWorkspaces[i].id);
-        }
-        setSelectedWorkspaceIds(newSelection);
-      } else if (isMetaKey) {
-        // Toggle selection
-        setSelectedWorkspaceIds((prev) => {
-          const next = new Set(prev);
-          if (next.has(workspace.id)) {
-            next.delete(workspace.id);
-          } else {
-            next.add(workspace.id);
-          }
-          return next;
-        });
-        lastSelectedWorkspaceIndexRef.current = workspaceIndex;
-      } else {
-        // Regular click - clear multi-select, navigate to workspace
-        setSelectedWorkspaceIds(new Set());
-        lastSelectedWorkspaceIndexRef.current = workspaceIndex;
-        handleSelectWorkspace(workspace);
+      const end = Math.max(
+        lastSelectedWorkspaceIndexRef.current,
+        workspaceIndex,
+      );
+      const newSelection = new Set<number>();
+      for (let i = start; i <= end; i++) {
+        newSelection.add(visibleWorkspaces[i].id);
       }
-    },
-    [visibleWorkspaces, handleSelectWorkspace],
-  );
+      setSelectedWorkspaceIds(newSelection);
+    } else if (isMetaKey) {
+      // Toggle selection
+      setSelectedWorkspaceIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(workspace.id)) {
+          next.delete(workspace.id);
+        } else {
+          next.add(workspace.id);
+        }
+        return next;
+      });
+      lastSelectedWorkspaceIndexRef.current = workspaceIndex;
+    } else {
+      // Regular click - clear multi-select, navigate to workspace
+      setSelectedWorkspaceIds(new Set());
+      lastSelectedWorkspaceIndexRef.current = workspaceIndex;
+      handleSelectWorkspace(workspace);
+    }
+  };
 
   const handleBulkDelete = async () => {
     const count = selectedWorkspaceIds.size;
@@ -1324,28 +1281,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   // Handle branch change after switching
-  const handleBranchChanged = useCallback(
-    (branchName?: string) => {
-      if (branchName) {
-        setCurrentBranch(branchName);
-        setHomeRepoDisplayRef(branchName);
-      }
-      void invalidateQueries(["repo-status", repoPath]);
-      void invalidateQueries(["repo-branch", repoPath]);
-      // Refresh workspace data
-      void invalidateQueries(["workspaces", repoPath]);
-      invalidateQueries(["workspace-statuses", repoPath]);
-      void invalidateQueries(["workspace-review-change-count", repoPath]);
-      dispatchRefreshWorkspaceChanges();
-    },
-    [repoPath],
-  );
+  const handleBranchChanged = (branchName?: string) => {
+    if (branchName) {
+      setCurrentBranch(branchName);
+      setHomeRepoDisplayRef(branchName);
+    }
+    void invalidateQueries(["repo-status", repoPath]);
+    void invalidateQueries(["repo-branch", repoPath]);
+    // Refresh workspace data
+    void invalidateQueries(["workspaces", repoPath]);
+    invalidateQueries(["workspace-statuses", repoPath]);
+    void invalidateQueries(["workspace-review-change-count", repoPath]);
+    dispatchRefreshWorkspaceChanges();
+  };
 
   const isSessionView = viewMode === "session" || viewMode === "show-workspace";
   const showSidebar = true;
 
   // Build Claude sessions data for the terminal pane
-  const claudeSessionsForPane = useMemo((): ClaudeSessionData[] => {
+  const claudeSessionsForPane = ((): ClaudeSessionData[] => {
     const workspaceMap = new Map(workspaces.map((ws) => [ws.id, ws]));
 
     return sessions.map((session) => {
@@ -1369,20 +1323,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
         }),
       };
     });
-  }, [sessions, workspaces, repoPath, pendingSessionData]);
+  })();
 
-  const mainContentStyle = useMemo(
-    () => ({ width: showSidebar ? "calc(100vw - 280px)" : "100%" }),
-    [showSidebar],
-  );
-  const sessionLayerStyle = useMemo<React.CSSProperties>(
-    () => ({
-      visibility: isSessionView ? "visible" : "hidden",
-      zIndex: isSessionView ? 10 : 0,
-      pointerEvents: isSessionView ? "auto" : "none",
-    }),
-    [isSessionView],
-  );
+  const mainContentStyle = {
+    width: showSidebar ? "calc(100vw - 280px)" : "100%",
+  };
+  const sessionLayerStyle: React.CSSProperties = {
+    visibility: isSessionView ? "visible" : "hidden",
+    zIndex: isSessionView ? 10 : 0,
+    pointerEvents: isSessionView ? "auto" : "none",
+  };
 
   return !repoPath ? (
     <Onboarding onOpenRepo={handleOpenRepository} />

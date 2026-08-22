@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import {
   Dialog,
@@ -144,20 +144,20 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
         : null;
 
   // ── selections ───────────────────────────────────────────────────────────
-  const toggleCommit = useCallback((changeId: string) => {
+  const toggleCommit = (changeId: string) => {
     setSelectedCommits((prev) => {
       const next = new Set(prev);
       if (next.has(changeId)) next.delete(changeId);
       else next.add(changeId);
       return next;
     });
-  }, []);
+  };
 
   // ── hunk helpers ─────────────────────────────────────────────────────────
   const hunkKey = (filePath: string, hunkId: string) =>
     `${filePath}::${hunkId}`;
 
-  const handleToggleFileExpand = useCallback((filePath: string) => {
+  const handleToggleFileExpand = (filePath: string) => {
     setExpandedFiles((prev) => {
       const next = new Set(prev);
       if (next.has(filePath)) next.delete(filePath);
@@ -170,67 +170,61 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
       next.set(filePath, { hunks: [], isLoading: true });
       return next;
     });
-  }, []);
+  };
 
-  const getFileSelectionState = useCallback(
-    (filePath: string): "all" | "some" | "none" => {
-      const hunkData = fileHunksMap.get(filePath);
-      if (!hunkData || hunkData.hunks.length === 0) return "none";
-      const keys = hunkData.hunks.map((h) => hunkKey(filePath, h.id));
-      const count = keys.filter((k) => selectedHunks.has(k)).length;
-      if (count === 0) return "none";
-      if (count === keys.length) return "all";
-      return "some";
-    },
-    [fileHunksMap, selectedHunks],
-  );
+  const getFileSelectionState = (filePath: string): "all" | "some" | "none" => {
+    const hunkData = fileHunksMap.get(filePath);
+    if (!hunkData || hunkData.hunks.length === 0) return "none";
+    const keys = hunkData.hunks.map((h) => hunkKey(filePath, h.id));
+    const count = keys.filter((k) => selectedHunks.has(k)).length;
+    if (count === 0) return "none";
+    if (count === keys.length) return "all";
+    return "some";
+  };
 
-  const toggleFileHunks = useCallback(
-    (filePath: string) => {
-      const hunkData = fileHunksMap.get(filePath);
-      if (!hunkData || hunkData.isLoading) {
-        handleToggleFileExpand(filePath);
-        return;
-      }
-      const allKeys = hunkData.hunks.map((h) => hunkKey(filePath, h.id));
-      const allSelected =
-        allKeys.length > 0 && allKeys.every((k) => selectedHunks.has(k));
-      setSelectedHunks((prev) => {
-        const next = new Set(prev);
-        if (allSelected) allKeys.forEach((k) => next.delete(k));
-        else allKeys.forEach((k) => next.add(k));
-        return next;
-      });
-    },
-    [fileHunksMap, selectedHunks, handleToggleFileExpand],
-  );
+  const toggleFileHunks = (filePath: string) => {
+    const hunkData = fileHunksMap.get(filePath);
+    if (!hunkData || hunkData.isLoading) {
+      handleToggleFileExpand(filePath);
+      return;
+    }
+    const allKeys = hunkData.hunks.map((h) => hunkKey(filePath, h.id));
+    const allSelected =
+      allKeys.length > 0 && allKeys.every((k) => selectedHunks.has(k));
+    setSelectedHunks((prev) => {
+      const next = new Set(prev);
+      if (allSelected) allKeys.forEach((k) => next.delete(k));
+      else allKeys.forEach((k) => next.add(k));
+      return next;
+    });
+  };
 
-  const toggleHunk = useCallback((key: string) => {
+  const toggleHunk = (key: string) => {
     setSelectedHunks((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
-  }, []);
+  };
 
-  const selectAllHunks = useCallback(() => {
+  const selectAllHunks = () => {
     const allKeys: string[] = [];
     for (const [path, data] of fileHunksMap) {
       for (const hunk of data.hunks) allKeys.push(hunkKey(path, hunk.id));
     }
     setSelectedHunks(new Set(allKeys));
-  }, [fileHunksMap]);
+  };
 
   // ── selected file paths (derived from selectedHunks) ─────────────────────
-  const selectedFilePaths = useMemo(() => {
+  const selectedFilePaths = (() => {
     const paths = new Set<string>();
     for (const key of selectedHunks) {
       const idx = key.indexOf("::");
       if (idx !== -1) paths.add(key.slice(0, idx));
     }
     return Array.from(paths);
-  }, [selectedHunks]);
+  })();
 
   // ── isStackOnRoot ────────────────────────────────────────────────────────
   const isStackOnRoot =

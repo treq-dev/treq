@@ -14,7 +14,13 @@ import react from "@vitejs/plugin-react";
  *   the Changes file list.
  */
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
+      },
+    }),
+  ],
   test: {
     name: "integration",
     environment: "jsdom",

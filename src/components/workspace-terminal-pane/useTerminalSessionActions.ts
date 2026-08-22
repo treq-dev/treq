@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { ptyClose } from "../../lib/api";
 import {
   isTerminalSessionIdle,
@@ -42,95 +41,68 @@ export function useTerminalSessionActions({
   handleCloseClaudeSession,
   handleCloseShell,
 }: UseTerminalSessionActionsOptions) {
-  const handleFocusTerminalById = useCallback(
-    (id: string) => {
-      setCollapsed(false);
-      if (id.startsWith("claude-")) {
-        const sessionId = Number(id.slice("claude-".length));
-        const sessionData = claudeSessions.find(
-          (s) => s.sessionId === sessionId,
-        );
-        if (!sessionData) return;
-        setMountedClaudeSessions((prev) =>
-          prev.has(sessionId) ? prev : new Set(prev).add(sessionId),
-        );
-        setTerminalOrder((prev) => (prev.includes(id) ? prev : [...prev, id]));
-        setActivePtySessionId(sessionData.ptySessionId);
-        onActiveSessionChange?.(sessionId);
-      } else {
-        const shellData = shellTerminals.find((s) => s.id === id);
-        if (!shellData) return;
-        setActivePtySessionId(id);
-        onNavigateToWorkspace?.(
-          shellData.workingDirectory,
-          !workspaceBranchByPath?.has(shellData.workingDirectory),
-        );
-      }
-      scrollToTerminal(id);
-    },
-    [
-      claudeSessions,
-      shellTerminals,
-      onActiveSessionChange,
-      onNavigateToWorkspace,
-      workspaceBranchByPath,
-      scrollToTerminal,
-      setCollapsed,
-      setMountedClaudeSessions,
-      setTerminalOrder,
-      setActivePtySessionId,
-    ],
-  );
+  const handleFocusTerminalById = (id: string) => {
+    setCollapsed(false);
+    if (id.startsWith("claude-")) {
+      const sessionId = Number(id.slice("claude-".length));
+      const sessionData = claudeSessions.find((s) => s.sessionId === sessionId);
+      if (!sessionData) return;
+      setMountedClaudeSessions((prev) =>
+        prev.has(sessionId) ? prev : new Set(prev).add(sessionId),
+      );
+      setTerminalOrder((prev) => (prev.includes(id) ? prev : [...prev, id]));
+      setActivePtySessionId(sessionData.ptySessionId);
+      onActiveSessionChange?.(sessionId);
+    } else {
+      const shellData = shellTerminals.find((s) => s.id === id);
+      if (!shellData) return;
+      setActivePtySessionId(id);
+      onNavigateToWorkspace?.(
+        shellData.workingDirectory,
+        !workspaceBranchByPath?.has(shellData.workingDirectory),
+      );
+    }
+    scrollToTerminal(id);
+  };
 
-  const handleCloseTerminalById = useCallback(
-    (id: string) => {
-      if (id.startsWith("claude-")) {
-        handleCloseClaudeSession(Number(id.slice("claude-".length)));
-      } else {
-        handleCloseShell(id);
-      }
-    },
-    [handleCloseClaudeSession, handleCloseShell],
-  );
+  const handleCloseTerminalById = (id: string) => {
+    if (id.startsWith("claude-")) {
+      handleCloseClaudeSession(Number(id.slice("claude-".length)));
+    } else {
+      handleCloseShell(id);
+    }
+  };
 
-  const handleCloseIdleTerminals = useCallback(() => {
+  const handleCloseIdleTerminals = () => {
     const now = Date.now();
     for (const summary of terminalSummariesRef.current) {
       if (isTerminalSessionIdle(summary, now)) {
         handleCloseTerminalById(summary.id);
       }
     }
-  }, [handleCloseTerminalById, terminalSummariesRef]);
+  };
 
-  const handleCloseAllTerminals = useCallback(() => {
+  const handleCloseAllTerminals = () => {
     for (const summary of terminalSummariesRef.current) {
       handleCloseTerminalById(summary.id);
     }
-  }, [handleCloseTerminalById, terminalSummariesRef]);
+  };
 
   // Close every terminal (shell + agent) belonging to a workspace, killing their
   // PTY processes. Used when the owning workspace itself is being deleted, so
   // terminals don't linger as orphaned processes.
-  const closeTerminalsForWorkspace = useCallback(
-    (workspaceKey: string) => {
-      shellTerminals
-        .filter((t) => t.workingDirectory === workspaceKey)
-        .forEach((t) => handleCloseShell(t.id));
+  const closeTerminalsForWorkspace = (workspaceKey: string) => {
+    shellTerminals
+      .filter((t) => t.workingDirectory === workspaceKey)
+      .forEach((t) => handleCloseShell(t.id));
 
-      claudeSessions
-        .filter((s) => (s.workspacePath || s.repoPath) === workspaceKey)
-        .forEach((s) => {
-          ptyClose(s.ptySessionId).catch(console.error);
-          handleCloseClaudeSession(s.sessionId);
-        });
-    },
-    [
-      shellTerminals,
-      claudeSessions,
-      handleCloseShell,
-      handleCloseClaudeSession,
-    ],
-  );
+    claudeSessions
+      .filter((s) => (s.workspacePath || s.repoPath) === workspaceKey)
+      .forEach((s) => {
+        ptyClose(s.ptySessionId).catch(console.error);
+        handleCloseClaudeSession(s.sessionId);
+      });
+  };
 
   return {
     handleFocusTerminalById,

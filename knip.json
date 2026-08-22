@@ -38,7 +38,8 @@
     "monaco-editor",
     "react-hook-form",
     "vite-plugin-monaco-editor",
-    "zod"
+    "zod",
+    "react-compiler-runtime"
   ],
   "rules": {
     "files": "off",

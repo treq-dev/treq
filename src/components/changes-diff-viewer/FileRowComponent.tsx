@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from "react";
+import React from "react";
 import { FileText, Loader2, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { CommentInput } from "../CommentInput";
@@ -16,26 +16,29 @@ import {
   type HighlightedLineProps,
 } from "./types";
 
-const HighlightedLine: React.FC<HighlightedLineProps> = memo(
-  ({ content, language, searchQuery, searchHighlightOffset }) => {
-    const html = useMemo(() => {
-      let result = highlightCode(content, language);
-      if (searchQuery) {
-        const { html: highlighted } = highlightInHtml(
-          result,
-          searchQuery,
-          searchHighlightOffset ?? -1,
-        );
-        result = highlighted;
-      }
-      return result;
-    }, [content, language, searchQuery, searchHighlightOffset]);
-    return <span dangerouslySetInnerHTML={{ __html: html }} />;
-  },
-);
+const HighlightedLine: React.FC<HighlightedLineProps> = ({
+  content,
+  language,
+  searchQuery,
+  searchHighlightOffset,
+}) => {
+  const html = (() => {
+    let result = highlightCode(content, language);
+    if (searchQuery) {
+      const { html: highlighted } = highlightInHtml(
+        result,
+        searchQuery,
+        searchHighlightOffset ?? -1,
+      );
+      result = highlighted;
+    }
+    return result;
+  })();
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+};
 HighlightedLine.displayName = "HighlightedLine";
 
-const FileRowComponent: React.FC<FileRowComponentProps> = memo((props) => {
+const FileRowComponent: React.FC<FileRowComponentProps> = (props) => {
   const {
     file,
     allFileHunks,
@@ -314,7 +317,7 @@ const FileRowComponent: React.FC<FileRowComponentProps> = memo((props) => {
       </div>
     </>
   );
-});
+};
 FileRowComponent.displayName = "FileRowComponent";
 
 export { FileRowComponent, HighlightedLine };

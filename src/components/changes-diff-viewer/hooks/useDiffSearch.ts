@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ConflictRegion, JjFileChange } from "../../../lib/api";
 import { isBinaryFile, type ParsedFileChange } from "../../../lib/git-utils";
 import { escapeRegex } from "../../../lib/text-search";
@@ -45,7 +45,7 @@ export function useDiffSearch({
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [searchFocusTrigger, setSearchFocusTrigger] = useState(0);
 
-  const searchData = useMemo<DiffSearchData>(() => {
+  const searchData: DiffSearchData = (() => {
     const matches: DiffSearchData["matches"] = [];
     const matchesByKey = new Map<
       string,
@@ -149,17 +149,7 @@ export function useDiffSearch({
       processFile(file.path, committedFileHunks);
     }
     return { matches, matchesByKey };
-  }, [
-    debouncedSearchQuery,
-    files,
-    allFileHunks,
-    committedFileHunks,
-    collapsedFiles,
-    expandedLargeDiffs,
-    showCommittedChanges,
-    committedFiles,
-    conflictLineLookups,
-  ]);
+  })();
 
   useEffect(() => {
     if (searchData.matches.length === 0) {
@@ -185,49 +175,46 @@ export function useDiffSearch({
     [],
   );
 
-  const scrollToSearchMatch = useCallback(
-    (matchIdx: number) => {
-      if (!diffContainerRef.current || searchData.matches.length === 0) return;
-      const match = searchData.matches[matchIdx];
-      if (!match) return;
-      const searchId =
-        match.hunkIndex === -1
-          ? `conflict:${match.filePath}:${match.lineIndex}`
-          : `${match.filePath}:${match.hunkIndex}:${match.lineIndex}`;
-      const api = diffScrollApiRef?.current;
-      if (api) {
-        api.scrollToSearchId(searchId);
-        return;
-      }
-      const el = diffContainerRef.current.querySelector(
-        `[data-search-id="${CSS.escape(searchId)}"]`,
-      );
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    },
-    [searchData.matches, diffContainerRef, diffScrollApiRef],
-  );
+  const scrollToSearchMatch = (matchIdx: number) => {
+    if (!diffContainerRef.current || searchData.matches.length === 0) return;
+    const match = searchData.matches[matchIdx];
+    if (!match) return;
+    const searchId =
+      match.hunkIndex === -1
+        ? `conflict:${match.filePath}:${match.lineIndex}`
+        : `${match.filePath}:${match.hunkIndex}:${match.lineIndex}`;
+    const api = diffScrollApiRef?.current;
+    if (api) {
+      api.scrollToSearchId(searchId);
+      return;
+    }
+    const el = diffContainerRef.current.querySelector(
+      `[data-search-id="${CSS.escape(searchId)}"]`,
+    );
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
-  const handleSearchNext = useCallback(() => {
+  const handleSearchNext = () => {
     if (searchData.matches.length === 0) return;
     const next = (currentMatchIndex + 1) % searchData.matches.length;
     setCurrentMatchIndex(next);
     scrollToSearchMatch(next);
-  }, [currentMatchIndex, searchData.matches.length, scrollToSearchMatch]);
+  };
 
-  const handleSearchPrevious = useCallback(() => {
+  const handleSearchPrevious = () => {
     if (searchData.matches.length === 0) return;
     const prev =
       (currentMatchIndex - 1 + searchData.matches.length) %
       searchData.matches.length;
     setCurrentMatchIndex(prev);
     scrollToSearchMatch(prev);
-  }, [currentMatchIndex, searchData.matches.length, scrollToSearchMatch]);
+  };
 
-  const handleSearchClose = useCallback(() => {
+  const handleSearchClose = () => {
     setIsSearchOpen(false);
     setSearchQuery("");
     setCurrentMatchIndex(0);
-  }, []);
+  };
 
   return {
     isSearchOpen,

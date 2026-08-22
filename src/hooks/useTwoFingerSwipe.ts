@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-
 const DEFAULT_THRESHOLD_PX = 80;
 const REQUIRED_FINGERS = 2;
 

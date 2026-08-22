@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -90,19 +90,12 @@ export const MergeDialog: React.FC<MergeDialogProps> = ({
     }
   }, [hasWorkspaceChanges]);
 
-  const canConfirm = useMemo(() => {
+  const canConfirm = (() => {
     if (!workspace || isLoadingDetails) return false;
     if (hasWorkspaceChanges && !confirmDiscard) return false;
     if (strategy === "squash" && !commitMessage.trim()) return false;
     return true;
-  }, [
-    workspace,
-    isLoadingDetails,
-    hasWorkspaceChanges,
-    confirmDiscard,
-    strategy,
-    commitMessage,
-  ]);
+  })();
 
   const mergeAction = async () => {
     if (!workspace) return;

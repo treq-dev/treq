@@ -1,4 +1,4 @@
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { invalidateQueries } from "../lib/swr-cache";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -159,7 +159,7 @@ export const ScheduleWorkspaceDialog: React.FC<
     canRemoveSchedule ||
     isWorkspaceHidden({ hidden_until: currentHiddenUntil });
 
-  const now = useMemo(() => new Date(), [open]);
+  const now = new Date();
   const count = workspaceIds.length;
   const title = mode === "stack" ? "Schedule stack" : "Schedule workspace";
   const description =

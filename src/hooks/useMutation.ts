@@ -1,5 +1,4 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
-
+import { useRef, useState, useSyncExternalStore } from "react";
 const mutatingCounts = new Map<string, number>();
 const mutationListeners = new Set<() => void>();
 
@@ -61,7 +60,7 @@ export function useMutation<TData, TVariables = void>(options: {
   const sharedPending = useIsMutating(options.mutationKey ?? []);
   const isPending = options.mutationKey ? sharedPending : localPending;
 
-  const mutateAsync = useCallback(async (variables: TVariables) => {
+  const mutateAsync = async (variables: TVariables) => {
     const opts = optionsRef.current;
     setLocalPending(true);
     setError(undefined);
@@ -78,14 +77,11 @@ export function useMutation<TData, TVariables = void>(options: {
       endMutation(opts.mutationKey);
       setLocalPending(false);
     }
-  }, []);
+  };
 
-  const mutate = useCallback(
-    (variables: TVariables) => {
-      void mutateAsync(variables);
-    },
-    [mutateAsync],
-  );
+  const mutate = (variables: TVariables) => {
+    void mutateAsync(variables);
+  };
 
   return {
     mutate,

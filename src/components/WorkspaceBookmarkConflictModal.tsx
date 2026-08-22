@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import type { WorkspaceBookmarkConflict } from "../lib/api";
 import {
   Dialog,
@@ -29,10 +28,10 @@ export function WorkspaceBookmarkConflictModal({
   const commits = conflict?.commits ?? [];
   const bookmarkName = conflict?.bookmark ?? "";
 
-  const formattedDescription = useMemo(() => {
+  const formattedDescription = (() => {
     if (!bookmarkName) return "";
     return `Bookmark ${bookmarkName} has multiple histories. Treq will rebase the local history onto the remote tip in one atomic operation.`;
-  }, [bookmarkName]);
+  })();
 
   const handleResolve = () => {
     if (resolving) return;

@@ -1,6 +1,6 @@
 import useSWR from "swr";
 import { FileText, Images } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { listSendArtifacts } from "../lib/api";
 import {
   mergeSendAssets,
@@ -29,10 +29,10 @@ export const ArtifactsPage: React.FC<ArtifactsPageProps> = ({
     () => listSendArtifacts(repoPath),
   );
 
-  const assets = useMemo(() => {
+  const assets = (() => {
     const fromDisk = historical.map(sendRecordToAsset);
     return mergeSendAssets(fromDisk, sendAssets);
-  }, [historical, sendAssets]);
+  })();
 
   return (
     <div className="flex flex-col h-full bg-background">

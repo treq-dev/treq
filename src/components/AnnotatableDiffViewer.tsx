@@ -1,5 +1,5 @@
 import { Loader2, MessageCircle, X } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { cn } from "../lib/utils";
@@ -111,30 +111,30 @@ const AnnotatableDiffViewerComponent: React.FC<AnnotatableDiffViewerProps> = ({
   const [draftText, setDraftText] = useState("");
   const hoverTargetRef = useRef<DraftState | null>(null);
 
-  const fileComments = useMemo(() => {
+  const fileComments = (() => {
     if (!diff) return [];
     return comments.filter((comment) => comment.filePath === diff.path);
-  }, [comments, diff]);
+  })();
 
-  const commentCountByLine = useMemo(() => {
+  const commentCountByLine = (() => {
     const map = new Map<string, number>();
     fileComments.forEach((comment) => {
       map.set(comment.lineKey, (map.get(comment.lineKey) || 0) + 1);
     });
     return map;
-  }, [fileComments]);
+  })();
 
-  const handleStartDraft = useCallback((location: DraftState) => {
+  const handleStartDraft = (location: DraftState) => {
     setDraft(location);
     setDraftText("");
-  }, []);
+  };
 
-  const cancelDraft = useCallback(() => {
+  const cancelDraft = () => {
     setDraft(null);
     setDraftText("");
-  }, []);
+  };
 
-  const handleSubmitDraft = useCallback(() => {
+  const handleSubmitDraft = () => {
     if (!draft || !draftText.trim()) {
       return;
     }
@@ -153,7 +153,7 @@ const AnnotatableDiffViewerComponent: React.FC<AnnotatableDiffViewerProps> = ({
     });
     setDraft(null);
     setDraftText("");
-  }, [draft, draftText, diff?.path, onAddComment]);
+  };
 
   useEffect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
@@ -208,7 +208,7 @@ const AnnotatableDiffViewerComponent: React.FC<AnnotatableDiffViewerProps> = ({
   }, [diff, selectedCommentId, fileComments]);
 
   // Pre-compute context for all lines to avoid expensive buildContext calls on every render
-  const linesWithContext = useMemo(() => {
+  const linesWithContext = (() => {
     if (!diff) return [];
 
     const buildContext = (
@@ -243,7 +243,7 @@ const AnnotatableDiffViewerComponent: React.FC<AnnotatableDiffViewerProps> = ({
         lineIndex,
       })),
     );
-  }, [diff]);
+  })();
 
   const renderLineNumbers = (
     lineKey: string,
@@ -465,5 +465,5 @@ const AnnotatableDiffViewerComponent: React.FC<AnnotatableDiffViewerProps> = ({
   );
 };
 
-export const AnnotatableDiffViewer = memo(AnnotatableDiffViewerComponent);
+export const AnnotatableDiffViewer = AnnotatableDiffViewerComponent;
 AnnotatableDiffViewer.displayName = "AnnotatableDiffViewer";

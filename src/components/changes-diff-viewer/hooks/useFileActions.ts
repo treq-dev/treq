@@ -1,7 +1,7 @@
 import { useIsMutating, useMutation } from "../../../hooks/useMutation";
 import { invalidateQueries } from "../../../lib/swr-cache";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import {
   createPrMutationKey,
   useGitRemoteInfo,
@@ -85,37 +85,27 @@ export function useFileActions({
     ? "pr"
     : localPendingAction;
 
-  const handleUndoDiscard = useCallback(
-    async (snapshotId: string) => {
-      try {
-        await jjRestoreSnapshot(workspacePath, snapshotId);
-        await invalidateCache();
-        await loadChangedFiles(true);
-        await invalidateReviewChangeCount(repoPath, workspaceId);
-        addToast({
-          description: "Discarded changes have been restored",
-          title: "Restored",
-          type: "success",
-        });
-      } catch (error) {
-        addToast({
-          description: error instanceof Error ? error.message : String(error),
-          title: "Undo Failed",
-          type: "error",
-        });
-      }
-    },
-    [
-      workspacePath,
-      addToast,
-      invalidateCache,
-      loadChangedFiles,
-      repoPath,
-      workspaceId,
-    ],
-  );
+  const handleUndoDiscard = async (snapshotId: string) => {
+    try {
+      await jjRestoreSnapshot(workspacePath, snapshotId);
+      await invalidateCache();
+      await loadChangedFiles(true);
+      await invalidateReviewChangeCount(repoPath, workspaceId);
+      addToast({
+        description: "Discarded changes have been restored",
+        title: "Restored",
+        type: "success",
+      });
+    } catch (error) {
+      addToast({
+        description: error instanceof Error ? error.message : String(error),
+        title: "Undo Failed",
+        type: "error",
+      });
+    }
+  };
 
-  const handleDiscardAll = useCallback(async () => {
+  const handleDiscardAll = async () => {
     if (readOnly) return;
     try {
       const snapshotId = await jjSnapshotWorkingCopy(workspacePath);
@@ -139,72 +129,49 @@ export function useFileActions({
         type: "error",
       });
     }
-  }, [
-    workspacePath,
-    readOnly,
-    addToast,
-    invalidateCache,
-    loadChangedFiles,
-    handleUndoDiscard,
-    repoPath,
-    workspaceId,
-  ]);
+  };
 
-  const handleDiscardFiles = useCallback(
-    async (filePath: string) => {
-      if (readOnly || !filePath) return;
-      const filesToDiscard =
-        selectedUnstagedFiles.has(filePath) && selectedUnstagedFiles.size > 0
-          ? Array.from(selectedUnstagedFiles)
-          : [filePath];
-      setFileActionTarget(filePath);
-      try {
-        const snapshotId = await jjSnapshotWorkingCopy(workspacePath);
-        await Promise.all(
-          filesToDiscard.map((file) => jjRestoreFile(workspacePath, file)),
-        );
-        const count = filesToDiscard.length;
-        addToast({
-          description:
-            count === 1
-              ? `${filesToDiscard[0]} discarded`
-              : `${count} files discarded`,
-          title: "Discarded",
-          type: "success",
-          action: {
-            label: "Undo",
-            onClick: () => handleUndoDiscard(snapshotId),
-          },
-        });
-        setSelectedUnstagedFiles(new Set());
-        await invalidateCache();
-        await loadChangedFiles(true);
-        await invalidateReviewChangeCount(repoPath, workspaceId);
-      } catch (error) {
-        addToast({
-          description: error instanceof Error ? error.message : String(error),
-          title: "Discard Failed",
-          type: "error",
-        });
-      } finally {
-        setFileActionTarget(null);
-      }
-    },
-    [
-      readOnly,
-      selectedUnstagedFiles,
-      addToast,
-      invalidateCache,
-      loadChangedFiles,
-      workspacePath,
-      setSelectedUnstagedFiles,
-      handleUndoDiscard,
-      repoPath,
-      workspaceId,
-    ],
-  );
+  const handleDiscardFiles = async (filePath: string) => {
+    if (readOnly || !filePath) return;
+    const filesToDiscard =
+      selectedUnstagedFiles.has(filePath) && selectedUnstagedFiles.size > 0
+        ? Array.from(selectedUnstagedFiles)
+        : [filePath];
+    setFileActionTarget(filePath);
+    try {
+      const snapshotId = await jjSnapshotWorkingCopy(workspacePath);
+      await Promise.all(
+        filesToDiscard.map((file) => jjRestoreFile(workspacePath, file)),
+      );
+      const count = filesToDiscard.length;
+      addToast({
+        description:
+          count === 1
+            ? `${filesToDiscard[0]} discarded`
+            : `${count} files discarded`,
+        title: "Discarded",
+        type: "success",
+        action: {
+          label: "Undo",
+          onClick: () => handleUndoDiscard(snapshotId),
+        },
+      });
+      setSelectedUnstagedFiles(new Set());
+      await invalidateCache();
+      await loadChangedFiles(true);
+      await invalidateReviewChangeCount(repoPath, workspaceId);
+    } catch (error) {
+      addToast({
+        description: error instanceof Error ? error.message : String(error),
+        title: "Discard Failed",
+        type: "error",
+      });
+    } finally {
+      setFileActionTarget(null);
+    }
+  };
 
-  const handleCopyLineLocation = useCallback(async () => {
+  const handleCopyLineLocation = async () => {
     try {
       if (!diffLineSelection || diffLineSelection.lines.length === 0) return;
       const { filePath } = diffLineSelection;
@@ -242,9 +209,9 @@ export function useFileActions({
         type: "error",
       });
     }
-  }, [diffLineSelection, allFileHunks, addToast, setContextMenuPosition]);
+  };
 
-  const handleCopyLines = useCallback(async () => {
+  const handleCopyLines = async () => {
     try {
       const lineContents =
         diffLineSelection?.lines?.map((l) => l.content).join("\n") || "";
@@ -267,126 +234,94 @@ export function useFileActions({
         type: "error",
       });
     }
-  }, [diffLineSelection, addToast, setContextMenuPosition]);
+  };
 
-  const performCommit = useCallback(
-    async (commitMsg: string): Promise<boolean> => {
-      if (!commitMsg) {
-        addToast({
-          title: "Commit message",
-          description: "Enter a commit message.",
-          type: "error",
-        });
-        return false;
+  const performCommit = async (commitMsg: string): Promise<boolean> => {
+    if (!commitMsg) {
+      addToast({
+        title: "Commit message",
+        description: "Enter a commit message.",
+        type: "error",
+      });
+      return false;
+    }
+    if (commitMsg.length > 500) {
+      addToast({
+        title: "Commit message",
+        description: "Please keep the message under 500 characters.",
+        type: "error",
+      });
+      return false;
+    }
+    try {
+      const stagedPaths = Array.from(stagedFiles);
+      let result: string;
+      if (stagedPaths.length > 0) {
+        result = await jjSplit(workspacePath, commitMsg, stagedPaths);
+        setStagedFiles(new Set());
+      } else {
+        result = await createCommit(repoPath!, workspaceId ?? null, commitMsg);
       }
-      if (commitMsg.length > 500) {
-        addToast({
-          title: "Commit message",
-          description: "Please keep the message under 500 characters.",
-          type: "error",
-        });
-        return false;
-      }
-      try {
-        const stagedPaths = Array.from(stagedFiles);
-        let result: string;
-        if (stagedPaths.length > 0) {
-          result = await jjSplit(workspacePath, commitMsg, stagedPaths);
-          setStagedFiles(new Set());
-        } else {
-          result = await createCommit(
-            repoPath!,
-            workspaceId ?? null,
-            commitMsg,
-          );
-        }
-        await invalidateCache();
-        addToast({
-          title: "Commit created",
-          description: result.trim() || "Commit successful",
-          type: "success",
-        });
-        setCommittedSectionCollapsed(true);
-        // Await status refetches before reloading Review files so conflict
-        // hints / sidebar indicators clear in the same turn as the commit
-        // (resolve+commit must not leave a stale Conflicts section).
-        await Promise.all([
-          invalidateQueries([
-            "workspace-status",
-            repoPath,
-            workspaceId ?? null,
-          ]),
-          invalidateQueries(["workspace-statuses", repoPath]),
-          invalidateQueries([
-            "workspace-commits",
-            repoPath,
-            workspaceId ?? null,
-          ]),
-          invalidateReviewChangeCount(repoPath, workspaceId),
-        ]);
-        // Force-apply so an in-progress review refreshes instead of parking
-        // the post-commit file list behind the stale-files banner.
-        await Promise.all([loadChangedFiles(true), refreshCommittedChanges()]);
-        return true;
-      } catch (error) {
-        addToast({
-          title: "Commit failed",
-          description: error instanceof Error ? error.message : String(error),
-          type: "error",
-        });
-        return false;
-      }
-    },
-    [
-      workspacePath,
-      addToast,
-      invalidateCache,
-      stagedFiles,
-      setStagedFiles,
-      loadChangedFiles,
-      refreshCommittedChanges,
-      setCommittedSectionCollapsed,
-      repoPath,
-      workspaceId,
-    ],
-  );
+      await invalidateCache();
+      addToast({
+        title: "Commit created",
+        description: result.trim() || "Commit successful",
+        type: "success",
+      });
+      setCommittedSectionCollapsed(true);
+      // Await status refetches before reloading Review files so conflict
+      // hints / sidebar indicators clear in the same turn as the commit
+      // (resolve+commit must not leave a stale Conflicts section).
+      await Promise.all([
+        invalidateQueries(["workspace-status", repoPath, workspaceId ?? null]),
+        invalidateQueries(["workspace-statuses", repoPath]),
+        invalidateQueries(["workspace-commits", repoPath, workspaceId ?? null]),
+        invalidateReviewChangeCount(repoPath, workspaceId),
+      ]);
+      // Force-apply so an in-progress review refreshes instead of parking
+      // the post-commit file list behind the stale-files banner.
+      await Promise.all([loadChangedFiles(true), refreshCommittedChanges()]);
+      return true;
+    } catch (error) {
+      addToast({
+        title: "Commit failed",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+      return false;
+    }
+  };
 
-  const handleCommit = useCallback(
-    async (commitMsg: string) => {
-      setPendingAction("commit");
-      try {
-        await performCommit(commitMsg);
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [performCommit],
-  );
+  const handleCommit = async (commitMsg: string) => {
+    setPendingAction("commit");
+    try {
+      await performCommit(commitMsg);
+    } finally {
+      setPendingAction(null);
+    }
+  };
 
-  const handleCommitAndPush = useCallback(
-    async (commitMsg: string) => {
-      setPendingAction("push");
-      try {
-        const committed = await performCommit(commitMsg);
-        if (!committed) return;
-        await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
-        await invalidateQueries();
-        addToast({
-          title: "Pushed to remote",
-          type: "success",
-        });
-      } catch (error) {
-        addToast({
-          title: "Failed to push",
-          description: error instanceof Error ? error.message : String(error),
-          type: "error",
-        });
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [performCommit, repoPath, workspaceId, addToast],
-  );
+  const handleCommitAndPush = async (commitMsg: string) => {
+    setPendingAction("push");
+    try {
+      const committed = await performCommit(commitMsg);
+      if (!committed) return;
+      await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
+      await invalidateQueries();
+      addToast({
+        title: "Pushed to remote",
+        type: "success",
+      });
+    } catch (error) {
+      addToast({
+        title: "Failed to push",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  };
 
   const createPrMutation = useMutation({
     mutationKey: createPrMutationKey(repoPath, workspaceId),
@@ -406,86 +341,80 @@ export function useFileActions({
     },
   });
 
-  const handleCommitAndCreatePR = useCallback(
-    async (commitMsg: string) => {
-      if (!remoteInfo || !workspace || !baseBranch) return;
-      try {
-        const number = await createPrMutation.mutateAsync(commitMsg);
-        if (number == null) return;
-        await invalidateQueries();
-        const prUrl = `https://github.com/${remoteInfo.full_name}/pull/${number}`;
-        addToast({
-          title: "Pull request created",
-          description: `#${number}`,
-          type: "success",
-          action: {
-            label: "Open in Web",
-            onClick: () => openUrl(prUrl),
-          },
-        });
-      } catch (error) {
-        addToast({
-          title: "Failed to create PR",
-          description: error instanceof Error ? error.message : String(error),
-          type: "error",
-        });
-      }
-    },
-    [createPrMutation, remoteInfo, workspace, baseBranch, addToast],
-  );
+  const handleCommitAndCreatePR = async (commitMsg: string) => {
+    if (!remoteInfo || !workspace || !baseBranch) return;
+    try {
+      const number = await createPrMutation.mutateAsync(commitMsg);
+      if (number == null) return;
+      await invalidateQueries();
+      const prUrl = `https://github.com/${remoteInfo.full_name}/pull/${number}`;
+      addToast({
+        title: "Pull request created",
+        description: `#${number}`,
+        type: "success",
+        action: {
+          label: "Open in Web",
+          onClick: () => openUrl(prUrl),
+        },
+      });
+    } catch (error) {
+      addToast({
+        title: "Failed to create PR",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
 
-  const handleExpandContext = useCallback(
-    async (
-      filePath: string,
-      hunkIndex: number,
-      direction: "before" | "after",
-    ) => {
-      const hunk = allFileHunks.get(filePath)?.hunks[hunkIndex];
-      if (!hunk) return;
-      const key = `${filePath}:${hunkIndex}:${direction}`;
-      const existing = expandedContext.get(key) || [];
-      const LINES_TO_FETCH = 20;
-      const { newStart, newCount } = parseHunkHeader(hunk.header);
-      let startLine: number;
-      let endLine: number;
-      if (direction === "before") {
-        const hunkStartLine = newStart;
-        endLine = hunkStartLine - 1 - existing.length;
-        startLine = Math.max(1, endLine - LINES_TO_FETCH + 1);
-        if (startLine > endLine) return;
-      } else {
-        const hunkEndLine = newStart + newCount - 1;
-        startLine = hunkEndLine + 1 + existing.length;
-        endLine = startLine + LINES_TO_FETCH - 1;
+  const handleExpandContext = async (
+    filePath: string,
+    hunkIndex: number,
+    direction: "before" | "after",
+  ) => {
+    const hunk = allFileHunks.get(filePath)?.hunks[hunkIndex];
+    if (!hunk) return;
+    const key = `${filePath}:${hunkIndex}:${direction}`;
+    const existing = expandedContext.get(key) || [];
+    const LINES_TO_FETCH = 20;
+    const { newStart, newCount } = parseHunkHeader(hunk.header);
+    let startLine: number;
+    let endLine: number;
+    if (direction === "before") {
+      const hunkStartLine = newStart;
+      endLine = hunkStartLine - 1 - existing.length;
+      startLine = Math.max(1, endLine - LINES_TO_FETCH + 1);
+      if (startLine > endLine) return;
+    } else {
+      const hunkEndLine = newStart + newCount - 1;
+      startLine = hunkEndLine + 1 + existing.length;
+      endLine = startLine + LINES_TO_FETCH - 1;
+    }
+    try {
+      const result = await getWorkspaceFileLines(
+        repoPath ?? "",
+        workspaceId ?? null,
+        filePath,
+        false,
+        startLine,
+        endLine,
+      );
+      if (result.lines.length > 0) {
+        setExpandedContext((prev) => {
+          const next = new Map(prev);
+          const prevLines = prev.get(key) || [];
+          next.set(
+            key,
+            direction === "before"
+              ? [...result.lines, ...prevLines]
+              : [...prevLines, ...result.lines],
+          );
+          return next;
+        });
       }
-      try {
-        const result = await getWorkspaceFileLines(
-          repoPath ?? "",
-          workspaceId ?? null,
-          filePath,
-          false,
-          startLine,
-          endLine,
-        );
-        if (result.lines.length > 0) {
-          setExpandedContext((prev) => {
-            const next = new Map(prev);
-            const prevLines = prev.get(key) || [];
-            next.set(
-              key,
-              direction === "before"
-                ? [...result.lines, ...prevLines]
-                : [...prevLines, ...result.lines],
-            );
-            return next;
-          });
-        }
-      } catch {
-        /* context expansion non-critical */
-      }
-    },
-    [repoPath, workspaceId, expandedContext, allFileHunks],
-  );
+    } catch {
+      /* context expansion non-critical */
+    }
+  };
 
   return {
     fileActionTarget,

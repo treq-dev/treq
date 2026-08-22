@@ -15,15 +15,7 @@ import {
   Clock,
   Trash2,
 } from "lucide-react";
-import {
-  Fragment,
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   abandonCommit,
   getCommitDiff,
@@ -165,488 +157,497 @@ const parseHunkHeader = (
   };
 };
 
-export const CommitDiffViewer = memo<CommitDiffViewerProps>(
-  ({
-    repoPath,
-    workspaceId,
-    scrollToCommitId,
-    onScrollComplete,
-    onCommitAbandoned,
-    onCommitStashed,
-    onCreateAgentWithComment,
-    onMoveCommitToNewWorkspace,
-    onMoveCommitToExistingWorkspace,
-    onViewTentativeChanges,
-    onDeleteTentativeChanges,
-    onSessionCreated,
-  }) => {
-    const isHomeRepo = workspaceId == null;
-    const [removedCommitIds, setRemovedCommitIds] = useState<Set<string>>(
-      new Set(),
-    );
-    const [hideTentativeWorkingCopy, setHideTentativeWorkingCopy] =
-      useState(false);
-    const [targetBranchLimit, setTargetBranchLimit] = useState(10);
-    const [homeRepoLimit, setHomeRepoLimit] = useState(15);
-    const [expandedCommits, setExpandedCommits] = useState<Set<string>>(
-      new Set(),
-    );
-    const [commitDiffs, setCommitDiffs] = useState<
-      Map<string, { diff: JjRevisionDiff; loading: boolean; error?: string }>
-    >(new Map());
-    const containerRef = useRef<HTMLDivElement>(null);
-    const hideCommitTimeoutsRef = useRef<Map<string, number>>(new Map());
+export const CommitDiffViewer = ({
+  repoPath,
+  workspaceId,
+  scrollToCommitId,
+  onScrollComplete,
+  onCommitAbandoned,
+  onCommitStashed,
+  onCreateAgentWithComment,
+  onMoveCommitToNewWorkspace,
+  onMoveCommitToExistingWorkspace,
+  onViewTentativeChanges,
+  onDeleteTentativeChanges,
+  onSessionCreated,
+}: CommitDiffViewerProps) => {
+  const isHomeRepo = workspaceId == null;
+  const [removedCommitIds, setRemovedCommitIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [hideTentativeWorkingCopy, setHideTentativeWorkingCopy] =
+    useState(false);
+  const [targetBranchLimit, setTargetBranchLimit] = useState(10);
+  const [homeRepoLimit, setHomeRepoLimit] = useState(15);
+  const [expandedCommits, setExpandedCommits] = useState<Set<string>>(
+    new Set(),
+  );
+  const [commitDiffs, setCommitDiffs] = useState<
+    Map<string, { diff: JjRevisionDiff; loading: boolean; error?: string }>
+  >(new Map());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hideCommitTimeoutsRef = useRef<Map<string, number>>(new Map());
 
-    // Move/abandon commit state
-    const [removingCommitIds, setRemovingCommitIds] = useState<Set<string>>(
-      new Set(),
+  // Move/abandon commit state
+  const [removingCommitIds, setRemovingCommitIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const { addToast } = useToast();
+  const [shiftingToNow, setShiftingToNow] = useState(false);
+
+  // Edit description dialog state
+  const [editingCommit, setEditingCommit] = useState<JjLogCommit | null>(null);
+  const [timestampCommit, setTimestampCommit] = useState<JjLogCommit | null>(
+    null,
+  );
+
+  const handleEditDescription = (commit: JjLogCommit) => {
+    setEditingCommit(commit);
+  };
+
+  const handleEditTimestamp = (commit: JjLogCommit) => {
+    setTimestampCommit(commit);
+  };
+
+  const handleDescriptionEdited = () => {
+    void invalidateQueries([
+      "commit-diff-viewer-commits",
+      repoPath,
+      workspaceId,
+    ]);
+  };
+
+  const handleShiftToNow = async () => {
+    if (workspaceId == null || shiftingToNow) return;
+    setShiftingToNow(true);
+    try {
+      await shiftMutableCommitsToNow(repoPath, workspaceId);
+      addToast({
+        title: "Timestamps updated",
+        description:
+          "Mutable commits on this branch now end at the current time",
+        type: "success",
+      });
+      handleDescriptionEdited();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      addToast({
+        title: "Failed to shift timestamps",
+        description: errorMsg,
+        type: "error",
+      });
+    } finally {
+      setShiftingToNow(false);
+    }
+  };
+
+  useEffect(() => {
+    setTargetBranchLimit(10);
+    setHomeRepoLimit(15);
+    setRemovedCommitIds(new Set());
+  }, [repoPath, workspaceId, isHomeRepo]);
+
+  const {
+    data: commitsResult,
+    isLoading: loading,
+    isValidating: isFetching,
+  } = useSWR(
+    repoPath
+      ? [
+          "commit-diff-viewer-commits",
+          repoPath,
+          workspaceId,
+          isHomeRepo,
+          targetBranchLimit,
+          homeRepoLimit,
+        ]
+      : null,
+    () => {
+      if (isHomeRepo) {
+        return listCommits(
+          repoPath,
+          null,
+          false,
+          undefined,
+          homeRepoLimit > 15 ? homeRepoLimit : undefined,
+        );
+      }
+      return listCommits(
+        repoPath,
+        workspaceId,
+        true,
+        targetBranchLimit > 10 ? targetBranchLimit : undefined,
+      );
+    },
+    { keepPreviousData: true },
+  );
+  const loadingMore = isFetching && !loading;
+
+  const {
+    commits: baseCommits,
+    targetBranchCommits,
+    tentativeWorkingCopy,
+    tentativeWorkingCopyLabel,
+    workspaceBranch,
+    targetBranchCommitsBranch,
+  } = (() => {
+    const empty = {
+      commits: [] as JjLogCommit[],
+      targetBranchCommits: [] as JjLogCommit[],
+      tentativeWorkingCopy: null as JjLogCommit | null,
+      tentativeWorkingCopyLabel: null as string | null,
+      workspaceBranch: null as string | null,
+      targetBranchCommitsBranch: null as string | null,
+    };
+    if (!commitsResult) {
+      return empty;
+    }
+
+    const { workspaceCommits, targetBranchCommits: targetOnly } =
+      splitCommitsByTarget(commitsResult.commits ?? []);
+
+    if (isHomeRepo) {
+      return {
+        ...empty,
+        commits: normalizeCommits(workspaceCommits),
+      };
+    }
+
+    return {
+      commits: normalizeCommits(workspaceCommits),
+      targetBranchCommits: targetOnly,
+      tentativeWorkingCopy:
+        commitsResult.tentative_working_copy?.commit ?? null,
+      tentativeWorkingCopyLabel:
+        commitsResult.tentative_working_copy?.workspace_label ?? null,
+      workspaceBranch: commitsResult.workspace_branch ?? null,
+      targetBranchCommitsBranch: commitsResult.target_branch ?? null,
+    };
+  })();
+
+  const commits = baseCommits.filter(
+    (commit) => !removedCommitIds.has(commit.commit_id),
+  );
+
+  const isDefaultWorkspaceBranch =
+    !isHomeRepo &&
+    workspaceBranch != null &&
+    targetBranchCommitsBranch != null &&
+    workspaceBranch === targetBranchCommitsBranch;
+
+  const conflictedCommits = resolvableConflictedCommits(
+    [...commits, ...targetBranchCommits],
+    !isHomeRepo && !isDefaultWorkspaceBranch,
+  );
+
+  const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
+  const [resolveChangeIds, setResolveChangeIds] = useState<string[] | null>(
+    null,
+  );
+
+  const openResolveAll = () => {
+    setResolveChangeIds(conflictedCommits.map((commit) => commit.change_id));
+    setResolveDialogOpen(true);
+  };
+
+  const openResolveOne = (commit: JjLogCommit) => {
+    setResolveChangeIds([commit.change_id]);
+    setResolveDialogOpen(true);
+  };
+
+  const handleMoveToNew = (commit: JjLogCommit) => {
+    onMoveCommitToNewWorkspace?.(commit);
+  };
+
+  const handleMoveToExisting = (commit: JjLogCommit) => {
+    onMoveCommitToExistingWorkspace?.(commit);
+  };
+
+  const REMOVE_ANIMATION_MS = 220;
+
+  const resolveCommitById = (commitId: string) =>
+    commits.find((c) => c.commit_id === commitId) ??
+    (tentativeWorkingCopy?.commit_id === commitId
+      ? tentativeWorkingCopy
+      : undefined);
+
+  const loadCommitDiff = async (commitId: string): Promise<JjRevisionDiff> => {
+    const commit = resolveCommitById(commitId);
+    // Commit IDs resolve more consistently for per-commit diffs; keep
+    // change_id as a fallback for rewritten/alternate revisions.
+    const revisions = [commitId, commit?.change_id].filter(
+      (value, index, values): value is string =>
+        typeof value === "string" &&
+        value.length > 0 &&
+        values.indexOf(value) === index,
     );
-    const { addToast } = useToast();
-    const [shiftingToNow, setShiftingToNow] = useState(false);
 
-    // Edit description dialog state
-    const [editingCommit, setEditingCommit] = useState<JjLogCommit | null>(
-      null,
+    let lastError: unknown;
+    for (const revision of revisions) {
+      try {
+        const diff = await getCommitDiff(repoPath, workspaceId, revision);
+        if (
+          diff.too_large_to_render ||
+          diff.committed_files.length > 0 ||
+          diff.hunks_by_file.length > 0
+        ) {
+          return diff;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastError) throw lastError;
+    return {
+      committed_files: [],
+      hunks_by_file: [],
+      too_large_to_render: false,
+      render_block_reason: null,
+    };
+  };
+
+  const loadCommitFileDiff = async (
+    commitId: string,
+    filePath: string,
+  ): Promise<JjFileDiff> => {
+    const commit = resolveCommitById(commitId);
+    const revisions = [commitId, commit?.change_id].filter(
+      (value, index, values): value is string =>
+        typeof value === "string" &&
+        value.length > 0 &&
+        values.indexOf(value) === index,
     );
-    const [timestampCommit, setTimestampCommit] = useState<JjLogCommit | null>(
-      null,
+
+    let lastError: unknown;
+    for (const revision of revisions) {
+      try {
+        return await getCommitFileDiff(
+          repoPath,
+          workspaceId,
+          revision,
+          filePath,
+        );
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError ?? new Error("Failed to load commit file diff");
+  };
+
+  const handleAbandon = async (commit: JjLogCommit) => {
+    if (!repoPath || !workspaceId) return;
+
+    const firstLine = commit.description.split("\n")[0] || "(no message)";
+    const confirmed = await ask(
+      `Abandon commit ${commit.short_id} — ${firstLine}?`,
+      { title: "Delete Commit", kind: "warning" },
     );
+    if (!confirmed) return;
 
-    const handleEditDescription = useCallback((commit: JjLogCommit) => {
-      setEditingCommit(commit);
-    }, []);
+    try {
+      const operationId = await abandonCommit(
+        repoPath,
+        workspaceId,
+        commit.change_id,
+      );
+      setRemovingCommitIds((prev) => new Set(prev).add(commit.commit_id));
 
-    const handleEditTimestamp = useCallback((commit: JjLogCommit) => {
-      setTimestampCommit(commit);
-    }, []);
+      const previousHide = hideCommitTimeoutsRef.current.get(commit.commit_id);
+      if (previousHide !== undefined) {
+        window.clearTimeout(previousHide);
+      }
+      const hideTimeout = window.setTimeout(() => {
+        hideCommitTimeoutsRef.current.delete(commit.commit_id);
+        setRemovedCommitIds((prev) => new Set(prev).add(commit.commit_id));
+        setRemovingCommitIds((prev) => {
+          const next = new Set(prev);
+          next.delete(commit.commit_id);
+          return next;
+        });
+        onCommitAbandoned?.();
+      }, REMOVE_ANIMATION_MS);
+      hideCommitTimeoutsRef.current.set(commit.commit_id, hideTimeout);
 
-    const handleDescriptionEdited = useCallback(() => {
+      addToast({
+        title: "Commit deleted",
+        description: `Abandoned commit ${commit.short_id}`,
+        type: "success",
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void (async () => {
+              try {
+                const pendingHide = hideCommitTimeoutsRef.current.get(
+                  commit.commit_id,
+                );
+                if (pendingHide !== undefined) {
+                  window.clearTimeout(pendingHide);
+                  hideCommitTimeoutsRef.current.delete(commit.commit_id);
+                }
+                await undoRepoOperation(repoPath, workspaceId, operationId);
+                setRemovedCommitIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(commit.commit_id);
+                  return next;
+                });
+                setRemovingCommitIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(commit.commit_id);
+                  return next;
+                });
+                await invalidateQueries([
+                  "commit-diff-viewer-commits",
+                  repoPath,
+                  workspaceId,
+                ]);
+                addToast({
+                  title: "Restored",
+                  description: `Restored commit ${commit.short_id}`,
+                  type: "success",
+                });
+              } catch (undoErr) {
+                addToast({
+                  title: "Undo Failed",
+                  description:
+                    undoErr instanceof Error
+                      ? undoErr.message
+                      : String(undoErr),
+                  type: "error",
+                });
+              }
+            })();
+          },
+        },
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      addToast({
+        title: "Failed to delete commit",
+        description: errorMsg,
+        type: "error",
+      });
+    }
+  };
+
+  const handleStashCommit = async (commit: JjLogCommit) => {
+    if (!repoPath) return;
+
+    try {
+      const entry = await stashCommit(repoPath, workspaceId, commit.change_id);
+      setRemovingCommitIds((prev) => new Set(prev).add(commit.commit_id));
+      onCommitStashed?.();
+
+      window.setTimeout(() => {
+        setRemovedCommitIds((prev) => new Set(prev).add(commit.commit_id));
+        setRemovingCommitIds((prev) => {
+          const next = new Set(prev);
+          next.delete(commit.commit_id);
+          return next;
+        });
+        onCommitAbandoned?.();
+      }, REMOVE_ANIMATION_MS);
+
+      void invalidateQueries(["stashes", repoPath]);
       void invalidateQueries([
         "commit-diff-viewer-commits",
         repoPath,
         workspaceId,
       ]);
-    }, [repoPath, workspaceId]);
 
-    const handleShiftToNow = useCallback(async () => {
-      if (workspaceId == null || shiftingToNow) return;
-      setShiftingToNow(true);
-      try {
-        await shiftMutableCommitsToNow(repoPath, workspaceId);
-        addToast({
-          title: "Timestamps updated",
-          description:
-            "Mutable commits on this branch now end at the current time",
-          type: "success",
+      addToast({
+        title: "Commit stashed",
+        description: `Parked ${entry.short_commit_id} — apply it onto another workspace from Stashed Changes`,
+        type: "success",
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      addToast({
+        title: "Failed to stash commit",
+        description: errorMsg,
+        type: "error",
+      });
+    }
+  };
+
+  // Scroll to commit when scrollToCommitId changes
+  useEffect(() => {
+    if (!scrollToCommitId || loading) return;
+    // Find the commit by change_id to get its commit_id for the key
+    const commit =
+      commits.find((c) => c.change_id === scrollToCommitId) ??
+      (tentativeWorkingCopy?.change_id === scrollToCommitId
+        ? tentativeWorkingCopy
+        : undefined);
+    if (!commit) return;
+    const el = containerRef.current?.querySelector(
+      `[data-commit-id="${commit.commit_id}"]`,
+    );
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Auto-expand the commit
+      fetchAndExpand(commit.commit_id);
+      onScrollComplete?.();
+    }
+  }, [scrollToCommitId, loading, commits, tentativeWorkingCopy]);
+
+  const fetchAndExpand = (commitId: string) => {
+    setExpandedCommits((prev) => {
+      if (prev.has(commitId)) return prev;
+      const next = new Set(prev);
+      next.add(commitId);
+      return next;
+    });
+    // Fetch diff if not already loaded
+    if (!commitDiffs.has(commitId)) {
+      setCommitDiffs((prev) => {
+        const next = new Map(prev);
+        next.set(commitId, {
+          diff: {
+            committed_files: [],
+            hunks_by_file: [],
+            too_large_to_render: false,
+            render_block_reason: null,
+          },
+          loading: true,
         });
-        handleDescriptionEdited();
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        addToast({
-          title: "Failed to shift timestamps",
-          description: errorMsg,
-          type: "error",
-        });
-      } finally {
-        setShiftingToNow(false);
-      }
-    }, [
-      addToast,
-      handleDescriptionEdited,
-      repoPath,
-      shiftingToNow,
-      workspaceId,
-    ]);
-
-    useEffect(() => {
-      setTargetBranchLimit(10);
-      setHomeRepoLimit(15);
-      setRemovedCommitIds(new Set());
-    }, [repoPath, workspaceId, isHomeRepo]);
-
-    const {
-      data: commitsResult,
-      isLoading: loading,
-      isValidating: isFetching,
-    } = useSWR(
-      repoPath
-        ? [
-            "commit-diff-viewer-commits",
-            repoPath,
-            workspaceId,
-            isHomeRepo,
-            targetBranchLimit,
-            homeRepoLimit,
-          ]
-        : null,
-      () => {
-        if (isHomeRepo) {
-          return listCommits(
-            repoPath,
-            null,
-            false,
-            undefined,
-            homeRepoLimit > 15 ? homeRepoLimit : undefined,
-          );
-        }
-        return listCommits(
-          repoPath,
-          workspaceId,
-          true,
-          targetBranchLimit > 10 ? targetBranchLimit : undefined,
-        );
-      },
-      { keepPreviousData: true },
-    );
-    const loadingMore = isFetching && !loading;
-
-    const {
-      commits: baseCommits,
-      targetBranchCommits,
-      tentativeWorkingCopy,
-      tentativeWorkingCopyLabel,
-      workspaceBranch,
-      targetBranchCommitsBranch,
-    } = useMemo(() => {
-      const empty = {
-        commits: [] as JjLogCommit[],
-        targetBranchCommits: [] as JjLogCommit[],
-        tentativeWorkingCopy: null as JjLogCommit | null,
-        tentativeWorkingCopyLabel: null as string | null,
-        workspaceBranch: null as string | null,
-        targetBranchCommitsBranch: null as string | null,
-      };
-      if (!commitsResult) {
-        return empty;
-      }
-
-      const { workspaceCommits, targetBranchCommits: targetOnly } =
-        splitCommitsByTarget(commitsResult.commits ?? []);
-
-      if (isHomeRepo) {
-        return {
-          ...empty,
-          commits: normalizeCommits(workspaceCommits),
-        };
-      }
-
-      return {
-        commits: normalizeCommits(workspaceCommits),
-        targetBranchCommits: targetOnly,
-        tentativeWorkingCopy:
-          commitsResult.tentative_working_copy?.commit ?? null,
-        tentativeWorkingCopyLabel:
-          commitsResult.tentative_working_copy?.workspace_label ?? null,
-        workspaceBranch: commitsResult.workspace_branch ?? null,
-        targetBranchCommitsBranch: commitsResult.target_branch ?? null,
-      };
-    }, [commitsResult, isHomeRepo]);
-
-    const commits = useMemo(
-      () =>
-        baseCommits.filter((commit) => !removedCommitIds.has(commit.commit_id)),
-      [baseCommits, removedCommitIds],
-    );
-
-    const isDefaultWorkspaceBranch =
-      !isHomeRepo &&
-      workspaceBranch != null &&
-      targetBranchCommitsBranch != null &&
-      workspaceBranch === targetBranchCommitsBranch;
-
-    const conflictedCommits = useMemo(
-      () =>
-        resolvableConflictedCommits(
-          [...commits, ...targetBranchCommits],
-          !isHomeRepo && !isDefaultWorkspaceBranch,
-        ),
-      [commits, isDefaultWorkspaceBranch, isHomeRepo, targetBranchCommits],
-    );
-
-    const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
-    const [resolveChangeIds, setResolveChangeIds] = useState<string[] | null>(
-      null,
-    );
-
-    const openResolveAll = useCallback(() => {
-      setResolveChangeIds(conflictedCommits.map((commit) => commit.change_id));
-      setResolveDialogOpen(true);
-    }, [conflictedCommits]);
-
-    const openResolveOne = useCallback((commit: JjLogCommit) => {
-      setResolveChangeIds([commit.change_id]);
-      setResolveDialogOpen(true);
-    }, []);
-
-    const handleMoveToNew = useCallback(
-      (commit: JjLogCommit) => {
-        onMoveCommitToNewWorkspace?.(commit);
-      },
-      [onMoveCommitToNewWorkspace],
-    );
-
-    const handleMoveToExisting = useCallback(
-      (commit: JjLogCommit) => {
-        onMoveCommitToExistingWorkspace?.(commit);
-      },
-      [onMoveCommitToExistingWorkspace],
-    );
-
-    const REMOVE_ANIMATION_MS = 220;
-
-    const resolveCommitById = useCallback(
-      (commitId: string) =>
-        commits.find((c) => c.commit_id === commitId) ??
-        (tentativeWorkingCopy?.commit_id === commitId
-          ? tentativeWorkingCopy
-          : undefined),
-      [commits, tentativeWorkingCopy],
-    );
-
-    const loadCommitDiff = useCallback(
-      async (commitId: string): Promise<JjRevisionDiff> => {
-        const commit = resolveCommitById(commitId);
-        // Commit IDs resolve more consistently for per-commit diffs; keep
-        // change_id as a fallback for rewritten/alternate revisions.
-        const revisions = [commitId, commit?.change_id].filter(
-          (value, index, values): value is string =>
-            typeof value === "string" &&
-            value.length > 0 &&
-            values.indexOf(value) === index,
-        );
-
-        let lastError: unknown;
-        for (const revision of revisions) {
-          try {
-            const diff = await getCommitDiff(repoPath, workspaceId, revision);
-            if (
-              diff.too_large_to_render ||
-              diff.committed_files.length > 0 ||
-              diff.hunks_by_file.length > 0
-            ) {
-              return diff;
-            }
-          } catch (error) {
-            lastError = error;
-          }
-        }
-
-        if (lastError) throw lastError;
-        return {
-          committed_files: [],
-          hunks_by_file: [],
-          too_large_to_render: false,
-          render_block_reason: null,
-        };
-      },
-      [repoPath, workspaceId, resolveCommitById],
-    );
-
-    const loadCommitFileDiff = useCallback(
-      async (commitId: string, filePath: string): Promise<JjFileDiff> => {
-        const commit = resolveCommitById(commitId);
-        const revisions = [commitId, commit?.change_id].filter(
-          (value, index, values): value is string =>
-            typeof value === "string" &&
-            value.length > 0 &&
-            values.indexOf(value) === index,
-        );
-
-        let lastError: unknown;
-        for (const revision of revisions) {
-          try {
-            return await getCommitFileDiff(
-              repoPath,
-              workspaceId,
-              revision,
-              filePath,
-            );
-          } catch (error) {
-            lastError = error;
-          }
-        }
-
-        throw lastError ?? new Error("Failed to load commit file diff");
-      },
-      [repoPath, workspaceId, resolveCommitById],
-    );
-
-    const handleAbandon = useCallback(
-      async (commit: JjLogCommit) => {
-        if (!repoPath || !workspaceId) return;
-
-        const firstLine = commit.description.split("\n")[0] || "(no message)";
-        const confirmed = await ask(
-          `Abandon commit ${commit.short_id} — ${firstLine}?`,
-          { title: "Delete Commit", kind: "warning" },
-        );
-        if (!confirmed) return;
-
-        try {
-          const operationId = await abandonCommit(
-            repoPath,
-            workspaceId,
-            commit.change_id,
-          );
-          setRemovingCommitIds((prev) => new Set(prev).add(commit.commit_id));
-
-          const previousHide = hideCommitTimeoutsRef.current.get(
-            commit.commit_id,
-          );
-          if (previousHide !== undefined) {
-            window.clearTimeout(previousHide);
-          }
-          const hideTimeout = window.setTimeout(() => {
-            hideCommitTimeoutsRef.current.delete(commit.commit_id);
-            setRemovedCommitIds((prev) => new Set(prev).add(commit.commit_id));
-            setRemovingCommitIds((prev) => {
-              const next = new Set(prev);
-              next.delete(commit.commit_id);
-              return next;
-            });
-            onCommitAbandoned?.();
-          }, REMOVE_ANIMATION_MS);
-          hideCommitTimeoutsRef.current.set(commit.commit_id, hideTimeout);
-
-          addToast({
-            title: "Commit deleted",
-            description: `Abandoned commit ${commit.short_id}`,
-            type: "success",
-            action: {
-              label: "Undo",
-              onClick: () => {
-                void (async () => {
-                  try {
-                    const pendingHide = hideCommitTimeoutsRef.current.get(
-                      commit.commit_id,
-                    );
-                    if (pendingHide !== undefined) {
-                      window.clearTimeout(pendingHide);
-                      hideCommitTimeoutsRef.current.delete(commit.commit_id);
-                    }
-                    await undoRepoOperation(repoPath, workspaceId, operationId);
-                    setRemovedCommitIds((prev) => {
-                      const next = new Set(prev);
-                      next.delete(commit.commit_id);
-                      return next;
-                    });
-                    setRemovingCommitIds((prev) => {
-                      const next = new Set(prev);
-                      next.delete(commit.commit_id);
-                      return next;
-                    });
-                    await invalidateQueries([
-                      "commit-diff-viewer-commits",
-                      repoPath,
-                      workspaceId,
-                    ]);
-                    addToast({
-                      title: "Restored",
-                      description: `Restored commit ${commit.short_id}`,
-                      type: "success",
-                    });
-                  } catch (undoErr) {
-                    addToast({
-                      title: "Undo Failed",
-                      description:
-                        undoErr instanceof Error
-                          ? undoErr.message
-                          : String(undoErr),
-                      type: "error",
-                    });
-                  }
-                })();
+        return next;
+      });
+      loadCommitDiff(commitId)
+        .then((diff) => {
+          setCommitDiffs((prev) => {
+            const next = new Map(prev);
+            next.set(commitId, { diff, loading: false });
+            return next;
+          });
+        })
+        .catch((err) => {
+          setCommitDiffs((prev) => {
+            const next = new Map(prev);
+            next.set(commitId, {
+              diff: {
+                committed_files: [],
+                hunks_by_file: [],
+                too_large_to_render: false,
+                render_block_reason: null,
               },
-            },
-          });
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          addToast({
-            title: "Failed to delete commit",
-            description: errorMsg,
-            type: "error",
-          });
-        }
-      },
-      [repoPath, workspaceId, onCommitAbandoned, addToast],
-    );
-
-    const handleStashCommit = useCallback(
-      async (commit: JjLogCommit) => {
-        if (!repoPath) return;
-
-        try {
-          const entry = await stashCommit(
-            repoPath,
-            workspaceId,
-            commit.change_id,
-          );
-          setRemovingCommitIds((prev) => new Set(prev).add(commit.commit_id));
-          onCommitStashed?.();
-
-          window.setTimeout(() => {
-            setRemovedCommitIds((prev) => new Set(prev).add(commit.commit_id));
-            setRemovingCommitIds((prev) => {
-              const next = new Set(prev);
-              next.delete(commit.commit_id);
-              return next;
+              loading: false,
+              error: String(err),
             });
-            onCommitAbandoned?.();
-          }, REMOVE_ANIMATION_MS);
-
-          void invalidateQueries(["stashes", repoPath]);
-          void invalidateQueries([
-            "commit-diff-viewer-commits",
-            repoPath,
-            workspaceId,
-          ]);
-
-          addToast({
-            title: "Commit stashed",
-            description: `Parked ${entry.short_commit_id} — apply it onto another workspace from Stashed Changes`,
-            type: "success",
+            return next;
           });
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          addToast({
-            title: "Failed to stash commit",
-            description: errorMsg,
-            type: "error",
-          });
-        }
-      },
-      [repoPath, workspaceId, onCommitAbandoned, onCommitStashed, addToast],
-    );
-
-    // Scroll to commit when scrollToCommitId changes
-    useEffect(() => {
-      if (!scrollToCommitId || loading) return;
-      // Find the commit by change_id to get its commit_id for the key
-      const commit =
-        commits.find((c) => c.change_id === scrollToCommitId) ??
-        (tentativeWorkingCopy?.change_id === scrollToCommitId
-          ? tentativeWorkingCopy
-          : undefined);
-      if (!commit) return;
-      const el = containerRef.current?.querySelector(
-        `[data-commit-id="${commit.commit_id}"]`,
-      );
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-        // Auto-expand the commit
-        fetchAndExpand(commit.commit_id);
-        onScrollComplete?.();
-      }
-    }, [scrollToCommitId, loading, commits, tentativeWorkingCopy]);
-
-    const fetchAndExpand = useCallback(
-      (commitId: string) => {
-        setExpandedCommits((prev) => {
-          if (prev.has(commitId)) return prev;
-          const next = new Set(prev);
-          next.add(commitId);
-          return next;
         });
+    }
+  };
+
+  const toggleCommit = (commitId: string) => {
+    setExpandedCommits((prev) => {
+      const next = new Set(prev);
+      if (next.has(commitId)) {
+        next.delete(commitId);
+      } else {
+        next.add(commitId);
         // Fetch diff if not already loaded
         if (!commitDiffs.has(commitId)) {
           setCommitDiffs((prev) => {
@@ -687,279 +688,314 @@ export const CommitDiffViewer = memo<CommitDiffViewerProps>(
               });
             });
         }
-      },
-      [commitDiffs, loadCommitDiff],
-    );
+      }
+      return next;
+    });
+  };
 
-    const toggleCommit = useCallback(
-      (commitId: string) => {
-        setExpandedCommits((prev) => {
-          const next = new Set(prev);
-          if (next.has(commitId)) {
-            next.delete(commitId);
-          } else {
-            next.add(commitId);
-            // Fetch diff if not already loaded
-            if (!commitDiffs.has(commitId)) {
-              setCommitDiffs((prev) => {
-                const next = new Map(prev);
-                next.set(commitId, {
-                  diff: {
-                    committed_files: [],
-                    hunks_by_file: [],
-                    too_large_to_render: false,
-                    render_block_reason: null,
-                  },
-                  loading: true,
-                });
-                return next;
-              });
-              loadCommitDiff(commitId)
-                .then((diff) => {
-                  setCommitDiffs((prev) => {
-                    const next = new Map(prev);
-                    next.set(commitId, { diff, loading: false });
-                    return next;
-                  });
-                })
-                .catch((err) => {
-                  setCommitDiffs((prev) => {
-                    const next = new Map(prev);
-                    next.set(commitId, {
-                      diff: {
-                        committed_files: [],
-                        hunks_by_file: [],
-                        too_large_to_render: false,
-                        render_block_reason: null,
-                      },
-                      loading: false,
-                      error: String(err),
-                    });
-                    return next;
-                  });
-                });
-            }
-          }
-          return next;
-        });
-      },
-      [commitDiffs, loadCommitDiff],
-    );
+  const dayGroups = groupCommitsByDay(commits);
 
-    const dayGroups = useMemo(() => groupCommitsByDay(commits), [commits]);
+  const targetBranchDayGroups = groupCommitsByDay(targetBranchCommits);
+  const showTargetBranchSection =
+    !isHomeRepo && !isDefaultWorkspaceBranch && targetBranchCommits.length > 0;
+  const showTentativeWorkingCopy = !isHomeRepo && tentativeWorkingCopy != null;
+  const hasMutableWorkspaceCommits = commits.some(
+    (commit) =>
+      !commit.is_immutable && !commit.on_target_only && !commit.is_working_copy,
+  );
 
-    const targetBranchDayGroups = useMemo(
-      () => groupCommitsByDay(targetBranchCommits),
-      [targetBranchCommits],
-    );
-    const showTargetBranchSection =
-      !isHomeRepo &&
-      !isDefaultWorkspaceBranch &&
-      targetBranchCommits.length > 0;
-    const showTentativeWorkingCopy =
-      !isHomeRepo && tentativeWorkingCopy != null;
-    const hasMutableWorkspaceCommits = commits.some(
-      (commit) =>
-        !commit.is_immutable &&
-        !commit.on_target_only &&
-        !commit.is_working_copy,
-    );
+  useEffect(() => {
+    setHideTentativeWorkingCopy(false);
+  }, [tentativeWorkingCopy?.commit_id]);
 
-    useEffect(() => {
-      setHideTentativeWorkingCopy(false);
-    }, [tentativeWorkingCopy?.commit_id]);
-
-    if (loading) {
-      return (
-        <div className="h-full flex items-center justify-center p-4">
-          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-          <p className="text-muted-foreground">Loading commits...</p>
-        </div>
-      );
-    }
-
-    if (
-      commits.length === 0 &&
-      !showTargetBranchSection &&
-      !showTentativeWorkingCopy
-    ) {
-      return (
-        <div className="p-4 text-center">
-          <p className="text-muted-foreground">No commits yet.</p>
-          <p className="text-muted-foreground">
-            Changes you commit will appear here.
-          </p>
-        </div>
-      );
-    }
-
-    let globalIndex = 0;
-
+  if (loading) {
     return (
-      <>
-        <div ref={containerRef} className="h-full overflow-auto">
-          <div className="p-4">
-            {workspaceId != null && hasMutableWorkspaceCommits && (
-              <div className="mb-3 flex justify-end">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5"
-                  onClick={handleShiftToNow}
-                  disabled={shiftingToNow}
-                  data-testid="shift-commits-to-now"
-                >
-                  {shiftingToNow ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Clock className="h-4 w-4" />
-                  )}
-                  Shift to now
-                </Button>
-              </div>
-            )}
-            {conflictedCommits.length > 0 && (
-              <div
-                className="mb-4 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
-                data-testid="resolve-conflicts-banner"
-                role="alert"
+      <div className="h-full flex items-center justify-center p-4">
+        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+        <p className="text-muted-foreground">Loading commits...</p>
+      </div>
+    );
+  }
+
+  if (
+    commits.length === 0 &&
+    !showTargetBranchSection &&
+    !showTentativeWorkingCopy
+  ) {
+    return (
+      <div className="p-4 text-center">
+        <p className="text-muted-foreground">No commits yet.</p>
+        <p className="text-muted-foreground">
+          Changes you commit will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  let globalIndex = 0;
+
+  return (
+    <>
+      <div ref={containerRef} className="h-full overflow-auto">
+        <div className="p-4">
+          {workspaceId != null && hasMutableWorkspaceCommits && (
+            <div className="mb-3 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={handleShiftToNow}
+                disabled={shiftingToNow}
+                data-testid="shift-commits-to-now"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-destructive">
-                    {conflictedCommits.length} conflicted commit
-                    {conflictedCommits.length === 1 ? "" : "s"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Resolve in place via a short-lived resolve workspace — no
-                    extra commit.
-                  </p>
+                {shiftingToNow ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Clock className="h-4 w-4" />
+                )}
+                Shift to now
+              </Button>
+            </div>
+          )}
+          {conflictedCommits.length > 0 && (
+            <div
+              className="mb-4 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
+              data-testid="resolve-conflicts-banner"
+              role="alert"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-destructive">
+                  {conflictedCommits.length} conflicted commit
+                  {conflictedCommits.length === 1 ? "" : "s"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Resolve in place via a short-lived resolve workspace — no
+                  extra commit.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                className="shrink-0 gap-1.5"
+                onClick={openResolveAll}
+                data-testid="resolve-conflicts-button"
+              >
+                <GitMerge className="h-4 w-4" />
+                Resolve conflicts…
+              </Button>
+            </div>
+          )}
+          <div className="relative">
+            <div
+              className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-border"
+              aria-hidden="true"
+            />
+
+            {showTentativeWorkingCopy &&
+              tentativeWorkingCopy &&
+              !hideTentativeWorkingCopy && (
+                <ul className="space-y-0 mb-3">
+                  <CommitWithDiff
+                    commit={tentativeWorkingCopy}
+                    isFirst={true}
+                    isExpanded={expandedCommits.has(
+                      tentativeWorkingCopy.commit_id,
+                    )}
+                    isTentative={true}
+                    tentativeWorkspaceLabel={tentativeWorkingCopyLabel}
+                    diffData={commitDiffs.get(tentativeWorkingCopy.commit_id)}
+                    canAction={true}
+                    isRemoving={false}
+                    onToggle={() =>
+                      toggleCommit(tentativeWorkingCopy.commit_id)
+                    }
+                    onMoveToNew={handleMoveToNew}
+                    onMoveToExisting={handleMoveToExisting}
+                    onAbandon={handleAbandon}
+                    onStash={handleStashCommit}
+                    onEditDescription={() => {}}
+                    onEditTimestamp={() => {}}
+                    onCreateAgentWithComment={onCreateAgentWithComment}
+                    onLoadDeferredFileDiff={(filePath) =>
+                      loadCommitFileDiff(
+                        tentativeWorkingCopy.commit_id,
+                        filePath,
+                      ).then((fileDiff) => {
+                        setCommitDiffs((prev) => {
+                          const next = new Map(prev);
+                          const current = next.get(
+                            tentativeWorkingCopy.commit_id,
+                          );
+                          if (!current) return prev;
+                          next.set(tentativeWorkingCopy.commit_id, {
+                            ...current,
+                            diff: {
+                              ...current.diff,
+                              hunks_by_file: [
+                                ...current.diff.hunks_by_file.filter(
+                                  (candidate) =>
+                                    candidate.path !== fileDiff.path,
+                                ),
+                                fileDiff,
+                              ],
+                            },
+                          });
+                          return next;
+                        });
+                      })
+                    }
+                    onViewTentativeChanges={onViewTentativeChanges}
+                    onDeleteTentativeChanges={async () => {
+                      await onDeleteTentativeChanges?.();
+                      setHideTentativeWorkingCopy(true);
+                    }}
+                  />
+                </ul>
+              )}
+
+            {dayGroups.map((group, groupIndex) => (
+              <div
+                key={`${group.dayKey}-${groupIndex}`}
+                className="mt-5 first:mt-0"
+              >
+                <p className="text-base font-semibold text-muted-foreground mb-1 pl-7">
+                  {group.label}
+                </p>
+                <div className="space-y-0">
+                  {group.commits.map((commit) => {
+                    const isFirst = globalIndex === 0;
+                    globalIndex++;
+                    const isExpanded = expandedCommits.has(commit.commit_id);
+                    const diffData = commitDiffs.get(commit.commit_id);
+
+                    return (
+                      <CommitWithDiff
+                        key={commit.commit_id}
+                        commit={commit}
+                        isFirst={isFirst}
+                        isExpanded={isExpanded}
+                        diffData={diffData}
+                        onToggle={() => toggleCommit(commit.commit_id)}
+                        canAction={!commit.is_immutable}
+                        isRemoving={removingCommitIds.has(commit.commit_id)}
+                        onMoveToNew={handleMoveToNew}
+                        onMoveToExisting={handleMoveToExisting}
+                        onAbandon={handleAbandon}
+                        onStash={handleStashCommit}
+                        onEditDescription={handleEditDescription}
+                        onEditTimestamp={handleEditTimestamp}
+                        onResolveConflict={
+                          onSessionCreated &&
+                          conflictedCommits.some(
+                            (candidate) =>
+                              candidate.change_id === commit.change_id,
+                          )
+                            ? openResolveOne
+                            : undefined
+                        }
+                        onCreateAgentWithComment={onCreateAgentWithComment}
+                        onLoadDeferredFileDiff={(filePath) =>
+                          loadCommitFileDiff(commit.commit_id, filePath).then(
+                            (fileDiff) => {
+                              setCommitDiffs((prev) => {
+                                const next = new Map(prev);
+                                const current = next.get(commit.commit_id);
+                                if (!current) return prev;
+                                next.set(commit.commit_id, {
+                                  ...current,
+                                  diff: {
+                                    ...current.diff,
+                                    hunks_by_file: [
+                                      ...current.diff.hunks_by_file.filter(
+                                        (candidate) =>
+                                          candidate.path !== fileDiff.path,
+                                      ),
+                                      fileDiff,
+                                    ],
+                                  },
+                                });
+                                return next;
+                              });
+                            },
+                          )
+                        }
+                      />
+                    );
+                  })}
                 </div>
-                <Button
+              </div>
+            ))}
+
+            {isHomeRepo && commits.length + 1 >= homeRepoLimit && (
+              <div className="mt-3 pl-7">
+                <button
                   type="button"
-                  size="sm"
-                  variant="destructive"
-                  className="shrink-0 gap-1.5"
-                  onClick={openResolveAll}
-                  data-testid="resolve-conflicts-button"
+                  className="text-base text-muted-foreground hover:text-foreground transition-colors"
+                  disabled={loadingMore}
+                  onClick={() => setHomeRepoLimit((prev) => prev + 15)}
                 >
-                  <GitMerge className="h-4 w-4" />
-                  Resolve conflicts…
-                </Button>
+                  {loadingMore ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Loading...
+                    </span>
+                  ) : (
+                    "Load more commits"
+                  )}
+                </button>
               </div>
             )}
-            <div className="relative">
-              <div
-                className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-border"
-                aria-hidden="true"
-              />
 
-              {showTentativeWorkingCopy &&
-                tentativeWorkingCopy &&
-                !hideTentativeWorkingCopy && (
-                  <ul className="space-y-0 mb-3">
-                    <CommitWithDiff
-                      commit={tentativeWorkingCopy}
-                      isFirst={true}
-                      isExpanded={expandedCommits.has(
-                        tentativeWorkingCopy.commit_id,
-                      )}
-                      isTentative={true}
-                      tentativeWorkspaceLabel={tentativeWorkingCopyLabel}
-                      diffData={commitDiffs.get(tentativeWorkingCopy.commit_id)}
-                      canAction={true}
-                      isRemoving={false}
-                      onToggle={() =>
-                        toggleCommit(tentativeWorkingCopy.commit_id)
-                      }
-                      onMoveToNew={handleMoveToNew}
-                      onMoveToExisting={handleMoveToExisting}
-                      onAbandon={handleAbandon}
-                      onStash={handleStashCommit}
-                      onEditDescription={() => {}}
-                      onEditTimestamp={() => {}}
-                      onCreateAgentWithComment={onCreateAgentWithComment}
-                      onLoadDeferredFileDiff={(filePath) =>
-                        loadCommitFileDiff(
-                          tentativeWorkingCopy.commit_id,
-                          filePath,
-                        ).then((fileDiff) => {
-                          setCommitDiffs((prev) => {
-                            const next = new Map(prev);
-                            const current = next.get(
-                              tentativeWorkingCopy.commit_id,
-                            );
-                            if (!current) return prev;
-                            next.set(tentativeWorkingCopy.commit_id, {
-                              ...current,
-                              diff: {
-                                ...current.diff,
-                                hunks_by_file: [
-                                  ...current.diff.hunks_by_file.filter(
-                                    (candidate) =>
-                                      candidate.path !== fileDiff.path,
-                                  ),
-                                  fileDiff,
-                                ],
-                              },
-                            });
-                            return next;
-                          });
-                        })
-                      }
-                      onViewTentativeChanges={onViewTentativeChanges}
-                      onDeleteTentativeChanges={async () => {
-                        await onDeleteTentativeChanges?.();
-                        setHideTentativeWorkingCopy(true);
-                      }}
-                    />
-                  </ul>
-                )}
-
-              {dayGroups.map((group, groupIndex) => (
-                <div
-                  key={`${group.dayKey}-${groupIndex}`}
-                  className="mt-5 first:mt-0"
-                >
-                  <p className="text-base font-semibold text-muted-foreground mb-1 pl-7">
-                    {group.label}
+            {showTargetBranchSection && (
+              <>
+                {commits.length === 0 && (
+                  <p className="text-muted-foreground mb-3 pl-7">
+                    There are no commits within this workspace branch yet.
                   </p>
-                  <div className="space-y-0">
-                    {group.commits.map((commit) => {
-                      const isFirst = globalIndex === 0;
-                      globalIndex++;
-                      const isExpanded = expandedCommits.has(commit.commit_id);
-                      const diffData = commitDiffs.get(commit.commit_id);
+                )}
+                <div className="border-t border-border my-4 mx-2" />
+                <p className="text-base font-semibold text-muted-foreground mb-2 pl-7">
+                  Recent on {targetBranchCommitsBranch}
+                </p>
+                {targetBranchDayGroups.map((group, groupIndex) => (
+                  <div
+                    key={`tb-${group.dayKey}-${groupIndex}`}
+                    className="mt-5 first:mt-0"
+                  >
+                    <p className="text-base font-semibold text-muted-foreground mb-1 pl-7">
+                      {group.label}
+                    </p>
+                    <div className="space-y-0">
+                      {group.commits.map((commit) => {
+                        const isExpanded = expandedCommits.has(
+                          commit.commit_id,
+                        );
+                        const diffData = commitDiffs.get(commit.commit_id);
 
-                      return (
-                        <CommitWithDiff
-                          key={commit.commit_id}
-                          commit={commit}
-                          isFirst={isFirst}
-                          isExpanded={isExpanded}
-                          diffData={diffData}
-                          onToggle={() => toggleCommit(commit.commit_id)}
-                          canAction={!commit.is_immutable}
-                          isRemoving={removingCommitIds.has(commit.commit_id)}
-                          onMoveToNew={handleMoveToNew}
-                          onMoveToExisting={handleMoveToExisting}
-                          onAbandon={handleAbandon}
-                          onStash={handleStashCommit}
-                          onEditDescription={handleEditDescription}
-                          onEditTimestamp={handleEditTimestamp}
-                          onResolveConflict={
-                            onSessionCreated &&
-                            conflictedCommits.some(
-                              (candidate) =>
-                                candidate.change_id === commit.change_id,
-                            )
-                              ? openResolveOne
-                              : undefined
-                          }
-                          onCreateAgentWithComment={onCreateAgentWithComment}
-                          onLoadDeferredFileDiff={(filePath) =>
-                            loadCommitFileDiff(commit.commit_id, filePath).then(
-                              (fileDiff) => {
+                        return (
+                          <CommitWithDiff
+                            key={commit.commit_id}
+                            commit={commit}
+                            isFirst={false}
+                            isExpanded={isExpanded}
+                            diffData={diffData}
+                            onToggle={() => toggleCommit(commit.commit_id)}
+                            canAction={false}
+                            isRemoving={false}
+                            onMoveToNew={() => {}}
+                            onMoveToExisting={() => {}}
+                            onAbandon={() => {}}
+                            onStash={() => {}}
+                            onEditDescription={() => {}}
+                            onEditTimestamp={() => {}}
+                            onCreateAgentWithComment={onCreateAgentWithComment}
+                            onLoadDeferredFileDiff={(filePath) =>
+                              loadCommitFileDiff(
+                                commit.commit_id,
+                                filePath,
+                              ).then((fileDiff) => {
                                 setCommitDiffs((prev) => {
                                   const next = new Map(prev);
                                   const current = next.get(commit.commit_id);
@@ -979,177 +1015,75 @@ export const CommitDiffViewer = memo<CommitDiffViewerProps>(
                                   });
                                   return next;
                                 });
-                              },
-                            )
-                          }
-                        />
-                      );
-                    })}
+                              })
+                            }
+                          />
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
-
-              {isHomeRepo && commits.length + 1 >= homeRepoLimit && (
-                <div className="mt-3 pl-7">
-                  <button
-                    type="button"
-                    className="text-base text-muted-foreground hover:text-foreground transition-colors"
-                    disabled={loadingMore}
-                    onClick={() => setHomeRepoLimit((prev) => prev + 15)}
-                  >
-                    {loadingMore ? (
-                      <span className="flex items-center gap-1.5">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Loading...
-                      </span>
-                    ) : (
-                      "Load more commits"
-                    )}
-                  </button>
-                </div>
-              )}
-
-              {showTargetBranchSection && (
-                <>
-                  {commits.length === 0 && (
-                    <p className="text-muted-foreground mb-3 pl-7">
-                      There are no commits within this workspace branch yet.
-                    </p>
-                  )}
-                  <div className="border-t border-border my-4 mx-2" />
-                  <p className="text-base font-semibold text-muted-foreground mb-2 pl-7">
-                    Recent on {targetBranchCommitsBranch}
-                  </p>
-                  {targetBranchDayGroups.map((group, groupIndex) => (
-                    <div
-                      key={`tb-${group.dayKey}-${groupIndex}`}
-                      className="mt-5 first:mt-0"
+                ))}
+                {targetBranchCommits.length >= targetBranchLimit && (
+                  <div className="mt-3 pl-7">
+                    <button
+                      type="button"
+                      className="text-base text-muted-foreground hover:text-foreground transition-colors"
+                      disabled={loadingMore}
+                      onClick={() => setTargetBranchLimit((prev) => prev + 10)}
                     >
-                      <p className="text-base font-semibold text-muted-foreground mb-1 pl-7">
-                        {group.label}
-                      </p>
-                      <div className="space-y-0">
-                        {group.commits.map((commit) => {
-                          const isExpanded = expandedCommits.has(
-                            commit.commit_id,
-                          );
-                          const diffData = commitDiffs.get(commit.commit_id);
-
-                          return (
-                            <CommitWithDiff
-                              key={commit.commit_id}
-                              commit={commit}
-                              isFirst={false}
-                              isExpanded={isExpanded}
-                              diffData={diffData}
-                              onToggle={() => toggleCommit(commit.commit_id)}
-                              canAction={false}
-                              isRemoving={false}
-                              onMoveToNew={() => {}}
-                              onMoveToExisting={() => {}}
-                              onAbandon={() => {}}
-                              onStash={() => {}}
-                              onEditDescription={() => {}}
-                              onEditTimestamp={() => {}}
-                              onCreateAgentWithComment={
-                                onCreateAgentWithComment
-                              }
-                              onLoadDeferredFileDiff={(filePath) =>
-                                loadCommitFileDiff(
-                                  commit.commit_id,
-                                  filePath,
-                                ).then((fileDiff) => {
-                                  setCommitDiffs((prev) => {
-                                    const next = new Map(prev);
-                                    const current = next.get(commit.commit_id);
-                                    if (!current) return prev;
-                                    next.set(commit.commit_id, {
-                                      ...current,
-                                      diff: {
-                                        ...current.diff,
-                                        hunks_by_file: [
-                                          ...current.diff.hunks_by_file.filter(
-                                            (candidate) =>
-                                              candidate.path !== fileDiff.path,
-                                          ),
-                                          fileDiff,
-                                        ],
-                                      },
-                                    });
-                                    return next;
-                                  });
-                                })
-                              }
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {targetBranchCommits.length >= targetBranchLimit && (
-                    <div className="mt-3 pl-7">
-                      <button
-                        type="button"
-                        className="text-base text-muted-foreground hover:text-foreground transition-colors"
-                        disabled={loadingMore}
-                        onClick={() =>
-                          setTargetBranchLimit((prev) => prev + 10)
-                        }
-                      >
-                        {loadingMore ? (
-                          <span className="flex items-center gap-1.5">
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Loading...
-                          </span>
-                        ) : (
-                          "Load more commits"
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+                      {loadingMore ? (
+                        <span className="flex items-center gap-1.5">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Loading...
+                        </span>
+                      ) : (
+                        "Load more commits"
+                      )}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
-        {workspaceId != null && (
-          <EditCommitDescriptionDialog
-            open={editingCommit != null}
-            onOpenChange={(open) => {
-              if (!open) setEditingCommit(null);
-            }}
-            repoPath={repoPath}
-            workspaceId={workspaceId}
-            commit={editingCommit}
-            onSuccess={handleDescriptionEdited}
-          />
-        )}
-        {workspaceId != null && (
-          <EditCommitTimestampDialog
-            open={timestampCommit != null}
-            onOpenChange={(open) => {
-              if (!open) setTimestampCommit(null);
-            }}
-            repoPath={repoPath}
-            workspaceId={workspaceId}
-            commit={timestampCommit}
-            onSuccess={handleDescriptionEdited}
-          />
-        )}
-        {onSessionCreated && (
-          <ResolveConflictsDialog
-            open={resolveDialogOpen}
-            onOpenChange={setResolveDialogOpen}
-            repoPath={repoPath}
-            workspaceId={workspaceId}
-            changeIds={resolveChangeIds}
-            onSessionCreated={onSessionCreated}
-          />
-        )}
-      </>
-    );
-  },
-);
+      </div>
+      {workspaceId != null && (
+        <EditCommitDescriptionDialog
+          open={editingCommit != null}
+          onOpenChange={(open) => {
+            if (!open) setEditingCommit(null);
+          }}
+          repoPath={repoPath}
+          workspaceId={workspaceId}
+          commit={editingCommit}
+          onSuccess={handleDescriptionEdited}
+        />
+      )}
+      {workspaceId != null && (
+        <EditCommitTimestampDialog
+          open={timestampCommit != null}
+          onOpenChange={(open) => {
+            if (!open) setTimestampCommit(null);
+          }}
+          repoPath={repoPath}
+          workspaceId={workspaceId}
+          commit={timestampCommit}
+          onSuccess={handleDescriptionEdited}
+        />
+      )}
+      {onSessionCreated && (
+        <ResolveConflictsDialog
+          open={resolveDialogOpen}
+          onOpenChange={setResolveDialogOpen}
+          repoPath={repoPath}
+          workspaceId={workspaceId}
+          changeIds={resolveChangeIds}
+          onSessionCreated={onSessionCreated}
+        />
+      )}
+    </>
+  );
+};
 
 // --- Sub-components ---
 
@@ -1214,27 +1148,24 @@ function CommitWithDiff({
   const hasStats = commit.insertions > 0 || commit.deletions > 0;
   const isConflicted = Boolean(commit.has_conflicts);
 
-  const handleAgentComment = useCallback(
-    (
-      filePath: string,
-      startLine: number,
-      endLine: number,
-      lineContent: string[],
-      commentText: string,
-      mode: "plan" | "acceptEdits",
-    ) => {
-      onCreateAgentWithComment?.(
-        filePath,
-        startLine,
-        endLine,
-        lineContent,
-        commentText,
-        commit.short_id,
-        mode,
-      );
-    },
-    [onCreateAgentWithComment, commit.short_id],
-  );
+  const handleAgentComment = (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    lineContent: string[],
+    commentText: string,
+    mode: "plan" | "acceptEdits",
+  ) => {
+    onCreateAgentWithComment?.(
+      filePath,
+      startLine,
+      endLine,
+      lineContent,
+      commentText,
+      commit.short_id,
+      mode,
+    );
+  };
 
   return (
     <div data-commit-id={commit.commit_id}>

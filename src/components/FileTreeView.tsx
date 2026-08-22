@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
 import { FileText, Folder, FolderOpen } from "lucide-react";
 
@@ -129,13 +129,10 @@ export const FileTreeView: React.FC<FileTreeViewProps> = ({
   onSelect,
   isLoading = false,
 }) => {
-  const tree = useMemo(() => sortTree(buildTree(files)), [files]);
+  const tree = sortTree(buildTree(files));
 
   // Collect all folder paths that have changes (for auto-expanding)
-  const foldersWithChanges = useMemo(
-    () => collectFoldersWithChanges(tree),
-    [tree],
-  );
+  const foldersWithChanges = collectFoldersWithChanges(tree);
 
   // Use a stable string key for dependency tracking
   const foldersKey = foldersWithChanges.join(",");

@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useEffect, useMemo } from "react";
+import { type Dispatch, type SetStateAction, useEffect } from "react";
 import useSWR from "swr";
 import {
   type BranchStatus,
@@ -262,15 +262,11 @@ export function useWorkspaceDialogEffects(
     if (isStackOnRoot && position !== "after") setPosition("after");
   }, [isStackOnRoot, position]);
 
-  const pendingHunkPaths = useMemo(
-    () =>
-      [...fileHunksMap]
-        .filter(([, data]) => data.isLoading && data.hunks.length === 0)
-        .map(([filePath]) => filePath)
-        .sort()
-        .join("\0"),
-    [fileHunksMap],
-  );
+  const pendingHunkPaths = [...fileHunksMap]
+    .filter(([, data]) => data.isLoading && data.hunks.length === 0)
+    .map(([filePath]) => filePath)
+    .sort()
+    .join("\0");
 
   const { data: loadedHunks } = useSWR(
     open && pendingHunkPaths

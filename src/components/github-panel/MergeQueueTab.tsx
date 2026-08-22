@@ -1,5 +1,5 @@
 import { GitMerge, Loader2 } from "lucide-react";
-import { useMemo } from "react";
+
 import useSWR from "swr";
 import type { MutationResult } from "../../hooks/useMutation";
 import {
@@ -65,23 +65,19 @@ function MergeQueueList({
     () => listCommits(repoPath, null, false, undefined, 1),
   );
 
-  const branchToWorkspaceId = useMemo(() => {
+  const branchToWorkspaceId = (() => {
     const map = new Map<string, number>();
     for (const status of workspaceStatuses ?? []) {
       map.set(status.current.branch_name, status.current.id);
     }
     return map;
-  }, [workspaceStatuses]);
+  })();
 
-  const branchesNeedingStats = useMemo(
-    () =>
-      queueEntries.filter(
-        (entry) =>
-          entry.insertions == null &&
-          entry.deletions == null &&
-          branchToWorkspaceId.has(entry.branch_name),
-      ),
-    [queueEntries, branchToWorkspaceId],
+  const branchesNeedingStats = queueEntries.filter(
+    (entry) =>
+      entry.insertions == null &&
+      entry.deletions == null &&
+      branchToWorkspaceId.has(entry.branch_name),
   );
 
   const statsWorkspaceIds = branchesNeedingStats.map(
@@ -99,7 +95,7 @@ function MergeQueueList({
       ),
   );
 
-  const localStatsByBranch = useMemo(() => {
+  const localStatsByBranch = (() => {
     const map = new Map<string, WorkspaceDiffStats>();
     branchesNeedingStats.forEach((entry, index) => {
       const result = commitLists?.[index];
@@ -107,12 +103,9 @@ function MergeQueueList({
       map.set(entry.branch_name, sumWorkspaceDiffStats(result.commits));
     });
     return map;
-  }, [branchesNeedingStats, commitLists]);
+  })();
 
-  const enrichedEntries = useMemo(
-    () => mergeLocalDiffStats(queueEntries, localStatsByBranch),
-    [queueEntries, localStatsByBranch],
-  );
+  const enrichedEntries = mergeLocalDiffStats(queueEntries, localStatsByBranch);
 
   if (queueLoading) {
     return (

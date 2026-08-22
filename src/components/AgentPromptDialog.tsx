@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { Check, ChevronsUpDown, GitBranch } from "lucide-react";
 import type { Workspace } from "../lib/api";
@@ -57,9 +57,8 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
     wasOpenRef.current = open;
   }, [open, initialWorkspaceId, workspaces]);
 
-  const selectableWorkspaces = useMemo(
-    () => workspaces.filter((ws) => ws.branch_name !== defaultBranch),
-    [workspaces, defaultBranch],
+  const selectableWorkspaces = workspaces.filter(
+    (ws) => ws.branch_name !== defaultBranch,
   );
   const selectedName = selectedWorkspace?.branch_name ?? defaultBranch;
   const handleSessionCreated = (session: SessionCreationInfo) => {

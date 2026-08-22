@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { useDebounce } from "../../../hooks/useDebounce";
 import {
@@ -203,126 +203,92 @@ export function useReview({
     }
   }, [files, allFileHunks, workspacePath]);
 
-  const handleMarkFileViewed = useCallback(
-    async (filePath: string) => {
-      const fileData = allFileHunks.get(filePath);
-      const contentHash = fileData?.hunks
-        ? computeHunksHash(fileData.hunks)
-        : "";
-      try {
-        await markFileViewed(workspacePath, filePath, contentHash);
-        const now = new Date().toISOString();
-        setViewedFiles((prev) =>
-          new Map(prev).set(filePath, { contentHash, viewedAt: now }),
-        );
-        setCollapsedFiles((prev) => new Set(prev).add(filePath));
-      } catch {
-        void 0; // mark-viewed best-effort
-      }
-    },
-    [workspacePath, allFileHunks, setCollapsedFiles],
-  );
+  const handleMarkFileViewed = async (filePath: string) => {
+    const fileData = allFileHunks.get(filePath);
+    const contentHash = fileData?.hunks ? computeHunksHash(fileData.hunks) : "";
+    try {
+      await markFileViewed(workspacePath, filePath, contentHash);
+      const now = new Date().toISOString();
+      setViewedFiles((prev) =>
+        new Map(prev).set(filePath, { contentHash, viewedAt: now }),
+      );
+      setCollapsedFiles((prev) => new Set(prev).add(filePath));
+    } catch {
+      void 0; // mark-viewed best-effort
+    }
+  };
 
-  const handleUnmarkFileViewed = useCallback(
-    async (filePath: string) => {
-      try {
-        await unmarkFileViewed(workspacePath, filePath);
-        setViewedFiles((prev) => {
-          const next = new Map(prev);
-          next.delete(filePath);
-          return next;
-        });
-        setCollapsedFiles((prev) => {
-          const next = new Set(prev);
-          next.delete(filePath);
-          return next;
-        });
-      } catch {
-        void 0; // unmark-viewed best-effort
-      }
-    },
-    [workspacePath, setCollapsedFiles],
-  );
+  const handleUnmarkFileViewed = async (filePath: string) => {
+    try {
+      await unmarkFileViewed(workspacePath, filePath);
+      setViewedFiles((prev) => {
+        const next = new Map(prev);
+        next.delete(filePath);
+        return next;
+      });
+      setCollapsedFiles((prev) => {
+        const next = new Set(prev);
+        next.delete(filePath);
+        return next;
+      });
+    } catch {
+      void 0; // unmark-viewed best-effort
+    }
+  };
 
-  const formatReviewMarkdown = useCallback(
-    () =>
-      formatReviewMarkdownShared({
-        comments,
-        finalReviewComment,
-        conflictComments,
-        conflictRegionsByFile,
-        actualConflictedFiles,
-      }),
-    [
+  const formatReviewMarkdown = () =>
+    formatReviewMarkdownShared({
       comments,
-      conflictComments,
       finalReviewComment,
+      conflictComments,
       conflictRegionsByFile,
       actualConflictedFiles,
-    ],
-  );
+    });
 
-  const handleRequestChanges = useCallback(
-    async (mode: "plan" | "acceptEdits") => {
-      setSendingReview(true);
-      try {
-        const markdown = formatReviewMarkdown();
-        if (onCreateAgentWithReview) {
-          await onCreateAgentWithReview(markdown, mode);
-        } else {
-          addToast({
-            title: "No handler provided",
-            description: "onCreateAgentWithReview callback not available",
-            type: "error",
-          });
-          return;
-        }
-        if (pendingFilesData)
-          applyChangedFilesRef.current(pendingFilesData, true);
-        if (pendingHunksData) setAllFileHunks(pendingHunksData);
-        setPendingFilesData(null);
-        setPendingHunksData(null);
-        setStaleFiles(new Set());
-        persistSuppressedRef.current = true;
-        persistGenRef.current += 1;
-        setComments([]);
-        setConflictComments(new Map());
-        setHasUserAddedComments(false);
-        setFinalReviewComment("");
-        setReviewPopoverOpen(false);
-        if (repoPath && workspaceId !== undefined) {
-          await clearPendingReview(repoPath, workspaceId);
-          await setQueryData(["pending-review", repoPath, workspaceId], null);
-        }
-        onReviewSubmitted?.();
-      } catch (error) {
+  const handleRequestChanges = async (mode: "plan" | "acceptEdits") => {
+    setSendingReview(true);
+    try {
+      const markdown = formatReviewMarkdown();
+      if (onCreateAgentWithReview) {
+        await onCreateAgentWithReview(markdown, mode);
+      } else {
         addToast({
-          description: error instanceof Error ? error.message : String(error),
-          title: "Failed to send review",
+          title: "No handler provided",
+          description: "onCreateAgentWithReview callback not available",
           type: "error",
         });
-      } finally {
-        setSendingReview(false);
+        return;
       }
-    },
-    [
-      onCreateAgentWithReview,
-      formatReviewMarkdown,
-      addToast,
-      onReviewSubmitted,
-      repoPath,
-      workspaceId,
-      pendingFilesData,
-      pendingHunksData,
-      applyChangedFilesRef,
-      setComments,
-      setConflictComments,
-      setHasUserAddedComments,
-      setAllFileHunks,
-    ],
-  );
+      if (pendingFilesData)
+        applyChangedFilesRef.current(pendingFilesData, true);
+      if (pendingHunksData) setAllFileHunks(pendingHunksData);
+      setPendingFilesData(null);
+      setPendingHunksData(null);
+      setStaleFiles(new Set());
+      persistSuppressedRef.current = true;
+      persistGenRef.current += 1;
+      setComments([]);
+      setConflictComments(new Map());
+      setHasUserAddedComments(false);
+      setFinalReviewComment("");
+      setReviewPopoverOpen(false);
+      if (repoPath && workspaceId !== undefined) {
+        await clearPendingReview(repoPath, workspaceId);
+        await setQueryData(["pending-review", repoPath, workspaceId], null);
+      }
+      onReviewSubmitted?.();
+    } catch (error) {
+      addToast({
+        description: error instanceof Error ? error.message : String(error),
+        title: "Failed to send review",
+        type: "error",
+      });
+    } finally {
+      setSendingReview(false);
+    }
+  };
 
-  const handleCancelReview = useCallback(async () => {
+  const handleCancelReview = async () => {
     try {
       persistSuppressedRef.current = true;
       persistGenRef.current += 1;
@@ -348,16 +314,9 @@ export function useReview({
         type: "error",
       });
     }
-  }, [
-    repoPath,
-    workspaceId,
-    addToast,
-    setComments,
-    setConflictComments,
-    setHasUserAddedComments,
-  ]);
+  };
 
-  const handleCopyReview = useCallback(async () => {
+  const handleCopyReview = async () => {
     try {
       const markdown = formatReviewMarkdown();
       await navigator.clipboard.writeText(markdown);
@@ -370,9 +329,9 @@ export function useReview({
         type: "error",
       });
     }
-  }, [formatReviewMarkdown, addToast]);
+  };
 
-  const handleReloadWithPendingChanges = useCallback(() => {
+  const handleReloadWithPendingChanges = () => {
     isReloadingRef.current = true;
     if (pendingFilesData) {
       const orphanedComments: LineComment[] = [];
@@ -418,16 +377,7 @@ export function useReview({
     setTimeout(() => {
       isReloadingRef.current = false;
     }, 100);
-  }, [
-    pendingFilesData,
-    pendingHunksData,
-    comments,
-    applyChangedFilesRef,
-    isReloadingRef,
-    addToast,
-    setComments,
-    setAllFileHunks,
-  ]);
+  };
 
   return {
     reviewPopoverOpen,

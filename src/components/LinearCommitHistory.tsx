@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { type JjLogCommit, type JjLogResult, listCommits } from "../lib/api";
 import {
@@ -87,277 +87,277 @@ function getCommitHeadline(commit: JjLogCommit, isTentative: boolean): string {
       : "Untitled commit";
 }
 
-export const LinearCommitHistory = memo<LinearCommitHistoryProps>(
-  ({ repoPath, workspaceId, onCommitClick, onCommitsLoaded }) => {
-    const [limit, setLimit] = useState(14);
-    const isHomeRepo = workspaceId == null;
-    const includeTargetBranchHistory = workspaceId != null || isHomeRepo;
+export const LinearCommitHistory = ({
+  repoPath,
+  workspaceId,
+  onCommitClick,
+  onCommitsLoaded,
+}: LinearCommitHistoryProps) => {
+  const [limit, setLimit] = useState(14);
+  const isHomeRepo = workspaceId == null;
+  const includeTargetBranchHistory = workspaceId != null || isHomeRepo;
 
-    useEffect(() => {
-      setLimit(14);
-    }, [repoPath, workspaceId]);
+  useEffect(() => {
+    setLimit(14);
+  }, [repoPath, workspaceId]);
 
-    const {
-      data: commitsResult,
-      isLoading: loading,
-      isValidating,
-    } = useSWR(
-      repoPath
-        ? [
-            "linear-commits",
-            repoPath,
-            workspaceId,
-            includeTargetBranchHistory,
-            isHomeRepo ? limit : 14,
-          ]
-        : null,
-      () =>
-        listCommits(
+  const {
+    data: commitsResult,
+    isLoading: loading,
+    isValidating,
+  } = useSWR(
+    repoPath
+      ? [
+          "linear-commits",
           repoPath,
           workspaceId,
           includeTargetBranchHistory,
-          undefined,
           isHomeRepo ? limit : 14,
-        ),
-    );
-    const loadingMore = isValidating && limit > 14 && !loading;
+        ]
+      : null,
+    () =>
+      listCommits(
+        repoPath,
+        workspaceId,
+        includeTargetBranchHistory,
+        undefined,
+        isHomeRepo ? limit : 14,
+      ),
+  );
+  const loadingMore = isValidating && limit > 14 && !loading;
 
-    const {
-      commits,
-      tentativeWorkingCopy,
-      targetBranchCommits,
-      mergeBaseId,
-      targetBranch,
-      workspaceBranch,
-    } = useMemo(() => {
-      if (!commitsResult) {
-        return {
-          commits: [] as JjLogCommit[],
-          tentativeWorkingCopy: null,
-          targetBranchCommits: [] as JjLogCommit[],
-          mergeBaseId: null as string | null,
-          targetBranch: "",
-          workspaceBranch: "",
-        };
-      }
-      const split = splitCommitsByTarget(commitsResult.commits ?? []);
+  const {
+    commits,
+    tentativeWorkingCopy,
+    targetBranchCommits,
+    mergeBaseId,
+    targetBranch,
+    workspaceBranch,
+  } = (() => {
+    if (!commitsResult) {
       return {
-        commits: normalizeCommits(
-          filterWorkingCopyCommits(split.workspaceCommits),
-        ),
-        tentativeWorkingCopy: commitsResult.tentative_working_copy ?? null,
-        targetBranchCommits: split.targetBranchCommits,
-        mergeBaseId: commitsResult.merge_base_id ?? null,
-        targetBranch: commitsResult.target_branch ?? "",
-        workspaceBranch: commitsResult.workspace_branch ?? "",
+        commits: [] as JjLogCommit[],
+        tentativeWorkingCopy: null,
+        targetBranchCommits: [] as JjLogCommit[],
+        mergeBaseId: null as string | null,
+        targetBranch: "",
+        workspaceBranch: "",
       };
-    }, [commitsResult]);
-
-    useEffect(() => {
-      if (commitsResult) onCommitsLoaded?.(commitsResult);
-    }, [commitsResult, onCommitsLoaded]);
-
-    const dayGroups = useMemo(() => groupCommitsByDay(commits), [commits]);
-    const targetDayGroups = useMemo(
-      () => groupCommitsByDay(targetBranchCommits),
-      [targetBranchCommits],
-    );
-    const isWorkspaceView = workspaceId != null;
-    const isDefaultWorkspaceBranch =
-      isWorkspaceView &&
-      workspaceBranch.length > 0 &&
-      workspaceBranch === targetBranch;
-    const showWorkspaceTargetSection =
-      isWorkspaceView &&
-      !isDefaultWorkspaceBranch &&
-      targetBranchCommits.length > 0;
-    const hasDivergence = isHomeRepo && targetBranchCommits.length > 0;
-    const hasTentativeWorkingCopy = tentativeWorkingCopy != null;
-
-    if (loading) {
-      return <LoadingState />;
     }
+    const split = splitCommitsByTarget(commitsResult.commits ?? []);
+    return {
+      commits: normalizeCommits(
+        filterWorkingCopyCommits(split.workspaceCommits),
+      ),
+      tentativeWorkingCopy: commitsResult.tentative_working_copy ?? null,
+      targetBranchCommits: split.targetBranchCommits,
+      mergeBaseId: commitsResult.merge_base_id ?? null,
+      targetBranch: commitsResult.target_branch ?? "",
+      workspaceBranch: commitsResult.workspace_branch ?? "",
+    };
+  })();
 
-    if (
-      commits.length === 0 &&
-      !hasDivergence &&
-      !showWorkspaceTargetSection &&
-      !hasTentativeWorkingCopy
-    ) {
-      return (
-        <div className="p-4">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-4">
-            Commits
-          </h3>
-          <p className="text-sm text-muted-foreground text-center">
-            No commits yet.
-          </p>
-          <p className="text-sm text-muted-foreground text-center">
-            Changes you commit will appear here.
-          </p>
-        </div>
-      );
-    }
+  useEffect(() => {
+    if (commitsResult) onCommitsLoaded?.(commitsResult);
+  }, [commitsResult, onCommitsLoaded]);
 
-    let globalIndex = 0;
+  const dayGroups = groupCommitsByDay(commits);
+  const targetDayGroups = groupCommitsByDay(targetBranchCommits);
+  const isWorkspaceView = workspaceId != null;
+  const isDefaultWorkspaceBranch =
+    isWorkspaceView &&
+    workspaceBranch.length > 0 &&
+    workspaceBranch === targetBranch;
+  const showWorkspaceTargetSection =
+    isWorkspaceView &&
+    !isDefaultWorkspaceBranch &&
+    targetBranchCommits.length > 0;
+  const hasDivergence = isHomeRepo && targetBranchCommits.length > 0;
+  const hasTentativeWorkingCopy = tentativeWorkingCopy != null;
 
+  if (loading) {
+    return <LoadingState />;
+  }
+
+  if (
+    commits.length === 0 &&
+    !hasDivergence &&
+    !showWorkspaceTargetSection &&
+    !hasTentativeWorkingCopy
+  ) {
     return (
-      <div className="h-full overflow-auto">
-        <div className="p-4">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-4">
-            Commits
-          </h3>
-          <div className="relative">
+      <div className="p-4">
+        <h3 className="text-sm font-semibold text-muted-foreground mb-4">
+          Commits
+        </h3>
+        <p className="text-sm text-muted-foreground text-center">
+          No commits yet.
+        </p>
+        <p className="text-sm text-muted-foreground text-center">
+          Changes you commit will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  let globalIndex = 0;
+
+  return (
+    <div className="h-full overflow-auto">
+      <div className="p-4">
+        <h3 className="text-sm font-semibold text-muted-foreground mb-4">
+          Commits
+        </h3>
+        <div className="relative">
+          <div
+            className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-border"
+            aria-hidden="true"
+          />
+
+          {tentativeWorkingCopy && (
+            <ul className="space-y-0 mb-3">
+              <CommitItem
+                commit={tentativeWorkingCopy.commit}
+                isFirst={true}
+                isTentative={true}
+                tentativeWorkspaceLabel={tentativeWorkingCopy.workspace_label}
+                onCommitClick={onCommitClick}
+              />
+            </ul>
+          )}
+
+          {dayGroups.map((group, groupIndex) => (
             <div
-              className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-border"
-              aria-hidden="true"
-            />
-
-            {tentativeWorkingCopy && (
-              <ul className="space-y-0 mb-3">
-                <CommitItem
-                  commit={tentativeWorkingCopy.commit}
-                  isFirst={true}
-                  isTentative={true}
-                  tentativeWorkspaceLabel={tentativeWorkingCopy.workspace_label}
-                  onCommitClick={onCommitClick}
-                />
+              key={`${group.dayKey}-${groupIndex}`}
+              className="mt-5 first:mt-0"
+            >
+              <p className="text-xs font-semibold text-muted-foreground mb-1 pl-7">
+                {group.label}
+              </p>
+              <ul className="space-y-0">
+                {group.commits.map((commit) => {
+                  const isFirst = globalIndex === 0;
+                  globalIndex++;
+                  return (
+                    <CommitItem
+                      key={commit.commit_id}
+                      commit={commit}
+                      isFirst={isFirst}
+                      onCommitClick={onCommitClick}
+                    />
+                  );
+                })}
               </ul>
-            )}
+            </div>
+          ))}
 
-            {dayGroups.map((group, groupIndex) => (
-              <div
-                key={`${group.dayKey}-${groupIndex}`}
-                className="mt-5 first:mt-0"
+          {isHomeRepo && commits.length + 1 >= limit && (
+            <div className="mt-3 pl-7">
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                disabled={loadingMore}
+                onClick={() => setLimit((prev) => prev + 14)}
               >
-                <p className="text-xs font-semibold text-muted-foreground mb-1 pl-7">
-                  {group.label}
-                </p>
-                <ul className="space-y-0">
-                  {group.commits.map((commit) => {
-                    const isFirst = globalIndex === 0;
-                    globalIndex++;
-                    return (
+                {loadingMore ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Loading...
+                  </span>
+                ) : (
+                  "Load more commits"
+                )}
+              </button>
+            </div>
+          )}
+
+          {hasDivergence && (
+            <>
+              <div className="my-4 pl-7">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 border-t border-dashed border-border" />
+                  <span className="text-xs text-muted-foreground whitespace-nowrap px-2">
+                    Diverged from{" "}
+                    <span className="font-mono">{targetBranch}</span>
+                    {mergeBaseId && (
+                      <span className="ml-1 font-mono opacity-60">
+                        @ {mergeBaseId}
+                      </span>
+                    )}
+                  </span>
+                  <div className="flex-1 border-t border-dashed border-border" />
+                </div>
+              </div>
+
+              {targetDayGroups.map((group, groupIndex) => (
+                <div
+                  key={`target-${group.dayKey}-${groupIndex}`}
+                  className="mt-5 first:mt-0"
+                >
+                  <p className="text-xs font-semibold text-muted-foreground mb-1 pl-7">
+                    {group.label}
+                  </p>
+                  <ul className="space-y-0">
+                    {group.commits.map((commit) => (
                       <CommitItem
                         key={commit.commit_id}
                         commit={commit}
-                        isFirst={isFirst}
+                        isFirst={false}
+                        isTargetOnly={true}
                         onCommitClick={onCommitClick}
                       />
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </>
+          )}
 
-            {isHomeRepo && commits.length + 1 >= limit && (
-              <div className="mt-3 pl-7">
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  disabled={loadingMore}
-                  onClick={() => setLimit((prev) => prev + 14)}
+          {showWorkspaceTargetSection && (
+            <>
+              {commits.length === 0 && (
+                <p className="text-sm text-muted-foreground pl-7 mb-3">
+                  There are no commits within this workspace branch yet.
+                </p>
+              )}
+              <div className="my-4 pl-7">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 border-t border-dashed border-border" />
+                  <span className="text-xs text-muted-foreground whitespace-nowrap px-2">
+                    Recent on {targetBranch}
+                  </span>
+                  <div className="flex-1 border-t border-dashed border-border" />
+                </div>
+              </div>
+
+              {targetDayGroups.map((group, groupIndex) => (
+                <div
+                  key={`target-${group.dayKey}-${groupIndex}`}
+                  className="mt-5 first:mt-0"
                 >
-                  {loadingMore ? (
-                    <span className="flex items-center gap-1.5">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Loading...
-                    </span>
-                  ) : (
-                    "Load more commits"
-                  )}
-                </button>
-              </div>
-            )}
-
-            {hasDivergence && (
-              <>
-                <div className="my-4 pl-7">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 border-t border-dashed border-border" />
-                    <span className="text-xs text-muted-foreground whitespace-nowrap px-2">
-                      Diverged from{" "}
-                      <span className="font-mono">{targetBranch}</span>
-                      {mergeBaseId && (
-                        <span className="ml-1 font-mono opacity-60">
-                          @ {mergeBaseId}
-                        </span>
-                      )}
-                    </span>
-                    <div className="flex-1 border-t border-dashed border-border" />
-                  </div>
-                </div>
-
-                {targetDayGroups.map((group, groupIndex) => (
-                  <div
-                    key={`target-${group.dayKey}-${groupIndex}`}
-                    className="mt-5 first:mt-0"
-                  >
-                    <p className="text-xs font-semibold text-muted-foreground mb-1 pl-7">
-                      {group.label}
-                    </p>
-                    <ul className="space-y-0">
-                      {group.commits.map((commit) => (
-                        <CommitItem
-                          key={commit.commit_id}
-                          commit={commit}
-                          isFirst={false}
-                          isTargetOnly={true}
-                          onCommitClick={onCommitClick}
-                        />
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </>
-            )}
-
-            {showWorkspaceTargetSection && (
-              <>
-                {commits.length === 0 && (
-                  <p className="text-sm text-muted-foreground pl-7 mb-3">
-                    There are no commits within this workspace branch yet.
+                  <p className="text-xs font-semibold text-muted-foreground mb-1 pl-7">
+                    {group.label}
                   </p>
-                )}
-                <div className="my-4 pl-7">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 border-t border-dashed border-border" />
-                    <span className="text-xs text-muted-foreground whitespace-nowrap px-2">
-                      Recent on {targetBranch}
-                    </span>
-                    <div className="flex-1 border-t border-dashed border-border" />
-                  </div>
+                  <ul className="space-y-0">
+                    {group.commits.map((commit) => (
+                      <CommitItem
+                        key={commit.commit_id}
+                        commit={commit}
+                        isFirst={false}
+                        isTargetOnly={true}
+                        onCommitClick={onCommitClick}
+                      />
+                    ))}
+                  </ul>
                 </div>
-
-                {targetDayGroups.map((group, groupIndex) => (
-                  <div
-                    key={`target-${group.dayKey}-${groupIndex}`}
-                    className="mt-5 first:mt-0"
-                  >
-                    <p className="text-xs font-semibold text-muted-foreground mb-1 pl-7">
-                      {group.label}
-                    </p>
-                    <ul className="space-y-0">
-                      {group.commits.map((commit) => (
-                        <CommitItem
-                          key={commit.commit_id}
-                          commit={commit}
-                          isFirst={false}
-                          isTargetOnly={true}
-                          onCommitClick={onCommitClick}
-                        />
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
+              ))}
+            </>
+          )}
         </div>
       </div>
-    );
-  },
-);
+    </div>
+  );
+};
 
 interface CommitItemProps {
   commit: JjLogCommit;

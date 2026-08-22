@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { Command } from "cmdk";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -52,13 +52,10 @@ export const FilePicker: React.FC<FilePickerProps> = ({
     () => searchWorkspaceFiles(repoPath, workspaceId, debouncedQuery, 50),
   );
 
-  const handleSelect = useCallback(
-    (filePath: string) => {
-      onFileSelect(filePath);
-      onOpenChange(false);
-    },
-    [onFileSelect, onOpenChange],
-  );
+  const handleSelect = (filePath: string) => {
+    onFileSelect(filePath);
+    onOpenChange(false);
+  };
 
   const getFileIcon = () => (
     <FileText className="w-4 h-4 text-muted-foreground" />

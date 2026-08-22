@@ -1,17 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
-
+import { useEffect, useState } from "react";
 export function useTerminalPaneHeightResize(maximized: boolean) {
   const [height, setHeight] = useState(33);
   const [isResizingHeight, setIsResizingHeight] = useState(false);
 
-  const handleHeightResizeMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (maximized) return;
-      e.preventDefault();
-      setIsResizingHeight(true);
-    },
-    [maximized],
-  );
+  const handleHeightResizeMouseDown = (e: React.MouseEvent) => {
+    if (maximized) return;
+    e.preventDefault();
+    setIsResizingHeight(true);
+  };
 
   useEffect(() => {
     if (!isResizingHeight) return;

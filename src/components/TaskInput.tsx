@@ -1,7 +1,6 @@
 import {
   startTransition,
   useActionState,
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -155,40 +154,34 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   }, [mentionQuery]);
 
   // Helper: insert text at the current cursor position (or end) and update taskText
-  const insertAtCursor = useCallback(
-    (insertion: string) => {
-      const textarea = textareaRef.current;
-      const cursorPos = textarea?.selectionStart ?? taskText.length;
-      const before = taskText.slice(0, cursorPos);
-      const after = taskText.slice(cursorPos);
-      // Add a leading space if cursor is not at start and previous char isn't whitespace
-      const needsSpace = before.length > 0 && !/\s$/.test(before);
-      const text = needsSpace ? ` ${insertion}` : insertion;
-      const newText = before + text + after;
-      setTaskText(newText);
+  const insertAtCursor = (insertion: string) => {
+    const textarea = textareaRef.current;
+    const cursorPos = textarea?.selectionStart ?? taskText.length;
+    const before = taskText.slice(0, cursorPos);
+    const after = taskText.slice(cursorPos);
+    // Add a leading space if cursor is not at start and previous char isn't whitespace
+    const needsSpace = before.length > 0 && !/\s$/.test(before);
+    const text = needsSpace ? ` ${insertion}` : insertion;
+    const newText = before + text + after;
+    setTaskText(newText);
 
-      const newCursorPos = before.length + text.length;
-      requestAnimationFrame(() => {
-        if (textarea) {
-          textarea.focus();
-          textarea.selectionStart = newCursorPos;
-          textarea.selectionEnd = newCursorPos;
-        }
-      });
-    },
-    [taskText],
-  );
+    const newCursorPos = before.length + text.length;
+    requestAnimationFrame(() => {
+      if (textarea) {
+        textarea.focus();
+        textarea.selectionStart = newCursorPos;
+        textarea.selectionEnd = newCursorPos;
+      }
+    });
+  };
 
   // FilePicker: insert @relative_path at cursor
-  const handleFileSelect = useCallback(
-    (relativePath: string) => {
-      insertAtCursor(`@${relativePath} `);
-    },
-    [insertAtCursor],
-  );
+  const handleFileSelect = (relativePath: string) => {
+    insertAtCursor(`@${relativePath} `);
+  };
 
   // Finder: insert 'absolute_path' at cursor
-  const handleAttachFromFinder = useCallback(async () => {
+  const handleAttachFromFinder = async () => {
     const selected = await open({
       multiple: true,
       title: "Attach Files",
@@ -213,69 +206,63 @@ export const TaskInput: React.FC<TaskInputProps> = ({
         textarea.selectionEnd = newCursorPos;
       }
     });
-  }, [taskText]);
+  };
 
   // @ mention dropdown: insert @relative_path at cursor (preserving the @)
-  const handleMentionSelect = useCallback(
-    (file: FileSearchResult) => {
-      if (mentionAnchor === null) return;
-      const textarea = textareaRef.current;
-      const cursorPos = textarea?.selectionStart ?? taskText.length;
-      // Replace from the @ anchor to cursor with @relative_path
-      const before = taskText.slice(0, mentionAnchor);
-      const after = taskText.slice(cursorPos);
-      const inserted = `@${file.relative_path} `;
-      const newText = before + inserted + after;
-      setTaskText(newText);
+  const handleMentionSelect = (file: FileSearchResult) => {
+    if (mentionAnchor === null) return;
+    const textarea = textareaRef.current;
+    const cursorPos = textarea?.selectionStart ?? taskText.length;
+    // Replace from the @ anchor to cursor with @relative_path
+    const before = taskText.slice(0, mentionAnchor);
+    const after = taskText.slice(cursorPos);
+    const inserted = `@${file.relative_path} `;
+    const newText = before + inserted + after;
+    setTaskText(newText);
 
-      // Close dropdown
+    // Close dropdown
+    setMentionQuery(null);
+    setMentionAnchor(null);
+
+    // Restore focus and cursor position after the inserted path
+    requestAnimationFrame(() => {
+      if (textarea) {
+        textarea.focus();
+        const newCursorPos = before.length + inserted.length;
+        textarea.selectionStart = newCursorPos;
+        textarea.selectionEnd = newCursorPos;
+      }
+    });
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const { value } = e.target;
+    setTaskText(value);
+
+    const cursorPos = e.target.selectionStart;
+    // Look backwards from cursor to find @ preceded by whitespace or at start
+    let foundAnchor: number | null = null;
+    for (let i = cursorPos - 1; i >= 0; i--) {
+      const ch = value[i];
+      if (ch === "@") {
+        // Valid if at position 0 or preceded by whitespace
+        if (i === 0 || /\s/.test(value[i - 1])) {
+          foundAnchor = i;
+        }
+        break;
+      }
+      // Stop searching if we hit whitespace (no @ in this "word")
+      if (/\s/.test(ch)) break;
+    }
+
+    if (foundAnchor !== null) {
+      setMentionAnchor(foundAnchor);
+      setMentionQuery(value.slice(foundAnchor + 1, cursorPos));
+    } else {
       setMentionQuery(null);
       setMentionAnchor(null);
-
-      // Restore focus and cursor position after the inserted path
-      requestAnimationFrame(() => {
-        if (textarea) {
-          textarea.focus();
-          const newCursorPos = before.length + inserted.length;
-          textarea.selectionStart = newCursorPos;
-          textarea.selectionEnd = newCursorPos;
-        }
-      });
-    },
-    [mentionAnchor, taskText],
-  );
-
-  const handleTextChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const { value } = e.target;
-      setTaskText(value);
-
-      const cursorPos = e.target.selectionStart;
-      // Look backwards from cursor to find @ preceded by whitespace or at start
-      let foundAnchor: number | null = null;
-      for (let i = cursorPos - 1; i >= 0; i--) {
-        const ch = value[i];
-        if (ch === "@") {
-          // Valid if at position 0 or preceded by whitespace
-          if (i === 0 || /\s/.test(value[i - 1])) {
-            foundAnchor = i;
-          }
-          break;
-        }
-        // Stop searching if we hit whitespace (no @ in this "word")
-        if (/\s/.test(ch)) break;
-      }
-
-      if (foundAnchor !== null) {
-        setMentionAnchor(foundAnchor);
-        setMentionQuery(value.slice(foundAnchor + 1, cursorPos));
-      } else {
-        setMentionQuery(null);
-        setMentionAnchor(null);
-      }
-    },
-    [],
-  );
+    }
+  };
 
   const [, submitTask, submitting] = useActionState(
     async (_prev: null, mode: "plan" | "acceptEdits") => {
@@ -331,58 +318,45 @@ export const TaskInput: React.FC<TaskInputProps> = ({
     null,
   );
 
-  const handleSubmit = useCallback(
-    (mode: "plan" | "acceptEdits") => {
-      if (submitting) return;
-      startTransition(() => {
-        void submitTask(mode);
-      });
-    },
-    [submitTask, submitting],
-  );
+  const handleSubmit = (mode: "plan" | "acceptEdits") => {
+    if (submitting) return;
+    startTransition(() => {
+      void submitTask(mode);
+    });
+  };
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // When mention dropdown is open, handle navigation keys
-      if (mentionQuery !== null && mentionResults.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setMentionIndex((prev) => (prev + 1) % mentionResults.length);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setMentionIndex(
-            (prev) =>
-              (prev - 1 + mentionResults.length) % mentionResults.length,
-          );
-          return;
-        }
-        if (e.key === "Enter") {
-          e.preventDefault();
-          handleMentionSelect(mentionResults[mentionIndex]);
-          return;
-        }
-        if (e.key === "Escape" || e.key === "Tab") {
-          setMentionQuery(null);
-          setMentionAnchor(null);
-          return;
-        }
-      }
-
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // When mention dropdown is open, handle navigation keys
+    if (mentionQuery !== null && mentionResults.length > 0) {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
-        handleSubmit("acceptEdits");
+        setMentionIndex((prev) => (prev + 1) % mentionResults.length);
+        return;
       }
-    },
-    [
-      handleSubmit,
-      mentionQuery,
-      mentionResults,
-      mentionIndex,
-      handleMentionSelect,
-    ],
-  );
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex(
+          (prev) => (prev - 1 + mentionResults.length) % mentionResults.length,
+        );
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleMentionSelect(mentionResults[mentionIndex]);
+        return;
+      }
+      if (e.key === "Escape" || e.key === "Tab") {
+        setMentionQuery(null);
+        setMentionAnchor(null);
+        return;
+      }
+    }
+
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit("acceptEdits");
+    }
+  };
 
   const isEmpty = taskText.trim().length === 0 && !githubIssue;
 

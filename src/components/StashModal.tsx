@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { invalidateQueries } from "../lib/swr-cache";
 import { Command } from "cmdk";
@@ -173,7 +173,7 @@ export const StashModal: React.FC<StashModalProps> = ({
     () => getStashDiff(repoPath, selectedEntry!.id),
   );
 
-  const applyTargets = useMemo((): StashApplyTarget[] => {
+  const applyTargets = ((): StashApplyTarget[] => {
     // Caller should pass activity-sorted workspaces; Home is always first.
     const targets: StashApplyTarget[] = [
       { branch: HOME_STASH_APPLY_TARGET, label: "Home repo" },
@@ -185,16 +185,16 @@ export const StashModal: React.FC<StashModalProps> = ({
       });
     }
     return targets;
-  }, [workspaces]);
+  })();
 
-  const filteredApplyTargets = useMemo(() => {
+  const filteredApplyTargets = (() => {
     const q = applyQuery.trim().toLowerCase();
     if (!q) return applyTargets;
     return applyTargets.filter(
       (t) =>
         t.label.toLowerCase().includes(q) || t.branch.toLowerCase().includes(q),
     );
-  }, [applyTargets, applyQuery]);
+  })();
 
   const handleApplyOpenChange = (next: boolean) => {
     setApplyOpen(next);

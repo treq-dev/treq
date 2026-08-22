@@ -1,5 +1,4 @@
-import { useCallback, useRef } from "react";
-
+import { useRef } from "react";
 interface UseCachedWorkspaceChangesOptions {
   enabled?: boolean;
   repoPath?: string | null;
@@ -23,10 +22,10 @@ export function useCachedWorkspaceChanges(
   void options;
   const refreshCallbackRef = useRef<(() => void) | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     // Trigger any registered refresh callbacks
     refreshCallbackRef.current?.();
-  }, []);
+  };
 
   return {
     refresh,

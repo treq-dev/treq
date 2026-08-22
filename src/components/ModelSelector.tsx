@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { ClaudeIcon } from "./icons/AgentIcons";
 import {
   Tooltip,
@@ -34,20 +33,17 @@ export function ModelSelector({
   onModelChange,
   disabled,
 }: ModelSelectorProps) {
-  const getCurrentModelLabel = useCallback(() => {
+  const getCurrentModelLabel = () => {
     if (currentModel) {
       const model = AVAILABLE_MODELS.find((m) => m.value === currentModel);
       return model?.label || currentModel;
     }
     return "Default";
-  }, [currentModel]);
+  };
 
-  const handleModelSelect = useCallback(
-    async (modelValue: string) => {
-      await onModelChange(modelValue);
-    },
-    [onModelChange],
-  );
+  const handleModelSelect = async (modelValue: string) => {
+    await onModelChange(modelValue);
+  };
 
   const isSelected = (modelValue: string) => {
     if (currentModel === null && modelValue === "default") return true;

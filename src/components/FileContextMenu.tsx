@@ -1,4 +1,3 @@
-import { memo, useCallback } from "react";
 import { Copy, FolderOpen } from "lucide-react";
 import {
   ContextMenu,
@@ -20,96 +19,112 @@ interface FileContextMenuProps {
   children: React.ReactNode;
 }
 
-export const FileContextMenu = memo(
-  ({ filePath, workspacePath, children }: FileContextMenuProps) => {
-    const { addToast } = useToast();
-    const editorApps = useEditorAppsStore();
+export const FileContextMenu = ({
+  filePath,
+  workspacePath,
+  children,
+}: FileContextMenuProps) => {
+  const { addToast } = useToast();
+  const editorApps = useEditorAppsStore();
 
-    const getRelativePath = useCallback(
-      (fullPath: string): string => {
-        if (workspacePath && fullPath.startsWith(`${workspacePath}/`)) {
-          return fullPath.slice(workspacePath.length + 1);
-        }
-        return fullPath;
-      },
-      [workspacePath],
-    );
+  const getRelativePath = (fullPath: string): string => {
+    if (workspacePath && fullPath.startsWith(`${workspacePath}/`)) {
+      return fullPath.slice(workspacePath.length + 1);
+    }
+    return fullPath;
+  };
 
-    const getFullPath = useCallback(
-      (path: string): string => {
-        // If path is already absolute, return it
-        if (path.startsWith("/")) return path;
-        // Otherwise, join with workspace path
-        return `${workspacePath}/${path}`;
-      },
-      [workspacePath],
-    );
+  const getFullPath = (path: string): string => {
+    // If path is already absolute, return it
+    if (path.startsWith("/")) return path;
+    // Otherwise, join with workspace path
+    return `${workspacePath}/${path}`;
+  };
 
-    const fullPath = getFullPath(filePath);
-    const relativePath = getRelativePath(fullPath);
+  const fullPath = getFullPath(filePath);
+  const relativePath = getRelativePath(fullPath);
 
-    return (
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem
-            data-testid="copy-relative-path"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(relativePath);
-                addToast({
-                  title: "Copied",
-                  description: `Copied relative path: ${relativePath}`,
-                  type: "success",
-                });
-              } catch (err) {
-                addToast({
-                  title: "Copy Failed",
-                  description: err instanceof Error ? err.message : String(err),
-                  type: "error",
-                });
-              }
-            }}
-          >
-            <Copy className="w-4 h-4 mr-2" />
-            Copy relative path
-          </ContextMenuItem>
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          data-testid="copy-relative-path"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(relativePath);
+              addToast({
+                title: "Copied",
+                description: `Copied relative path: ${relativePath}`,
+                type: "success",
+              });
+            } catch (err) {
+              addToast({
+                title: "Copy Failed",
+                description: err instanceof Error ? err.message : String(err),
+                type: "error",
+              });
+            }
+          }}
+        >
+          <Copy className="w-4 h-4 mr-2" />
+          Copy relative path
+        </ContextMenuItem>
 
-          <ContextMenuItem
-            data-testid="copy-full-path"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(fullPath);
-                addToast({
-                  title: "Copied",
-                  description: `Copied full path: ${fullPath}`,
-                  type: "success",
-                });
-              } catch (err) {
-                addToast({
-                  title: "Copy Failed",
-                  description: err instanceof Error ? err.message : String(err),
-                  type: "error",
-                });
-              }
-            }}
-          >
-            <Copy className="w-4 h-4 mr-2" />
-            Copy full path
-          </ContextMenuItem>
+        <ContextMenuItem
+          data-testid="copy-full-path"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(fullPath);
+              addToast({
+                title: "Copied",
+                description: `Copied full path: ${fullPath}`,
+                type: "success",
+              });
+            } catch (err) {
+              addToast({
+                title: "Copy Failed",
+                description: err instanceof Error ? err.message : String(err),
+                type: "error",
+              });
+            }
+          }}
+        >
+          <Copy className="w-4 h-4 mr-2" />
+          Copy full path
+        </ContextMenuItem>
 
-          <ContextMenuSeparator />
+        <ContextMenuSeparator />
 
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <FolderOpen className="w-4 h-4 mr-2" />
+            Open in...
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            <ContextMenuItem
+              onClick={async () => {
+                try {
+                  await revealItemInDir(fullPath);
+                } catch (err) {
+                  addToast({
+                    title: "Open Failed",
+                    description:
+                      err instanceof Error ? err.message : String(err),
+                    type: "error",
+                  });
+                }
+              }}
+            >
               <FolderOpen className="w-4 h-4 mr-2" />
-              Open in...
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
+              Open in Finder
+            </ContextMenuItem>
+
+            {editorApps.cursor && (
               <ContextMenuItem
                 onClick={async () => {
                   try {
-                    await revealItemInDir(fullPath);
+                    await openUrl(`cursor://file/${fullPath}`);
                   } catch (err) {
                     addToast({
                       title: "Open Failed",
@@ -120,70 +135,50 @@ export const FileContextMenu = memo(
                   }
                 }}
               >
-                <FolderOpen className="w-4 h-4 mr-2" />
-                Open in Finder
+                Open in Cursor
               </ContextMenuItem>
+            )}
 
-              {editorApps.cursor && (
-                <ContextMenuItem
-                  onClick={async () => {
-                    try {
-                      await openUrl(`cursor://file/${fullPath}`);
-                    } catch (err) {
-                      addToast({
-                        title: "Open Failed",
-                        description:
-                          err instanceof Error ? err.message : String(err),
-                        type: "error",
-                      });
-                    }
-                  }}
-                >
-                  Open in Cursor
-                </ContextMenuItem>
-              )}
+            {editorApps.vscode && (
+              <ContextMenuItem
+                onClick={async () => {
+                  try {
+                    await openUrl(`vscode://file/${fullPath}`);
+                  } catch (err) {
+                    addToast({
+                      title: "Open Failed",
+                      description:
+                        err instanceof Error ? err.message : String(err),
+                      type: "error",
+                    });
+                  }
+                }}
+              >
+                Open in VSCode
+              </ContextMenuItem>
+            )}
 
-              {editorApps.vscode && (
-                <ContextMenuItem
-                  onClick={async () => {
-                    try {
-                      await openUrl(`vscode://file/${fullPath}`);
-                    } catch (err) {
-                      addToast({
-                        title: "Open Failed",
-                        description:
-                          err instanceof Error ? err.message : String(err),
-                        type: "error",
-                      });
-                    }
-                  }}
-                >
-                  Open in VSCode
-                </ContextMenuItem>
-              )}
-
-              {editorApps.zed && (
-                <ContextMenuItem
-                  onClick={async () => {
-                    try {
-                      await openUrl(`zed://file/${fullPath}`);
-                    } catch (err) {
-                      addToast({
-                        title: "Open Failed",
-                        description:
-                          err instanceof Error ? err.message : String(err),
-                        type: "error",
-                      });
-                    }
-                  }}
-                >
-                  Open in Zed
-                </ContextMenuItem>
-              )}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-  },
-);
+            {editorApps.zed && (
+              <ContextMenuItem
+                onClick={async () => {
+                  try {
+                    await openUrl(`zed://file/${fullPath}`);
+                  } catch (err) {
+                    addToast({
+                      title: "Open Failed",
+                      description:
+                        err instanceof Error ? err.message : String(err),
+                      type: "error",
+                    });
+                  }
+                }}
+              >
+                Open in Zed
+              </ContextMenuItem>
+            )}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};

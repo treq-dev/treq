@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ptyWrite } from "../lib/api";
 import {
   type QueuedAgentMessage,
@@ -62,7 +62,7 @@ export function useAgentMessageQueue({
     ptySessionIdRef.current = ptySessionId;
   }, [ptySessionId]);
 
-  const flushOldest = useCallback(async () => {
+  const flushOldest = async () => {
     if (
       flushingRef.current ||
       isBusyRef.current ||
@@ -100,53 +100,47 @@ export function useAgentMessageQueue({
       // eslint-disable-next-line require-atomic-updates -- sole writer of flushingRef during flush
       flushingRef.current = false;
     }
-  }, []);
+  };
 
-  const enqueue = useCallback(
-    (text: string) => {
-      const next = enqueueAgentMessage(messagesRef.current, text);
-      if (next === messagesRef.current) return;
-      messagesRef.current = next;
-      setMessages(next);
-      queueMicrotask(() => {
-        void flushOldest();
-      });
-    },
-    [flushOldest],
-  );
+  const enqueue = (text: string) => {
+    const next = enqueueAgentMessage(messagesRef.current, text);
+    if (next === messagesRef.current) return;
+    messagesRef.current = next;
+    setMessages(next);
+    queueMicrotask(() => {
+      void flushOldest();
+    });
+  };
 
-  const remove = useCallback((id: string) => {
+  const remove = (id: string) => {
     const next = removeAgentMessage(messagesRef.current, id);
     messagesRef.current = next;
     setMessages(next);
-  }, []);
+  };
 
-  const update = useCallback((id: string, text: string) => {
+  const update = (id: string, text: string) => {
     const next = updateAgentMessage(messagesRef.current, id, text);
     messagesRef.current = next;
     setMessages(next);
-  }, []);
+  };
 
-  const markBusy = useCallback(() => {
+  const markBusy = () => {
     awaitingQuestionRef.current = false;
     setIsBusy(true);
     isBusyRef.current = true;
-  }, []);
+  };
 
-  const markIdle = useCallback(
-    (options?: { awaitingQuestion?: boolean }) => {
-      awaitingQuestionRef.current = options?.awaitingQuestion === true;
-      setIsBusy(false);
-      isBusyRef.current = false;
-      void flushOldest();
-    },
-    [flushOldest],
-  );
+  const markIdle = (options?: { awaitingQuestion?: boolean }) => {
+    awaitingQuestionRef.current = options?.awaitingQuestion === true;
+    setIsBusy(false);
+    isBusyRef.current = false;
+    void flushOldest();
+  };
 
-  const clear = useCallback(() => {
+  const clear = () => {
     setMessages([]);
     messagesRef.current = [];
-  }, []);
+  };
 
   return {
     messages,

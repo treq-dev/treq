@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useState } from "react";
 import type { ParsedFileChange } from "../../../lib/git-utils";
 import { useKeyboardShortcut } from "../../../hooks/useKeyboard";
 
@@ -41,158 +41,146 @@ export function useFileStaging({
   const unstagedFiles = files.filter((f) => !stagedFiles.has(f.path));
   const stagedFilesList = files.filter((f) => stagedFiles.has(f.path));
 
-  const scrollToFileIfNeeded = useCallback(
-    (filePath: string) => {
-      if (!filePath) return;
-      setLargeChangesetExpanded(true);
-      setCollapsedFiles((prev) => {
-        const next = new Set(prev);
-        next.delete(filePath);
-        return next;
-      });
-      setExpandedLargeDiffs((prev) => {
-        const next = new Set(prev);
-        next.add(filePath);
-        return next;
-      });
-      setTimeout(() => {
-        const api = diffScrollApiRef?.current;
-        if (api) {
-          api.scrollToFile(filePath);
-          return;
-        }
-        const container = diffContainerRef.current;
-        if (!container) return;
-        const fileId = `file-section-${filePath.replace(/[^a-zA-Z0-9]/g, "-")}`;
-        const fileElement = document.getElementById(fileId);
-        if (fileElement)
-          fileElement.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 50);
-    },
-    [diffContainerRef, diffScrollApiRef],
-  );
+  const scrollToFileIfNeeded = (filePath: string) => {
+    if (!filePath) return;
+    setLargeChangesetExpanded(true);
+    setCollapsedFiles((prev) => {
+      const next = new Set(prev);
+      next.delete(filePath);
+      return next;
+    });
+    setExpandedLargeDiffs((prev) => {
+      const next = new Set(prev);
+      next.add(filePath);
+      return next;
+    });
+    setTimeout(() => {
+      const api = diffScrollApiRef?.current;
+      if (api) {
+        api.scrollToFile(filePath);
+        return;
+      }
+      const container = diffContainerRef.current;
+      if (!container) return;
+      const fileId = `file-section-${filePath.replace(/[^a-zA-Z0-9]/g, "-")}`;
+      const fileElement = document.getElementById(fileId);
+      if (fileElement)
+        fileElement.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
 
-  const handleFileSelect = useCallback(
-    (path: string, event: React.MouseEvent) => {
-      const fileIndex = files.findIndex((f) => f.path === path);
-      if (fileIndex === -1) return;
-      const isMetaKey = event.metaKey || event.ctrlKey;
-      const isShiftKey = event.shiftKey;
-      setSelectedUnstagedFiles((prev) => {
-        const next = new Set(prev);
-        if (isShiftKey && lastSelectedFileIndex !== null) {
-          next.clear();
-          const start = Math.min(lastSelectedFileIndex, fileIndex);
-          const end = Math.max(lastSelectedFileIndex, fileIndex);
-          for (let i = start; i <= end; i++) next.add(files[i].path);
-        } else if (isMetaKey) {
-          if (next.has(path)) next.delete(path);
-          else next.add(path);
-        } else {
-          if (next.size === 1 && next.has(path)) return prev;
-          next.clear();
-          next.add(path);
-        }
-        return next;
-      });
-      setLastSelectedFileIndex(fileIndex);
-      scrollToFileIfNeeded(path);
-    },
-    [lastSelectedFileIndex, files, scrollToFileIfNeeded],
-  );
+  const handleFileSelect = (path: string, event: React.MouseEvent) => {
+    const fileIndex = files.findIndex((f) => f.path === path);
+    if (fileIndex === -1) return;
+    const isMetaKey = event.metaKey || event.ctrlKey;
+    const isShiftKey = event.shiftKey;
+    setSelectedUnstagedFiles((prev) => {
+      const next = new Set(prev);
+      if (isShiftKey && lastSelectedFileIndex !== null) {
+        next.clear();
+        const start = Math.min(lastSelectedFileIndex, fileIndex);
+        const end = Math.max(lastSelectedFileIndex, fileIndex);
+        for (let i = start; i <= end; i++) next.add(files[i].path);
+      } else if (isMetaKey) {
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+      } else {
+        if (next.size === 1 && next.has(path)) return prev;
+        next.clear();
+        next.add(path);
+      }
+      return next;
+    });
+    setLastSelectedFileIndex(fileIndex);
+    scrollToFileIfNeeded(path);
+  };
 
-  const handleStageFiles = useCallback((paths: string[]) => {
+  const handleStageFiles = (paths: string[]) => {
     setStagedFiles((prev) => {
       const next = new Set(prev);
       paths.forEach((p) => next.add(p));
       return next;
     });
     setSelectedUnstagedFiles(new Set());
-  }, []);
+  };
 
-  const handleStageFile = useCallback(
-    (path: string) => {
-      if (selectedUnstagedFiles.size > 1 && selectedUnstagedFiles.has(path)) {
-        handleStageFiles(Array.from(selectedUnstagedFiles));
-      } else {
-        handleStageFiles([path]);
-      }
-    },
-    [selectedUnstagedFiles, handleStageFiles],
-  );
+  const handleStageFile = (path: string) => {
+    if (selectedUnstagedFiles.size > 1 && selectedUnstagedFiles.has(path)) {
+      handleStageFiles(Array.from(selectedUnstagedFiles));
+    } else {
+      handleStageFiles([path]);
+    }
+  };
 
-  const handleUnstageFile = useCallback((path: string) => {
+  const handleUnstageFile = (path: string) => {
     setStagedFiles((prev) => {
       const next = new Set(prev);
       next.delete(path);
       return next;
     });
     setSelectedStagedFiles(new Set());
-  }, []);
+  };
 
-  const handleUnstageAllFiles = useCallback(() => {
+  const handleUnstageAllFiles = () => {
     setStagedFiles(new Set());
     setSelectedStagedFiles(new Set());
-  }, []);
+  };
 
-  const handleStagedFileSelect = useCallback(
-    (path: string, event: React.MouseEvent) => {
-      const stagedFilesArray = files.filter((f) => stagedFiles.has(f.path));
-      const fileIndex = stagedFilesArray.findIndex((f) => f.path === path);
-      if (fileIndex === -1) return;
-      const isMetaKey = event.metaKey || event.ctrlKey;
-      const isShiftKey = event.shiftKey;
-      setSelectedStagedFiles((prev) => {
-        const next = new Set(prev);
-        if (isShiftKey && lastSelectedStagedIndex !== null) {
-          next.clear();
-          const start = Math.min(lastSelectedStagedIndex, fileIndex);
-          const end = Math.max(lastSelectedStagedIndex, fileIndex);
-          for (let i = start; i <= end; i++) next.add(stagedFilesArray[i].path);
-        } else if (isMetaKey) {
-          if (next.has(path)) next.delete(path);
-          else next.add(path);
-        } else {
-          if (next.size === 1 && next.has(path)) return prev;
-          next.clear();
-          next.add(path);
-        }
-        return next;
-      });
-      setLastSelectedStagedIndex(fileIndex);
-      scrollToFileIfNeeded(path);
-    },
-    [stagedFiles, files, lastSelectedStagedIndex, scrollToFileIfNeeded],
-  );
+  const handleStagedFileSelect = (path: string, event: React.MouseEvent) => {
+    const stagedFilesArray = files.filter((f) => stagedFiles.has(f.path));
+    const fileIndex = stagedFilesArray.findIndex((f) => f.path === path);
+    if (fileIndex === -1) return;
+    const isMetaKey = event.metaKey || event.ctrlKey;
+    const isShiftKey = event.shiftKey;
+    setSelectedStagedFiles((prev) => {
+      const next = new Set(prev);
+      if (isShiftKey && lastSelectedStagedIndex !== null) {
+        next.clear();
+        const start = Math.min(lastSelectedStagedIndex, fileIndex);
+        const end = Math.max(lastSelectedStagedIndex, fileIndex);
+        for (let i = start; i <= end; i++) next.add(stagedFilesArray[i].path);
+      } else if (isMetaKey) {
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+      } else {
+        if (next.size === 1 && next.has(path)) return prev;
+        next.clear();
+        next.add(path);
+      }
+      return next;
+    });
+    setLastSelectedStagedIndex(fileIndex);
+    scrollToFileIfNeeded(path);
+  };
 
-  const toggleFileCollapse = useCallback((filePath: string) => {
+  const toggleFileCollapse = (filePath: string) => {
     setCollapsedFiles((prev) => {
       const next = new Set(prev);
       if (next.has(filePath)) next.delete(filePath);
       else next.add(filePath);
       return next;
     });
-  }, []);
+  };
 
-  const toggleLargeDiff = useCallback((filePath: string) => {
+  const toggleLargeDiff = (filePath: string) => {
     setExpandedLargeDiffs((prev) => {
       const next = new Set(prev);
       if (next.has(filePath)) next.delete(filePath);
       else next.add(filePath);
       return next;
     });
-  }, []);
+  };
 
-  const toggleSectionCollapse = useCallback((sectionId: string) => {
+  const toggleSectionCollapse = (sectionId: string) => {
     setCollapsedSections((prev) => {
       const next = new Set(prev);
       if (next.has(sectionId)) next.delete(sectionId);
       else next.add(sectionId);
       return next;
     });
-  }, []);
+  };
 
-  const handleStageAllFiles = useCallback(() => {
+  const handleStageAllFiles = () => {
     const unstagedPaths = unstagedFiles.map((f) => f.path);
     if (unstagedPaths.length === 0) return;
     setStagedFiles((prev) => {
@@ -202,9 +190,9 @@ export function useFileStaging({
     });
     setSelectedUnstagedFiles(new Set());
     setLastSelectedFileIndex(null);
-  }, [unstagedFiles]);
+  };
 
-  const handleSelectAllUnstaged = useCallback(() => {
+  const handleSelectAllUnstaged = () => {
     setSelectedUnstagedFiles((prev) => {
       if (prev.size === unstagedFiles.length && unstagedFiles.length > 0)
         return new Set();
@@ -216,9 +204,9 @@ export function useFileStaging({
           (f) => f.path === unstagedFiles[unstagedFiles.length - 1].path,
         ),
       );
-  }, [unstagedFiles, files]);
+  };
 
-  const handleSelectAllStaged = useCallback(() => {
+  const handleSelectAllStaged = () => {
     setSelectedStagedFiles((prev) => {
       if (prev.size === stagedFilesList.length && stagedFilesList.length > 0)
         return new Set();
@@ -226,7 +214,7 @@ export function useFileStaging({
     });
     if (stagedFilesList.length > 0)
       setLastSelectedStagedIndex(stagedFilesList.length - 1);
-  }, [files, stagedFilesList]);
+  };
 
   useKeyboardShortcut(
     "a",

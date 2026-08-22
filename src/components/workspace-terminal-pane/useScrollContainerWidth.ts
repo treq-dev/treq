@@ -1,5 +1,4 @@
 import { type RefObject, useEffect, useState } from "react";
-
 function getResizeEntryWidth(entry: ResizeObserverEntry): number {
   const sizeFrom = (
     size: ResizeObserverSize | ReadonlyArray<ResizeObserverSize> | undefined,

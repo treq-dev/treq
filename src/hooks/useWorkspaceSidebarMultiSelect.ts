@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useRef } from "react";
 import type { Workspace } from "../lib/api";
 import type { FlattenedWorkspaceNode } from "../lib/workspace-tree";
 
@@ -81,41 +81,38 @@ export function useWorkspaceSidebarMultiSelect({
 }) {
   const lastSelectedIndexRef = useRef<number | null>(null);
 
-  const clearLastSelectedIndex = useCallback(() => {
+  const clearLastSelectedIndex = () => {
     lastSelectedIndexRef.current = null;
-  }, []);
+  };
 
-  const handleItemSelect = useCallback(
-    (
-      workspace: Workspace,
-      event: React.MouseEvent | React.PointerEvent,
-      index: number,
-    ) => {
-      if (
-        event.shiftKey ||
-        event.getModifierState("Shift") ||
-        heldModifiers.shift
-      ) {
-        if (lastSelectedIndexRef.current !== null && onSelectStack) {
-          onSelectStack(
-            idsInVisibleRange(
-              flattenedNodes,
-              lastSelectedIndexRef.current,
-              index,
-            ),
-          );
-          return;
-        }
-      }
-      lastSelectedIndexRef.current = index;
-      if (onWorkspaceMultiSelect) {
-        onWorkspaceMultiSelect(workspace, event);
+  const handleItemSelect = (
+    workspace: Workspace,
+    event: React.MouseEvent | React.PointerEvent,
+    index: number,
+  ) => {
+    if (
+      event.shiftKey ||
+      event.getModifierState("Shift") ||
+      heldModifiers.shift
+    ) {
+      if (lastSelectedIndexRef.current !== null && onSelectStack) {
+        onSelectStack(
+          idsInVisibleRange(
+            flattenedNodes,
+            lastSelectedIndexRef.current,
+            index,
+          ),
+        );
         return;
       }
-      onWorkspaceClick?.(workspace);
-    },
-    [flattenedNodes, onSelectStack, onWorkspaceMultiSelect, onWorkspaceClick],
-  );
+    }
+    lastSelectedIndexRef.current = index;
+    if (onWorkspaceMultiSelect) {
+      onWorkspaceMultiSelect(workspace, event);
+      return;
+    }
+    onWorkspaceClick?.(workspace);
+  };
 
   return { handleItemSelect, clearLastSelectedIndex };
 }

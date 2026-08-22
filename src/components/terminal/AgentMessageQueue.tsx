@@ -1,8 +1,4 @@
-import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  useCallback,
-  useState,
-} from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, ListOrdered, Pencil, Trash2 } from "lucide-react";
 import { type QueuedAgentMessage } from "../../lib/agentMessageQueue";
@@ -49,22 +45,21 @@ export function AgentMessageQueue({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
 
-  const submitDraft = useCallback(() => {
+  const submitDraft = () => {
     const trimmed = draft.trim();
     if (!trimmed) return;
     onEnqueue(trimmed);
     setDraft("");
-  }, [draft, onEnqueue]);
+  };
 
-  const handleComposerKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        submitDraft();
-      }
-    },
-    [submitDraft],
-  );
+  const handleComposerKeyDown = (
+    event: ReactKeyboardEvent<HTMLTextAreaElement>,
+  ) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      submitDraft();
+    }
+  };
 
   const startEdit = (message: QueuedAgentMessage) => {
     setEditingId(message.id);

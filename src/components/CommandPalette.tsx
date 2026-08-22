@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Command } from "cmdk";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
@@ -116,7 +115,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   );
 
   // Build command items
-  const items = useMemo<CommandItem[]>(() => {
+  const items: CommandItem[] = (() => {
     const result: CommandItem[] = [];
 
     result.push({
@@ -299,27 +298,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         onCommandPaletteChange(false);
       },
     }));
-  }, [
-    onNavigateToDashboard,
-    onNavigateToSettings,
-    onOpenBranchSwitcher,
-    onOpenFilePicker,
-    onOpenWorkspacePicker,
-    onOpenWorkspaceDeletion,
-    onCreateStackedWorkspace,
-    onToggleTerminal,
-    onMaximizeTerminal,
-    onStartAgentWithPrompt,
-    onStartAgentTerminal,
-    onCreateShellTerminal,
-    onOpenPromptHistory,
-    onOpenStash,
-    repoPath,
-    hasSelectedWorkspace,
-    onCommandPaletteChange,
-    currentWorkspace,
-    workspacePrInfo,
-  ]);
+  })();
 
   // Render a command item
   const renderItem = (item: CommandItem) => (

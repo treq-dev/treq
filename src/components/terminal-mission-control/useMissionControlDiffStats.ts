@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import useSWR from "swr";
 import { listCommits, type Workspace } from "../../lib/api";
 import {
@@ -26,22 +25,18 @@ export function useMissionControlDiffStats({
   diffStatsByWorkspaceKey: Map<string, WorkspaceDiffStats>;
   maxChange: number;
 } {
-  const workspaceByBranch = useMemo(() => {
+  const workspaceByBranch = (() => {
     const map = new Map<string, Workspace>();
     for (const ws of workspaces ?? []) {
       map.set(ws.branch_name, ws);
     }
     return map;
-  }, [workspaces]);
+  })();
 
-  const groupWorkspaceIds = useMemo(
-    () =>
-      groups.map((group) => {
-        if (group.isMainRepo) return null;
-        return workspaceByBranch.get(group.workspaceName)?.id ?? null;
-      }),
-    [groups, workspaceByBranch],
-  );
+  const groupWorkspaceIds = groups.map((group) => {
+    if (group.isMainRepo) return null;
+    return workspaceByBranch.get(group.workspaceName)?.id ?? null;
+  });
 
   const fetchableIds = groupWorkspaceIds.filter(
     (id): id is number => id != null,
@@ -56,7 +51,7 @@ export function useMissionControlDiffStats({
       ),
   );
 
-  return useMemo(() => {
+  return (() => {
     const commitsById = new Map<
       number,
       Awaited<ReturnType<typeof listCommits>>
@@ -86,5 +81,5 @@ export function useMissionControlDiffStats({
     );
 
     return { diffStatsByWorkspaceKey, maxChange };
-  }, [groups, groupWorkspaceIds, fetchableIds, commitLists]);
+  })();
 }

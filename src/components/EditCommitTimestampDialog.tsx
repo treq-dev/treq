@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -42,7 +42,7 @@ export const EditCommitTimestampDialog: React.FC<
   const [error, setError] = useState("");
   const { addToast } = useToast();
 
-  const canSubmit = useMemo(() => {
+  const canSubmit = (() => {
     if (!commit || saving) return false;
     if (mode === "day") return /^\d{4}-\d{2}-\d{2}$/.test(toDay);
     const d = Number(days);
@@ -50,7 +50,7 @@ export const EditCommitTimestampDialog: React.FC<
     const m = Number(minutes);
     if (![d, h, m].every((n) => Number.isInteger(n) && n >= 0)) return false;
     return d + h + m > 0;
-  }, [commit, saving, mode, toDay, days, hours, minutes]);
+  })();
 
   const handleSave = async () => {
     if (!commit || !canSubmit) return;

@@ -3,7 +3,6 @@ import {
   Fragment,
   type SetStateAction,
   useEffect,
-  useMemo,
   useRef,
 } from "react";
 import type {
@@ -107,23 +106,16 @@ export const InlineConflictCard = ({
   registerFileRef,
 }: InlineConflictCardProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const lines = useMemo(
-    () =>
-      region.lines?.length
-        ? region.lines
-        : region.content.split("\n").map((raw, idx) => ({
-            raw,
-            kind: "content" as const,
-            role: "unknown" as const,
-            file_line: region.start_line + idx,
-          })),
-    [region],
-  );
+  const lines = region.lines?.length
+    ? region.lines
+    : region.content.split("\n").map((raw, idx) => ({
+        raw,
+        kind: "content" as const,
+        role: "unknown" as const,
+        file_line: region.start_line + idx,
+      }));
   const hasComment = conflictComments.has(region.id);
-  const deletedSides = useMemo(
-    () => getConflictDeletedSides({ ...region, lines }),
-    [region, lines],
-  );
+  const deletedSides = getConflictDeletedSides({ ...region, lines });
 
   useEffect(() => {
     if (!registerFileRef) return;

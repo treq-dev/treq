@@ -1,12 +1,4 @@
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useImperativeHandle, useRef, useState } from "react";
 import { type ConsolidatedTerminalHandle } from "./ConsolidatedTerminal";
 import { ptyClose } from "../lib/api";
 import { type ClaudeSessionData } from "./terminal/types";
@@ -50,6 +42,8 @@ const WorkspaceTerminalPaneInner = ({
   const paneRef = useRef<HTMLDivElement>(null);
   const { scrollToTerminal, handleTerminalDoubleClick } =
     useScrollTerminalIntoView(scrollContainerRef);
+  const scrollToTerminalRef = useRef(scrollToTerminal);
+  scrollToTerminalRef.current = scrollToTerminal;
 
   // Track which terminal is focused (last-clicked)
   const [activePtySessionId, setActivePtySessionId] = useState<string | null>(
@@ -116,12 +110,12 @@ const WorkspaceTerminalPaneInner = ({
     setCollapsed(false);
 
     // Scroll to the new terminal after it's rendered
-    scrollToTerminal(claudeTerminalId);
-  }, [activeClaudeSessionId, scrollToTerminal]);
+    scrollToTerminalRef.current(claudeTerminalId);
+  }, [activeClaudeSessionId]);
 
   // Derive the working directory for new terminals based on the active terminal's workspace.
   // Falls back to the sidebar-selected workspace (workingDirectory prop).
-  const activeWorkspaceDir = useMemo(() => {
+  const activeWorkspaceDir = (() => {
     if (!activePtySessionId) return null;
 
     // Check claude sessions
@@ -139,183 +133,172 @@ const WorkspaceTerminalPaneInner = ({
     }
 
     return null;
-  }, [activePtySessionId, claudeSessions, shellTerminals]);
+  })();
 
   // Add new shell terminal in the active terminal's workspace, or sidebar-selected workspace
-  const handleAddShell = useCallback(
-    (dirOverride?: string) => {
-      const dir = dirOverride || activeWorkspaceDir || workingDirectory;
-      const newId = `shell-${dir.replace(/[^a-zA-Z0-9]/g, "-")}-${Date.now()}`;
-      setShellTerminals((prev) => [
-        ...prev,
-        { id: newId, workingDirectory: dir },
-      ]);
-      // Add to terminal order (rightmost position)
-      setTerminalOrder((prev) => [...prev, newId]);
-      if (collapsed) {
-        setCollapsed(false);
-      }
-      scrollToTerminal(newId);
-    },
-    [activeWorkspaceDir, workingDirectory, collapsed, scrollToTerminal],
-  );
+  const handleAddShell = (dirOverride?: string) => {
+    const dir = dirOverride || activeWorkspaceDir || workingDirectory;
+    const newId = `shell-${dir.replace(/[^a-zA-Z0-9]/g, "-")}-${Date.now()}`;
+    setShellTerminals((prev) => [
+      ...prev,
+      { id: newId, workingDirectory: dir },
+    ]);
+    // Add to terminal order (rightmost position)
+    setTerminalOrder((prev) => [...prev, newId]);
+    if (collapsed) {
+      setCollapsed(false);
+    }
+    scrollToTerminal(newId);
+  };
 
   // Create Agent session in the active terminal's workspace, or sidebar-selected workspace
-  const handleCreateAgentSession = useCallback(
-    (agent?: "claude" | "codex" | "cursor") => {
-      onCreateNewSession?.(activeWorkspaceDir, agent);
-    },
-    [onCreateNewSession, activeWorkspaceDir],
-  );
+  const handleCreateAgentSession = (agent?: "claude" | "codex" | "cursor") => {
+    onCreateNewSession?.(activeWorkspaceDir, agent);
+  };
 
   // Close shell terminal
-  const handleCloseShell = useCallback(
-    (terminalId: string) => {
-      console.info(
-        "[WorkspaceTerminalPane] shell close requested",
-        JSON.stringify({
-          terminalId,
-          activePtySessionId,
-        }),
-      );
-      ptyClose(terminalId)
-        .then(() => {
-          console.info(
-            "[WorkspaceTerminalPane] ptyClose succeeded",
-            JSON.stringify({ terminalId }),
-          );
-        })
-        .catch((error) => {
-          console.warn(
-            "[WorkspaceTerminalPane] ptyClose failed",
-            JSON.stringify({
-              terminalId,
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          );
-        });
-      terminalRefs.current.delete(terminalId);
-      console.info(
-        "[WorkspaceTerminalPane] terminal ref deleted",
-        JSON.stringify({ terminalId }),
-      );
-      setShellTerminals((prev) => prev.filter((t) => t.id !== terminalId));
-      setTerminalOrder((prev) => prev.filter((id) => id !== terminalId));
-      if (activePtySessionId === terminalId) {
+  const handleCloseShell = (terminalId: string) => {
+    console.info(
+      "[WorkspaceTerminalPane] shell close requested",
+      JSON.stringify({
+        terminalId,
+        activePtySessionId,
+      }),
+    );
+    ptyClose(terminalId)
+      .then(() => {
         console.info(
-          "[WorkspaceTerminalPane] clearing active shell session",
+          "[WorkspaceTerminalPane] ptyClose succeeded",
           JSON.stringify({ terminalId }),
         );
-        setActivePtySessionId(null);
-      }
-    },
-    [activePtySessionId],
-  );
+      })
+      .catch((error) => {
+        console.warn(
+          "[WorkspaceTerminalPane] ptyClose failed",
+          JSON.stringify({
+            terminalId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      });
+    terminalRefs.current.delete(terminalId);
+    console.info(
+      "[WorkspaceTerminalPane] terminal ref deleted",
+      JSON.stringify({ terminalId }),
+    );
+    setShellTerminals((prev) => prev.filter((t) => t.id !== terminalId));
+    setTerminalOrder((prev) => prev.filter((id) => id !== terminalId));
+    if (activePtySessionId === terminalId) {
+      console.info(
+        "[WorkspaceTerminalPane] clearing active shell session",
+        JSON.stringify({ terminalId }),
+      );
+      setActivePtySessionId(null);
+    }
+  };
 
   // Close Claude session
-  const handleCloseClaudeSession = useCallback(
-    (sessionId: number) => {
-      const claudeTerminalId = `claude-${sessionId}`;
+  const handleCloseClaudeSession = (sessionId: number) => {
+    const claudeTerminalId = `claude-${sessionId}`;
+    console.info(
+      "[WorkspaceTerminalPane] agent session close requested",
+      JSON.stringify({
+        sessionId,
+        claudeTerminalId,
+        activePtySessionId,
+      }),
+    );
+    const sessionData = claudeSessions.find((s) => s.sessionId === sessionId);
+    if (sessionData) {
+      // ptyClose(sessionData.ptySessionId).catch(console.error);
+      terminalRefs.current.delete(claudeTerminalId);
       console.info(
-        "[WorkspaceTerminalPane] agent session close requested",
+        "[WorkspaceTerminalPane] agent terminal ref deleted",
         JSON.stringify({
           sessionId,
           claudeTerminalId,
-          activePtySessionId,
+          ptySessionId: sessionData.ptySessionId,
         }),
       );
-      const sessionData = claudeSessions.find((s) => s.sessionId === sessionId);
-      if (sessionData) {
-        // ptyClose(sessionData.ptySessionId).catch(console.error);
-        terminalRefs.current.delete(claudeTerminalId);
-        console.info(
-          "[WorkspaceTerminalPane] agent terminal ref deleted",
-          JSON.stringify({
-            sessionId,
-            claudeTerminalId,
-            ptySessionId: sessionData.ptySessionId,
-          }),
-        );
-      }
-      setMountedClaudeSessions((prev) => {
-        const next = new Set(prev);
-        next.delete(sessionId);
-        return next;
-      });
-      setTerminalOrder((prev) => prev.filter((id) => id !== claudeTerminalId));
-      onCloseSession?.(sessionId);
+    }
+    setMountedClaudeSessions((prev) => {
+      const next = new Set(prev);
+      next.delete(sessionId);
+      return next;
+    });
+    setTerminalOrder((prev) => prev.filter((id) => id !== claudeTerminalId));
+    onCloseSession?.(sessionId);
+    console.info(
+      "[WorkspaceTerminalPane] onCloseSession callback fired",
+      JSON.stringify({ sessionId }),
+    );
+    if (activePtySessionId === claudeTerminalId) {
       console.info(
-        "[WorkspaceTerminalPane] onCloseSession callback fired",
-        JSON.stringify({ sessionId }),
+        "[WorkspaceTerminalPane] clearing active agent session",
+        JSON.stringify({ sessionId, claudeTerminalId }),
       );
-      if (activePtySessionId === claudeTerminalId) {
-        console.info(
-          "[WorkspaceTerminalPane] clearing active agent session",
-          JSON.stringify({ sessionId, claudeTerminalId }),
-        );
-        setActivePtySessionId(null);
-      }
-    },
-    [claudeSessions, onCloseSession, activeClaudeSessionId, activePtySessionId],
-  );
+      setActivePtySessionId(null);
+    }
+  };
 
   // Terminal width resize handler
-  const handleTerminalResize = useCallback(
-    (leftId: string, rightId: string, deltaX: number) => {
-      if (!scrollContainerRef.current) return;
+  const handleTerminalResize = (
+    leftId: string,
+    rightId: string,
+    deltaX: number,
+  ) => {
+    if (!scrollContainerRef.current) return;
 
-      setTerminalWidths((prev) => {
-        const newWidths = new Map(prev);
-        const container = scrollContainerRef.current;
-        if (!container) return prev;
+    setTerminalWidths((prev) => {
+      const newWidths = new Map(prev);
+      const container = scrollContainerRef.current;
+      if (!container) return prev;
 
-        // Minimum width is 2/5 of scroll container viewport
-        const minWidth = containerWidth * 0.4 || 300;
+      // Minimum width is 2/5 of scroll container viewport
+      const minWidth = containerWidth * 0.4 || 300;
 
-        // Get current widths - if null, calculate from actual element width
-        const leftEl = container.querySelector(
-          `[data-terminal-id="${leftId}"]`,
-        ) as HTMLElement | null;
-        const rightEl = container.querySelector(
-          `[data-terminal-id="${rightId}"]`,
-        ) as HTMLElement | null;
+      // Get current widths - if null, calculate from actual element width
+      const leftEl = container.querySelector(
+        `[data-terminal-id="${leftId}"]`,
+      ) as HTMLElement | null;
+      const rightEl = container.querySelector(
+        `[data-terminal-id="${rightId}"]`,
+      ) as HTMLElement | null;
 
-        if (!leftEl || !rightEl) return prev;
+      if (!leftEl || !rightEl) return prev;
 
-        const leftCurrentWidth =
-          prev.get(leftId) ?? leftEl.getBoundingClientRect().width;
-        const rightCurrentWidth =
-          prev.get(rightId) ?? rightEl.getBoundingClientRect().width;
+      const leftCurrentWidth =
+        prev.get(leftId) ?? leftEl.getBoundingClientRect().width;
+      const rightCurrentWidth =
+        prev.get(rightId) ?? rightEl.getBoundingClientRect().width;
 
-        // Calculate new widths
-        let newLeftWidth = leftCurrentWidth + deltaX;
-        let newRightWidth = rightCurrentWidth - deltaX;
+      // Calculate new widths
+      let newLeftWidth = leftCurrentWidth + deltaX;
+      let newRightWidth = rightCurrentWidth - deltaX;
 
-        // Enforce minimum widths
-        if (newLeftWidth < minWidth) {
-          const diff = minWidth - newLeftWidth;
-          newLeftWidth = minWidth;
-          newRightWidth -= diff;
-        }
-        if (newRightWidth < minWidth) {
-          const diff = minWidth - newRightWidth;
-          newRightWidth = minWidth;
-          newLeftWidth -= diff;
-        }
+      // Enforce minimum widths
+      if (newLeftWidth < minWidth) {
+        const diff = minWidth - newLeftWidth;
+        newLeftWidth = minWidth;
+        newRightWidth -= diff;
+      }
+      if (newRightWidth < minWidth) {
+        const diff = minWidth - newRightWidth;
+        newRightWidth = minWidth;
+        newLeftWidth -= diff;
+      }
 
-        // Don't update if either would be below minimum
-        if (newLeftWidth < minWidth || newRightWidth < minWidth) {
-          return prev;
-        }
+      // Don't update if either would be below minimum
+      if (newLeftWidth < minWidth || newRightWidth < minWidth) {
+        return prev;
+      }
 
-        newWidths.set(leftId, newLeftWidth);
-        newWidths.set(rightId, newRightWidth);
+      newWidths.set(leftId, newLeftWidth);
+      newWidths.set(rightId, newRightWidth);
 
-        return newWidths;
-      });
-    },
-    [],
-  );
+      return newWidths;
+    });
+  };
 
   // Show ALL mounted Claude sessions (no workspace filtering)
   const claudeSessionsToRender = claudeSessions.filter((s) => {
@@ -446,10 +429,7 @@ const WorkspaceTerminalPaneInner = ({
     ],
   );
 
-  const workspaceGroups = useMemo(
-    () => buildWorkspaceGroups(allTerminals, claudeSessions),
-    [allTerminals, claudeSessions],
-  );
+  const workspaceGroups = buildWorkspaceGroups(allTerminals, claudeSessions);
 
   // Scroll to workspace group and focus first terminal when workingDirectory changes
   useEffect(() => {
@@ -519,4 +499,4 @@ const WorkspaceTerminalPaneInner = ({
   );
 };
 
-export const WorkspaceTerminalPane = memo(WorkspaceTerminalPaneInner);
+export const WorkspaceTerminalPane = WorkspaceTerminalPaneInner;

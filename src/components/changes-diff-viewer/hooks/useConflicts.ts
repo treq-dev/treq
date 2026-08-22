@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { type ConflictRegion } from "../../../lib/api";
 import type { FileHunksData } from "../types";
 
@@ -35,7 +34,7 @@ export function useConflicts({
   committedFileHunks,
   conflictedFilesHint = [],
 }: UseConflictsParams) {
-  const actualConflictedFiles = useMemo(() => {
+  const actualConflictedFiles = (() => {
     const fileOrder: string[] = [];
     const seen = new Set<string>();
     for (const path of conflictedFilesHint) {
@@ -45,9 +44,9 @@ export function useConflicts({
       }
     }
     return fileOrder;
-  }, [conflictedFilesHint]);
+  })();
 
-  const conflictRegionsByFile = useMemo(() => {
+  const conflictRegionsByFile = (() => {
     const regionsByFile = new Map<string, ConflictRegion[]>();
     const rawRegionsFor = (
       source: Map<string, FileHunksData> | undefined,
@@ -73,9 +72,9 @@ export function useConflicts({
       regionsByFile.set(filePath, regions);
     }
     return regionsByFile;
-  }, [actualConflictedFiles, allFileHunks, committedFileHunks]);
+  })();
 
-  const conflictLineLookups = useMemo(() => {
+  const conflictLineLookups = (() => {
     const map = new Map<string, Map<number, ConflictRegion>>();
     for (const [filePath, regions] of conflictRegionsByFile) {
       if (!regions || regions.length === 0) continue;
@@ -88,15 +87,15 @@ export function useConflicts({
       map.set(filePath, lineMap);
     }
     return map;
-  }, [conflictRegionsByFile]);
+  })();
 
-  const firstConflictRegionIdByFile = useMemo(() => {
+  const firstConflictRegionIdByFile = (() => {
     const map = new Map<string, string>();
     for (const [filePath, regions] of conflictRegionsByFile) {
       if (regions && regions.length > 0) map.set(filePath, regions[0].id);
     }
     return map;
-  }, [conflictRegionsByFile]);
+  })();
 
   return {
     actualConflictedFiles,

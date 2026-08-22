@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef } from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import { CheckCircle2, FileText, Loader2 } from "lucide-react";
 import type { VirtuosoHandle } from "react-virtuoso";
 import type {
@@ -251,20 +251,16 @@ export function DiffContentArea({
     };
   }, [diffScrollApiRef]);
 
-  const alwaysVisibleCommittedPaths = useMemo(() => {
+  const alwaysVisibleCommittedPaths = (() => {
     const paths = new Set<string>(actualConflictedFiles);
     for (const file of files) paths.add(file.path);
     return paths;
-  }, [actualConflictedFiles, files]);
+  })();
 
-  const visibleCommittedFiles = useMemo(
-    () =>
-      filterVisibleCommittedFiles(
-        committedFiles,
-        showCommittedChanges ?? false,
-        alwaysVisibleCommittedPaths,
-      ),
-    [committedFiles, showCommittedChanges, alwaysVisibleCommittedPaths],
+  const visibleCommittedFiles = filterVisibleCommittedFiles(
+    committedFiles,
+    showCommittedChanges ?? false,
+    alwaysVisibleCommittedPaths,
   );
 
   return (

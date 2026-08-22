@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -58,30 +58,26 @@ export function useFileBrowserReview({
   const finalReviewComment =
     draft && loadKey && draft.key === loadKey ? draft.summary : loadedSummary;
 
-  const setComments = useCallback(
-    (next: LineComment[] | ((prev: LineComment[]) => LineComment[])) => {
-      if (!loadKey) return;
-      setDraft((prev) => {
-        const current = prev?.key === loadKey ? prev.comments : loadedComments;
-        const commentsNext = typeof next === "function" ? next(current) : next;
-        const summary = prev?.key === loadKey ? prev.summary : loadedSummary;
-        return { key: loadKey, comments: commentsNext, summary };
-      });
-    },
-    [loadKey, loadedComments, loadedSummary],
-  );
+  const setComments = (
+    next: LineComment[] | ((prev: LineComment[]) => LineComment[]),
+  ) => {
+    if (!loadKey) return;
+    setDraft((prev) => {
+      const current = prev?.key === loadKey ? prev.comments : loadedComments;
+      const commentsNext = typeof next === "function" ? next(current) : next;
+      const summary = prev?.key === loadKey ? prev.summary : loadedSummary;
+      return { key: loadKey, comments: commentsNext, summary };
+    });
+  };
 
-  const setFinalReviewComment = useCallback(
-    (summary: string) => {
-      if (!loadKey) return;
-      setDraft((prev) => ({
-        key: loadKey,
-        comments: prev?.key === loadKey ? prev.comments : loadedComments,
-        summary,
-      }));
-    },
-    [loadKey, loadedComments],
-  );
+  const setFinalReviewComment = (summary: string) => {
+    if (!loadKey) return;
+    setDraft((prev) => ({
+      key: loadKey,
+      comments: prev?.key === loadKey ? prev.comments : loadedComments,
+      summary,
+    }));
+  };
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [reviewPopoverOpen, setReviewPopoverOpen] = useState(false);
@@ -117,107 +113,85 @@ export function useFileBrowserReview({
       ),
   );
 
-  const addComment = useCallback(
-    (pendingComment: PendingComment, text: string) => {
-      if (!text.trim()) return;
-      const newComment: LineComment = {
-        id: uuidv4(),
-        filePath: pendingComment.filePath,
-        hunkId: pendingComment.hunkId,
-        startLine: pendingComment.startLine,
-        endLine: pendingComment.endLine,
-        lineContent: pendingComment.lineContent,
-        text: text.trim(),
-        createdAt: new Date().toISOString(),
-      };
-      setComments((prev) => [...prev, newComment]);
-    },
-    [setComments],
-  );
+  const addComment = (pendingComment: PendingComment, text: string) => {
+    if (!text.trim()) return;
+    const newComment: LineComment = {
+      id: uuidv4(),
+      filePath: pendingComment.filePath,
+      hunkId: pendingComment.hunkId,
+      startLine: pendingComment.startLine,
+      endLine: pendingComment.endLine,
+      lineContent: pendingComment.lineContent,
+      text: text.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    setComments((prev) => [...prev, newComment]);
+  };
 
-  const deleteComment = useCallback(
-    (commentId: string) => {
-      setComments((prev) => prev.filter((comment) => comment.id !== commentId));
-      setEditingCommentId((prev) => (prev === commentId ? null : prev));
-    },
-    [setComments],
-  );
+  const deleteComment = (commentId: string) => {
+    setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+    setEditingCommentId((prev) => (prev === commentId ? null : prev));
+  };
 
-  const startEditComment = useCallback((commentId: string) => {
+  const startEditComment = (commentId: string) => {
     setEditingCommentId(commentId);
-  }, []);
+  };
 
-  const cancelEditComment = useCallback(() => {
+  const cancelEditComment = () => {
     setEditingCommentId(null);
-  }, []);
+  };
 
-  const saveEditComment = useCallback(
-    (commentId: string, newText: string) => {
-      if (!newText.trim()) return;
-      setComments((prev) =>
-        prev.map((comment) =>
-          comment.id === commentId
-            ? { ...comment, text: newText.trim() }
-            : comment,
-        ),
-      );
-      setEditingCommentId(null);
-    },
-    [setComments],
-  );
+  const saveEditComment = (commentId: string, newText: string) => {
+    if (!newText.trim()) return;
+    setComments((prev) =>
+      prev.map((comment) =>
+        comment.id === commentId
+          ? { ...comment, text: newText.trim() }
+          : comment,
+      ),
+    );
+    setEditingCommentId(null);
+  };
 
-  const formatMarkdown = useCallback(
-    () => formatReviewMarkdown({ comments, finalReviewComment }),
-    [comments, finalReviewComment],
-  );
+  const formatMarkdown = () =>
+    formatReviewMarkdown({ comments, finalReviewComment });
 
-  const handleRequestChanges = useCallback(
-    async (mode: "plan" | "acceptEdits") => {
-      setSendingReview(true);
-      try {
-        const markdown = formatMarkdown();
-        if (onCreateAgentWithReview) {
-          await onCreateAgentWithReview(markdown, mode);
-        } else {
-          addToast({
-            title: "No handler provided",
-            description: "onCreateAgentWithReview callback not available",
-            type: "error",
-          });
-          return;
-        }
-        setComments([]);
-        setFinalReviewComment("");
-        setReviewPopoverOpen(false);
-        if (repoPath && workspaceId !== undefined) {
-          await clearFileBrowserReview(repoPath, workspaceId);
-          await setQueryData(
-            ["file-browser-review", repoPath, workspaceId],
-            null,
-          );
-        }
-      } catch (error) {
+  const handleRequestChanges = async (mode: "plan" | "acceptEdits") => {
+    setSendingReview(true);
+    try {
+      const markdown = formatMarkdown();
+      if (onCreateAgentWithReview) {
+        await onCreateAgentWithReview(markdown, mode);
+      } else {
         addToast({
-          description: error instanceof Error ? error.message : String(error),
-          title: "Failed to send review",
+          title: "No handler provided",
+          description: "onCreateAgentWithReview callback not available",
           type: "error",
         });
-      } finally {
-        setSendingReview(false);
+        return;
       }
-    },
-    [
-      onCreateAgentWithReview,
-      formatMarkdown,
-      addToast,
-      repoPath,
-      workspaceId,
-      setComments,
-      setFinalReviewComment,
-    ],
-  );
+      setComments([]);
+      setFinalReviewComment("");
+      setReviewPopoverOpen(false);
+      if (repoPath && workspaceId !== undefined) {
+        await clearFileBrowserReview(repoPath, workspaceId);
+        await setQueryData(
+          ["file-browser-review", repoPath, workspaceId],
+          null,
+        );
+      }
+    } catch (error) {
+      addToast({
+        description: error instanceof Error ? error.message : String(error),
+        title: "Failed to send review",
+        type: "error",
+      });
+    } finally {
+      setSendingReview(false);
+    }
+  };
 
-  const handleCancelReview = useCallback(async () => {
+  const handleCancelReview = async () => {
     try {
       setComments([]);
       setFinalReviewComment("");
@@ -242,9 +216,9 @@ export function useFileBrowserReview({
         type: "error",
       });
     }
-  }, [repoPath, workspaceId, addToast, setComments, setFinalReviewComment]);
+  };
 
-  const handleCopyReview = useCallback(async () => {
+  const handleCopyReview = async () => {
     try {
       const markdown = formatMarkdown();
       await navigator.clipboard.writeText(markdown);
@@ -257,7 +231,7 @@ export function useFileBrowserReview({
         type: "error",
       });
     }
-  }, [formatMarkdown, addToast]);
+  };
 
   return {
     comments,

@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-
+import { useEffect, useRef } from "react";
 type KeyboardHandler = (event: KeyboardEvent) => void;
 
 function isWithinTerminal(element: HTMLElement | null): boolean {
@@ -21,6 +20,9 @@ export function useKeyboardShortcut(
     requireBothCmdAndCtrl?: boolean;
   },
 ) {
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+
   useEffect(() => {
     const handleKeyPress: KeyboardHandler = (event) => {
       const target = event.target as HTMLElement | null;
@@ -85,7 +87,7 @@ export function useKeyboardShortcut(
         }
 
         event.preventDefault();
-        handler();
+        handlerRef.current();
       }
     };
 

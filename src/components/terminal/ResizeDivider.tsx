@@ -1,19 +1,19 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
 
 interface ResizeDividerProps {
   onResize: (deltaX: number) => void;
 }
 
-export const ResizeDivider = memo<ResizeDividerProps>(({ onResize }) => {
+export const ResizeDivider = ({ onResize }: ResizeDividerProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const lastXRef = useRef<number>(0);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     setIsDragging(true);
     lastXRef.current = e.clientX;
-  }, []);
+  };
 
   useEffect(() => {
     if (!isDragging) return;
@@ -56,4 +56,4 @@ export const ResizeDivider = memo<ResizeDividerProps>(({ onResize }) => {
       <div className="absolute inset-y-0 -left-1 w-3 cursor-ew-resize" />
     </div>
   );
-});
+};
