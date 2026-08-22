@@ -2,6 +2,8 @@
 pub mod agent_dispatch;
 pub mod auto_update;
 pub mod binary;
+pub mod browser_review;
+pub mod browser_webview;
 pub mod commits;
 pub mod file_browser_review;
 pub mod file_view;
@@ -19,6 +21,8 @@ pub mod workspace;
 pub use agent_dispatch::*;
 pub use auto_update::*;
 pub use binary::*;
+pub use browser_review::*;
+pub use browser_webview::*;
 pub use commits::*;
 pub use file_browser_review::*;
 pub use file_view::*;

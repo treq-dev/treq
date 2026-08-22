@@ -43,6 +43,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     return tauriTest.invoke(cmd, args ?? {});
   }),
   convertFileSrc: (filePath: string) => `file://${filePath}`,
+  isTauri: () => false,
 }));
 
 afterEach(() => {

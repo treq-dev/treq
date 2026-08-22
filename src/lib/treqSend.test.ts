@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assetsForPtySession,
   mergeSendAssets,
+  normalizeSendMediaType,
   parseTreqSendPayload,
   sendRecordToAsset,
 } from "./treqSend";
@@ -24,6 +25,24 @@ describe("treqSend helpers", () => {
       title: "a.png",
     });
     expect(parseTreqSendPayload({ request_id: "x" })).toBeNull();
+  });
+
+  it("normalizes the browser media type from treq send --browser", () => {
+    expect(normalizeSendMediaType("browser")).toBe("browser");
+    expect(
+      parseTreqSendPayload({
+        kind: "send",
+        request_id: "b1",
+        repo: "/repo",
+        media_type: "browser",
+        path: "http://localhost:3000",
+        title: "http://localhost:3000",
+      }),
+    ).toMatchObject({
+      id: "b1",
+      mediaType: "browser",
+      path: "http://localhost:3000",
+    });
   });
 
   it("filters assets to the matching pty session", () => {

@@ -130,6 +130,7 @@ fn print_cli_help() {
   println!("  treq commit <workspace_name> -m <message> [--push]");
   println!("  treq resolve <commit_id> [sides...]");
   println!("  treq send [path|-]");
+  println!("  treq send --browser <path-or-url>");
   println!("  treq help");
 }
 

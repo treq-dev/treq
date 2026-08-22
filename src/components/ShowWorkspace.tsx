@@ -6,6 +6,7 @@ import { invalidateQueries } from "../lib/swr-cache";
 import {
   AlertTriangle,
   ArrowRight,
+  ChevronDown,
   Code2,
   Copy,
   File,
@@ -16,6 +17,7 @@ import {
   GitCommitHorizontal,
   GitCompareArrows,
   GitMerge,
+  Globe,
   Info,
   Layers2,
   Loader2,
@@ -35,6 +37,7 @@ import {
   usePrCiStatus,
 } from "../hooks/useMergeQueueStatus";
 import { useTerminalSettingsStore } from "../stores/terminalSettingsStore";
+import { useTreqSendStore } from "../stores/treqSendStore";
 import { listen } from "@tauri-apps/api/event";
 import {
   checkAndRebaseWorkspaces,
@@ -92,6 +95,8 @@ import {
   ChangesDiffViewer,
   type ChangesDiffViewerHandle,
 } from "./ChangesDiffViewer";
+import { BrowserPanel } from "./browser-panel/BrowserPanel";
+import type { BrowserOpenRequest } from "./browser-panel/types";
 import { CiStatusIndicator } from "./CiStatusIndicator";
 import { CommitDiffViewer } from "./CommitDiffViewer";
 import { CreatePrButtonGroup } from "./CreatePrButtonGroup";
@@ -281,8 +286,28 @@ export const ShowWorkspace = ({
 
   // Show overview tab by default for main repo, changes tab for workspaces
   const [activeTab, setActiveTab] = useState("overview");
+  const [reviewSubView, setReviewSubView] = useState<"diff" | "browser">(
+    "diff",
+  );
+  const [browserOpenRequest, setBrowserOpenRequest] =
+    useState<BrowserOpenRequest | null>(null);
   const [scrollToCommitId, setScrollToCommitId] = useState<string | null>(null);
   const [showFileBrowserInCode, setShowFileBrowserInCode] = useState(false);
+
+  // `treq send --browser <url-or-file>` opens the Browser view directly,
+  // instead of showing an attachment preview like image/text sends do.
+  const treqSendAssets = useTreqSendStore((s) => s.assets);
+  const dismissTreqSendAsset = useTreqSendStore((s) => s.dismissAsset);
+  useEffect(() => {
+    const browserAsset = treqSendAssets.find(
+      (asset) => asset.mediaType === "browser",
+    );
+    if (!browserAsset) return;
+    setActiveTab("changes");
+    setReviewSubView("browser");
+    setBrowserOpenRequest({ id: browserAsset.id, url: browserAsset.path });
+    dismissTreqSendAsset(browserAsset.id);
+  }, [treqSendAssets, dismissTreqSendAsset]);
 
   const handleChangedFilesUpdate = (parsedFiles: ParsedFileChange[]) => {
     const map = new Map<string, ParsedFileChange>();
@@ -1069,13 +1094,12 @@ export const ShowWorkspace = ({
     }
   };
 
-  const handleCreateAgentWithReview = async (
+  const createAgentWithReview = async (
     reviewMarkdown: string,
     mode: "plan" | "acceptEdits",
+    sessionName: string,
   ) => {
     try {
-      const sessionName = "Code Review";
-
       // Resolve the default agent from repo-level then app-level settings,
       // so "send review to terminal" honours the configured default agent.
       let resolvedAgent: "claude" | "codex" | "cursor" | undefined;
@@ -1138,6 +1162,16 @@ export const ShowWorkspace = ({
     }
   };
 
+  const handleCreateAgentWithReview = (
+    reviewMarkdown: string,
+    mode: "plan" | "acceptEdits",
+  ) => createAgentWithReview(reviewMarkdown, mode, "Code Review");
+
+  const handleCreateAgentWithPageReview = (
+    reviewMarkdown: string,
+    mode: "plan" | "acceptEdits",
+  ) => createAgentWithReview(reviewMarkdown, mode, "Page Review");
+
   // Display all files in the list
   const displayedEntries = rootEntries;
 
@@ -1147,57 +1181,100 @@ export const ShowWorkspace = ({
         data-testid="workspace-tab-row"
         className="flex-shrink-0 bg-background px-4 py-2 border-b border-border flex items-center justify-between"
       >
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
-            <TabsTrigger value="overview" className="inline-flex items-center">
-              <Code2 className="w-4 h-4 mr-1.5" />
-              Code
-            </TabsTrigger>
-            <TabsTrigger
-              value="commits"
-              className="inline-flex items-center gap-1.5"
-            >
-              <GitCommitHorizontal className="w-4 h-4" />
-              <span>Commits</span>
-              {commitsTabLabel?.kind === "count" && (
-                <span
-                  data-testid="commits-tab-count"
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
-                    commitsTabCountClassName(commitsTabLabel.tone),
-                  )}
-                >
-                  {commitsTabLabel.count}
-                </span>
-              )}
-              {commitsTabLabel?.kind === "home-conflict" && (
-                <AlertTriangle
-                  data-testid="commits-tab-conflict-icon"
-                  className="h-3.5 w-3.5 text-destructive"
-                  aria-label="Conflicts in home repository"
-                />
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="changes"
-              className="inline-flex items-center gap-1.5"
-            >
-              <FileDiff className="w-4 h-4" />
-              <span>Changes</span>
-              {reviewTabPill && (
-                <span
-                  data-testid="review-change-count"
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
-                    reviewTabPillClassName(reviewTabPill.tone),
-                  )}
-                >
-                  {reviewTabPill.count}
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-2">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList>
+              <TabsTrigger
+                value="overview"
+                className="inline-flex items-center"
+              >
+                <Code2 className="w-4 h-4 mr-1.5" />
+                Code
+              </TabsTrigger>
+              <TabsTrigger
+                value="commits"
+                className="inline-flex items-center gap-1.5"
+              >
+                <GitCommitHorizontal className="w-4 h-4" />
+                <span>Commits</span>
+                {commitsTabLabel?.kind === "count" && (
+                  <span
+                    data-testid="commits-tab-count"
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
+                      commitsTabCountClassName(commitsTabLabel.tone),
+                    )}
+                  >
+                    {commitsTabLabel.count}
+                  </span>
+                )}
+                {commitsTabLabel?.kind === "home-conflict" && (
+                  <AlertTriangle
+                    data-testid="commits-tab-conflict-icon"
+                    className="h-3.5 w-3.5 text-destructive"
+                    aria-label="Conflicts in home repository"
+                  />
+                )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="changes"
+                className="inline-flex items-center gap-1.5"
+              >
+                <FileDiff className="w-4 h-4" />
+                <span>Changes</span>
+                {reviewTabPill && (
+                  <span
+                    data-testid="review-change-count"
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
+                      reviewTabPillClassName(reviewTabPill.tone),
+                    )}
+                  >
+                    {reviewTabPill.count}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5"
+                aria-label="Switch review view"
+              >
+                {reviewSubView === "browser" ? (
+                  <Globe className="w-4 h-4" />
+                ) : (
+                  <FileDiff className="w-4 h-4" />
+                )}
+                <span>{reviewSubView === "browser" ? "Browser" : "Diff"}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={4}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  setReviewSubView("diff");
+                  setActiveTab("changes");
+                }}
+              >
+                <FileDiff className="w-4 h-4 mr-2" />
+                Diff
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  setReviewSubView("browser");
+                  setActiveTab("changes");
+                }}
+              >
+                <Globe className="w-4 h-4 mr-2" />
+                Browser
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="flex items-center gap-3">
           {(rebasing || refreshingFiles) && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1451,6 +1528,13 @@ export const ShowWorkspace = ({
             }
             onViewTentativeChanges={handleViewTentativeChanges}
             onDeleteTentativeChanges={handleDeleteTentativeChanges}
+          />
+        ) : reviewSubView === "browser" ? (
+          <BrowserPanel
+            repoPath={effectiveRepoPath}
+            workspaceId={workspace?.id}
+            onCreateAgentWithReview={handleCreateAgentWithPageReview}
+            openRequest={browserOpenRequest}
           />
         ) : (
           <ChangesDiffViewer

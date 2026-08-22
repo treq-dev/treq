@@ -32,7 +32,9 @@ export function TerminalSendPreviews({
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  const assets = assetsForPtySession(sendAssets, ptySessionId, isActive);
+  const assets = assetsForPtySession(sendAssets, ptySessionId, isActive).filter(
+    (asset) => asset.mediaType !== "browser",
+  );
   if (assets.length === 0 && previewIndex == null) return null;
 
   const openPreview = (assetId: string) => {

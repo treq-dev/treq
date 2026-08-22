@@ -1,6 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-export type TreqSendMediaType = "image" | "text";
+export type TreqSendMediaType = "image" | "text" | "browser";
 
 export interface TreqSendPayload {
   kind: "send";
@@ -27,7 +27,9 @@ export const TREQ_SEND_EVENT = "treq-send-received";
 export function normalizeSendMediaType(
   value: string | undefined | null,
 ): TreqSendMediaType {
-  return value === "image" ? "image" : "text";
+  if (value === "image") return "image";
+  if (value === "browser") return "browser";
+  return "text";
 }
 
 export function parseTreqSendPayload(payload: unknown): TreqSendAsset | null {

@@ -37,6 +37,7 @@ function currentWindowLabel(): string {
   }
 }
 
+export * from "./api-browser";
 export * from "./api-extra";
 export * from "./api-github";
 export * from "./api-types";

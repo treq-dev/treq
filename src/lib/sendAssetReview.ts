@@ -1,3 +1,5 @@
+import type { TreqSendMediaType } from "./treqSend";
+
 export interface NormalizedRect {
   x: number;
   y: number;
@@ -106,7 +108,7 @@ export function hasUnsentSendAssetReview(params: {
 export function formatSendAssetReviewPrompt(params: {
   title: string;
   path: string;
-  mediaType: "image" | "text";
+  mediaType: TreqSendMediaType;
   generalComment: string;
   highlights?: ImageHighlightComment[];
   lineComments?: AssetLineComment[];

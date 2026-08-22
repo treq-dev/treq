@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 
 const API_FILES = [
   join("src", "lib", "api.ts"),
+  join("src", "lib", "api-browser.ts"),
   join("src", "lib", "api-extra.ts"),
   join("src", "lib", "api-github.ts"),
 ];

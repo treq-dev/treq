@@ -231,13 +231,17 @@
           ]
         },
         "send": {
-          "description": "Send a file or stdin content to the Treq UI for preview",
+          "description": "Send a file or stdin content to the Treq UI for preview, or open a page in the in-app browser",
           "args": [
             {
               "name": "path",
               "index": 1,
               "takesValue": true,
               "description": "File path to preview, or '-' to read stdin"
+            },
+            {
+              "name": "browser",
+              "description": "Open the given localhost URL or local HTML file in the in-app browser instead of previewing it"
             }
           ]
         }

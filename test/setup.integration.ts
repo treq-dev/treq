@@ -59,6 +59,11 @@ vi.mock("@tauri-apps/api/core", () => ({
     }
     return tauriTest.invoke(cmd, args ?? {});
   }),
+  // The real Rust dispatch behind this harness represents the shipped app's
+  // production code path (unlike the screenshot harness, which flips this to
+  // false so a browser preview iframe renders for visual QA) -- tests here
+  // exercise the real native-webview commands, e.g. openBrowserWebview.
+  isTauri: () => true,
 }));
 
 afterEach(() => {

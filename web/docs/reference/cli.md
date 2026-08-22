@@ -138,3 +138,12 @@ echo "notes" | treq send
 - When run inside a Treq terminal, previews attach to that pane via `TREQ_PTY_SESSION_ID`.
 
 Treq must already have this repository open.
+
+- `--browser`: open the given localhost URL or local HTML file directly in the in-app browser, instead of a preview thumbnail.
+
+```bash
+treq send --browser http://localhost:3000
+treq send --browser ./dist/index.html
+```
+
+Only `http://localhost`, `http://127.0.0.1`, and `file://` URLs are allowed, matching the in-app browser's own scope. A filesystem path to an existing HTML file is resolved to a `file://` URL automatically. This switches the workspace to the Changes tab's Browser view and navigates there.

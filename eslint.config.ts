@@ -156,7 +156,12 @@ export default defineConfig([
     languageOptions: { globals: globals.node },
   },
   {
-    files: ["src/lib/api.ts", "src/lib/api-extra.ts", "src/lib/api-github.ts"],
+    files: [
+      "src/lib/api.ts",
+      "src/lib/api-browser.ts",
+      "src/lib/api-extra.ts",
+      "src/lib/api-github.ts",
+    ],
     rules: {
       "max-params": "off",
       "local/require-tauri-api-exports-used": "error",

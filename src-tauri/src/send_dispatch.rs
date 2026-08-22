@@ -7,6 +7,7 @@ use crate::agent_dispatch;
 pub const SEND_KIND: &str = "send";
 pub const MEDIA_IMAGE: &str = "image";
 pub const MEDIA_TEXT: &str = "text";
+pub const MEDIA_BROWSER: &str = "browser";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SendDispatchRequest {
@@ -168,6 +169,48 @@ pub fn resolve_send_path(
   }
 }
 
+/// Resolves a `treq send --browser` argument into an allowed browser URL.
+/// A `http://localhost`, `http://127.0.0.1`, or `file://` URL is validated
+/// and returned as-is; anything else is treated as a filesystem path to an
+/// existing HTML file, which is canonicalized and converted to a `file://`
+/// URL.
+pub fn resolve_browser_send_target(path_arg: &str) -> Result<String, String> {
+  let trimmed = path_arg.trim();
+  if trimmed.is_empty() {
+    return Err("path or URL is required".to_string());
+  }
+
+  let looks_like_url = trimmed.starts_with("http://")
+    || trimmed.starts_with("https://")
+    || trimmed.starts_with("file://");
+
+  let url = if looks_like_url {
+    trimmed.to_string()
+  } else {
+    let path = Path::new(trimmed);
+    if !path.exists() {
+      return Err(format!("file not found: {}", trimmed));
+    }
+    if !path.is_file() {
+      return Err(format!("not a file: {}", trimmed));
+    }
+    let abs = std::fs::canonicalize(path)
+      .map_err(|e| format!("failed to resolve path '{}': {}", trimmed, e))?;
+    url::Url::from_file_path(&abs)
+      .map(|u| u.to_string())
+      .map_err(|_| format!("failed to build a file:// URL for '{}'", trimmed))?
+  };
+
+  if !crate::core::is_allowed_browser_url(&url) {
+    return Err(format!(
+      "'{}' is not an allowed browser URL (only http://localhost, http://127.0.0.1, and file:// are supported)",
+      url
+    ));
+  }
+
+  Ok(url)
+}
+
 pub fn send_staging_dir(repo_path: &str) -> Result<PathBuf, String> {
   let dir = Path::new(repo_path).join(".treq").join("send");
   std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create send staging dir: {}", e))?;
@@ -256,7 +299,7 @@ pub fn list_send_artifacts(repo_path: &str) -> Result<Vec<SendArtifactRecord>, S
     let Ok(record) = serde_json::from_str::<SendArtifactRecord>(line) else {
       continue;
     };
-    if Path::new(&record.path).is_file() {
+    if record.media_type == MEDIA_BROWSER || Path::new(&record.path).is_file() {
       artifacts.push(record);
     }
   }
@@ -546,6 +589,60 @@ mod tests {
     let err =
       write_send_review_image(temp.path().to_str().unwrap(), "a.png", "").expect_err("empty");
     assert!(err.contains("invalid") || err.contains("empty"));
+  }
+
+  #[test]
+  fn resolve_browser_send_target_accepts_a_bare_localhost_url() {
+    let url = resolve_browser_send_target("http://localhost:3000/app").expect("resolve");
+    assert_eq!(url, "http://localhost:3000/app");
+  }
+
+  #[test]
+  fn resolve_browser_send_target_converts_an_existing_html_file_to_a_file_url() {
+    let temp = tempfile::TempDir::new().expect("temp");
+    let file = temp.path().join("index.html");
+    std::fs::write(&file, b"<html></html>").unwrap();
+
+    let url = resolve_browser_send_target(file.to_str().unwrap()).expect("resolve");
+    assert!(url.starts_with("file://"));
+    assert!(url.ends_with("index.html"));
+  }
+
+  #[test]
+  fn resolve_browser_send_target_rejects_a_disallowed_url() {
+    let err = resolve_browser_send_target("https://example.com").unwrap_err();
+    assert!(err.contains("not an allowed browser URL"));
+  }
+
+  #[test]
+  fn resolve_browser_send_target_rejects_a_missing_file() {
+    let err = resolve_browser_send_target("/no/such/file.html").unwrap_err();
+    assert!(err.contains("file not found"));
+  }
+
+  #[test]
+  fn resolve_browser_send_target_rejects_an_empty_argument() {
+    let err = resolve_browser_send_target("  ").unwrap_err();
+    assert!(err.contains("required"));
+  }
+
+  #[test]
+  fn list_send_artifacts_keeps_browser_entries_without_a_local_file() {
+    let temp = tempfile::TempDir::new().expect("temp");
+    let repo = temp.path().to_string_lossy().to_string();
+    let mut request = SendDispatchRequest::new(
+      "send-browser-1",
+      &repo,
+      MEDIA_BROWSER,
+      "http://localhost:3000/app",
+    );
+    request.title = Some("http://localhost:3000/app".into());
+    record_send_artifact(&request).expect("record");
+
+    let listed = list_send_artifacts(&repo).expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].media_type, MEDIA_BROWSER);
+    assert_eq!(listed[0].path, "http://localhost:3000/app");
   }
 
   #[test]

@@ -22,7 +22,7 @@ tauri-build = { version = "2", features = [] }
 napi-build = "2"
 
 [dependencies]
-tauri = { version = "2.10.3", features = ["protocol-asset"] }
+tauri = { version = "2.10.3", features = ["protocol-asset", "unstable"] }
 tauri-test = { version = "0.2.1", optional = true }
 napi = { version = "2", default-features = false, features = ["napi8", "async", "serde-json"], optional = true }
 napi-derive = { version = "2", optional = true }
@@ -46,6 +46,7 @@ log = "0.4"
 regex = "1"
 rayon = "1.10"
 urlencoding = "2"
+url = "2"
 uuid = { version = "1", features = ["v4"] }
 imara-diff = "0.1.8"
 gix = "0.81.0"

@@ -636,7 +636,7 @@ pub(super) fn handle_send(matches: &Matches) -> bool {
   use std::io::IsTerminal;
 
   let path_arg = get_arg_value(matches, "path");
-  let is_stdin_tty = std::io::stdin().is_terminal();
+  let browser_mode = get_arg_flag(matches, "browser");
 
   let repo_path = match detect_repo_path() {
     Ok(path) => path,
@@ -651,28 +651,49 @@ pub(super) fn handle_send(matches: &Matches) -> bool {
     return false;
   }
 
-  let mut stdin = std::io::stdin();
-  let (path, media_type, title) = match crate::send_dispatch::resolve_send_path(
-    &repo_path,
-    path_arg.as_deref(),
-    &mut stdin,
-    is_stdin_tty,
-  ) {
-    Ok(resolved) => resolved,
-    Err(error) => {
-      super::log_cli_error(&format!("Error: {}", error));
-      eprintln!("Usage: treq send [path|-]");
+  let (path, media_type, title) = if browser_mode {
+    let Some(target) = path_arg.as_deref() else {
+      super::log_cli_error("Error: --browser requires a path or URL argument");
+      eprintln!("Usage: treq send --browser <path-or-url>");
       return false;
+    };
+    match crate::send_dispatch::resolve_browser_send_target(target) {
+      Ok(url) => (
+        url.clone(),
+        crate::send_dispatch::MEDIA_BROWSER.to_string(),
+        url,
+      ),
+      Err(error) => {
+        super::log_cli_error(&format!("Error: {}", error));
+        eprintln!("Usage: treq send --browser <path-or-url>");
+        return false;
+      }
+    }
+  } else {
+    let is_stdin_tty = std::io::stdin().is_terminal();
+    let mut stdin = std::io::stdin();
+    match crate::send_dispatch::resolve_send_path(
+      &repo_path,
+      path_arg.as_deref(),
+      &mut stdin,
+      is_stdin_tty,
+    ) {
+      Ok((path, media_type, title)) => (
+        path.to_string_lossy().to_string(),
+        media_type.to_string(),
+        title,
+      ),
+      Err(error) => {
+        super::log_cli_error(&format!("Error: {}", error));
+        eprintln!("Usage: treq send [path|-]");
+        return false;
+      }
     }
   };
 
   let request_id = format!("send-{}", chrono::Utc::now().timestamp_millis());
-  let mut request = crate::send_dispatch::SendDispatchRequest::new(
-    request_id,
-    &repo_path,
-    media_type,
-    path.to_string_lossy().to_string(),
-  );
+  let mut request =
+    crate::send_dispatch::SendDispatchRequest::new(request_id, &repo_path, media_type, path);
   request.title = Some(title);
   request.pty_session_id = crate::send_dispatch::pty_session_id_from_env();
 

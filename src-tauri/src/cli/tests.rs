@@ -137,6 +137,30 @@ fn diff_subcommand_defines_optional_workspace_name() {
 }
 
 #[test]
+fn send_subcommand_defines_a_browser_flag() {
+  let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+  let config = fs::read_to_string(config_path).expect("failed to read tauri.conf.json");
+  let json: Value = serde_json::from_str(&config).expect("failed to parse tauri.conf.json");
+  let send = json["plugins"]["cli"]["subcommands"]["send"]
+    .as_object()
+    .expect("send subcommand must exist");
+  let args = send
+    .get("args")
+    .and_then(Value::as_array)
+    .expect("send args must be an array");
+
+  let browser = args
+    .iter()
+    .find(|arg| arg.get("name").and_then(Value::as_str) == Some("browser"))
+    .expect("send must define a browser flag arg");
+  assert_ne!(
+    browser.get("takesValue").and_then(Value::as_bool),
+    Some(true),
+    "browser must be a boolean flag, not a value-taking option"
+  );
+}
+
+#[test]
 fn asset_protocol_allows_files_below_hidden_workspace_directories() {
   let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
   let config = fs::read_to_string(config_path).expect("failed to read tauri.conf.json");

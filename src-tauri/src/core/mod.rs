@@ -1,6 +1,7 @@
 pub mod agent_cli;
 pub mod app;
 pub mod auto_update;
+pub mod browser_review;
 pub mod changes;
 pub mod commits;
 pub mod repo;
@@ -11,6 +12,7 @@ pub mod workspaces;
 pub use agent_cli::*;
 pub use app::*;
 pub use auto_update::*;
+pub use browser_review::*;
 pub use changes::*;
 pub use commits::*;
 pub use repo::*;
