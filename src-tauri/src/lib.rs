@@ -15,6 +15,7 @@ pub mod local_db;
 mod open_new_window;
 pub mod pr_status;
 pub mod pty;
+pub mod repo_config;
 pub mod send_dispatch;
 pub mod telemetry;
 
@@ -741,6 +742,7 @@ pub fn run() {
             commands::gh_set_pr_draft,
             commands::gh_create_pr,
             commands::gh_list_pr_review_threads,
+            commands::load_repo_yaml_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

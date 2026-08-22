@@ -13,6 +13,7 @@ import {
 import { getSetting, setSetting } from "../lib/api";
 import { AccountSettings } from "./AccountSettings";
 import { GitHubIntegrationSettings } from "./GitHubIntegrationSettings";
+import { RepoYamlConfigSection } from "./RepoYamlConfigSection";
 import {
   RepositorySettingsContent,
   type RepositorySettingsContentHandle,
@@ -363,6 +364,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         repoPath={repoPath}
                         onSavingChange={setSavingRepository}
                       />
+
+                      {/* YAML Configuration synced from .treq/config.yaml */}
+                      <RepoYamlConfigSection repoPath={repoPath} />
                     </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">

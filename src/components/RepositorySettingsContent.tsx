@@ -1,5 +1,6 @@
 import { useImperativeHandle, useState, type Ref } from "react";
 import useSWR from "swr";
+import { useRepoYamlConfig } from "../hooks/useRepoYamlConfig";
 import { getRepoSetting, setRepoSetting } from "../lib/api";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -72,6 +73,16 @@ export const RepositorySettingsContent = ({
     defaultAgent,
     autoPush,
   } = settings;
+
+  const { config: yamlConfig } = useRepoYamlConfig(repoPath);
+  const branchNamePatternOverride = yamlConfig?.branch_name_pattern ?? null;
+  const defaultModelOverride = yamlConfig?.default_model ?? null;
+  const defaultAgentOverride = yamlConfig?.default_agent ?? null;
+  const displayBranchNamePattern =
+    branchNamePatternOverride ?? branchNamePattern;
+  const displayDefaultModel = defaultModelOverride ?? defaultModel;
+  const displayDefaultAgent = defaultAgentOverride ?? defaultAgent;
+
   const error =
     saveError ?? (loadError ? `Failed to load settings: ${loadError}` : null);
 
@@ -147,14 +158,22 @@ export const RepositorySettingsContent = ({
         <Label htmlFor="branch-name-pattern">Branch Name Pattern</Label>
         <Input
           id="branch-name-pattern"
-          value={branchNamePattern}
+          value={displayBranchNamePattern}
           onChange={(e) => setBranchNamePattern(e.target.value)}
           placeholder="treq/{name}"
           className="mt-2 font-mono"
+          disabled={branchNamePatternOverride != null}
         />
-        <p className="text-sm text-muted-foreground mt-1">
-          treq/{"{name}"} → treq/add-dark-mode
-        </p>
+        {branchNamePatternOverride != null ? (
+          <p className="text-sm text-muted-foreground mt-1">
+            Configured by .treq/config.yaml — edit the file to change this
+            value.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground mt-1">
+            treq/{"{name}"} → treq/add-dark-mode
+          </p>
+        )}
       </div>
 
       <div>
@@ -178,9 +197,10 @@ export const RepositorySettingsContent = ({
         <Label htmlFor="repo-default-model">Claude Code Model</Label>
         <select
           id="repo-default-model"
-          value={defaultModel}
+          value={displayDefaultModel}
           onChange={(e) => setDefaultModel(e.target.value)}
           className="mt-2 w-full px-3 py-2 border rounded-md bg-background text-foreground"
+          disabled={defaultModelOverride != null}
         >
           <option value="">Use Application Default</option>
           <option value="sonnet">Sonnet</option>
@@ -189,29 +209,44 @@ export const RepositorySettingsContent = ({
           <option value="sonnet[1m]">Sonnet (1M)</option>
           <option value="opusplan">Opus Plan</option>
         </select>
-        <p className="text-sm text-muted-foreground mt-1">
-          Default model for new Claude Code sessions in this repository
-          (overrides application default)
-        </p>
+        {defaultModelOverride != null ? (
+          <p className="text-sm text-muted-foreground mt-1">
+            Configured by .treq/config.yaml — edit the file to change this
+            value.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground mt-1">
+            Default model for new Claude Code sessions in this repository
+            (overrides application default)
+          </p>
+        )}
       </div>
 
       <div>
         <Label htmlFor="repo-default-agent">Default Agent</Label>
         <select
           id="repo-default-agent"
-          value={defaultAgent}
+          value={displayDefaultAgent}
           onChange={(e) => setDefaultAgent(e.target.value)}
           className="mt-2 w-full px-3 py-2 border rounded-md bg-background text-foreground"
+          disabled={defaultAgentOverride != null}
         >
           <option value="">Use Application Default</option>
           <option value="claude">Claude</option>
           <option value="codex">Codex</option>
           <option value="cursor">Cursor</option>
         </select>
-        <p className="text-sm text-muted-foreground mt-1">
-          Default agent for new sessions in this repository (overrides
-          application default)
-        </p>
+        {defaultAgentOverride != null ? (
+          <p className="text-sm text-muted-foreground mt-1">
+            Configured by .treq/config.yaml — edit the file to change this
+            value.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground mt-1">
+            Default agent for new sessions in this repository (overrides
+            application default)
+          </p>
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-4">

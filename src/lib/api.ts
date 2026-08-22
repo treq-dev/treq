@@ -24,6 +24,7 @@ import type {
   WorkspaceSidebarStatus,
   WorkspaceStatus,
 } from "./api-types";
+import type { RepoYamlConfig } from "./api-extra";
 
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -105,6 +106,9 @@ export const setRepoSetting = (
   key: string,
   value: string,
 ): Promise<void> => invoke("set_repo_setting", { repoPath, key, value });
+
+export const loadRepoYamlConfig = (repoPath: string): Promise<RepoYamlConfig> =>
+  invoke("load_repo_yaml_config", { repoPath });
 
 export const setWindowRepoPath = (repoPath: string): Promise<void> =>
   invoke("set_window_repo_path", {

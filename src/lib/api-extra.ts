@@ -598,3 +598,12 @@ export const checkForAppUpdate = (): Promise<AppUpdateCheckResult> =>
  */
 export const installAppUpdate = (downloadUrl: string): Promise<void> =>
   invoke("install_app_update", { downloadUrl });
+
+/** Settings parsed from a repository's `.treq/config.yaml`, if present. */
+export interface RepoYamlConfig {
+  branch_name_pattern: string | null;
+  default_model: string | null;
+  default_agent: string | null;
+  target_branch: string | null;
+  included_copy_files: string[] | null;
+}
