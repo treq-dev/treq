@@ -7,6 +7,12 @@ import { useThemeStore } from "./themeStore";
 import { useToastStore } from "./toastStore";
 import { useTreqSendStore } from "./treqSendStore";
 import { MAX_ZOOM, MIN_ZOOM, useZoomSettingsStore } from "./zoomSettingsStore";
+import {
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  useSidebarWidthStore,
+} from "./sidebarWidthStore";
 import { applySettingsRecord } from "./settingsHydration";
 
 vi.mock("../lib/api", () => ({
@@ -56,11 +62,27 @@ describe("client zustand stores", () => {
       terminal_font_size: "18",
       diff_font_size: "13",
       ui_zoom: "125",
+      workspace_sidebar_width: "360",
     });
     expect(useThemeStore.getState().theme).toBe("dark");
     expect(useTerminalSettingsStore.getState().fontSize).toBe(18);
     expect(useDiffSettingsStore.getState().fontSize).toBe(13);
     expect(useZoomSettingsStore.getState().zoom).toBe(125);
+    expect(useSidebarWidthStore.getState().width).toBe(360);
+  });
+
+  it("clamps workspace sidebar width to the allowed range", async () => {
+    expect(useSidebarWidthStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH);
+    useSidebarWidthStore.getState().setWidth(999);
+    expect(useSidebarWidthStore.getState().width).toBe(MAX_SIDEBAR_WIDTH);
+    useSidebarWidthStore.getState().setWidth(1);
+    expect(useSidebarWidthStore.getState().width).toBe(MIN_SIDEBAR_WIDTH);
+    await useSidebarWidthStore.getState().persistWidth();
+    const { setSetting } = await import("../lib/api");
+    expect(setSetting).toHaveBeenCalledWith(
+      "workspace_sidebar_width",
+      String(MIN_SIDEBAR_WIDTH),
+    );
   });
 
   it("dedupes treq send assets by id", () => {

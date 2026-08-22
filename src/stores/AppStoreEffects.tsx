@@ -15,6 +15,7 @@ const SETTINGS_BATCH_KEYS = [
   "terminal_font_size",
   "diff_font_size",
   "ui_zoom",
+  "workspace_sidebar_width",
 ] as const;
 
 /**

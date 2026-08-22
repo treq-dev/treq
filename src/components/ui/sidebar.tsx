@@ -135,6 +135,7 @@ const SidebarProvider = ({
             "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar",
             className,
           )}
+          data-testid="sidebar-wrapper"
           ref={ref}
           {...props}
         >

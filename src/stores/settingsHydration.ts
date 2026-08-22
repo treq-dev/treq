@@ -9,6 +9,11 @@ import {
   useTerminalSettingsStore,
 } from "./terminalSettingsStore";
 import { type Theme, useThemeStore } from "./themeStore";
+import {
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  useSidebarWidthStore,
+} from "./sidebarWidthStore";
 import { MAX_ZOOM, MIN_ZOOM, useZoomSettingsStore } from "./zoomSettingsStore";
 
 function parseIntInRange(
@@ -51,5 +56,14 @@ export function applySettingsRecord(
   const zoom = parseIntInRange(settings.ui_zoom, MIN_ZOOM, MAX_ZOOM);
   if (zoom != null) {
     useZoomSettingsStore.getState().hydrateZoom(zoom);
+  }
+
+  const sidebarWidth = parseIntInRange(
+    settings.workspace_sidebar_width,
+    MIN_SIDEBAR_WIDTH,
+    MAX_SIDEBAR_WIDTH,
+  );
+  if (sidebarWidth != null) {
+    useSidebarWidthStore.getState().hydrateWidth(sidebarWidth);
   }
 }

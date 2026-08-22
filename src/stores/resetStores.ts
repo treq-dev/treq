@@ -16,6 +16,10 @@ import {
 } from "./toastStore";
 import { defaultTreqSendState, useTreqSendStore } from "./treqSendStore";
 import {
+  defaultSidebarWidthState,
+  useSidebarWidthStore,
+} from "./sidebarWidthStore";
+import {
   defaultZoomSettingsState,
   useZoomSettingsStore,
 } from "./zoomSettingsStore";
@@ -25,6 +29,7 @@ export function resetAllStores() {
   useDiffSettingsStore.setState({ ...defaultDiffSettingsState });
   useTerminalSettingsStore.setState({ ...defaultTerminalSettingsState });
   useZoomSettingsStore.setState({ ...defaultZoomSettingsState });
+  useSidebarWidthStore.setState({ ...defaultSidebarWidthState });
   useEditorAppsStore.setState({ ...defaultEditorAppsState });
   useAuthStore.setState({ ...defaultAuthState });
   clearToastTimers();

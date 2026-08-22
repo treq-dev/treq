@@ -3,7 +3,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { useLocation } from "wouter";
 import { useAutoUpdate } from "../hooks/useAutoUpdate";
@@ -67,6 +67,7 @@ import {
   buildWorkspaceTree,
   flattenWorkspaceTree,
 } from "../lib/workspace-tree";
+import { useSidebarWidthStore } from "../stores/sidebarWidthStore";
 import { AgentPromptDialog } from "./AgentPromptDialog";
 import { ArtifactsPage } from "./ArtifactsPage";
 import { CommandPalette } from "./CommandPalette";
@@ -1297,6 +1298,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const isSessionView = viewMode === "session" || viewMode === "show-workspace";
   const showSidebar = true;
+  const sidebarWidth = useSidebarWidthStore((s) => s.width);
+  const sidebarWidthStyle = {
+    "--sidebar-width": `${sidebarWidth}px`,
+  } as CSSProperties;
+
+  const mainContentStyle = {
+    width: showSidebar ? `calc(100vw - ${sidebarWidth}px)` : "100%",
+  };
 
   // Build Claude sessions data for the terminal pane
   const claudeSessionsForPane = ((): ClaudeSessionData[] => {
@@ -1325,10 +1334,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     });
   })();
 
-  const mainContentStyle = {
-    width: showSidebar ? "calc(100vw - 280px)" : "100%",
-  };
-  const sessionLayerStyle: React.CSSProperties = {
+  const sessionLayerStyle: CSSProperties = {
     visibility: isSessionView ? "visible" : "hidden",
     zIndex: isSessionView ? 10 : 0,
     pointerEvents: isSessionView ? "auto" : "none",
@@ -1337,7 +1343,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   return !repoPath ? (
     <Onboarding onOpenRepo={handleOpenRepository} />
   ) : (
-    <SidebarProvider className="h-screen bg-background">
+    <SidebarProvider
+      className="h-screen bg-background"
+      style={sidebarWidthStyle}
+    >
       <WorkspaceSidebar
         repoPath={repoPath}
         homeRepoDisplayRef={homeRepoDisplayRef}

@@ -58,6 +58,7 @@ import {
 } from "./ui/tooltip";
 import { WorkspaceSidebarHeaderActions } from "./WorkspaceSidebarHeaderActions";
 import { WorkspaceSidebarItem } from "./WorkspaceSidebarItem";
+import { WorkspaceSidebarResizeHandle } from "./WorkspaceSidebarResizeHandle";
 
 interface WorkspaceSidebarProps {
   repoPath?: string;
@@ -297,7 +298,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <Sidebar
         collapsible="none"
-        className="group/sidebar h-screen border-r border-border"
+        className="group/sidebar relative h-screen border-r border-border"
         data-testid="workspace-sidebar"
       >
         <SidebarHeader>
@@ -484,6 +485,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
             onCreateShell={onCreateShellTerminal}
           />
         </SidebarFooter>
+        <WorkspaceSidebarResizeHandle />
       </Sidebar>
       {renameTarget && repoPath && (
         <RenameWorkspaceDialog
