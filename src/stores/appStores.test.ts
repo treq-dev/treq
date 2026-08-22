@@ -43,11 +43,15 @@ describe("client zustand stores", () => {
     expect(useDiffSettingsStore.getState().fontSize).toBe(11);
   });
 
+  it("defaults terminal font size to 14", () => {
+    expect(useTerminalSettingsStore.getState().fontSize).toBe(14);
+  });
+
   it("rejects out-of-range terminal font sizes", async () => {
     await expect(
       useTerminalSettingsStore.getState().setFontSize(99),
     ).rejects.toThrow(/between 8 and 32/);
-    expect(useTerminalSettingsStore.getState().fontSize).toBe(12);
+    expect(useTerminalSettingsStore.getState().fontSize).toBe(14);
   });
 
   it("hydrates persisted settings in one pass", () => {

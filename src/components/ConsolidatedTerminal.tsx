@@ -106,9 +106,7 @@ export const ConsolidatedTerminal = ({
   const onTerminalOutputRef = useRef(onTerminalOutput);
   const onTerminalInputRef = useRef(onTerminalInput);
   const onTerminalIdleRef = useRef(onTerminalIdle);
-  const fontSize = Math.round(
-    useTerminalSettingsStore((s) => s.fontSize) * 0.8125,
-  );
+  const fontSize = useTerminalSettingsStore((s) => s.fontSize);
 
   useEffect(() => {
     isPtyReadyRef.current = isPtyReady;
@@ -158,7 +156,7 @@ export const ConsolidatedTerminal = ({
     const xterm = new XTerm({
       cursorBlink: true,
       cursorStyle: "bar",
-      fontSize, // Scaled to text-sm (0.875x of base font size)
+      fontSize,
       fontFamily:
         '"JetBrains Mono", "JetBrains Mono Fallback", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       theme: { background: "#1e1e1e" },

@@ -221,7 +221,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                             setLocalFontSize(value);
                           }
                         }}
-                        placeholder="12"
+                        placeholder="14"
                         className="mt-2"
                       />
                       {originalFontSize !== null &&
