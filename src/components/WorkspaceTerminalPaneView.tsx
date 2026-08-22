@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Bot,
   ChevronDown,
   ChevronUp,
   GitBranch,
@@ -8,7 +9,6 @@ import {
   Minimize2,
   Terminal,
 } from "lucide-react";
-import { ClaudeIcon } from "./icons/AgentIcons";
 import { type ConsolidatedTerminalHandle } from "./ConsolidatedTerminal";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -167,7 +167,7 @@ export const WorkspaceTerminalPaneView: React.FC<
                   )}
                   aria-label="New Agent"
                 >
-                  <ClaudeIcon className="w-4 h-4" />
+                  <Bot className="w-4 h-4" />
                   Agent
                 </Button>
               </TooltipTrigger>

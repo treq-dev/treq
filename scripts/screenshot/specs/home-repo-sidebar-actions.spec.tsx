@@ -51,9 +51,9 @@ it("captures always-visible home and workspace sidebar action buttons", async ()
   await captureDocument(document, {
     name: "home-repo-sidebar-actions-01-always-visible",
     expectations: [
-      "The unselected home-repo row still shows three icon buttons (agent, shell, stack) on the right.",
-      "The selected feat/sibling workspace row also shows the same three icon buttons.",
-      "Github sits between the home row and the Workspaces list.",
+      "The unselected home-repo row still shows three icon buttons (robot/agent, shell, stack) on the right.",
+      "The selected feat/sibling workspace row also shows the same three robot/agent, shell, and stack buttons.",
+      "The agent buttons use Lucide's robot/Bot icon, not the Claude brand mark.",
     ],
   });
 

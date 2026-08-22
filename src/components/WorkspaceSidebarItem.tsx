@@ -2,6 +2,7 @@ import { Draggable } from "@hello-pangea/dnd";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   AlertTriangle,
+  Bot,
   CalendarClock,
   Copy,
   FolderOpen,
@@ -12,7 +13,6 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import { ClaudeIcon } from "./icons/AgentIcons";
 import { useState } from "react";
 import { useEditorAppsStore } from "../stores/editorAppsStore";
 import { type QueueEntryStatus, type Workspace } from "../lib/api";
@@ -356,7 +356,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                                 onStartAgent?.(workspace);
                               }}
                             >
-                              <ClaudeIcon className="w-4 h-4" />
+                              <Bot className="w-4 h-4" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent side="bottom">

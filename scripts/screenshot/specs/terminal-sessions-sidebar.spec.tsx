@@ -34,7 +34,7 @@ it("captures the terminal sessions sidebar", async () => {
 	await captureDocument(document, {
 		name: "terminal-sessions-sidebar-01-empty",
 		expectations: [
-			"The bottom of the left sidebar has a 'SESSIONS' section header with 4 small icon buttons to its right (Claude brand, terminal, moon, trash icons).",
+			"The bottom of the left sidebar has a 'SESSIONS' section header with 4 small icon buttons to its right (robot, terminal, moon, trash icons).",
 			"The 'Close idle terminals' and 'Close all terminals' icon buttons look disabled/dimmed since there are no terminals yet, and no terminal list items are shown below the header.",
 		],
 	});
@@ -88,6 +88,7 @@ it("captures the terminal sessions sidebar", async () => {
 		name: "terminal-sessions-sidebar-03-focused",
 		expectations: [
 			"In the terminal pane, the agent terminal panel's header bar is highlighted (a distinct tinted background) to show it is the focused/active terminal, while the shell terminal panel's header is not highlighted.",
+			"The terminal pane's Agent button (next to Shell) uses Lucide's robot/Bot icon, not the Claude brand mark.",
 		],
 	});
 
