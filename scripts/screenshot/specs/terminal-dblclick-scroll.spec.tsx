@@ -31,12 +31,18 @@ it("double-clicking a halfway-scrolled terminal scrolls it fully into view", asy
 	render(<Dashboard />);
 
 	await user.click(await findSidebarBranchElement(workspace.branch_name));
-	await screen.findByText(/Terminals/i);
+	await screen.findByTestId("workspace-terminal-pane");
 
 	// Three terminals at 40% min-width each forces horizontal overflow.
-	await user.click(await screen.findByRole("button", { name: "New Agent" }));
-	await user.click(await screen.findByRole("button", { name: "New Shell" }));
-	await user.click(await screen.findByRole("button", { name: "New Shell" }));
+	await user.click(
+		await screen.findByRole("button", { name: "New agent terminal" }),
+	);
+	await user.click(
+		await screen.findByRole("button", { name: "New shell terminal" }),
+	);
+	await user.click(
+		await screen.findByRole("button", { name: "New shell terminal" }),
+	);
 
 	const shellPanels = await waitFor(() => {
 		const els = document.querySelectorAll('[data-terminal-id^="shell-"]');

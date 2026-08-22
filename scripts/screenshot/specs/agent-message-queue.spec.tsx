@@ -31,7 +31,7 @@ it("captures agent terminal message queue button and dialog", async () => {
   render(<Dashboard />);
 
   await user.click(await findSidebarBranchElement(workspace.branch_name));
-  await screen.findByText(/Terminals/i);
+  await screen.findByTestId("workspace-terminal-pane");
 
   await user.keyboard("{Meta>}]{/Meta}");
 

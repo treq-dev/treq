@@ -55,8 +55,10 @@ it("captures attachment review comments in the send lightbox", async () => {
 
   render(<Dashboard />);
   await user.click(await findSidebarBranchElement("feat/send-review"));
-  await screen.findByText(/Terminals/i);
-  await user.click(await screen.findByRole("button", { name: "New Agent" }));
+  await screen.findByTestId("workspace-terminal-pane");
+  await user.click(
+    await screen.findByRole("button", { name: "New agent terminal" }),
+  );
 
   const terminalEl = await waitFor(() => {
     const el = document.querySelector(

@@ -60,8 +60,10 @@ it("captures treq send attachment thumbs and lightbox carousel previews", async 
   render(<Dashboard />);
 
   await user.click(await findSidebarBranchElement("feat/treq-send"));
-  await screen.findByText(/Terminals/i);
-  await user.click(await screen.findByRole("button", { name: "New Shell" }));
+  await screen.findByTestId("workspace-terminal-pane");
+  await user.click(
+    await screen.findByRole("button", { name: "New shell terminal" }),
+  );
 
   await waitFor(() => {
     expect(

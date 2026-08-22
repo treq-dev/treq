@@ -40,14 +40,18 @@ it("deleting a workspace closes its shell and agent terminals", async () => {
 	await screen.findByTestId("show-workspace-header");
 
 	// Open an agent terminal and a shell terminal in this workspace.
-	await user.click(await screen.findByRole("button", { name: "New Agent" }));
+	await user.click(
+		await screen.findByRole("button", { name: "New agent terminal" }),
+	);
 	await waitFor(() => {
 		expect(
 			document.querySelector('[data-terminal-id^="claude-"]'),
 		).not.toBeNull();
 	});
 
-	await user.click(await screen.findByRole("button", { name: "New Shell" }));
+	await user.click(
+		await screen.findByRole("button", { name: "New shell terminal" }),
+	);
 	await waitFor(() => {
 		expect(
 			document.querySelector('[data-terminal-id^="shell-"]'),
@@ -63,8 +67,8 @@ it("deleting a workspace closes its shell and agent terminals", async () => {
 	await captureDocument(document, {
 		name: "workspace-delete-closes-terminals-01-before",
 		expectations: [
-			"The bottom terminal pane is expanded and shows a terminal count badge of 2.",
-			"Both an agent/Claude terminal tab and a Shell terminal tab are visible in the pane.",
+			"The bottom terminal pane is expanded with no full-width Terminals header bar.",
+			"An agent terminal and a Shell terminal are visible; pane controls sit inset at the top-right.",
 		],
 	});
 

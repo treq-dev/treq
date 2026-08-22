@@ -6,9 +6,7 @@ import {
   Home,
   Maximize2,
   Minimize2,
-  Terminal,
 } from "lucide-react";
-import { ClaudeIcon } from "./icons/AgentIcons";
 import { type ConsolidatedTerminalHandle } from "./ConsolidatedTerminal";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -48,8 +46,6 @@ interface WorkspaceTerminalPaneViewProps {
   isResizingHeight: boolean;
   handleHeightResizeMouseDown: (e: React.MouseEvent) => void;
   totalTerminals: number;
-  handleCreateAgentSession: () => void;
-  handleAddShell: () => void;
   setCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   setMaximized: React.Dispatch<React.SetStateAction<boolean>>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -90,8 +86,6 @@ export const WorkspaceTerminalPaneView: React.FC<
   isResizingHeight,
   handleHeightResizeMouseDown,
   totalTerminals,
-  handleCreateAgentSession,
-  handleAddShell,
   setCollapsed,
   setMaximized,
   scrollContainerRef,
@@ -135,168 +129,74 @@ export const WorkspaceTerminalPaneView: React.FC<
 
     <div
       data-testid="workspace-terminal-pane"
-      className="flex flex-col border-t bg-background flex-shrink-0 overflow-hidden"
-      style={{
-        height: collapsed ? 32 : maximized ? "100%" : `${height}%`,
-        maxHeight: collapsed ? 32 : maximized ? "100%" : "60%",
-      }}
+      className={cn(
+        "relative flex flex-col flex-shrink-0",
+        collapsed
+          ? "self-end m-1.5 overflow-visible"
+          : "border-t bg-background overflow-hidden",
+      )}
+      style={
+        collapsed
+          ? undefined
+          : {
+              height: maximized ? "100%" : `${height}%`,
+              maxHeight: maximized ? "100%" : "60%",
+            }
+      }
     >
-      <div className="h-8 min-h-[32px] flex items-center justify-between px-2 border-b bg-muted/30 flex-shrink-0">
-        <div className="flex items-center gap-2 font-medium text-muted-foreground">
-          <span>Terminals</span>
-          {totalTerminals > 0 && (
-            <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
-              {totalTerminals}
-            </span>
+      <TooltipProvider>
+        <div
+          data-testid="terminal-pane-controls"
+          className={cn(
+            "z-20 flex items-center gap-px rounded-md border border-border/80 bg-background/90 p-0.5 shadow-sm backdrop-blur-sm",
+            collapsed ? "relative" : "absolute top-1.5 right-1.5",
           )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  onClick={() => handleCreateAgentSession()}
-                  variant={totalTerminals === 0 ? "default" : "ghost"}
-                  className={cn(
-                    "h-6 px-2 rounded-sm gap-1",
-                    totalTerminals === 0
-                      ? ""
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  aria-label="New Agent"
-                >
-                  <ClaudeIcon className="w-4 h-4" />
-                  Agent
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="flex items-center gap-1.5">
-                New Agent Session
-                <KbdGroup>
-                  <Kbd>⌘ + ]</Kbd>
-                </KbdGroup>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  onClick={() => handleAddShell()}
-                  variant="ghost"
-                  className="h-6 px-2 rounded-sm gap-1 text-muted-foreground hover:text-foreground"
-                  aria-label="New Shell"
-                >
-                  <Terminal className="w-4 h-4" /> Shell
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="flex items-center gap-1.5">
-                New Shell
-                <KbdGroup>
-                  <Kbd>⌘ + \</Kbd>
-                </KbdGroup>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          {collapsed && totalTerminals > 0 && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => setCollapsed(false)}
-                    variant="ghost"
-                    className="h-5 w-5 rounded-sm p-0"
-                    aria-label="Expand terminal"
-                  >
-                    <ChevronUp className="w-3 h-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="flex items-center gap-1.5">
-                  Expand
-                  <KbdGroup>
-                    <Kbd>⌘ + J</Kbd>
-                  </KbdGroup>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+        >
+          {collapsed && (
+            <PaneControlButton
+              ariaLabel="Expand terminal"
+              tooltip="Expand"
+              shortcut="⌘ + J"
+              onClick={() => setCollapsed(false)}
+            >
+              <ChevronUp className="w-3 h-3" />
+            </PaneControlButton>
           )}
           {!collapsed && maximized && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => setMaximized(false)}
-                    variant="ghost"
-                    className="h-5 w-5 rounded-sm p-0"
-                    aria-label="Restore terminal"
-                  >
-                    <Minimize2 className="w-3 h-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="flex items-center gap-1.5">
-                  Restore
-                  <KbdGroup>
-                    <Kbd>⌘ + ^ + J</Kbd>
-                  </KbdGroup>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <PaneControlButton
+              ariaLabel="Restore terminal"
+              tooltip="Restore"
+              shortcut="⌘ + ^ + J"
+              onClick={() => setMaximized(false)}
+            >
+              <Minimize2 className="w-3 h-3" />
+            </PaneControlButton>
           )}
           {!collapsed && !maximized && totalTerminals > 0 && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => setMaximized(true)}
-                    variant="ghost"
-                    className="h-5 w-5 rounded-sm p-0"
-                    aria-label="Maximize terminal"
-                  >
-                    <Maximize2 className="w-3 h-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="flex items-center gap-1.5">
-                  Maximize
-                  <KbdGroup>
-                    <Kbd>⌘ + Ctrl+ J</Kbd>
-                  </KbdGroup>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <PaneControlButton
+              ariaLabel="Maximize terminal"
+              tooltip="Maximize"
+              shortcut="⌘ + Ctrl+ J"
+              onClick={() => setMaximized(true)}
+            >
+              <Maximize2 className="w-3 h-3" />
+            </PaneControlButton>
           )}
           {!collapsed && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setCollapsed(true);
-                      setMaximized(false);
-                    }}
-                    variant="ghost"
-                    className="h-5 w-5 rounded-sm p-0"
-                    aria-label="Collapse terminal"
-                  >
-                    <ChevronDown className="w-3 h-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="flex items-center gap-1.5">
-                  Collapse
-                  <KbdGroup>
-                    <Kbd>⌘ + J</Kbd>
-                  </KbdGroup>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <PaneControlButton
+              ariaLabel="Collapse terminal"
+              tooltip="Collapse"
+              shortcut="⌘ + J"
+              onClick={() => {
+                setCollapsed(true);
+                setMaximized(false);
+              }}
+            >
+              <ChevronDown className="w-3 h-3" />
+            </PaneControlButton>
           )}
         </div>
-      </div>
+      </TooltipProvider>
 
       {!collapsed && (
         <div
@@ -327,7 +227,7 @@ export const WorkspaceTerminalPaneView: React.FC<
                 }}
               >
                 <div
-                  className="h-8 flex items-center gap-2 px-2 border-b border-border bg-gray-700/100 flex-shrink-0 sticky left-0 z-10 overflow-hidden cursor-pointer hover:bg-muted/40 transition-colors"
+                  className="h-8 flex items-center gap-2 px-2 pr-14 border-b border-border bg-gray-700/100 flex-shrink-0 sticky left-0 z-10 overflow-hidden cursor-pointer hover:bg-muted/40 transition-colors"
                   style={{
                     width: containerWidth > 0 ? containerWidth : undefined,
                   }}
@@ -464,3 +364,39 @@ export const WorkspaceTerminalPaneView: React.FC<
     </div>
   </div>
 );
+
+function PaneControlButton({
+  ariaLabel,
+  tooltip,
+  shortcut,
+  onClick,
+  children,
+}: {
+  ariaLabel: string;
+  tooltip: string;
+  shortcut: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          onClick={onClick}
+          variant="ghost"
+          className="h-5 w-5 rounded-sm p-0"
+          aria-label={ariaLabel}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent className="flex items-center gap-1.5">
+        {tooltip}
+        <KbdGroup>
+          <Kbd>{shortcut}</Kbd>
+        </KbdGroup>
+      </TooltipContent>
+    </Tooltip>
+  );
+}

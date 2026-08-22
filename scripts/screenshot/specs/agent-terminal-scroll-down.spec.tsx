@@ -27,7 +27,7 @@ it("agent terminal header shows scroll-to-bottom left of reset", async () => {
 	render(<Dashboard />);
 
 	await user.click(await findSidebarBranchElement(workspace.branch_name));
-	await screen.findByText(/Terminals/i);
+  await screen.findByTestId("workspace-terminal-pane");
 
 	await user.keyboard("{Meta>}]{/Meta}");
 

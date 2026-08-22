@@ -32,7 +32,10 @@ describe("WorkspaceTerminalPane integration", () => {
 
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement(workspace.branch_name));
-    await screen.findByText(/Terminals/i);
+    await screen.findByTestId("workspace-terminal-pane");
+    expect(screen.queryByText("Terminals")).not.toBeInTheDocument();
+    expect(screen.getByTestId("terminal-pane-controls")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Expand terminal/i)).toBeInTheDocument();
 
     await user.keyboard("{Meta>}]{/Meta}");
     await waitFor(() => {
@@ -54,7 +57,7 @@ describe("WorkspaceTerminalPane integration", () => {
 
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement(workspace.branch_name));
-    await screen.findByText(/Terminals/i);
+    await screen.findByTestId("workspace-terminal-pane");
 
     await user.keyboard("{Meta>}]{/Meta}");
     await waitFor(() => {
@@ -97,7 +100,7 @@ describe("WorkspaceTerminalPane integration", () => {
 
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement(workspace.branch_name));
-    await screen.findByText(/Terminals/i);
+    await screen.findByTestId("workspace-terminal-pane");
 
     await user.keyboard("{Meta>}]{/Meta}");
 
@@ -122,7 +125,7 @@ describe("WorkspaceTerminalPane integration", () => {
 
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement(workspace.branch_name));
-    await screen.findByText(/Terminals/i);
+    await screen.findByTestId("workspace-terminal-pane");
 
     await user.keyboard("{Meta>}]{/Meta}");
 
@@ -146,7 +149,7 @@ describe("WorkspaceTerminalPane integration", () => {
 
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement(workspace.branch_name));
-    await screen.findByText(/Terminals/i);
+    await screen.findByTestId("workspace-terminal-pane");
 
     await user.keyboard("{Meta>}]{/Meta}");
 
@@ -204,7 +207,7 @@ describe("WorkspaceTerminalPane integration", () => {
 
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement(workspace.branch_name));
-    await screen.findByText(/Terminals/i);
+    await screen.findByTestId("workspace-terminal-pane");
 
     await user.keyboard("{Meta>}]{/Meta}");
     await user.keyboard("{Meta>}\\{/Meta}");

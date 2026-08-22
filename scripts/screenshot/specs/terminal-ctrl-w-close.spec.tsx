@@ -29,7 +29,7 @@ it("Cmd+W closes the selected terminal and shows the hotkey in the Close tooltip
 	render(<Dashboard />);
 
 	await user.click(await findSidebarBranchElement(workspace.branch_name));
-	await screen.findByText(/Terminals/i);
+	await screen.findByTestId("workspace-terminal-pane");
 
 	// Create a shell terminal (Cmd+\) so there's a selected/active terminal to close.
 	await user.keyboard("{Meta>}\\{/Meta}");

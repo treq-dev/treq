@@ -188,7 +188,7 @@ describe("default agent configuration", () => {
     );
 
     const agentButton = await within(container).findByRole("button", {
-      name: "New Agent",
+      name: "New agent terminal",
     });
     await user.click(agentButton);
 

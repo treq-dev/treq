@@ -28,7 +28,7 @@ describe("Settings integration", () => {
     });
     expect(repositoryTab).toHaveAttribute("data-state", "active");
 
-    const terminalPane = await screen.findByText(/Terminals/i);
+    const terminalPane = await screen.findByTestId("workspace-terminal-pane");
     expect(terminalPane).not.toBeVisible();
 
     const applicationTab = await screen.findByRole("tab", {
@@ -72,6 +72,6 @@ describe("Settings integration", () => {
     expect(
       screen.queryByRole("heading", { name: "Settings" }),
     ).not.toBeInTheDocument();
-    expect(await screen.findByText(/Terminals/i)).toBeVisible();
+    expect(await screen.findByTestId("workspace-terminal-pane")).toBeVisible();
   });
 });
