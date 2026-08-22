@@ -240,7 +240,7 @@ const config: Config = {
           type: 'html',
           position: 'right',
           value:
-            '<a href="https://github.com/Ziinc/treq" target="_blank" rel="noopener noreferrer" class="navbar__item navbar__link header-github-link" aria-label="GitHub repository"></a>',
+            '<a href="https://github.com/Ziinc/treq" target="_blank" rel="noopener noreferrer" class="navbar__link header-github-link" aria-label="GitHub repository"></a>',
         },
       ],
     },

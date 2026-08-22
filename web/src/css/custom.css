@@ -95,12 +95,49 @@ html {
   font-weight: 500;
 }
 
-/* HTML navbar CTAs already have their own padding — drop the item chrome */
-.navbar__item:has(> .button),
-.navbar__item:has(> .header-github-link) {
-  display: flex;
-  align-items: center;
-  padding: 0;
+/* HTML navbar CTAs already have their own padding — drop the item chrome.
+   Scoped to desktop so this does not override Infima hiding `.navbar__item`
+   in the top bar on mobile. */
+@media screen and (min-width: 997px) {
+  .navbar__item:has(> .button),
+  .navbar__item:has(> .header-github-link) {
+    display: flex;
+    align-items: center;
+    padding: 0;
+  }
+}
+
+/* Search lives in a hashed NavbarSearch wrapper, not `.navbar__item`. Hide it
+   from the top bar on mobile; SearchNavbarItem re-renders it in the drawer. */
+@media screen and (max-width: 996px) {
+  .navbar__items--right [class*='navbarSearchContainer'] {
+    display: none;
+  }
+
+  .navbar-sidebar input[type='search'] {
+    width: 100%;
+    max-width: none;
+  }
+
+  .navbar-sidebar .header-github-link {
+    display: flex;
+    width: auto;
+    height: auto;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+    opacity: 1;
+  }
+
+  .navbar-sidebar .header-github-link::after {
+    content: 'GitHub';
+    font-weight: 500;
+  }
+
+  .navbar-sidebar .button {
+    width: 100%;
+    margin: 0.25rem 0;
+  }
 }
 
 /* Thin chevron caret (replaces Infima's solid triangle) */

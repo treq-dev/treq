@@ -78,6 +78,27 @@ test.describe('Navbar navigation', () => {
     await expect(page.getByRole('heading', { name: /Stacking Agent Development Environment/, level: 1 })).toBeVisible();
   });
 
+  test.describe('on mobile', () => {
+    test.use({ viewport: { width: 375, height: 667 } });
+
+    test('hides search, Sign in, and GitHub from the top bar', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.getByPlaceholder('Search...')).not.toBeVisible();
+      await expect(page.getByRole('link', { name: 'Sign in' })).not.toBeVisible();
+      await expect(page.getByRole('link', { name: 'GitHub repository' })).not.toBeVisible();
+    });
+
+    test('shows search, Sign in, and GitHub in the sidebar drawer', async ({ page }) => {
+      await page.goto('/');
+      await page.getByLabel('Toggle navigation bar').click();
+      await expect(page.getByPlaceholder('Search...').filter({ visible: true })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Sign in' }).filter({ visible: true })).toBeVisible();
+      await expect(
+        page.getByRole('link', { name: 'GitHub repository' }).filter({ visible: true }),
+      ).toBeVisible();
+    });
+  });
+
   test('GitHub link points to the correct repo', async ({ page }) => {
     await page.goto('/');
     await expect(nav(page).getByRole('link', { name: 'GitHub repository' }))
