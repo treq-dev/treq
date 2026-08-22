@@ -1,5 +1,4 @@
-import { GitBranch, Home, Layers2, Terminal } from "lucide-react";
-import { ClaudeIcon } from "./icons/AgentIcons";
+import { Bot, GitBranch, Home, Layers2, Terminal } from "lucide-react";
 import type { MouseEvent } from "react";
 import type { Workspace } from "../lib/api";
 import {
@@ -127,7 +126,7 @@ export function HomeRepoSidebarRow({
                             onStartAgent?.();
                           }}
                         >
-                          <ClaudeIcon className="w-4 h-4" />
+                          <Bot className="w-4 h-4" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">Start agent</TooltipContent>
