@@ -11,7 +11,7 @@ import { Dashboard } from "../../../src/components/Dashboard";
 import { createWorkspace } from "../../../src/lib/api";
 import { captureDocument } from "../capture";
 
-it("captures always-visible home and workspace sidebar action buttons", async () => {
+it("captures home sidebar action buttons and workspace hover-only actions", async () => {
   const { repoPath } = createTestRepo(false);
   openRepo(repoPath);
 
@@ -52,7 +52,7 @@ it("captures always-visible home and workspace sidebar action buttons", async ()
     name: "home-repo-sidebar-actions-01-always-visible",
     expectations: [
       "The unselected home-repo row still shows three icon buttons (agent, shell, stack) on the right.",
-      "The selected feat/sibling workspace row also shows the same three icon buttons.",
+      "The selected feat/sibling workspace row does not show agent, shell, or stack icons until hovered.",
       "Github sits between the home row and the Workspaces list.",
     ],
   });
@@ -68,7 +68,7 @@ it("captures always-visible home and workspace sidebar action buttons", async ()
     name: "home-repo-sidebar-actions-02-workspace-unselected",
     expectations: [
       "The home-repo row is selected/highlighted and shows agent, shell, and stack buttons.",
-      "The unselected feat/sibling workspace row still shows its agent, shell, and stack buttons.",
+      "The unselected feat/sibling workspace row hides its agent, shell, and stack buttons.",
     ],
   });
 

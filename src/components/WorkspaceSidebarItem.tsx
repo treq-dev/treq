@@ -255,7 +255,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                       data-sidebar-index={index}
                       style={indentStyle}
                       className={cn(
-                        "relative flex items-center  tracking-wide pr-4 rounded-sm transition-colors cursor-pointer p-0.5",
+                        "group/workspace relative flex items-center  tracking-wide pr-4 rounded-sm transition-colors cursor-pointer p-0.5",
                         {
                           "bg-primary/20": isSelected,
                           "hover:bg-muted/50": !isSelected,
@@ -343,7 +343,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                           </TooltipContent>
                         </Tooltip>
                       )}
-                      <div className="flex items-center gap-1 shrink-0 mr-1">
+                      <div className="flex items-center gap-1 shrink-0 mr-1 opacity-0 group-hover/workspace:opacity-100 group-focus-within/workspace:opacity-100 transition-opacity">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
