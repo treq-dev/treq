@@ -1,0 +1,71 @@
+name: Remote SSH live e2e
+
+# Opt-in live acceptance against a dedicated Fly app and Supabase test
+# project. Never runs on pull_request. Missing secrets skip rather than
+# fake a passing acceptance run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      native:
+        description: "Also run native certificate SSH workflow"
+        type: boolean
+        default: false
+      soak:
+        description: "Run vendor auto-suspension soak (hours-long)"
+        type: boolean
+        default: false
+
+jobs:
+  live:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Skip when dedicated credentials are absent
+        id: gate
+        env:
+          TREQ_REMOTE_E2E: ${{ secrets.TREQ_REMOTE_E2E }}
+          FLY_TEST_API_TOKEN: ${{ secrets.FLY_TEST_API_TOKEN }}
+          FLY_TEST_APP_NAME: ${{ secrets.FLY_TEST_APP_NAME }}
+          SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
+        run: |
+          if [ "$TREQ_REMOTE_E2E" != "1" ] || [ -z "$FLY_TEST_API_TOKEN" ] || [ -z "$FLY_TEST_APP_NAME" ] || [ -z "$SUPABASE_TEST_URL" ]; then
+            echo "SKIP: dedicated live e2e secrets are not configured"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fly adapter live tests
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TREQ_REMOTE_E2E: "1"
+          FLY_TEST_API_TOKEN: ${{ secrets.FLY_TEST_API_TOKEN }}
+          FLY_TEST_APP_NAME: ${{ secrets.FLY_TEST_APP_NAME }}
+          FLY_TEST_API_BASE_URL: ${{ secrets.FLY_TEST_API_BASE_URL }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --test remote_e2e -- --ignored --test-threads=1
+      - name: Native SSH live tests
+        if: steps.gate.outputs.run == 'true' && github.event.inputs.native == 'true'
+        env:
+          TREQ_REMOTE_E2E: "1"
+          TREQ_REMOTE_E2E_NATIVE: "1"
+          FLY_TEST_API_TOKEN: ${{ secrets.FLY_TEST_API_TOKEN }}
+          FLY_TEST_APP_NAME: ${{ secrets.FLY_TEST_APP_NAME }}
+          SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
+          SUPABASE_TEST_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
+          SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --test remote_e2e_native -- --ignored --test-threads=1
+      - name: Supabase Edge live tests
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TREQ_REMOTE_E2E: "1"
+          TREQ_REMOTE_E2E_SOAK: ${{ github.event.inputs.soak == 'true' && '1' || '' }}
+          SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
+          SUPABASE_TEST_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
+          SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
+          REMOTE_ADMIN_API_KEY_TEST: ${{ secrets.REMOTE_ADMIN_API_KEY_TEST }}
+        run: deno test --allow-net --allow-env supabase/functions/tests/remote_e2e.test.ts

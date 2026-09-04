@@ -8,100 +8,81 @@
 // (prds/remote-ssh.md, Phase 8: "A scheduled cleanup job removes leaked test
 // resources after a safety window.").
 //
-// This repository has no pg_cron usage anywhere (see the Phase 7 admin
-// surface, supabase/functions/remote-admin/index.ts, which follows the same
-// "operator-invoked, not a DB-scheduled job" convention). This script is
-// therefore the "scheduled cleanup job" the PRD asks for: it is a real,
-// invokable Deno script, not a cron dependency. Operationally, schedule it
-// with whatever the deployment environment already uses to run recurring
-// jobs (a GitHub Actions scheduled workflow, a Fly.io scheduled machine, an
-// external cron calling `deno run` against this file) - there is nothing to
-// wire up on the Supabase or Postgres side.
-//
-// It finds and deletes:
-//   - remote_instances rows (and their provider-side Fly machines) whose
-//     owning auth user's email matches the e2e tag pattern and which are
-//     older than the safety window;
-//   - remote_client_keys rows tagged the same way;
-//   - the auth.users test accounts themselves (deleting the user cascades
-//     ownership of the rows above through the same RLS-owner_user_id model
-//     every other remote_* table uses).
-//
 // Usage:
-//   deno run --allow-net --allow-env scripts/remote-e2e-cleanup.ts [--dry-run] [--min-age-hours=N]
+//   deno run --allow-net --allow-env scripts/remote-e2e-cleanup.ts [--dry-run] [--apply] [--min-age-hours=N] [--concurrency=N]
 //
-// Required environment variables (same test-project credentials as
-// supabase/functions/tests/remote_e2e.test.ts):
+// Defaults to dry-run. `--apply` actually deletes, and also requires
+// TREQ_REMOTE_E2E_CLEANUP_TARGET=dedicated-test.
+//
+// Required environment variables:
 //   SUPABASE_TEST_URL
 //   SUPABASE_TEST_SERVICE_ROLE_KEY
-//   REMOTE_ADMIN_API_KEY_TEST   - only needed if --prune-audit-events is passed
+//
+// Optional, separately scoped Fly cleanup credentials (never the product
+// FLY_SPRITES_API_TOKEN, and not the live-test FLY_TEST_API_TOKEN):
+//   FLY_E2E_CLEANUP_API_TOKEN
+//   FLY_E2E_CLEANUP_APP_NAME
+//   FLY_E2E_CLEANUP_API_BASE_URL   (default https://api.machines.dev/v1)
+//
+// Apply-mode gate:
+//   TREQ_REMOTE_E2E_CLEANUP_TARGET=dedicated-test
 //
 // Safety:
-//   - Only ever touches resources whose tag/email matches `treq-e2e-`
-//     followed by a UUID - the exact shape emitted by remote_e2e.rs's
-//     `e2e_tag()` and remote_e2e.test.ts's `e2eTag()`. This script will
-//     never delete a resource that does not match that pattern, so it
-//     cannot reach a real user's instance no matter what else is in the
-//     test project.
-//   - Defaults to a 2-hour safety window (`--min-age-hours`, default 2):
-//     resources younger than that are left alone, so a cleanup run
-//     triggered concurrently with an in-progress test run cannot delete
-//     resources that test is still using.
-//   - `--dry-run` prints what would be deleted without deleting anything.
+//   - Only resources matching the dedicated `treq-e2e-<uuid>` tag, the
+//     rust `treq-treq-e2e-<uuid>` machine name, or a machine named after a
+//     known e2e auth user id.
+//   - Ambiguous untagged resources are refused, never deleted.
+//   - Default 2-hour min age so an in-progress suite is not reaped.
+//   - Concurrency is capped (default 2).
+//   - Provider request ids are logged when present.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const E2E_TAG_PATTERN = /^treq-e2e-[0-9a-f-]{36}/i;
-const DEFAULT_MIN_AGE_HOURS = 2;
-
-function parseArgs(argv: string[]): { dryRun: boolean; minAgeHours: number } {
-  let dryRun = false;
-  let minAgeHours = DEFAULT_MIN_AGE_HOURS;
-  for (const arg of argv) {
-    if (arg === "--dry-run") dryRun = true;
-    else if (arg.startsWith("--min-age-hours=")) {
-      const parsed = Number(arg.split("=")[1]);
-      if (Number.isFinite(parsed) && parsed >= 0) minAgeHours = parsed;
-    }
-  }
-  return { dryRun, minAgeHours };
-}
-
-function isE2eTagged(value: string | null | undefined): boolean {
-  if (!value) return false;
-  return E2E_TAG_PATTERN.test(value);
-}
+import {
+  cutoffFromMinAge,
+  evaluateEnvGate,
+  isE2eTagged,
+  emailLocalPart,
+  mapWithConcurrency,
+  parseArgs,
+  planAuthUserCleanup,
+  planFlyMachineCleanup,
+  type FlyMachineFixture,
+} from "./lib/remote-e2e-cleanup.ts";
 
 async function main() {
-  const { dryRun, minAgeHours } = parseArgs(Deno.args);
-
-  const url = Deno.env.get("SUPABASE_TEST_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_TEST_SERVICE_ROLE_KEY");
-  if (!url || !serviceRoleKey) {
-    console.error(
-      "remote-e2e-cleanup: SUPABASE_TEST_URL and SUPABASE_TEST_SERVICE_ROLE_KEY must be set. " +
-        "Refusing to run against an unspecified project rather than guessing.",
-    );
+  const args = parseArgs(Deno.args);
+  const gate = evaluateEnvGate({
+    mode: args.mode,
+    supabaseUrl: Deno.env.get("SUPABASE_TEST_URL"),
+    supabaseServiceRoleKey: Deno.env.get("SUPABASE_TEST_SERVICE_ROLE_KEY"),
+    cleanupTargetKind: Deno.env.get("TREQ_REMOTE_E2E_CLEANUP_TARGET"),
+    flyCleanupToken: Deno.env.get("FLY_E2E_CLEANUP_API_TOKEN"),
+    flyCleanupAppName: Deno.env.get("FLY_E2E_CLEANUP_APP_NAME"),
+    flyCleanupBaseUrl: Deno.env.get("FLY_E2E_CLEANUP_API_BASE_URL"),
+  });
+  if (!gate.ok) {
+    if (gate.skip) {
+      console.log(`remote-e2e-cleanup: SKIP: ${gate.reason}`);
+      return;
+    }
+    console.error(`remote-e2e-cleanup: ${gate.reason}`);
     Deno.exit(1);
   }
 
+  const url = Deno.env.get("SUPABASE_TEST_URL")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_TEST_SERVICE_ROLE_KEY")!;
   const supabase = createClient(url, serviceRoleKey);
-  const cutoff = new Date(Date.now() - minAgeHours * 60 * 60 * 1000);
+  const cutoff = cutoffFromMinAge(Date.now(), args.minAgeHours);
 
   console.log(
     `remote-e2e-cleanup: scanning for e2e-tagged resources older than ${cutoff.toISOString()} ` +
-      `(min age ${minAgeHours}h)${dryRun ? " [dry run]" : ""}`,
+      `(min age ${args.minAgeHours}h, concurrency ${args.concurrency}) [${args.mode}]`,
   );
 
+  const e2eUserIds = new Set<string>();
+  const e2eUsers: Array<{ id: string; email?: string | null; created_at: string }> = [];
   let page = 0;
-  let deletedUsers = 0;
-  let scannedUsers = 0;
   const perPage = 200;
-
-  // Supabase's admin listUsers is paginated; walk every page rather than
-  // assuming the test project stays small, so a cleanup run never silently
-  // stops covering leaked resources once the project accumulates enough
-  // test users to spill past one page.
   for (;;) {
     const { data, error } = await supabase.auth.admin.listUsers({ page: page + 1, perPage });
     if (error) {
@@ -109,69 +90,118 @@ async function main() {
       Deno.exit(1);
     }
     if (!data.users || data.users.length === 0) break;
-
     for (const user of data.users) {
-      scannedUsers += 1;
-      const email = user.email ?? "";
-      const localPart = email.split("@")[0] ?? "";
-      if (!isE2eTagged(localPart)) continue;
-
-      const createdAt = new Date(user.created_at);
-      if (createdAt > cutoff) {
-        console.log(`  SKIP ${email} (created ${user.created_at}, within safety window)`);
-        continue;
-      }
-
-      console.log(`  ${dryRun ? "WOULD DELETE" : "DELETING"} test user ${email} (id=${user.id}, created ${user.created_at})`);
-      if (!dryRun) {
-        // Deleting the user is sufficient: every remote_* table this repo
-        // defines keys ownership off owner_user_id with a foreign key back
-        // to auth.users, and RLS/ownership checks throughout the control
-        // plane (remote-instance, remote-ssh-trust) treat owner_user_id as
-        // the sole authority - there is no separate "instance tag" to hunt
-        // down once the owning user is gone. If a future migration changes
-        // that FK to a non-cascading one, this call surfaces the failure
-        // directly rather than silently leaving orphaned rows.
-        const { error: deleteError } = await supabase.auth.admin.deleteUser(user.id);
-        if (deleteError) {
-          console.error(`    FAILED to delete ${email}: ${deleteError.message}`);
-          continue;
-        }
-        deletedUsers += 1;
-      } else {
-        deletedUsers += 1;
+      const local = emailLocalPart(user.email ?? "");
+      if (isE2eTagged(local)) {
+        e2eUserIds.add(user.id.toLowerCase());
+        e2eUsers.push({ id: user.id, email: user.email, created_at: user.created_at });
       }
     }
-
     if (data.users.length < perPage) break;
     page += 1;
   }
 
+  const userPlan = planAuthUserCleanup(e2eUsers, cutoff);
+  let deletedUsers = 0;
+  let skippedUsers = 0;
+  let refusedUsers = 0;
+
+  const deletableUsers = userPlan.filter((item) => item.decision.action === "delete");
+  for (const item of userPlan) {
+    if (item.decision.action === "skip") {
+      skippedUsers += 1;
+      console.log(`  SKIP user ${item.label} (${item.decision.reason})`);
+    } else if (item.decision.action === "refuse") {
+      refusedUsers += 1;
+      console.error(`  REFUSE user ${item.label}: ${item.decision.reason}`);
+    }
+  }
+
+  await mapWithConcurrency(deletableUsers, args.concurrency, async (item) => {
+    console.log(`  ${args.mode === "dry-run" ? "WOULD DELETE" : "DELETING"} test user ${item.label} (id=${item.id})`);
+    if (args.mode === "apply") {
+      const { error: deleteError } = await supabase.auth.admin.deleteUser(item.id);
+      if (deleteError) {
+        console.error(`    FAILED to delete ${item.label}: ${deleteError.message}`);
+        return;
+      }
+    }
+    deletedUsers += 1;
+  });
+
   console.log(
-    `remote-e2e-cleanup: scanned ${scannedUsers} users, ` +
-      `${dryRun ? "would delete" : "deleted"} ${deletedUsers} e2e-tagged test user(s) and their owned resources.`,
+    `remote-e2e-cleanup: auth users planned=${userPlan.length} ` +
+      `${args.mode === "dry-run" ? "would delete" : "deleted"}=${deletedUsers} skipped=${skippedUsers} refused=${refusedUsers}`,
   );
 
-  // Fly-side orphan detection: any e2e-tagged provider machine whose owning
-  // Supabase test user is already gone (e.g. a prior cleanup run's admin
-  // delete succeeded but its own compensating provider delete_instance call
-  // never ran) is a true orphan the control plane no longer knows about at
-  // all. Finding those requires listing the Fly test app's machines
-  // directly - left as a documented manual/operational step rather than
-  // implemented here, because it needs the Fly test API token
-  // (FLY_TEST_API_TOKEN), a credential this script does not otherwise need
-  // and should not be handed just to run the common case. Operators with
-  // that token can list orphans directly:
-  //
-  //   curl -s -H "Authorization: Bearer $FLY_TEST_API_TOKEN" \
-  //     "$FLY_TEST_API_BASE_URL/apps/$FLY_TEST_APP_NAME/machines" \
-  //     | jq '.[] | select(.name | startswith("treq-treq-e2e-"))'
-  //
-  // and delete any whose name matches the e2e tag pattern.
+  if (!gate.flyScanEnabled) {
+    console.log(
+      "remote-e2e-cleanup: SKIP Fly provider scan: FLY_E2E_CLEANUP_API_TOKEN and FLY_E2E_CLEANUP_APP_NAME are not both set. " +
+        "This is a separately scoped cleanup credential, not FLY_TEST_API_TOKEN / FLY_SPRITES_API_TOKEN.",
+    );
+    return;
+  }
+
+  const flyToken = Deno.env.get("FLY_E2E_CLEANUP_API_TOKEN")!;
+  const flyApp = Deno.env.get("FLY_E2E_CLEANUP_APP_NAME")!;
+  const flyBase = Deno.env.get("FLY_E2E_CLEANUP_API_BASE_URL") ?? "https://api.machines.dev/v1";
+  const listUrl = `${flyBase.replace(/\/$/, "")}/apps/${encodeURIComponent(flyApp)}/machines`;
+  const listResponse = await fetch(listUrl, {
+    headers: { Authorization: `Bearer ${flyToken}` },
+  });
+  const listRequestId = listResponse.headers.get("fly-request-id") ?? listResponse.headers.get("x-request-id") ?? "";
+  console.log(`remote-e2e-cleanup: listed Fly machines request_id=${listRequestId || "(none)"} status=${listResponse.status}`);
+  if (!listResponse.ok) {
+    console.error(`remote-e2e-cleanup: Fly list failed: ${await listResponse.text()}`);
+    Deno.exit(1);
+  }
+  const listed = await listResponse.json();
+  const machines: FlyMachineFixture[] = (Array.isArray(listed) ? listed : []).map((raw: Record<string, unknown>) => ({
+    id: String(raw.id ?? ""),
+    name: String(raw.name ?? ""),
+    state: String(raw.state ?? ""),
+    created_at: String(raw.created_at ?? raw.createdAt ?? new Date(0).toISOString()),
+    metadata: (raw.config as { metadata?: Record<string, string> } | undefined)?.metadata,
+  }));
+
+  const machinePlan = planFlyMachineCleanup(machines, cutoff, e2eUserIds);
+  let deletedMachines = 0;
+  let skippedMachines = 0;
+  let refusedMachines = 0;
+  const deletableMachines = machinePlan.filter((item) => item.decision.action === "delete");
+  for (const item of machinePlan) {
+    if (item.decision.action === "skip") {
+      skippedMachines += 1;
+      console.log(`  SKIP machine ${item.label} (${item.decision.reason})`);
+    } else if (item.decision.action === "refuse") {
+      refusedMachines += 1;
+      console.error(`  REFUSE machine ${item.label}: ${item.decision.reason}`);
+    }
+  }
+
+  await mapWithConcurrency(deletableMachines, args.concurrency, async (item) => {
+    console.log(
+      `  ${args.mode === "dry-run" ? "WOULD DELETE" : "DELETING"} Fly machine ${item.label}`,
+    );
+    if (args.mode === "apply") {
+      const delUrl = `${flyBase.replace(/\/$/, "")}/apps/${encodeURIComponent(flyApp)}/machines/${encodeURIComponent(item.id)}?force=true`;
+      const delResponse = await fetch(delUrl, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${flyToken}` },
+      });
+      const requestId = delResponse.headers.get("fly-request-id") ?? delResponse.headers.get("x-request-id") ?? "";
+      console.log(`    fly-request-id=${requestId || "(none)"} status=${delResponse.status}`);
+      if (!delResponse.ok && delResponse.status !== 404) {
+        console.error(`    FAILED to delete machine ${item.id}: ${await delResponse.text()}`);
+        return;
+      }
+    }
+    deletedMachines += 1;
+  });
+
   console.log(
-    "remote-e2e-cleanup: Fly-side orphan machines (created but never recorded, or recorded but " +
-      "whose owning user delete did not cascade to a provider delete_instance call) are not scanned " +
-      "by this script - see the comment above main() for the manual Fly-API check.",
+    `remote-e2e-cleanup: fly machines scanned=${machines.length} ` +
+      `${args.mode === "dry-run" ? "would delete" : "deleted"}=${deletedMachines} skipped=${skippedMachines} refused=${refusedMachines}`,
   );
 }
 
