@@ -30,6 +30,7 @@ import {
   getEntireStack,
 } from "../lib/workspace-tree";
 import { isWorkspaceHidden } from "../lib/workspace-utils";
+import { useRepositoryCacheKey } from "../lib/active-repository-context";
 import { usePreviewFeature } from "../stores/featurePreviewStore";
 import { HomeRepoSidebarRow } from "./HomeRepoSidebarRow";
 import { HiddenWorkspacesToggle } from "./HiddenWorkspacesToggle";
@@ -133,17 +134,18 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   onCreateShellTerminal,
   onDropChangeFiles,
 }) => {
+  const cacheKey = useRepositoryCacheKey(repoPath);
   const workspaceScheduling = usePreviewFeature("workspaceScheduling");
   const linearIntegration = usePreviewFeature("linearIntegration");
   const { data: workspaces = [], isLoading: workspacesPending } = useSWR(
-    repoPath ? ["workspaces", repoPath] : null,
+    cacheKey ? ["workspaces", cacheKey] : null,
     () => getWorkspaces(repoPath || ""),
     { keepPreviousData: true },
   );
   const workspacesLoaded = workspacesPending === false && Boolean(repoPath);
 
   const { data: workspaceStatuses = [] } = useSWR(
-    repoPath && workspacesLoaded ? ["workspace-statuses", repoPath] : null,
+    cacheKey && workspacesLoaded ? ["workspace-statuses", cacheKey] : null,
     async () => {
       const baseStatuses = await listWorkspaceStatuses(repoPath || "");
       return Promise.all(

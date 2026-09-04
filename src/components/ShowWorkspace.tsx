@@ -74,6 +74,7 @@ import {
 import { FEATURES } from "../lib/features";
 import { usePreviewFeature } from "../stores/featurePreviewStore";
 import { getStatusBgColor } from "../lib/git-status-colors";
+import { useRepositoryCacheKey } from "../lib/active-repository-context";
 import {
   countUniqueReviewChangePaths,
   type ParsedFileChange,
@@ -234,6 +235,7 @@ export const ShowWorkspace = ({
     ? getFullWorkspacePath(workspace)
     : repositoryPath || "";
   const effectiveRepoPath = workspace?.repo_path || repositoryPath || "";
+  const repoCacheKey = useRepositoryCacheKey(effectiveRepoPath);
 
   const { addToast } = useToast();
   const workspaceScheduling = usePreviewFeature("workspaceScheduling");
@@ -430,7 +432,7 @@ export const ShowWorkspace = ({
     mutate: refetchWorkspaceStatus,
   } = useSWR(
     effectiveRepoPath
-      ? ["workspace-status", effectiveRepoPath, workspace?.id ?? null]
+      ? ["workspace-status", repoCacheKey, workspace?.id ?? null]
       : null,
     () => getWorkspaceStatus(effectiveRepoPath, workspace?.id ?? null),
   );
@@ -491,7 +493,7 @@ export const ShowWorkspace = ({
   // on the tab row. Shares the stack panel's query key for cache reuse.
   const { data: workspaceCommitsLog } = useSWR(
     effectiveRepoPath && workspace?.id !== undefined
-      ? ["workspace-commits", effectiveRepoPath, workspace?.id ?? null]
+      ? ["workspace-commits", repoCacheKey, workspace?.id ?? null]
       : null,
     () => listCommits(effectiveRepoPath, workspace!.id),
   );
@@ -531,7 +533,7 @@ export const ShowWorkspace = ({
 
   const { data: overviewData, isLoading: overviewPending } = useSWR(
     effectiveRepoPath && activeTab === "overview"
-      ? ["workspace-overview", effectiveRepoPath, workspace?.id ?? null]
+      ? ["workspace-overview", repoCacheKey, workspace?.id ?? null]
       : null,
     async () => {
       try {
@@ -549,7 +551,7 @@ export const ShowWorkspace = ({
 
   const { data: startingPromptEntry } = useSWR(
     effectiveRepoPath && workspace?.id !== undefined
-      ? ["workspace-starting-prompt", effectiveRepoPath, workspace?.id ?? null]
+      ? ["workspace-starting-prompt", repoCacheKey, workspace?.id ?? null]
       : null,
     () => getWorkspaceStartingPrompt(effectiveRepoPath, workspace!.id),
   );

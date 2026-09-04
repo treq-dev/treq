@@ -1,4 +1,6 @@
 import { useIsMutating, useMutation } from "../../../hooks/useMutation";
+import { peekActiveRepository } from "../../../lib/active-repository";
+import { remoteCapabilities } from "../../../lib/remote-capabilities";
 import { invalidateQueries } from "../../../lib/swr-cache";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
@@ -257,6 +259,15 @@ export function useFileActions({
       const stagedPaths = Array.from(stagedFiles);
       let result: string;
       if (stagedPaths.length > 0) {
+        const active = peekActiveRepository();
+        if (active?.location.type === "ssh" && !remoteCapabilities().splitCommit.supported) {
+          addToast({
+            title: "Split unavailable",
+            description: remoteCapabilities().splitCommit.reason,
+            type: "error",
+          });
+          return false;
+        }
         result = await jjSplit(workspacePath, commitMsg, stagedPaths);
         setStagedFiles(new Set());
       } else {

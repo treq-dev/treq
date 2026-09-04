@@ -3,7 +3,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { useLocation } from "wouter";
 import { useAutoUpdate } from "../hooks/useAutoUpdate";
@@ -60,6 +60,47 @@ import type {
   SizePreset,
   SshEndpoint,
 } from "../lib/api-types-remote";
+import {
+  deleteInstance as deleteManagedInstance,
+  ensureInstance,
+  getInstanceStatus,
+  listRegions,
+  listSizePresets,
+  reprovisionInstance,
+  revokeClientKey,
+  wakeInstance,
+} from "../lib/remote-control-plane";
+import {
+  saveUserManagedEndpoint,
+  trustedHostKeyFromFingerprint,
+  publicKeyAuthentication,
+} from "../lib/remote-endpoints";
+import { dispatchOverSsh } from "../lib/remote-dispatch";
+import {
+  RemoteSetupDialog,
+  type LocalKeyIdentity,
+  type UserManagedFormValues,
+} from "./remote/RemoteSetupDialog";
+import {
+  RemoteStatusBanner,
+  connectionStateFromInstanceState,
+} from "./remote/RemoteStatusBanner";
+import { RemoteAmbiguousMutationDialog } from "./remote/RemoteAmbiguousMutationDialog";
+import { RemoteCapabilityNotice } from "./remote/RemoteCapabilityNotice";
+import {
+  activeRepositoryFromRemote,
+  localActiveRepository,
+  repositoryCacheKey,
+  type PersistedRemoteRepository,
+} from "../lib/active-repository";
+import { ActiveRepositoryProvider } from "../lib/active-repository-context";
+import { capabilitiesFor } from "../lib/remote-capabilities";
+import { invalidateRemoteRepositoryData } from "../lib/remote-mutation-ui";
+import {
+  useRemoteAgentRefresh,
+  useRemoteChangeMarkerWatch,
+} from "../hooks/useRemoteRefresh";
+import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 import { ARTIFACTS_BASE_PATH, artifactsPath } from "../lib/artifactRoutes";
 import {
   type ChangeFilesMoveRequest,
@@ -104,7 +145,6 @@ import {
 import {
   LAST_OPENED_REMOTE_REPO_ID_KEY,
   canonicalizeRemotePath,
-  clearLastOpenedRemoteRepository,
   getSavedRemoteRepository,
   listSavedRepositoriesForEndpoint,
   rememberLastOpenedRemoteRepository,
@@ -123,7 +163,6 @@ import { startManagedCertificateRenewal } from "../lib/remote-cert-lifecycle";
 import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 import { remoteForceCutoff } from "../lib/api-extra";
 import { RemoteRepositorySelector } from "./remote/RemoteRepositorySelector";
-import { locationFromHostAndPath } from "../lib/remote-query-keys";
 import { invalidateReviewChangeCount } from "../lib/review-change-count";
 import {
   clearSWRCache,
@@ -151,7 +190,6 @@ import { LinearPanel } from "./LinearPanel";
 import { MergePreviewPage } from "./MergePreviewPage";
 import { Onboarding } from "./Onboarding";
 import { PromptHistoryModal } from "./PromptHistoryModal";
-import { RemoteReviewPanel } from "./remote/RemoteReviewPanel";
 import {
   type LocalKeyIdentity,
   RemoteSetupDialog,
@@ -361,9 +399,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [activeEndpointGeneration, setActiveEndpointGeneration] = useState(0);
   const [explicitEndpointRepoPath, setExplicitEndpointRepoPath] =
     useState("~/src/project");
+  const [explicitEndpointError, setExplicitEndpointError] = useState<string>();
   const [explicitEndpointRepoConnected, setExplicitEndpointRepoConnected] =
     useState(false);
-  const [explicitEndpointError, setExplicitEndpointError] = useState<string>();
   const [savedRemoteRepos, setSavedRemoteRepos] = useState<
     SavedRemoteRepositoryRecord[]
   >([]);
@@ -387,8 +425,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   };
 
+  // Builds the `PersistedRemoteRepository` the workspace tree (via
+  // `activeRepository`/`ActiveRepositoryProvider`) keys off of, from a saved
+  // descriptor plus the inspection that just proved the path is a real
+  // repository. Only called once reconnect + trust + inspect have all
+  // succeeded (see `restoreSavedRemoteRepository` and the handlers below).
+  const connectedRepoFromDescriptor = (
+    descriptor: SavedRemoteRepositoryRecord,
+    endpoint: SshEndpoint,
+    inspection?: RepositoryInspection,
+  ): PersistedRemoteRepository => ({
+    host: endpoint.hostname,
+    path: descriptor.canonical_remote_path,
+    display_name: descriptor.display_name,
+    inspection: inspection ?? {
+      root: descriptor.canonical_remote_path,
+      repository_type: "jj",
+      current_branch: null,
+      default_branch: "main",
+      current_change_id: "",
+      current_commit_id: "",
+      descriptor: {
+        id: descriptor.id,
+        location: {
+          type: "ssh",
+          host: endpoint.hostname,
+          path: descriptor.canonical_remote_path,
+        },
+        display_name: descriptor.display_name,
+      },
+    },
+    endpoint,
+    endpoint_id: descriptor.endpoint_id,
+    endpoint_generation: descriptor.endpoint_generation,
+  });
+
   const markRemoteRepoOpen = async (
     descriptor: SavedRemoteRepositoryRecord,
+    endpoint?: SshEndpoint,
+    inspection?: RepositoryInspection,
   ) => {
     await rememberLastOpenedRemoteRepository(descriptor.id);
     setSelectedSavedRepoId(descriptor.id);
@@ -398,6 +473,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
       descriptor.endpoint_id,
       descriptor.endpoint_generation,
     );
+    const connectionEndpoint = endpoint ?? activeSshEndpoint;
+    if (connectionEndpoint) {
+      const connectedRepo = connectedRepoFromDescriptor(
+        descriptor,
+        connectionEndpoint,
+        inspection,
+      );
+      await setSetting("last_opened_remote_repo", JSON.stringify(connectedRepo));
+      setActiveRemoteRepo(connectedRepo);
+    }
   };
 
   const inspectAndRegisterPath = async (
@@ -406,7 +491,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     path: string,
   ) => {
     const canonical = canonicalizeRemotePath(path);
-    await dispatchOverSsh<RepositoryInspection>(endpoint, {
+    const inspection = await dispatchOverSsh<RepositoryInspection>(endpoint, {
       kind: "InspectRepository",
       repo: canonical,
     });
@@ -416,7 +501,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       remote_path: canonical,
       last_successful_trust_validation: new Date().toISOString(),
     });
-    await markRemoteRepoOpen(descriptor);
+    await markRemoteRepoOpen(descriptor, endpoint, inspection);
   };
 
   // The currently registered client key for the managed instance, so a
@@ -640,11 +725,52 @@ export const Dashboard: React.FC<DashboardProps> = ({
         return;
       }
       setExplicitGenerationTransition(false);
-      await markRemoteRepoOpen(result.descriptor);
+      await markRemoteRepoOpen(
+        result.descriptor,
+        activeSshEndpoint,
+        result.inspection,
+      );
     } finally {
       setRemoteRepoBusy(false);
     }
   };
+
+  const activeRepository = useMemo(() => {
+    if (repoPath) return localActiveRepository(repoPath);
+    if (activeRemoteRepo) {
+      return activeRepositoryFromRemote(
+        activeRemoteRepo as PersistedRemoteRepository,
+        activeSshEndpoint,
+      );
+    }
+    return null;
+  }, [repoPath, activeRemoteRepo, activeSshEndpoint, activeEndpointGeneration]);
+
+  const isRemoteActive = activeRepository?.location.type === "ssh";
+  const dataRepoPath = activeRepository?.canonicalPath ?? repoPath;
+  const queryRepoKey = activeRepository
+    ? repositoryCacheKey(activeRepository)
+    : repoPath;
+  const remoteCaps = capabilitiesFor(Boolean(isRemoteActive));
+  const cutoffReason = useRemoteCutoffStore((s) =>
+    activeRepository?.endpointId
+      ? s.cutoffs[activeRepository.endpointId]
+      : undefined,
+  );
+
+  useEffect(() => {
+    void useRemoteCutoffStore.getState().startListening();
+    return () => useRemoteCutoffStore.getState().stopListening();
+  }, []);
+
+  useRemoteChangeMarkerWatch(
+    isRemoteActive ? activeRepository : null,
+    selectedWorkspace?.id ?? null,
+  );
+  useRemoteAgentRefresh(
+    isRemoteActive ? activeRepository : null,
+    selectedWorkspace?.id ?? null,
+  );
 
   const handleOpenRemoteSetup = async () => {
     if (!useFeaturePreviewStore.getState().flags.remoteSsh) return;
@@ -1055,25 +1181,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const { data: repoBranch } = useSWR(
-    repoPath ? ["repo-branch", repoPath] : null,
-    () => getRepoCurrentBranch(repoPath),
+    queryRepoKey ? ["repo-branch", queryRepoKey] : null,
+    () => getRepoCurrentBranch(dataRepoPath),
   );
   const { data: repoDefaultBranch } = useSWR(
-    repoPath ? ["repo-default-branch", repoPath] : null,
-    () => getRepoDefaultBranch(repoPath),
+    queryRepoKey ? ["repo-default-branch", queryRepoKey] : null,
+    () => getRepoDefaultBranch(dataRepoPath),
   );
 
   useEffect(() => {
-    if (!repoPath) return;
+    if (!dataRepoPath) return;
     if (!repoBranch) return;
     setCurrentBranch(repoBranch.current_branch);
     setHomeRepoDisplayRef(repoBranch.display_ref);
-  }, [repoPath, repoBranch]);
+  }, [dataRepoPath, repoBranch]);
 
   const effectiveDefaultBranch = currentBranch || repoDefaultBranch || "main";
 
   const handleCreateStackedWorkspace = () => {
-    if (!repoPath) return;
+    if (!dataRepoPath) return;
 
     if (selectedWorkspace) {
       setUnifiedDialogDefaults({
@@ -1154,7 +1280,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     onSwipeDown: () => setShowTerminalMissionControl(false),
   });
 
-  useSWR(repoPath ? ["init-repo", repoPath] : null, async () => {
+  useSWR(
+    repoPath && !isRemoteActive ? ["init-repo", repoPath] : null,
+    async () => {
     try {
       await initRepo(repoPath);
     } catch (e) {
@@ -1165,20 +1293,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
   });
 
   useEffect(() => {
-    if (!repoPath) {
+    if (!dataRepoPath) {
       setCurrentBranch(null);
       setHomeRepoDisplayRef(null);
     }
-  }, [repoPath]);
+  }, [dataRepoPath]);
 
   const {
     data: availableBranches = [],
     isValidating: branchesLoading,
     mutate: loadAvailableBranches,
   } = useSWR<BranchListItem[]>(
-    repoPath ? ["repo-branches", repoPath] : null,
+    dataRepoPath ? ["repo-branches", queryRepoKey] : null,
     async () => {
-      const jjBranches = await listRepoBranches(repoPath);
+      const jjBranches = await listRepoBranches(dataRepoPath);
       return jjBranches.map((branch) => ({
         name: branch.name,
         fullName: branch.name,
@@ -1195,7 +1323,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   );
 
   const handleLoadAvailableBranches = () => {
-    if (!repoPath) return;
+    if (!dataRepoPath) return;
     void loadAvailableBranches();
   };
 
@@ -1227,14 +1355,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // ]);
 
   const { data: sessions = [] } = useSWR(
-    repoPath ? ["sessions", repoPath] : null,
-    () => getSessions(repoPath),
+    queryRepoKey ? ["sessions", queryRepoKey] : null,
+    () => getSessions(dataRepoPath).catch(() => []),
     { refreshInterval: pollMs(30000) },
   );
 
   const { data: workspaces = [] } = useSWR(
-    repoPath ? ["workspaces", repoPath] : null,
-    () => getWorkspaces(repoPath),
+    queryRepoKey ? ["workspaces", queryRepoKey] : null,
+    () => getWorkspaces(dataRepoPath),
     { refreshInterval: pollMs(10000) },
   );
 
@@ -1257,8 +1385,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [workspaces]);
 
   const { data: workspaceStatuses = [] } = useSWR(
-    repoPath ? ["workspace-statuses", repoPath] : null,
-    () => listWorkspaceStatuses(repoPath),
+    queryRepoKey ? ["workspace-statuses", queryRepoKey] : null,
+    () => listWorkspaceStatuses(dataRepoPath),
     { refreshInterval: pollMs(10000) },
   );
 
@@ -1281,8 +1409,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       terminalPaneRef.current?.closeTerminalsForWorkspace(
         getFullWorkspacePath(workspace),
       );
-      void invalidateQueries(["workspaces", repoPath]);
-      invalidateQueries(["workspace-statuses", repoPath]);
+      void invalidateQueries(["workspaces", queryRepoKey]);
+      invalidateQueries(["workspace-statuses", queryRepoKey]);
       handleReturnToDashboard(); // Navigate to dashboard & clear selected workspace
       addToast({
         title: "Workspace Archived",
@@ -1307,8 +1435,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       terminalPaneRef.current?.closeTerminalsForWorkspace(
         getFullWorkspacePath(workspace),
       );
-      void invalidateQueries(["workspaces", repoPath]);
-      invalidateQueries(["workspace-statuses", repoPath]);
+      void invalidateQueries(["workspaces", queryRepoKey]);
+      invalidateQueries(["workspace-statuses", queryRepoKey]);
       handleReturnToDashboard();
       addToast({
         title: "Workspace Archived",
@@ -1435,6 +1563,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
         result.descriptor.endpoint_id,
         result.descriptor.endpoint_generation,
       );
+      const connectedRepo = connectedRepoFromDescriptor(
+        result.descriptor,
+        activeEndpoint,
+        result.inspection,
+      );
+      await setSetting("last_opened_remote_repo", JSON.stringify(connectedRepo));
+      if (!cancelled) setActiveRemoteRepo(connectedRepo);
     })();
     return () => {
       cancelled = true;
@@ -1622,8 +1757,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             true,
           );
 
-          void invalidateQueries(["workspaces", repoPath]);
-          invalidateQueries(["workspace-statuses", repoPath]);
+          void invalidateQueries(["workspaces", queryRepoKey]);
+          invalidateQueries(["workspace-statuses", queryRepoKey]);
 
           addToast({
             title: result.success
@@ -1824,12 +1959,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setSelectedWorkspace(next);
     setViewMode("show-workspace");
     if (repoPath) {
-      void invalidateReviewChangeCount(repoPath, next?.id ?? null);
+      void invalidateReviewChangeCount(queryRepoKey, next?.id ?? null);
     }
   };
 
   const { moveWorkspace } = useWorkspaceHierarchy({
-    repoPath,
+    repoPath: dataRepoPath,
     workspaces,
     defaultBranch: effectiveDefaultBranch,
   });
@@ -1893,8 +2028,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         type: "success",
       });
       setPendingChangeMove(null);
-      await invalidateQueries(["workspaces", repoPath]);
-      await invalidateQueries(["workspace-statuses", repoPath]);
+      await invalidateQueries(["workspaces", queryRepoKey]);
+      await invalidateQueries(["workspace-statuses", queryRepoKey]);
       await invalidateReviewChangeCount(
         repoPath,
         selectedWorkspace?.id ?? null,
@@ -1919,6 +2054,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     workspaceId: number | null,
     agent?: "claude" | "codex" | "cursor",
   ) => {
+    if (!remoteCaps.agentPty.supported) {
+      addToast({
+        title: "Agent terminal unavailable",
+        description: remoteCaps.agentPty.reason,
+        type: "warning",
+      });
+      return;
+    }
     const workspace = workspaceId
       ? (workspaces.find((w) => w.id === workspaceId) ?? null)
       : null;
@@ -1964,7 +2107,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  const remoteConnectionState = cutoffReason
+    ? "cutoff"
+    : connectionStateFromInstanceState(
+        instanceStatus?.instance?.status,
+        Boolean(activeSshEndpoint) || Boolean(activeRemoteRepo),
+      );
+
+  const handleRefreshRemote = () => {
+    invalidateRemoteRepositoryData();
+    void refreshInstanceStatus();
+  };
+
   const handleStartShellFromSidebar = (workspace: Workspace) => {
+    if (!remoteCaps.shell.supported) {
+      addToast({
+        title: "Shell unavailable",
+        description: remoteCaps.shell.reason,
+        type: "warning",
+      });
+      return;
+    }
     setSelectedWorkspace(workspace);
     terminalPaneRef.current?.createShellSession(
       getFullWorkspacePath(workspace),
@@ -1972,14 +2135,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleStartHomeShellFromSidebar = () => {
+    if (!remoteCaps.shell.supported) {
+      addToast({
+        title: "Shell unavailable",
+        description: remoteCaps.shell.reason,
+        type: "warning",
+      });
+      return;
+    }
     setSelectedWorkspace(null);
-    if (repoPath) {
-      terminalPaneRef.current?.createShellSession(repoPath);
+    if (dataRepoPath) {
+      terminalPaneRef.current?.createShellSession(dataRepoPath);
     }
   };
 
   const handleStackHomeFromSidebar = () => {
-    if (!repoPath) return;
+    if (!dataRepoPath) return;
     if (!effectiveDefaultBranch) {
       addToast({
         title: "Cannot create stacked workspace",
@@ -2230,8 +2401,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         type: "success",
       });
       await new Promise((resolve) => setTimeout(resolve, 220));
-      await invalidateQueries(["workspaces", repoPath]);
-      invalidateQueries(["workspace-statuses", repoPath]);
+      await invalidateQueries(["workspaces", queryRepoKey]);
+      invalidateQueries(["workspace-statuses", queryRepoKey]);
       handleReturnToDashboard();
     } catch (error) {
       addToast({
@@ -2265,11 +2436,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setCurrentBranch(branchName);
       setHomeRepoDisplayRef(branchName);
     }
-    void invalidateQueries(["repo-status", repoPath]);
-    void invalidateQueries(["repo-branch", repoPath]);
+    void invalidateQueries(["repo-status", queryRepoKey]);
+    void invalidateQueries(["repo-branch", queryRepoKey]);
     // Refresh workspace data
-    void invalidateQueries(["workspaces", repoPath]);
-    invalidateQueries(["workspace-statuses", repoPath]);
+    void invalidateQueries(["workspaces", queryRepoKey]);
+    invalidateQueries(["workspace-statuses", queryRepoKey]);
     void invalidateQueries(["workspace-review-change-count", repoPath]);
     dispatchRefreshWorkspaceChanges();
   };
@@ -2432,170 +2603,68 @@ export const Dashboard: React.FC<DashboardProps> = ({
     />
   );
 
-  if (
-    remoteSshEnabled &&
-    !repoPath &&
-    (activeRemoteRepo || activeSshEndpoint)
-  ) {
-    const connectionState = activeSshEndpoint
-      ? connectionStateFromInstanceState(
-          instanceStatus?.instance?.status,
-          explicitEndpointRepoConnected,
-        )
-      : "online";
-    const closeRemote = () => {
-      void clearLastOpenedRemoteRepository();
-      setActiveRemoteRepo(null);
-      setActiveSshEndpoint(null);
-      setExplicitEndpointRepoConnected(false);
-    };
-
-    return (
-      <>
-        <div className="flex h-screen flex-col bg-background">
-          <div className="flex items-center justify-between border-b px-4 py-2">
-            <div>
-              <p className="text-sm font-medium">Remote repository connected</p>
-              <p className="text-xs text-muted-foreground">
-                {activeRemoteRepo
-                  ? `${activeRemoteRepo.host}:${activeRemoteRepo.path}`
-                  : `${activeSshEndpoint!.username}@${activeSshEndpoint!.hostname}:${activeSshEndpoint!.port}`}
-              </p>
-            </div>
-            <Button variant="outline" size="sm" onClick={closeRemote}>
-              Close
+  const explicitEndpointPathForm =
+    activeSshEndpoint && !activeRemoteRepo && !dataRepoPath ? (
+      <div className="flex flex-col gap-3 border-b px-4 py-3">
+        {cutoffs[activeSshEndpoint.id] && (
+          <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm">
+            <p className="font-medium text-red-700 dark:text-red-300">
+              Access blocked (
+              {cutoffs[activeSshEndpoint.id].split("_").join(" ")})
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              This instance is cut off from further commands until you
+              reauthenticate and obtain a new certificate.
+            </p>
+            <Button
+              size="sm"
+              className="mt-2"
+              onClick={() => void handleReauthenticateManaged()}
+            >
+              Reauthenticate
             </Button>
           </div>
-          <div className="border-b px-4 py-1.5">
-            <RemoteStatusBanner
-              state={connectionState}
-              onRefresh={() => void refreshInstanceStatus()}
-              onWake={() => void handleWakeManaged()}
-              onReconnect={() => void refreshInstanceStatus()}
-            />
-          </div>
+        )}
+        {!explicitEndpointRepoConnected && !cutoffs[activeSshEndpoint.id] && (
+          <RemoteRepositorySelector
+            savedRepositories={savedRemoteRepos}
+            selectedId={selectedSavedRepoId}
+            path={explicitEndpointRepoPath}
+            probe={explicitEndpointProbe}
+            cloneUrl={explicitEndpointCloneUrl}
+            confirmInit={confirmInitRemoteRepo}
+            busy={remoteRepoBusy}
+            error={explicitEndpointError}
+            onSelectSaved={(id) => void handleSelectSavedRemoteRepo(id)}
+            onPathChange={(next) => {
+              setExplicitEndpointRepoPath(next);
+              setSelectedSavedRepoId(null);
+              setExplicitEndpointProbe(null);
+              setExplicitEndpointRepoConnected(false);
+            }}
+            onProbe={() => void handleProbeExplicitEndpointRepo()}
+            onCloneUrlChange={setExplicitEndpointCloneUrl}
+            onConfirmInitChange={setConfirmInitRemoteRepo}
+            onOpenExisting={() => void handleConnectExplicitEndpointRepo()}
+            onClone={() => void handleCloneExplicitEndpointRepo()}
+            onInit={() => void handleInitExplicitEndpointRepo()}
+          />
+        )}
+      </div>
+    ) : null;
 
-          {activeSshEndpoint && (
-            <div className="border-b px-4 py-3">
-              <RemoteRepositorySelector
-                savedRepositories={savedRemoteRepos}
-                selectedId={selectedSavedRepoId}
-                path={explicitEndpointRepoPath}
-                probe={explicitEndpointProbe}
-                cloneUrl={explicitEndpointCloneUrl}
-                confirmInit={confirmInitRemoteRepo}
-                busy={remoteRepoBusy}
-                error={explicitEndpointError}
-                onSelectSaved={(id) => void handleSelectSavedRemoteRepo(id)}
-                onPathChange={(next) => {
-                  setExplicitEndpointRepoPath(next);
-                  setSelectedSavedRepoId(null);
-                  setExplicitEndpointProbe(null);
-                  setExplicitEndpointRepoConnected(false);
-                }}
-                onProbe={() => void handleProbeExplicitEndpointRepo()}
-                onCloneUrlChange={setExplicitEndpointCloneUrl}
-                onConfirmInitChange={setConfirmInitRemoteRepo}
-                onOpenExisting={() => void handleConnectExplicitEndpointRepo()}
-                onClone={() => void handleCloneExplicitEndpointRepo()}
-                onInit={() => void handleInitExplicitEndpointRepo()}
-              />
-            </div>
-          )}
-
-          {activeSshEndpoint && cutoffs[activeSshEndpoint.id] && (
-            <div className="border-b border-red-500/40 bg-red-500/10 px-4 py-3 text-sm">
-              <p className="font-medium text-red-700 dark:text-red-300">
-                Access blocked (
-                {cutoffs[activeSshEndpoint.id].split("_").join(" ")})
-              </p>
-              <p className="mt-1 text-muted-foreground">
-                This instance is cut off from further commands until you
-                reauthenticate and obtain a new certificate.
-              </p>
-              <Button
-                size="sm"
-                className="mt-2"
-                onClick={() => void handleReauthenticateManaged()}
-              >
-                Reauthenticate
-              </Button>
-            </div>
-          )}
-
-          {activeSshEndpoint &&
-            !explicitEndpointRepoConnected &&
-            !cutoffs[activeSshEndpoint.id] && (
-              <div className="flex flex-col gap-2 border-b px-4 py-3">
-                <label className="flex flex-col gap-1 max-w-md">
-                  <span className="text-sm font-medium">
-                    Remote repository path
-                  </span>
-                  <input
-                    className="rounded-md border border-border/60 bg-background px-2 py-1.5"
-                    value={explicitEndpointRepoPath}
-                    onChange={(e) =>
-                      setExplicitEndpointRepoPath(e.target.value)
-                    }
-                  />
-                </label>
-                {explicitEndpointError && (
-                  <p className="text-sm text-red-600 dark:text-red-400">
-                    {explicitEndpointError}
-                  </p>
-                )}
-                <Button
-                  size="sm"
-                  className="w-fit"
-                  onClick={() => void handleConnectExplicitEndpointRepo()}
-                >
-                  Connect
-                </Button>
-              </div>
-            )}
-
-          <div className="flex-1 min-h-0">
-            {activeRemoteRepo ? (
-              <WorkspaceTerminalPane
-                ref={terminalPaneRef}
-                key={activeRemoteRepo.host + activeRemoteRepo.path}
-                workingDirectory={activeRemoteRepo.path}
-                remoteHost={activeRemoteRepo.host}
-                onCreateNewSession={() => {}}
-              />
-            ) : (
-              activeSshEndpoint &&
-              explicitEndpointRepoConnected &&
-              !cutoffs[activeSshEndpoint.id] && (
-                <RemoteReviewPanel
-                  endpoint={activeSshEndpoint}
-                  endpointGeneration={activeEndpointGeneration}
-                  location={
-                    locationFromHostAndPath(
-                      activeSshEndpoint.hostname,
-                      explicitEndpointRepoPath,
-                    )!
-                  }
-                  onRefreshRequested={() => void refreshInstanceStatus()}
-                />
-              )
-            )}
-          </div>
-        </div>
-        {remoteSetupDialog}
-        {remoteSshDialog}
-      </>
-    );
-  }
-
-  return !repoPath ? (
+  return (
+    <ActiveRepositoryProvider repository={activeRepository}>
+      {!dataRepoPath ? (
     <>
       <Onboarding
         onOpenRepo={handleOpenRepository}
         onOpenRemoteSsh={remoteSshEnabled ? handleOpenRemoteSetup : undefined}
       />
+      {explicitEndpointPathForm}
       {remoteSetupDialog}
       {remoteSshDialog}
+      <RemoteAmbiguousMutationDialog />
     </>
   ) : (
     <SidebarProvider
@@ -2603,7 +2672,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       style={sidebarWidthStyle}
     >
       <WorkspaceSidebar
-        repoPath={repoPath}
+        repoPath={dataRepoPath}
         homeRepoDisplayRef={homeRepoDisplayRef}
         selectedWorkspaceId={selectedWorkspace?.id ?? null}
         selectedWorkspaceIds={selectedWorkspaceIds}
@@ -2663,8 +2732,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
           className="absolute inset-0 flex flex-col workspace-terminal-container overflow-hidden"
           style={sessionLayerStyle}
         >
+          {isRemoteActive && (
+            <div className="shrink-0 border-b">
+              <div className="flex items-center justify-between px-4 py-1 text-xs text-muted-foreground">
+                <span>{activeRepository?.displayName}</span>
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  onClick={handleRefreshRemote}
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="px-4 pb-1.5">
+                <RemoteStatusBanner
+                  state={remoteConnectionState}
+                  detail={
+                    cutoffReason
+                      ? "Access is blocked until you reauthenticate."
+                      : undefined
+                  }
+                  onRefresh={handleRefreshRemote}
+                  onWake={() => void handleWakeManaged()}
+                  onReconnect={() => void refreshInstanceStatus()}
+                />
+              </div>
+              <RemoteCapabilityNotice capabilities={remoteCaps} />
+            </div>
+          )}
           {/* Show workspace views take up remaining space */}
-          {repoPath && (
+          {dataRepoPath && (
             <div className="flex-1 min-h-0 overflow-hidden relative">
               <ErrorBoundary
                 fallbackTitle="Workspace error"
@@ -2672,7 +2769,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 onReset={handleReturnToDashboard}
               >
                 <ShowWorkspace
-                  repositoryPath={repoPath}
+                  repositoryPath={dataRepoPath}
                   workspace={selectedWorkspace}
                   onActiveTabChange={setShowWorkspaceActiveTab}
                   mainRepoBranch={effectiveDefaultBranch}
@@ -2725,11 +2822,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {/* Shared workspace terminal pane - always rendered to preserve state */}
           <WorkspaceTerminalPane
             ref={terminalPaneRef}
-            key={repoPath}
+            key={queryRepoKey}
             workingDirectory={
               selectedWorkspace
                 ? getFullWorkspacePath(selectedWorkspace)
-                : repoPath
+                : dataRepoPath
             }
             currentBranch={effectiveDefaultBranch}
             claudeSessions={claudeSessionsForPane}
@@ -2801,27 +2898,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {/* Settings View */}
           {viewMode === "settings" && (
             <SettingsPage
-              repoPath={repoPath}
+              repoPath={dataRepoPath}
               onClose={closeSettings}
               currentBranch={effectiveDefaultBranch}
             />
           )}
 
           {viewMode === "artifacts" && (
-            <ArtifactsPage repoPath={repoPath} onClose={closeArtifacts} />
+            <ArtifactsPage repoPath={dataRepoPath} onClose={closeArtifacts} />
           )}
 
           {/* GitHub Panel */}
           {viewMode === "github" && (
             <GitHubPanel
-              repoPath={repoPath}
+              repoPath={dataRepoPath}
               onOpenSettings={openSettings}
               onStartPromptFromIssue={handleStartPromptFromIssue}
               onOpenWorkspace={async (workspaceId) => {
-                await invalidateQueries(["workspaces", repoPath]);
+                await invalidateQueries(["workspaces", queryRepoKey]);
                 const updatedWorkspaces = await fetchAndCache(
                   ["workspaces", repoPath],
-                  () => getWorkspaces(repoPath),
+                  () => getWorkspaces(dataRepoPath),
                 );
                 const workspace = updatedWorkspaces.find(
                   (w) => w.id === workspaceId,
@@ -2836,13 +2933,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {/* Linear Panel */}
           {viewMode === "linear" && linearIntegrationEnabled && (
             <LinearPanel
-              repoPath={repoPath}
+              repoPath={dataRepoPath}
               onStartPromptFromIssue={handleStartPromptFromLinearIssue}
               onOpenWorkspace={async (workspaceId) => {
-                await invalidateQueries(["workspaces", repoPath]);
+                await invalidateQueries(["workspaces", queryRepoKey]);
                 const updatedWorkspaces = await fetchAndCache(
                   ["workspaces", repoPath],
-                  () => getWorkspaces(repoPath),
+                  () => getWorkspaces(dataRepoPath),
                 );
                 const workspace = updatedWorkspaces.find(
                   (w) => w.id === workspaceId,
@@ -2858,7 +2955,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {viewMode === "merge-preview" && mergeWorkspace && (
             <MergePreviewPage
               workspace={mergeWorkspace}
-              repoPath={repoPath}
+              repoPath={dataRepoPath}
               onCancel={() => {
                 setMergeWorkspace(null);
                 setViewMode("show-workspace");
@@ -2884,10 +2981,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 setMergeWorkspace(null);
                 setViewMode("show-workspace");
                 handleReturnToDashboard();
-                void invalidateQueries(["repo-status", repoPath]);
-                void invalidateQueries(["repo-branch", repoPath]);
-                void invalidateQueries(["workspaces", repoPath]);
-                void invalidateQueries(["workspace-statuses", repoPath]);
+                void invalidateQueries(["repo-status", queryRepoKey]);
+                void invalidateQueries(["repo-branch", queryRepoKey]);
+                void invalidateQueries(["workspaces", queryRepoKey]);
+                void invalidateQueries(["workspace-statuses", queryRepoKey]);
                 // }
               }}
             />
@@ -2943,14 +3040,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onOpenChange={(open) => {
           if (!open) setUnifiedDialogDefaults(null);
         }}
-        repoPath={repoPath}
+        repoPath={dataRepoPath}
         defaults={unifiedDialogDefaults ?? {}}
         onSuccess={async (workspaceId) => {
-          await invalidateQueries(["workspaces", repoPath]);
-          invalidateQueries(["workspace-statuses", repoPath]);
+          await invalidateQueries(["workspaces", queryRepoKey]);
+          invalidateQueries(["workspace-statuses", queryRepoKey]);
           const updatedWorkspaces = await fetchAndCache(
             ["workspaces", repoPath],
-            () => getWorkspaces(repoPath),
+            () => getWorkspaces(dataRepoPath),
           );
           const newWorkspace = updatedWorkspaces.find(
             (w) => w.id === workspaceId,
@@ -2964,7 +3061,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <TerminalMissionControl
         open={showTerminalMissionControl}
         sessions={terminalSessionSummaries}
-        repoPath={repoPath}
+        repoPath={dataRepoPath}
         workspaces={workspaces}
         onClose={() => setShowTerminalMissionControl(false)}
         onFocus={handleFocusTerminalSession}
@@ -3009,13 +3106,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onFilePickerChange={setShowFilePicker}
         onFileSelected={(filePath) => setSessionSelectedFile(filePath)}
         selectedWorkspaceId={selectedWorkspace?.id ?? null}
-        repoPath={repoPath}
+        repoPath={dataRepoPath}
       />
 
       <AgentPromptDialog
         open={showAgentPromptDialog}
         onOpenChange={handleAgentPromptDialogOpenChange}
-        repoPath={repoPath}
+        repoPath={dataRepoPath}
         defaultBranch={effectiveDefaultBranch}
         workspaces={workspaces}
         onSessionCreated={handleSessionCreated}
@@ -3028,7 +3125,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <PromptHistoryModal
         open={showPromptHistory}
         onOpenChange={handlePromptHistoryOpenChange}
-        repoPath={repoPath}
+        repoPath={dataRepoPath}
         initialSelectedId={promptHistoryFocusId}
         onRunPrompt={handleRunPrompt}
       />
@@ -3041,7 +3138,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <StashModal
         open={showStashModal}
         onOpenChange={setShowStashModal}
-        repoPath={repoPath}
+        repoPath={dataRepoPath}
         workspaces={visibleWorkspaces}
         onApplied={() => {
           void invalidateQueries(["workspace-changed-files"]);
@@ -3078,6 +3175,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onSelect={handleOpenSession}
       />
       {remoteSshDialog}
+      <RemoteAmbiguousMutationDialog />
     </SidebarProvider>
+    )}
+    </ActiveRepositoryProvider>
   );
 };
