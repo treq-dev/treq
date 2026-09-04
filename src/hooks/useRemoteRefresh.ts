@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
 import useSWR from "swr";
 import type { ActiveRepository } from "../lib/active-repository";
-import { isRemoteRepository, repositoryCacheKey } from "../lib/active-repository";
+import {
+  isRemoteRepository,
+  repositoryCacheKey,
+} from "../lib/active-repository";
 import { transportChangeMarker } from "../lib/repository-adapter";
 import { dispatch } from "../lib/remote-dispatch";
 import { invalidateRemoteRepositoryData } from "../lib/remote-mutation-ui";
@@ -15,17 +18,27 @@ export function useRemoteAgentRefresh(
   repo: ActiveRepository | null,
   workspaceId: number | null,
 ) {
-  const enabled = isRemoteRepository(repo) && workspaceId != null;
+  const remoteRepo = isRemoteRepository(repo) ? repo : null;
+  const cacheKey =
+    remoteRepo && workspaceId != null && remoteRepo.endpoint
+      ? ([
+          "remote-agent-status",
+          repositoryCacheKey(remoteRepo),
+          workspaceId,
+        ] as const)
+      : null;
   const { data } = useSWR(
-    enabled
-      ? ["remote-agent-status", repositoryCacheKey(repo), workspaceId]
-      : null,
-    () =>
-      dispatch<RemoteAgentStatus>(repo!.endpoint, {
+    cacheKey,
+    async () => {
+      if (!remoteRepo?.canonicalPath || workspaceId == null) {
+        return { running: false, should_refresh: false };
+      }
+      return dispatch<RemoteAgentStatus>(remoteRepo.endpoint, {
         kind: "AgentStatus",
-        repo: repo!.canonicalPath,
+        repo: remoteRepo.canonicalPath,
         workspace: String(workspaceId),
-      }),
+      });
+    },
     { refreshInterval: 5_000, dedupingInterval: 2_000 },
   );
 
@@ -38,11 +51,18 @@ export function useRemoteChangeMarkerWatch(
   repo: ActiveRepository | null,
   workspaceId: number | null,
 ) {
-  const enabled = isRemoteRepository(repo);
-  const identity = repo ? repositoryCacheKey(repo) : "";
+  const remoteRepo = isRemoteRepository(repo) ? repo : null;
+  const identity = remoteRepo ? repositoryCacheKey(remoteRepo) : "";
   const { data } = useSWR(
-    enabled ? ["remote-change-marker", identity, workspaceId] : null,
-    () => transportChangeMarker(repo!, workspaceId),
+    remoteRepo
+      ? (["remote-change-marker", identity, workspaceId] as const)
+      : null,
+    async () => {
+      if (!remoteRepo) {
+        return { operation_id: "" };
+      }
+      return transportChangeMarker(remoteRepo, workspaceId);
+    },
     { refreshInterval: 4_000, dedupingInterval: 1_500 },
   );
 
@@ -54,7 +74,7 @@ export function useRemoteChangeMarkerWatch(
 
   useEffect(() => {
     const operationId = data?.operation_id;
-    if (!operationId || !enabled) return;
+    if (!operationId || !remoteRepo) return;
     if (lastSeenOperationId.current === null) {
       lastSeenOperationId.current = operationId;
       return;
@@ -63,5 +83,5 @@ export function useRemoteChangeMarkerWatch(
       lastSeenOperationId.current = operationId;
       invalidateRemoteRepositoryData();
     }
-  }, [data?.operation_id, enabled]);
+  }, [data?.operation_id, remoteRepo]);
 }

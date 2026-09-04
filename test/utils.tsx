@@ -264,9 +264,15 @@ export async function commitWorkspaceFile(
 export async function findSidebarBranchElement(
   branchName: string,
 ): Promise<HTMLElement> {
-  const sidebarRoot = document.querySelector(
-    `.${CSS.escape("group/sidebar")}`,
-  ) as HTMLElement;
+  const sidebarRoot = await waitFor(() => {
+    const el = document.querySelector(
+      "[data-testid='workspace-sidebar']",
+    ) as HTMLElement | null;
+    if (!el) {
+      throw new Error("workspace sidebar not mounted");
+    }
+    return el;
+  });
   await waitFor(() => {
     expect(within(sidebarRoot).getAllByText(branchName).length).toBeGreaterThan(
       0,

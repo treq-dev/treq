@@ -1,14 +1,22 @@
 import * as React from "react";
 import userEvent from "@testing-library/user-event";
-import { act, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Dashboard } from "../../src/components/Dashboard";
-import { createWorkspace, getWorkspaces, setSetting } from "../../src/lib/api";
+import {
+  createCommit,
+  createWorkspace,
+  ensureWorkspaceIndexed,
+  getWorkspaces,
+  setSetting,
+} from "../../src/lib/api";
 import { useRemoteMutationFeedback } from "../../src/lib/remote-mutation-ui";
 import { useRemoteCutoffStore } from "../../src/stores/remoteCutoffStore";
-import { render, screen, waitFor, within } from "../test-utils";
+import { act, render, screen, waitFor, within } from "../test-utils";
 import {
   createTestRepo,
   findSidebarBranchElement,
+  newCommitWithParents,
+  resolveChangeId,
   resolveWorkspacePath,
   writeWorkspaceFile,
 } from "../utils";
@@ -119,6 +127,41 @@ describe("remote workspace UI", () => {
     expect(screen.getByTestId("remote-capability-notice")).toHaveTextContent(
       "Commit split is not yet available",
     );
+
+    await user.click(await screen.findByText("remote-change.txt"));
+    expect(await screen.findByText(/hello remote/)).toBeTruthy();
+  });
+
+  it("shows remote conflicts in the workspace review UI", async () => {
+    const { repoPath } = createTestRepo(false);
+    const workspaceId = await createWorkspace(repoPath, "feat/conflict");
+    const workspace = (await getWorkspaces(repoPath)).find(
+      (item) => item.id === workspaceId,
+    );
+    if (!workspace) throw new Error("workspace missing");
+    const workspacePath = resolveWorkspacePath(
+      repoPath,
+      workspace.workspace_path,
+    );
+
+    writeWorkspaceFile(workspacePath, "README.md", "workspace side\n");
+    await createCommit(repoPath, workspaceId, "workspace conflicting change");
+    const workspaceChangeId = resolveChangeId(workspacePath, "@-");
+
+    writeWorkspaceFile(repoPath, "README.md", "main side\n");
+    await createCommit(repoPath, null, "main conflicting change");
+    const mainChangeId = resolveChangeId(repoPath, "@-");
+
+    newCommitWithParents(workspacePath, [workspaceChangeId, mainChangeId]);
+    await ensureWorkspaceIndexed(repoPath, workspaceId, workspacePath);
+    await openSavedRemoteRepo(repoPath);
+
+    render(React.createElement(Dashboard));
+    await user.click(await findSidebarBranchElement("feat/conflict"));
+    await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
+
+    expect(await screen.findByRole("button", { name: "Conflicts" })).toBeTruthy();
+    expect(await screen.findByTitle("README.md")).toBeTruthy();
   });
 
   it("disables shell and agent actions from remote capabilities", async () => {
@@ -151,6 +194,8 @@ describe("remote workspace UI", () => {
     const banner = await screen.findByTestId("remote-status-banner");
     expect(banner).toHaveAttribute("data-state", "cutoff");
     expect(banner).toHaveTextContent("reauthenticate");
+    expect(screen.getByTestId("remote-cutoff-overlay")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
   });
 
   it("explains an ambiguous mutation without retrying", async () => {

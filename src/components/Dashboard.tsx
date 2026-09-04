@@ -389,11 +389,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     useState<InstanceStatusResponse | null>(null);
   const [provisioningStage, setProvisioningStage] = useState<string>();
   const [provisioningError, setProvisioningError] = useState<string>();
-  // Set only for an explicit (non-alias) user-managed or managed endpoint,
-  // where structured review data can be fetched through Phase 5's native
-  // dispatch. Alias-mode endpoints keep using the terminal-only path below,
-  // since the native SSH transport requires an explicit host key rather
-  // than resolving `~/.ssh/config` (see "Host-key verification").
+  // Explicit user-managed or managed endpoints carry a native SSH identity.
+  // Alias-backed repositories still use the same workspace tree; they
+  // dispatch through `remote_dispatch_local` until an endpoint with a
+  // pinned host key is attached (native SSH does not resolve ~/.ssh/config).
   const [activeSshEndpoint, setActiveSshEndpoint] =
     useState<SshEndpoint | null>(null);
   const [activeEndpointGeneration, setActiveEndpointGeneration] = useState(0);
@@ -2115,6 +2114,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       );
 
   const handleRefreshRemote = () => {
+    if (cutoffReason) return;
     invalidateRemoteRepositoryData();
     void refreshInstanceStatus();
   };
@@ -2668,9 +2668,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
     </>
   ) : (
     <SidebarProvider
-      className="h-screen bg-background"
+      className="relative h-screen bg-background"
       style={sidebarWidthStyle}
     >
+      {cutoffReason && (
+        <div
+          data-testid="remote-cutoff-overlay"
+          className="absolute inset-0 z-40 bg-background/40"
+          aria-hidden
+        />
+      )}
       <WorkspaceSidebar
         repoPath={dataRepoPath}
         homeRepoDisplayRef={homeRepoDisplayRef}
@@ -2733,13 +2740,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
           style={sessionLayerStyle}
         >
           {isRemoteActive && (
-            <div className="shrink-0 border-b">
+            <div className="relative z-50 shrink-0 border-b bg-background">
               <div className="flex items-center justify-between px-4 py-1 text-xs text-muted-foreground">
                 <span>{activeRepository?.displayName}</span>
                 <button
                   type="button"
                   className="underline underline-offset-2"
                   onClick={handleRefreshRemote}
+                  disabled={Boolean(cutoffReason)}
                 >
                   Refresh
                 </button>
