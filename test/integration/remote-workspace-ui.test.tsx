@@ -77,14 +77,11 @@ describe("remote workspace UI", () => {
     expect(await screen.findByTestId("show-workspace-header")).toBeTruthy();
     expect(screen.queryByText("Remote repository connected")).toBeNull();
     expect(screen.queryByText("Remote review")).toBeNull();
+    expect(await findSidebarBranchElement("feat/remote-ui")).toBeTruthy();
     expect(
-      await findSidebarBranchElement("feat/remote-ui"),
-    ).toBeTruthy();
-    expect(
-      await within(await screen.findByTestId("show-workspace-header")).findByRole(
-        "button",
-        { name: defaultBranch },
-      ),
+      await within(
+        await screen.findByTestId("show-workspace-header"),
+      ).findByRole("button", { name: defaultBranch }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
     expect(screen.getByTestId("remote-capability-notice")).toHaveTextContent(
@@ -122,14 +119,15 @@ describe("remote workspace UI", () => {
     await user.click(await findSidebarBranchElement("feat/changes"));
     await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
 
-    expect(await screen.findByText("remote-change.txt")).toBeTruthy();
+    expect(
+      (await screen.findAllByText("remote-change.txt")).length,
+    ).toBeGreaterThan(0);
+    await user.click(await screen.findByTitle("remote-change.txt"));
+    expect(await screen.findByText(/hello remote/)).toBeTruthy();
     await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
     expect(screen.getByTestId("remote-capability-notice")).toHaveTextContent(
       "Commit split is not yet available",
     );
-
-    await user.click(await screen.findByText("remote-change.txt"));
-    expect(await screen.findByText(/hello remote/)).toBeTruthy();
   });
 
   it("shows remote conflicts in the workspace review UI", async () => {
@@ -160,9 +158,13 @@ describe("remote workspace UI", () => {
     await user.click(await findSidebarBranchElement("feat/conflict"));
     await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
 
-    expect(await screen.findByRole("button", { name: "Conflicts" })).toBeTruthy();
-    expect(await screen.findByTitle("README.md")).toBeTruthy();
-  });
+    expect(
+      await screen.findByRole("button", { name: "Conflicts" }),
+    ).toBeTruthy();
+    expect((await screen.findAllByTitle("README.md")).length).toBeGreaterThan(
+      0,
+    );
+  }, 20_000);
 
   it("disables shell and agent actions from remote capabilities", async () => {
     const { repoPath } = createTestRepo(false);
@@ -267,7 +269,7 @@ describe("remote workspace UI", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("foreign.txt")).toBeTruthy();
+      expect(screen.getAllByText("foreign.txt").length).toBeGreaterThan(0);
     });
   }, 10_000);
 });

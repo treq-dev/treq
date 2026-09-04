@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import useSWR from "swr";
-import type { ActiveRepository } from "../lib/active-repository";
 import {
+  type ActiveRepository,
   isRemoteRepository,
   repositoryCacheKey,
 } from "../lib/active-repository";

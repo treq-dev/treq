@@ -1,4 +1,4 @@
-import { REMOTE_NOT_IMPLEMENTED } from "./remote-dispatch";
+import { isRemoteActionSupported } from "./remote-dispatch";
 
 /**
  * Capabilities the current client may offer for a remote repository.
@@ -36,12 +36,13 @@ export function remoteCapabilities(): RemoteCapabilities {
     },
     agentLifecycle: { supported: true },
     splitCommit: {
-      supported: !REMOTE_NOT_IMPLEMENTED.has("SplitCommit"),
+      supported: isRemoteActionSupported("SplitCommit"),
       reason: "Commit split is not yet available on remote repositories.",
     },
     agentInput: {
-      supported: !REMOTE_NOT_IMPLEMENTED.has("AgentInput"),
-      reason: "Sending agent input is not yet available on remote repositories.",
+      supported: isRemoteActionSupported("AgentInput"),
+      reason:
+        "Sending agent input is not yet available on remote repositories.",
     },
   };
 }
@@ -56,8 +57,6 @@ export function localCapabilities(): RemoteCapabilities {
   };
 }
 
-export function capabilitiesFor(
-  isRemote: boolean,
-): RemoteCapabilities {
+export function capabilitiesFor(isRemote: boolean): RemoteCapabilities {
   return isRemote ? remoteCapabilities() : localCapabilities();
 }

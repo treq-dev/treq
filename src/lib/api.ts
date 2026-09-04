@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { InstalledSkill, RepoYamlConfig } from "./api-extra";
@@ -66,7 +67,9 @@ export const initRepo = (repoPath: string): Promise<void> =>
 
 // Database API
 export const getWorkspaces = (repoPath: string): Promise<Workspace[]> =>
-  transportGetWorkspaces(repoPath, () => invoke("get_workspaces", { repoPath }));
+  transportGetWorkspaces(repoPath, () =>
+    invoke("get_workspaces", { repoPath }),
+  );
 
 export const getRepoCurrentBranch = (repoPath: string): Promise<RepoBranch> =>
   transportGetRepoCurrentBranch(repoPath, () =>
@@ -222,17 +225,13 @@ export const getWorkspaceFileHunksBatch = (
   snapshotToken?: string,
 ): Promise<WorkspaceFileHunksBatch> =>
   enqueueJjExclusive(() =>
-    transportGetWorkspaceFileHunksBatch(
-      repoPath,
-      workspaceId,
-      filePaths,
-      () =>
-        invoke("get_workspace_file_hunks_batch", {
-          repoPath,
-          workspaceId,
-          filePaths,
-          snapshotToken: snapshotToken ?? null,
-        }),
+    transportGetWorkspaceFileHunksBatch(repoPath, workspaceId, filePaths, () =>
+      invoke("get_workspace_file_hunks_batch", {
+        repoPath,
+        workspaceId,
+        filePaths,
+        snapshotToken: snapshotToken ?? null,
+      }),
     ),
   );
 
@@ -344,7 +343,9 @@ export interface SyncStatus {
 }
 
 export const jjGitFetchBackground = (repoPath: string): Promise<void> =>
-  transportGitFetch(repoPath, () => invoke("jj_git_fetch_background", { repoPath }));
+  transportGitFetch(repoPath, () =>
+    invoke("jj_git_fetch_background", { repoPath }),
+  );
 
 export const pullWorkspaceFromRemote = (
   repoPath: string,

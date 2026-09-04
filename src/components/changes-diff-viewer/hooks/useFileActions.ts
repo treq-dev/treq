@@ -260,7 +260,10 @@ export function useFileActions({
       let result: string;
       if (stagedPaths.length > 0) {
         const active = peekActiveRepository();
-        if (active?.location.type === "ssh" && !remoteCapabilities().splitCommit.supported) {
+        if (
+          active?.location.type === "ssh" &&
+          !remoteCapabilities().splitCommit.supported
+        ) {
           addToast({
             title: "Split unavailable",
             description: remoteCapabilities().splitCommit.reason,

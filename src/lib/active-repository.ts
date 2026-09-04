@@ -1,5 +1,8 @@
-import type { RemoteRepository, SshEndpoint } from "./api-types-remote";
-import type { RepositoryLocation } from "./api-types-remote";
+import type {
+  RemoteRepository,
+  RepositoryLocation,
+  SshEndpoint,
+} from "./api-types-remote";
 import { remoteRepoIdentity } from "./remote-query-keys";
 
 /**
@@ -19,7 +22,9 @@ export interface ActiveRepository {
 
 export function isRemoteRepository(
   repo: ActiveRepository | null | undefined,
-): repo is ActiveRepository & { location: { type: "ssh"; host: string; path: string } } {
+): repo is ActiveRepository & {
+  location: { type: "ssh"; host: string; path: string };
+} {
   return repo?.location.type === "ssh";
 }
 
@@ -53,15 +58,18 @@ export function activeRepositoryFromRemote(
   endpoint?: SshEndpoint | null,
 ): ActiveRepository {
   const sshEndpoint = endpoint ?? saved.endpoint ?? null;
-  const location: RepositoryLocation =
-    saved.inspection?.descriptor?.location ?? {
-      type: "ssh",
-      host: saved.host,
-      path: saved.path,
-    };
+  const location: RepositoryLocation = saved.inspection?.descriptor
+    ?.location ?? {
+    type: "ssh",
+    host: saved.host,
+    path: saved.path,
+  };
   const canonicalPath = location.type === "ssh" ? location.path : location.path;
   const endpointId =
-    sshEndpoint?.id ?? saved.endpoint_id ?? saved.inspection?.descriptor?.id ?? null;
+    sshEndpoint?.id ??
+    saved.endpoint_id ??
+    saved.inspection?.descriptor?.id ??
+    null;
   const generation =
     saved.endpoint_generation ??
     (sshEndpoint?.source &&
@@ -95,5 +103,7 @@ export function matchesActiveCanonicalPath(
   repoPath: string | undefined,
 ): boolean {
   if (!repo || !repoPath) return false;
-  return repo.canonicalPath === repoPath || repositoryCacheKey(repo) === repoPath;
+  return (
+    repo.canonicalPath === repoPath || repositoryCacheKey(repo) === repoPath
+  );
 }

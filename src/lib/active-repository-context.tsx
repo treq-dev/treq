@@ -1,5 +1,10 @@
-import type { ReactNode } from "react";
-import { createContext, useContext, useLayoutEffect, useMemo } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
 import {
   type ActiveRepository,
   repositoryCacheKey,
@@ -45,8 +50,5 @@ export function useRepositoryCacheKey(
 
 export function useRemoteCapabilities(): RemoteCapabilities {
   const repo = useActiveRepository();
-  return useMemo(
-    () => capabilitiesFor(repo?.location.type === "ssh"),
-    [repo],
-  );
+  return useMemo(() => capabilitiesFor(repo?.location.type === "ssh"), [repo]);
 }

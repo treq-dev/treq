@@ -13,14 +13,16 @@ export function RemoteAmbiguousMutationDialog() {
   const clearAmbiguous = useRemoteMutationFeedback((s) => s.clearAmbiguous);
 
   return (
-    <Dialog open={Boolean(reason)} onOpenChange={(open) => !open && clearAmbiguous()}>
+    <Dialog
+      open={Boolean(reason)}
+      onOpenChange={(open) => !open && clearAmbiguous()}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Remote change could not be verified</DialogTitle>
           <DialogDescription>
-            A network interruption happened while a mutation was in flight.
-            Treq did not retry automatically because the remote state is
-            ambiguous.
+            A network interruption happened while a mutation was in flight. Treq
+            did not retry automatically because the remote state is ambiguous.
           </DialogDescription>
         </DialogHeader>
         <p className="text-sm" data-testid="remote-ambiguous-reason">

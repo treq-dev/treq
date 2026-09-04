@@ -39,10 +39,15 @@ function activeForPath(repoPath: string): ActiveRepository | null {
 function noteCutoffFromError(error: unknown, endpointId: string | null) {
   if (!endpointId) return;
   const message = error instanceof Error ? error.message : String(error);
-  if (!message.includes("credential_cutoff") && !message.includes("CredentialCutOff")) {
+  if (
+    !message.includes("credential_cutoff") &&
+    !message.includes("CredentialCutOff")
+  ) {
     return;
   }
-  useRemoteCutoffStore.getState().recordCutoff(endpointId, "certificate_expired");
+  useRemoteCutoffStore
+    .getState()
+    .recordCutoff(endpointId, "certificate_expired");
 }
 
 async function remoteDispatch<T>(
@@ -55,10 +60,6 @@ async function remoteDispatch<T>(
     noteCutoffFromError(error, repo.endpointId);
     throw error;
   }
-}
-
-export function isRemoteTransportPath(repoPath: string): boolean {
-  return activeForPath(repoPath) != null;
 }
 
 export async function transportGetWorkspaces(
@@ -194,14 +195,13 @@ export async function transportListCommits(
 ): Promise<JjLogResult> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const result = await remoteDispatch<JjLogResult | { commits?: JjLogResult["commits"] }>(
-    repo,
-    {
-      kind: "ListCommits",
-      repo: repo.canonicalPath,
-      workspace: workspaceArg(workspaceId),
-    },
-  );
+  const result = await remoteDispatch<
+    JjLogResult | { commits?: JjLogResult["commits"] }
+  >(repo, {
+    kind: "ListCommits",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+  });
   if (Array.isArray(result)) {
     return { commits: result } as JjLogResult;
   }
@@ -234,25 +234,27 @@ export async function transportGetWorkspaceDiff(
     transportGetWorkspaceChangedFiles(repoPath, workspaceId, async () => []),
     transportListConflicts(repoPath, workspaceId),
   ]);
-  const hunks_by_file: JjFileDiff[] = [];
-  for (const file of uncommitted) {
-    const hunks = await remoteDispatch<JjFileDiff["hunks"]>(repo, {
-      kind: "DiffFile",
-      repo: repo.canonicalPath,
-      workspace: workspaceArg(workspaceId),
-      path: file.path,
-    });
-    hunks_by_file.push({ path: file.path, hunks: hunks ?? [] });
-  }
+  const hunksByFile: JjFileDiff[] = await Promise.all(
+    uncommitted.map(async (file) => {
+      const hunks = await remoteDispatch<JjFileDiff["hunks"]>(repo, {
+        kind: "DiffFile",
+        repo: repo.canonicalPath,
+        workspace: workspaceArg(workspaceId),
+        path: file.path,
+      });
+      return { path: file.path, hunks: hunks ?? [] };
+    }),
+  );
   return {
     uncommitted_files: uncommitted,
     committed_files: [],
     conflicted_files: conflicted,
-    hunks_by_file,
+    hunks_by_file: hunksByFile,
     too_large_to_render: false,
   };
 }
 
+/* eslint-disable max-params -- matches local invoke arity */
 export async function transportGetWorkspaceFileHunksBatch<T>(
   repoPath: string,
   workspaceId: number | null,
