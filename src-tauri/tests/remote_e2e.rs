@@ -399,7 +399,10 @@ async fn wake_on_a_running_instance_is_not_suspension_recovery() {
 // the instance.
 // ---------------------------------------------------------------------------
 
-async fn try_force_suspend(cfg: &SpritesConfig, provider_resource_id: &str) -> Result<bool, String> {
+async fn try_force_suspend(
+  cfg: &SpritesConfig,
+  provider_resource_id: &str,
+) -> Result<bool, String> {
   let client = reqwest::Client::builder()
     .timeout(Duration::from_secs(30))
     .build()
@@ -482,7 +485,10 @@ async fn suspends_via_provider_test_api_then_wakes() {
     }
     tokio::time::sleep(Duration::from_secs(2)).await;
   }
-  assert!(suspended, "provider suspend API did not yield a Suspended state");
+  assert!(
+    suspended,
+    "provider suspend API did not yield a Suspended state"
+  );
 
   provider
     .wake_instance(&instance.provider_resource_id)

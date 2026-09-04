@@ -55,7 +55,10 @@ macro_rules! require_native {
     match native_cfg() {
       Some(cfg) => cfg,
       None => {
-        eprintln!("[remote-e2e-native] SKIP {}: missing native live credentials", module_path!());
+        eprintln!(
+          "[remote-e2e-native] SKIP {}: missing native live credentials",
+          module_path!()
+        );
         return;
       }
     }
@@ -66,7 +69,12 @@ fn e2e_tag() -> String {
   format!("treq-e2e-{}", uuid::Uuid::new_v4())
 }
 
-async fn json_post(url: &str, token: &str, extra_headers: &[(&str, &str)], body: Value) -> (u16, Value) {
+async fn json_post(
+  url: &str,
+  token: &str,
+  extra_headers: &[(&str, &str)],
+  body: Value,
+) -> (u16, Value) {
   let mut request = reqwest::Client::new()
     .post(url)
     .json(&body)
@@ -89,7 +97,9 @@ fn write_client_key(dir: &std::path::Path) -> (String, String) {
   use rand_core::UnwrapErr;
   let key = PrivateKey::random(&mut UnwrapErr(SysRng), russh::keys::Algorithm::Ed25519).unwrap();
   let path = dir.join("id_e2e");
-  let pem = key.to_openssh(russh::keys::ssh_key::LineEnding::LF).unwrap();
+  let pem = key
+    .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+    .unwrap();
   std::fs::write(&path, pem.as_bytes()).unwrap();
   #[cfg(unix)]
   {
@@ -144,7 +154,10 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   let admin = reqwest::Client::new();
 
   let created = admin
-    .post(format!("{}/auth/v1/admin/users", cfg.url.trim_end_matches('/')))
+    .post(format!(
+      "{}/auth/v1/admin/users",
+      cfg.url.trim_end_matches('/')
+    ))
     .header("apikey", &cfg.service_role_key)
     .bearer_auth(&cfg.service_role_key)
     .json(&serde_json::json!({
@@ -155,19 +168,29 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     .send()
     .await
     .expect("create user");
-  assert!(created.status().is_success(), "admin create user failed: {}", created.text().await.unwrap_or_default());
+  assert!(
+    created.status().is_success(),
+    "admin create user failed: {}",
+    created.text().await.unwrap_or_default()
+  );
   let created_json: Value = created.json().await.expect("create user json");
   let user_id = created_json["id"].as_str().unwrap_or_default().to_string();
 
   let sign_in = admin
-    .post(format!("{}/auth/v1/token?grant_type=password", cfg.url.trim_end_matches('/')))
+    .post(format!(
+      "{}/auth/v1/token?grant_type=password",
+      cfg.url.trim_end_matches('/')
+    ))
     .header("apikey", &cfg.anon_key)
     .json(&serde_json::json!({ "email": email, "password": password }))
     .send()
     .await
     .expect("sign in");
   let session: Value = sign_in.json().await.expect("session json");
-  let access = session["access_token"].as_str().expect("access_token").to_string();
+  let access = session["access_token"]
+    .as_str()
+    .expect("access_token")
+    .to_string();
 
   struct UserCleanup {
     url: String,
@@ -215,8 +238,14 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     anon_key: cfg.anon_key.clone(),
   };
 
-  let instance_url = format!("{}/functions/v1/remote-instance", cfg.url.trim_end_matches('/'));
-  let trust_url = format!("{}/functions/v1/remote-ssh-trust", cfg.url.trim_end_matches('/'));
+  let instance_url = format!(
+    "{}/functions/v1/remote-instance",
+    cfg.url.trim_end_matches('/')
+  );
+  let trust_url = format!(
+    "{}/functions/v1/remote-ssh-trust",
+    cfg.url.trim_end_matches('/')
+  );
   let api_headers = [("apikey", cfg.anon_key.as_str())];
 
   let (ensure_status, ensure_json) = json_post(
@@ -306,23 +335,41 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     .unwrap_or_default()
     .into_iter()
     .map(|row| TrustedHostKey {
-      algorithm: row["algorithm"].as_str().unwrap_or("ssh-ed25519").to_string(),
-      fingerprint_sha256: row["fingerprint_sha256"].as_str().unwrap_or_default().to_string(),
+      algorithm: row["algorithm"]
+        .as_str()
+        .unwrap_or("ssh-ed25519")
+        .to_string(),
+      fingerprint_sha256: row["fingerprint_sha256"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string(),
       comment: row["comment"].as_str().map(str::to_string),
     })
     .collect::<Vec<_>>();
-  assert!(!host_keys.is_empty(), "certificate response must include trusted host keys");
+  assert!(
+    !host_keys.is_empty(),
+    "certificate response must include trusted host keys"
+  );
 
   let mut endpoint = SshEndpoint {
-    id: endpoint_json["id"].as_str().unwrap_or("e2e-endpoint").to_string(),
+    id: endpoint_json["id"]
+      .as_str()
+      .unwrap_or("e2e-endpoint")
+      .to_string(),
     instance_id: Some(instance_id.clone()),
     source: SshEndpointSource::Managed {
       provider: "fly_sprites".to_string(),
       generation: endpoint_json["source"]["generation"].as_u64().unwrap_or(0),
     },
-    hostname: endpoint_json["hostname"].as_str().expect("hostname").to_string(),
+    hostname: endpoint_json["hostname"]
+      .as_str()
+      .expect("hostname")
+      .to_string(),
     port: endpoint_json["port"].as_u64().unwrap_or(22) as u16,
-    username: endpoint_json["username"].as_str().unwrap_or("treq").to_string(),
+    username: endpoint_json["username"]
+      .as_str()
+      .unwrap_or("treq")
+      .to_string(),
     host_keys,
     authentication: SshAuthentication::Certificate {
       key_reference: key_path.clone(),
@@ -353,16 +400,23 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   let inspect_a = exec_typed(
     &pool,
     &endpoint,
-    TreqCommandRequest::InspectRepository { repo: repo_a.clone() },
+    TreqCommandRequest::InspectRepository {
+      repo: repo_a.clone(),
+    },
   )
   .await;
   let inspect_b = exec_typed(
     &pool,
     &endpoint,
-    TreqCommandRequest::InspectRepository { repo: repo_b.clone() },
+    TreqCommandRequest::InspectRepository {
+      repo: repo_b.clone(),
+    },
   )
   .await;
-  assert!(!inspect_a.is_null() && !inspect_b.is_null(), "both repositories must inspect");
+  assert!(
+    !inspect_a.is_null() && !inspect_b.is_null(),
+    "both repositories must inspect"
+  );
 
   exec_typed(
     &pool,
@@ -378,10 +432,15 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   let workspaces = exec_typed(
     &pool,
     &endpoint,
-    TreqCommandRequest::ListWorkspaces { repo: repo_a.clone() },
+    TreqCommandRequest::ListWorkspaces {
+      repo: repo_a.clone(),
+    },
   )
   .await;
-  assert!(workspaces.to_string().contains("feat/"), "workspace list should include the created workspace: {workspaces}");
+  assert!(
+    workspaces.to_string().contains("feat/"),
+    "workspace list should include the created workspace: {workspaces}"
+  );
 
   let pty = RemotePtyChannel::open(
     &pool,
@@ -415,7 +474,9 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   let inspect_again = exec_typed(
     &pool2,
     &endpoint,
-    TreqCommandRequest::InspectRepository { repo: repo_a.clone() },
+    TreqCommandRequest::InspectRepository {
+      repo: repo_a.clone(),
+    },
   )
   .await;
   assert!(!inspect_again.is_null());
@@ -445,7 +506,10 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     }),
   )
   .await;
-  assert_eq!(issue2_status, 200, "reissue after reprovision failed: {issue2}");
+  assert_eq!(
+    issue2_status, 200,
+    "reissue after reprovision failed: {issue2}"
+  );
   let new_fp = issue2["endpoint"]["host_keys"][0]["fingerprint_sha256"]
     .as_str()
     .unwrap_or_default();
@@ -453,7 +517,11 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   if !old_fp.is_empty() && !new_fp.is_empty() {
     assert_ne!(old_fp, new_fp, "reprovision must rotate host key trust");
   }
-  std::fs::write(&cert_path, issue2["certificate"].as_str().unwrap_or_default()).ok();
+  std::fs::write(
+    &cert_path,
+    issue2["certificate"].as_str().unwrap_or_default(),
+  )
+  .ok();
   endpoint.hostname = issue2["endpoint"]["hostname"]
     .as_str()
     .unwrap_or(&endpoint.hostname)
@@ -465,7 +533,9 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   }];
   endpoint.source = SshEndpointSource::Managed {
     provider: "fly_sprites".to_string(),
-    generation: issue2["endpoint"]["source"]["generation"].as_u64().unwrap_or(1),
+    generation: issue2["endpoint"]["source"]["generation"]
+      .as_u64()
+      .unwrap_or(1),
   };
   let pool3 = SshConnectionPool::new();
   let after_repro = exec_typed(
