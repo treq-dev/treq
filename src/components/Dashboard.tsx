@@ -66,31 +66,6 @@ import type {
   SizePreset,
   SshEndpoint,
 } from "../lib/api-types-remote";
-import {
-  deleteInstance as deleteManagedInstance,
-  ensureInstance,
-  getInstanceStatus,
-  listRegions,
-  listSizePresets,
-  reprovisionInstance,
-  revokeClientKey,
-  wakeInstance,
-} from "../lib/remote-control-plane";
-import {
-  saveUserManagedEndpoint,
-  trustedHostKeyFromFingerprint,
-  publicKeyAuthentication,
-} from "../lib/remote-endpoints";
-import { dispatchOverSsh } from "../lib/remote-dispatch";
-import {
-  RemoteSetupDialog,
-  type LocalKeyIdentity,
-  type UserManagedFormValues,
-} from "./remote/RemoteSetupDialog";
-import {
-  RemoteStatusBanner,
-  connectionStateFromInstanceState,
-} from "./remote/RemoteStatusBanner";
 import { RemoteAmbiguousMutationDialog } from "./remote/RemoteAmbiguousMutationDialog";
 import { RemoteCapabilityNotice } from "./remote/RemoteCapabilityNotice";
 import {
@@ -106,7 +81,6 @@ import {
   useRemoteAgentRefresh,
   useRemoteChangeMarkerWatch,
 } from "../hooks/useRemoteRefresh";
-import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 import { ARTIFACTS_BASE_PATH, artifactsPath } from "../lib/artifactRoutes";
 import {
   type ChangeFilesMoveRequest,
@@ -443,6 +417,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     host: endpoint.hostname,
     path: descriptor.canonical_remote_path,
     display_name: descriptor.display_name,
+    repo_uri: `ssh://${endpoint.username}@${endpoint.hostname}:${endpoint.port}${descriptor.canonical_remote_path}`,
     inspection: inspection ?? {
       root: descriptor.canonical_remote_path,
       repository_type: "jj",
