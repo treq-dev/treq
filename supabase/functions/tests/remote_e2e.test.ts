@@ -166,17 +166,38 @@ async function callAdmin(
   return { status: response.status, json };
 }
 
-/** Wraps a test body so it prints a clear skip reason and passes trivially
- * when real credentials are absent, rather than failing or - worse -
- * silently asserting nothing while reporting green. */
-function e2eTest(name: string, fn: (cfg: NonNullable<ReturnType<typeof e2eConfig>>) => Promise<void>) {
-  Deno.test(name, async () => {
-    const cfg = e2eConfig();
-    if (!cfg) {
-      console.log(`[remote-e2e] SKIP "${name}": TREQ_REMOTE_E2E=1 and Supabase test-project credentials not set.`);
-      return;
+/** Live tests are Deno-ignored (not passing acceptance) when credentials
+ * are absent. `TREQ_REMOTE_E2E=1` plus the dedicated test-project vars must
+ * all be set for a test body to run. Extra gates (`soak`, `native`) keep
+ * long or SSH-dependent cases skipped unless explicitly requested. */
+function e2eTest(
+  name: string,
+  fn: (cfg: NonNullable<ReturnType<typeof e2eConfig>>) => Promise<void>,
+  extra?: { soak?: boolean; native?: boolean },
+) {
+  const cfg = e2eConfig();
+  const soakOk = !extra?.soak || Deno.env.get("TREQ_REMOTE_E2E_SOAK") === "1";
+  const nativeOk = !extra?.native || Deno.env.get("TREQ_REMOTE_E2E_NATIVE") === "1";
+  const ignore = cfg === null || !soakOk || !nativeOk;
+  if (ignore) {
+    const reasons: string[] = [];
+    if (cfg === null) {
+      reasons.push("TREQ_REMOTE_E2E=1 and Supabase test-project credentials not set");
     }
-    await fn(cfg);
+    if (extra?.soak && Deno.env.get("TREQ_REMOTE_E2E_SOAK") !== "1") {
+      reasons.push("TREQ_REMOTE_E2E_SOAK=1 not set (scheduled soak, not an ordinary wake)");
+    }
+    if (extra?.native && Deno.env.get("TREQ_REMOTE_E2E_NATIVE") !== "1") {
+      reasons.push("TREQ_REMOTE_E2E_NATIVE=1 not set (native SSH workflow is in remote_e2e.rs)");
+    }
+    console.log(`[remote-e2e] SKIP "${name}": ${reasons.join("; ")}`);
+  }
+  Deno.test({
+    name,
+    ignore,
+    fn: async () => {
+      await fn(cfg!);
+    },
   });
 }
 
@@ -214,6 +235,70 @@ e2eTest("repeated ensure calls with the same idempotency key provision exactly o
   }
 });
 
+e2eTest("a second ensure with a different idempotency key still returns the same single instance", async (cfg) => {
+  const user = await createE2eTestUser(cfg);
+  try {
+    const first = await callFunction(cfg, "remote-instance", user.accessToken, {
+      action: "ensure",
+      idempotency_key: e2eTag(),
+      region: "us_east",
+      size_preset: "small",
+    });
+    if (first.status !== 200) throw new Error(`first ensure failed: ${JSON.stringify(first.json)}`);
+    const second = await callFunction(cfg, "remote-instance", user.accessToken, {
+      action: "ensure",
+      idempotency_key: e2eTag(),
+      region: "us_west",
+      size_preset: "small",
+    });
+    if (second.status !== 200) throw new Error(`second ensure failed: ${JSON.stringify(second.json)}`);
+    const firstId = String((first.json.instance as { id?: string } | undefined)?.id ?? first.json.instance_id ?? "");
+    const secondId = String((second.json.instance as { id?: string } | undefined)?.id ?? second.json.instance_id ?? "");
+    if (!firstId || firstId !== secondId) {
+      throw new Error(`one-instance enforcement failed: ${firstId} vs ${secondId}`);
+    }
+  } finally {
+    await callFunction(cfg, "remote-instance", user.accessToken, { action: "delete", idempotency_key: e2eTag() }).catch(() => {});
+    await user.cleanup();
+  }
+});
+
+e2eTest("size presets above the base allocation are rejected as a structured quota error", async (cfg) => {
+  const user = await createE2eTestUser(cfg);
+  try {
+    const oversized = await callFunction(cfg, "remote-instance", user.accessToken, {
+      action: "ensure",
+      idempotency_key: e2eTag(),
+      region: "us_east",
+      size_preset: "medium",
+    });
+    if (oversized.status !== 422) {
+      throw new Error(`expected 422 quota error, got ${oversized.status} ${JSON.stringify(oversized.json)}`);
+    }
+    if (oversized.json.code !== "size_preset_exceeds_base_allocation") {
+      throw new Error(`expected structured quota code, got ${JSON.stringify(oversized.json)}`);
+    }
+  } finally {
+    await user.cleanup();
+  }
+});
+
+e2eTest("list_regions and list_sizes return the dedicated catalog", async (cfg) => {
+  const user = await createE2eTestUser(cfg);
+  try {
+    const regions = await callFunction(cfg, "remote-instance", user.accessToken, { action: "list_regions" });
+    const sizes = await callFunction(cfg, "remote-instance", user.accessToken, { action: "list_sizes" });
+    if (regions.status !== 200 || !Array.isArray(regions.json.regions)) {
+      throw new Error(`list_regions failed: ${JSON.stringify(regions.json)}`);
+    }
+    if (sizes.status !== 200 || !Array.isArray(sizes.json.presets)) {
+      throw new Error(`list_sizes failed: ${JSON.stringify(sizes.json)}`);
+    }
+  } finally {
+    await user.cleanup();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Acceptance criteria 1, 3: region/size preset provisioning + expanded
 // readiness reaching "ready".
@@ -243,6 +328,27 @@ e2eTest("provisions with a selected region and size preset and reaches ready", a
     }
     if (lastStatus !== "ready") {
       throw new Error(`instance did not reach ready within the deadline (last status: ${lastStatus || "timed out"})`);
+    }
+
+    const ready = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
+    const instance = ready.json.instance as {
+      disk_quota_gb?: number;
+      vcpu_quota?: number;
+      ram_quota_gb?: number;
+      generation?: number;
+      status?: string;
+    } | null;
+    if (!instance || instance.status !== "ready") {
+      throw new Error(`expanded readiness status missing ready instance: ${JSON.stringify(ready.json)}`);
+    }
+    if (instance.disk_quota_gb !== 5 || instance.vcpu_quota !== 1 || instance.ram_quota_gb !== 2) {
+      throw new Error(`base allocation not recorded on the instance: ${JSON.stringify(instance)}`);
+    }
+    if (typeof instance.generation !== "number") {
+      throw new Error("ready instance must report a generation");
+    }
+    if (!ready.json.endpoint) {
+      throw new Error(`ready instance must include trusted endpoint metadata: ${JSON.stringify(ready.json)}`);
     }
   } finally {
     await callFunction(cfg, "remote-instance", user.accessToken, { action: "delete", idempotency_key: e2eTag() }).catch(() => {});
@@ -476,7 +582,7 @@ e2eTest("reprovisioning increments the instance generation and rotates the host 
 // Acceptance criterion 13: wake from vendor suspension.
 // ---------------------------------------------------------------------------
 
-e2eTest("wake transitions a suspended instance back toward ready", async (cfg) => {
+e2eTest("wake is accepted as an idempotent control-plane call and is not treated as suspension recovery", async (cfg) => {
   const user = await createE2eTestUser(cfg);
   try {
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
@@ -487,23 +593,53 @@ e2eTest("wake transitions a suspended instance back toward ready", async (cfg) =
     });
     if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
 
-    // This suite cannot force real vendor idle-suspension on demand (that is
-    // vendor-timer-driven, per the PRD: "Vendor-controlled idleness
-    // automatically suspends the instance"), so `wake` is exercised as a
-    // request the control plane must accept and act on regardless of the
-    // instance's current state, proving the call path, auth, and audit
-    // recording are correct. True suspend-to-wake timing requires either a
-    // long soak in the real test project or a Fly Sprites test-environment
-    // force-suspend API, neither of which this harness can drive today - see
-    // remote_e2e_README.md.
+    // An ordinary wake against a non-suspended instance proves the control-
+    // plane path only. It is explicitly not evidence of vendor-suspension
+    // recovery; that coverage is the soak test below and the Fly suspend
+    // API test in remote_e2e.rs.
     const wake = await callFunction(cfg, "remote-instance", user.accessToken, { action: "wake" });
     if (wake.status !== 200) throw new Error(`wake failed: ${JSON.stringify(wake.json)}`);
+    const after = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
+    if (String(after.json.instance ? (after.json.instance as { status?: string }).status : after.json.status) === "suspended") {
+      throw new Error("ordinary wake test observed a suspended instance; do not count this as recovery proof");
+    }
 
     await callFunction(cfg, "remote-instance", user.accessToken, { action: "delete", idempotency_key: e2eTag() });
   } finally {
     await user.cleanup();
   }
 });
+
+e2eTest("scheduled soak waits for vendor auto-suspension then wakes", async (cfg) => {
+  const user = await createE2eTestUser(cfg);
+  try {
+    const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
+      action: "ensure",
+      idempotency_key: e2eTag(),
+      region: "us_east",
+      size_preset: "small",
+    });
+    if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
+
+    const deadline = Date.now() + 6 * 60 * 60 * 1000;
+    let observed = "";
+    while (Date.now() < deadline) {
+      const poll = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
+      const instance = poll.json.instance as { status?: string } | null;
+      observed = String(instance?.status ?? poll.json.status ?? "");
+      if (observed === "suspended") break;
+      await new Promise((resolve) => setTimeout(resolve, 60_000));
+    }
+    if (observed !== "suspended") {
+      throw new Error(`soak never observed vendor suspension (last status: ${observed || "timed out"})`);
+    }
+    const wake = await callFunction(cfg, "remote-instance", user.accessToken, { action: "wake" });
+    if (wake.status !== 200) throw new Error(`wake after soak suspension failed: ${JSON.stringify(wake.json)}`);
+  } finally {
+    await callFunction(cfg, "remote-instance", user.accessToken, { action: "delete", idempotency_key: e2eTag() }).catch(() => {});
+    await user.cleanup();
+  }
+}, { soak: true });
 
 // ---------------------------------------------------------------------------
 // Acceptance criterion 15: audit-event completeness and redaction.

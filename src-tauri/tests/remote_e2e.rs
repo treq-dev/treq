@@ -9,9 +9,12 @@
 //! ## Running this suite
 //!
 //! Every test here is gated on real credentials. With no credentials set,
-//! `cargo test --test remote_e2e` runs to completion and every test prints
-//! "SKIP: ..." and passes trivially - it does not fail, and it does not fake
-//! a passing assertion against no server. See `docs/remote_e2e_README.md`.
+//! `cargo test --test remote_e2e` compiles the harness and runs only the
+//! local (non-ignored) gate tests. Live tests are `#[ignore]` so missing
+//! credentials are an explicit skip, not a passing acceptance run. Execute
+//! them with:
+//! `TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1`
+//! See `remote_e2e_README.md`.
 //!
 //! Required environment variables (all must be set to run *any* Fly-backed
 //! test in this file):
@@ -233,7 +236,25 @@ fn e2e_owner_user_id() -> String {
 // concurrent provisioning.
 // ---------------------------------------------------------------------------
 
+#[test]
+fn e2e_tag_shape_matches_cleanup_script() {
+  let tag = e2e_tag();
+  assert!(tag.starts_with(E2E_TAG_PREFIX));
+  assert_eq!(tag.len(), E2E_TAG_PREFIX.len() + 36);
+}
+
+#[test]
+fn live_suite_is_ignored_without_explicit_opt_in() {
+  if std::env::var("TREQ_REMOTE_E2E").as_deref() != Ok("1") {
+    eprintln!(
+      "[remote-e2e] SKIP live tests: not opted in. Run with TREQ_REMOTE_E2E=1 \
+       cargo test --test remote_e2e -- --ignored --test-threads=1"
+    );
+  }
+}
+
 #[tokio::test]
+#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
 async fn provisions_instance_with_selected_region_and_size() {
   let cfg = require_e2e!();
   let provider = SpritesProvider::new(cfg).expect("failed to build provider");
@@ -267,6 +288,7 @@ async fn provisions_instance_with_selected_region_and_size() {
 }
 
 #[tokio::test]
+#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
 async fn repeated_create_with_same_idempotency_key_does_not_duplicate_instance() {
   let cfg = require_e2e!();
   let provider = SpritesProvider::new(cfg).expect("failed to build provider");
@@ -331,7 +353,8 @@ async fn repeated_create_with_same_idempotency_key_does_not_duplicate_instance()
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn wakes_instance_from_vendor_suspension() {
+#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
+async fn wake_on_a_running_instance_is_not_suspension_recovery() {
   let cfg = require_e2e!();
   let provider = SpritesProvider::new(cfg).expect("failed to build provider");
 
@@ -348,13 +371,17 @@ async fn wakes_instance_from_vendor_suspension() {
     .expect("create_instance should succeed");
   let _cleanup = InstanceCleanupGuard::new(&provider, instance.provider_resource_id.clone());
 
-  // Vendor auto-suspension is time-driven and not something this suite can
-  // force deterministically without a Fly Sprites test-environment
-  // "force-suspend" API. wake_instance is exercised for real regardless:
-  // Fly's API accepts a wake/start call against a running machine as a
-  // no-op-ish success, so this proves the adapter's HTTP call, error
-  // mapping, and request-id capture are correct even when suspension itself
-  // isn't triggered here.
+  // Ordinary wake against a running machine is not vendor-suspension
+  // recovery. The suspend-then-wake test below (or the soak gated on
+  // TREQ_REMOTE_E2E_SOAK=1) is the only proof of that path.
+  let before = provider
+    .get_instance(&instance.provider_resource_id)
+    .await
+    .expect("get_instance should succeed before wake");
+  assert!(
+    !matches!(before.state, ManagedInstanceState::Suspended),
+    "this test must not run against an already-suspended instance"
+  );
   provider
     .wake_instance(&instance.provider_resource_id)
     .await
@@ -372,7 +399,110 @@ async fn wakes_instance_from_vendor_suspension() {
 // the instance.
 // ---------------------------------------------------------------------------
 
+async fn try_force_suspend(
+  cfg: &SpritesConfig,
+  provider_resource_id: &str,
+) -> Result<bool, String> {
+  let client = reqwest::Client::builder()
+    .timeout(Duration::from_secs(30))
+    .build()
+    .map_err(|err| err.to_string())?;
+  let url = format!(
+    "{}/apps/{}/machines/{}/suspend",
+    cfg.base_url.trim_end_matches('/'),
+    cfg.app_name,
+    provider_resource_id
+  );
+  let response = client
+    .post(&url)
+    .bearer_auth(&cfg.api_token)
+    .send()
+    .await
+    .map_err(|err| err.to_string())?;
+  let request_id = response
+    .headers()
+    .get("fly-request-id")
+    .and_then(|v| v.to_str().ok())
+    .unwrap_or("(none)");
+  eprintln!(
+    "[remote-e2e] force-suspend status={} fly-request-id={request_id}",
+    response.status()
+  );
+  if response.status().as_u16() == 404 || response.status().as_u16() == 501 {
+    return Ok(false);
+  }
+  if !response.status().is_success() {
+    return Err(format!(
+      "suspend failed: {} {}",
+      response.status(),
+      response.text().await.unwrap_or_default()
+    ));
+  }
+  Ok(true)
+}
+
 #[tokio::test]
+#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
+async fn suspends_via_provider_test_api_then_wakes() {
+  let cfg = require_e2e!();
+  let provider = SpritesProvider::new(cfg.clone()).expect("failed to build provider");
+
+  let request = CreateInstanceRequest {
+    owner_user_id: e2e_owner_user_id(),
+    region: RegionCode::UsEast,
+    size_preset: E2E_SIZE_PRESET,
+    manifest_version: 1,
+    idempotency_key: e2e_idempotency_key(),
+  };
+  let instance = provider
+    .create_instance(request)
+    .await
+    .expect("create_instance should succeed");
+  let _cleanup = InstanceCleanupGuard::new(&provider, instance.provider_resource_id.clone());
+
+  match try_force_suspend(&cfg, &instance.provider_resource_id).await {
+    Ok(false) => {
+      eprintln!(
+        "[remote-e2e] SKIP suspends_via_provider_test_api_then_wakes: \
+         provider test suspend API is unavailable. Set TREQ_REMOTE_E2E_SOAK=1 \
+         on the Deno soak test for idle-timer recovery. Ordinary wake is not proof."
+      );
+      return;
+    }
+    Ok(true) => {}
+    Err(err) => panic!("{err}"),
+  }
+
+  let mut suspended = false;
+  for _ in 0..30 {
+    let snapshot = provider
+      .get_instance(&instance.provider_resource_id)
+      .await
+      .expect("get_instance during suspend wait");
+    if matches!(snapshot.state, ManagedInstanceState::Suspended) {
+      suspended = true;
+      break;
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+  }
+  assert!(
+    suspended,
+    "provider suspend API did not yield a Suspended state"
+  );
+
+  provider
+    .wake_instance(&instance.provider_resource_id)
+    .await
+    .expect("wake after forced suspend should succeed");
+  let after = provider
+    .get_instance(&instance.provider_resource_id)
+    .await
+    .expect("get_instance after wake");
+  assert!(!matches!(after.state, ManagedInstanceState::Failed));
+}
+
+#[tokio::test]
+#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
 async fn reprovision_replaces_instance_and_can_change_region_and_size() {
   let cfg = require_e2e!();
   let provider = SpritesProvider::new(cfg).expect("failed to build provider");
@@ -419,6 +549,7 @@ async fn reprovision_replaces_instance_and_can_change_region_and_size() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
 async fn delete_instance_removes_it_from_provider_inventory() {
   let cfg = require_e2e!();
   let provider = SpritesProvider::new(cfg).expect("failed to build provider");
@@ -458,6 +589,7 @@ async fn delete_instance_removes_it_from_provider_inventory() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
 async fn provisions_across_every_region_at_the_base_allocation() {
   let cfg = require_e2e!();
   if std::env::var("TREQ_REMOTE_E2E_FULL_MATRIX").as_deref() != Ok("1") {
