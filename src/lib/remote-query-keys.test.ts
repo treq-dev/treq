@@ -44,6 +44,19 @@ describe("remoteRepoIdentity", () => {
     );
     expect(local).not.toBe(remote);
   });
+
+  it("folds endpoint id into the identity separately from host", () => {
+    const byHost = remoteRepoIdentity(
+      { type: "ssh", host: "box", path: "/repo" },
+      { endpointGeneration: 1 },
+    );
+    const byId = remoteRepoIdentity(
+      { type: "ssh", host: "box", path: "/repo" },
+      { endpointGeneration: 1, endpointId: "ep-9" },
+    );
+    expect(byId).toBe("ssh:ep-9:gen1:/repo");
+    expect(byHost).not.toBe(byId);
+  });
 });
 
 describe("remoteWorkspaceIdentity", () => {

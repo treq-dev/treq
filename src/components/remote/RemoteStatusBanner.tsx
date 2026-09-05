@@ -14,7 +14,8 @@ export type RemoteConnectionState =
   | "waking"
   | "stale"
   | "offline"
-  | "degraded";
+  | "degraded"
+  | "cutoff";
 
 export function connectionStateFromInstanceState(
   instanceState: ManagedInstanceState | undefined,
@@ -42,6 +43,10 @@ const COPY: Record<
   stale: { label: "Showing cached data - refreshing", tone: "warning" },
   offline: { label: "Offline", tone: "danger" },
   degraded: { label: "Degraded - some checks are failing", tone: "danger" },
+  cutoff: {
+    label: "Credential cutoff - reauthenticate to continue",
+    tone: "danger",
+  },
 };
 
 const TONE_CLASSES: Record<string, string> = {

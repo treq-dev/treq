@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { InstalledSkill, RepoYamlConfig } from "./api-extra";
@@ -30,6 +31,21 @@ import type {
   WorkspaceStatus,
 } from "./api-types";
 import { enqueueJjExclusive } from "./enqueue-jj-exclusive";
+import {
+  transportCreateCommit,
+  transportGetRepoCurrentBranch,
+  transportGetRepoDefaultBranch,
+  transportGetWorkspaces,
+  transportGetWorkspaceChangedFiles,
+  transportGetWorkspaceDiff,
+  transportGetWorkspaceFileHunksBatch,
+  transportGetWorkspaceFileLines,
+  transportGetWorkspaceStatus,
+  transportGitFetch,
+  transportListCommits,
+  transportListRepoBranches,
+  transportListWorkspaceStatuses,
+} from "./repository-adapter";
 
 function currentWindowLabel(): string {
   try {
@@ -51,13 +67,19 @@ export const initRepo = (repoPath: string): Promise<void> =>
 
 // Database API
 export const getWorkspaces = (repoPath: string): Promise<Workspace[]> =>
-  invoke("get_workspaces", { repoPath });
+  transportGetWorkspaces(repoPath, () =>
+    invoke("get_workspaces", { repoPath }),
+  );
 
 export const getRepoCurrentBranch = (repoPath: string): Promise<RepoBranch> =>
-  invoke("get_repo_current_branch", { repoPath });
+  transportGetRepoCurrentBranch(repoPath, () =>
+    invoke("get_repo_current_branch", { repoPath }),
+  );
 
 export const getRepoDefaultBranch = (repoPath: string): Promise<string> =>
-  invoke("get_repo_default_branch", { repoPath });
+  transportGetRepoDefaultBranch(repoPath, () =>
+    invoke("get_repo_default_branch", { repoPath }),
+  );
 
 export const createWorkspace = (
   repoPath: string,
@@ -155,7 +177,9 @@ export const getWorkspaceChangedFiles = (
   workspaceId: number | null,
 ): Promise<JjFileChange[]> =>
   enqueueJjExclusive(() =>
-    invoke("get_workspace_changed_files", { repoPath, workspaceId }),
+    transportGetWorkspaceChangedFiles(repoPath, workspaceId, () =>
+      invoke("get_workspace_changed_files", { repoPath, workspaceId }),
+    ),
   );
 
 export const listGitignoredPathSuggestions = (
@@ -201,12 +225,14 @@ export const getWorkspaceFileHunksBatch = (
   snapshotToken?: string,
 ): Promise<WorkspaceFileHunksBatch> =>
   enqueueJjExclusive(() =>
-    invoke("get_workspace_file_hunks_batch", {
-      repoPath,
-      workspaceId,
-      filePaths,
-      snapshotToken: snapshotToken ?? null,
-    }),
+    transportGetWorkspaceFileHunksBatch(repoPath, workspaceId, filePaths, () =>
+      invoke("get_workspace_file_hunks_batch", {
+        repoPath,
+        workspaceId,
+        filePaths,
+        snapshotToken: snapshotToken ?? null,
+      }),
+    ),
   );
 
 export const getWorkspaceFileLines = (
@@ -217,14 +243,23 @@ export const getWorkspaceFileLines = (
   startLine: number,
   endLine: number,
 ): Promise<JjFileLines> =>
-  invoke("get_workspace_file_lines", {
+  transportGetWorkspaceFileLines(
     repoPath,
     workspaceId,
     filePath,
     fromParent,
     startLine,
     endLine,
-  });
+    () =>
+      invoke("get_workspace_file_lines", {
+        repoPath,
+        workspaceId,
+        filePath,
+        fromParent,
+        startLine,
+        endLine,
+      }),
+  );
 
 export const jjRestoreFile = (
   workspacePath: string,
@@ -252,11 +287,13 @@ export const createCommit = (
   workspaceId: number | null,
   message: string,
 ): Promise<string> =>
-  invoke("create_commit", {
-    repoPath,
-    workspaceId,
-    message,
-  });
+  transportCreateCommit(repoPath, workspaceId, message, () =>
+    invoke("create_commit", {
+      repoPath,
+      workspaceId,
+      message,
+    }),
+  );
 
 export const listCommits = (
   repoPath: string,
@@ -265,13 +302,15 @@ export const listCommits = (
   targetBranchLimit?: number,
   limit?: number,
 ): Promise<JjLogResult> =>
-  invoke("list_commits", {
-    repoPath,
-    workspaceId,
-    includeTargetBranchHistory: includeTargetBranchHistory ?? false,
-    targetBranchLimit: targetBranchLimit ?? null,
-    limit: limit ?? null,
-  });
+  transportListCommits(repoPath, workspaceId, () =>
+    invoke("list_commits", {
+      repoPath,
+      workspaceId,
+      includeTargetBranchHistory: includeTargetBranchHistory ?? false,
+      targetBranchLimit: targetBranchLimit ?? null,
+      limit: limit ?? null,
+    }),
+  );
 
 export const jjSplit = (
   workspacePath: string,
@@ -285,7 +324,9 @@ export const jjSplit = (
   });
 
 export const listRepoBranches = (repoPath: string): Promise<JjBranch[]> =>
-  invoke("list_repo_branches", { repoPath });
+  transportListRepoBranches(repoPath, () =>
+    invoke("list_repo_branches", { repoPath }),
+  );
 
 export const switchRepoBranch = (
   repoPath: string,
@@ -302,7 +343,9 @@ export interface SyncStatus {
 }
 
 export const jjGitFetchBackground = (repoPath: string): Promise<void> =>
-  invoke("jj_git_fetch_background", { repoPath });
+  transportGitFetch(repoPath, () =>
+    invoke("jj_git_fetch_background", { repoPath }),
+  );
 
 export const pullWorkspaceFromRemote = (
   repoPath: string,
@@ -353,7 +396,9 @@ export const getWorkspaceDiff = (
   workspaceId: number,
 ): Promise<JjRevisionDiff> =>
   enqueueJjExclusive(() =>
-    invoke("get_workspace_diff", { repoPath, workspaceId }),
+    transportGetWorkspaceDiff(repoPath, workspaceId, () =>
+      invoke("get_workspace_diff", { repoPath, workspaceId }),
+    ),
   );
 
 export interface HunkSpec {
@@ -427,18 +472,22 @@ export const pushWorkspaceToRemote = (
 export const listWorkspaceStatuses = (
   repoPath: string,
 ): Promise<WorkspaceSidebarStatus[]> =>
-  invoke("list_workspace_statuses", {
-    repoPath,
-  });
+  transportListWorkspaceStatuses(repoPath, () =>
+    invoke("list_workspace_statuses", {
+      repoPath,
+    }),
+  );
 
 export const getWorkspaceStatus = (
   repoPath: string,
   workspaceId: number | null,
 ): Promise<WorkspaceStatus> =>
-  invoke("get_workspace_status", {
-    repoPath,
-    workspaceId,
-  });
+  transportGetWorkspaceStatus(repoPath, workspaceId, () =>
+    invoke("get_workspace_status", {
+      repoPath,
+      workspaceId,
+    }),
+  );
 
 export const updateWorkspace = (
   repoPath: string,

@@ -14,6 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
+import { useRepositoryCacheKey } from "../lib/active-repository-context";
 import { Loader2 } from "lucide-react";
 
 interface LinearCommitHistoryProps {
@@ -93,6 +94,7 @@ export const LinearCommitHistory = ({
   onCommitClick,
   onCommitsLoaded,
 }: LinearCommitHistoryProps) => {
+  const cacheKey = useRepositoryCacheKey(repoPath);
   const [limit, setLimit] = useState(14);
   const isHomeRepo = workspaceId == null;
   const includeTargetBranchHistory = workspaceId != null || isHomeRepo;
@@ -106,10 +108,10 @@ export const LinearCommitHistory = ({
     isLoading: loading,
     isValidating,
   } = useSWR(
-    repoPath
+    cacheKey
       ? [
           "linear-commits",
-          repoPath,
+          cacheKey,
           workspaceId,
           includeTargetBranchHistory,
           isHomeRepo ? limit : 14,

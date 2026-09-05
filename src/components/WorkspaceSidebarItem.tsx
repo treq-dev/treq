@@ -15,6 +15,7 @@ import { useState } from "react";
 import { type QueueEntryStatus, type Workspace } from "../lib/api";
 import { clearWorkspaceSchedule } from "../lib/clear-workspace-schedule";
 import type { PrInfo } from "../lib/api-types";
+import { useRemoteCapabilities } from "../lib/active-repository-context";
 import { cn, getFullWorkspacePath } from "../lib/utils";
 import type { FlattenedWorkspaceNode } from "../lib/workspace-tree";
 import {
@@ -136,6 +137,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
   hasRemote = false,
   onDropChangeFiles,
 }) => {
+  const caps = useRemoteCapabilities();
   const workspace = node.status.current;
   const { addToast } = useToast();
   const workspaceScheduling = usePreviewFeature("workspaceScheduling");
@@ -302,8 +304,11 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                               variant="ghost"
                               className="text-foreground"
                               aria-label="Start agent"
+                              disabled={!caps.agentPty.supported}
+                              title={caps.agentPty.reason}
                               onClick={(e) => {
                                 e.stopPropagation();
+                                if (!caps.agentPty.supported) return;
                                 onStartAgent?.(workspace);
                               }}
                             >
@@ -321,8 +326,11 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                               variant="ghost"
                               className="text-foreground"
                               aria-label="Open shell"
+                              disabled={!caps.shell.supported}
+                              title={caps.shell.reason}
                               onClick={(e) => {
                                 e.stopPropagation();
+                                if (!caps.shell.supported) return;
                                 onStartShell?.(workspace);
                               }}
                             >

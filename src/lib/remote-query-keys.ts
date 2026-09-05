@@ -18,19 +18,29 @@
 
 import type { RepositoryLocation } from "./api-types-remote";
 
+export type RemoteIdentityOptions = {
+  endpointGeneration?: number;
+  endpointId?: string | null;
+};
+
 /**
  * Builds the identity string a query key should use in place of a bare
  * `repoPath` for a location that may be remote. Local locations are
  * returned unchanged (matching every existing call site's current
- * behavior); remote locations fold in endpoint id and generation.
+ * behavior); remote locations fold in endpoint id (or host) and generation.
  */
 export function remoteRepoIdentity(
   location: RepositoryLocation,
-  endpointGeneration?: number,
+  endpointGenerationOrOptions?: number | RemoteIdentityOptions,
 ): string {
+  const options: RemoteIdentityOptions =
+    typeof endpointGenerationOrOptions === "object"
+      ? endpointGenerationOrOptions
+      : { endpointGeneration: endpointGenerationOrOptions };
   if (location.type === "local") return location.path;
-  const generation = endpointGeneration ?? 0;
-  return `ssh:${location.host}:gen${generation}:${location.path}`;
+  const generation = options.endpointGeneration ?? 0;
+  const endpoint = options.endpointId || location.host;
+  return `ssh:${endpoint}:gen${generation}:${location.path}`;
 }
 
 /**
