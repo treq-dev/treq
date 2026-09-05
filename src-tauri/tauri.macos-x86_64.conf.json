@@ -1,9 +1,0 @@
-{
-  "bundle": {
-    "macOS": {
-      "frameworks": [
-        "../target/x86_64-apple-darwin/release/deps/libduckdb.dylib"
-      ]
-    }
-  }
-}

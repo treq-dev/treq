@@ -264,7 +264,7 @@ describe("Home repo Logs tab", () => {
     await user.clear(editor);
     await user.type(
       editor,
-      "SELECT severityText, severityNumber, body.message AS message, traceId, spanId, attributes.run_id AS run_id FROM logs",
+      "SELECT severityText, severityNumber, json_extract(body, '$.message') AS message, traceId, spanId, json_extract(attributes, '$.run_id') AS run_id FROM logs",
     );
 
     const explorer = await screen.findByTestId("logs-sql-explorer");

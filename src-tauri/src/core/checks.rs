@@ -728,27 +728,13 @@ pub fn list_workflow_runs_sync(
   Ok(summaries)
 }
 
-/// Resolve a job's log file to an absolute path, refusing anything that escapes
-/// the repo's `.treq/runs` directory.
-fn resolve_log_path(repo_path: &str, run_id: i64, job_id: &str) -> Result<String, String> {
-  let relative = crate::local_db::get_job_log_path(repo_path, run_id, job_id)?
+/// Confirm a job actually recorded logs before querying the telemetry
+/// database for them — records are looked up by `run_id`/`job_id`, not by a
+/// filesystem path, so there is nothing left to canonicalize.
+fn ensure_logs_recorded(repo_path: &str, run_id: i64, job_id: &str) -> Result<(), String> {
+  crate::local_db::get_job_log_path(repo_path, run_id, job_id)?
     .ok_or_else(|| format!("No logs recorded for job '{}' in run {}", job_id, run_id))?;
-  let absolute = Path::new(repo_path).join(&relative);
-
-  let runs_root = Path::new(repo_path).join(".treq").join("runs");
-  let canonical_root = runs_root
-    .canonicalize()
-    .map_err(|e| format!("Failed to access runs directory: {}", e))?;
-  let canonical_file = absolute
-    .canonicalize()
-    .map_err(|_| format!("Log file missing for job '{}'", job_id))?;
-  if !canonical_file.starts_with(&canonical_root) {
-    return Err(format!(
-      "Log path for job '{}' is outside .treq/runs",
-      job_id
-    ));
-  }
-  Ok(canonical_file.to_string_lossy().to_string())
+  Ok(())
 }
 
 pub fn get_run_logs_sync(
@@ -757,8 +743,8 @@ pub fn get_run_logs_sync(
   job_id: &str,
   query: &crate::core::checks_logs::LogQuery,
 ) -> Result<Vec<crate::core::checks_logs::LogRecordView>, String> {
-  let path = resolve_log_path(repo_path, run_id, job_id)?;
-  crate::core::checks_logs::query_logs(&path, query)
+  ensure_logs_recorded(repo_path, run_id, job_id)?;
+  crate::core::checks_logs::query_logs(repo_path, run_id, job_id, query)
 }
 
 pub fn export_run_logs_sync(
@@ -767,8 +753,8 @@ pub fn export_run_logs_sync(
   job_id: &str,
   dest_path: &str,
 ) -> Result<String, String> {
-  let path = resolve_log_path(repo_path, run_id, job_id)?;
-  crate::core::checks_logs::export_logs(&path, dest_path)
+  ensure_logs_recorded(repo_path, run_id, job_id)?;
+  crate::core::checks_logs::export_logs(repo_path, run_id, job_id, dest_path)
 }
 
 // ── Unit tests ───────────────────────────────────────────────────────────────

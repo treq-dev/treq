@@ -23,8 +23,8 @@ interface Props {
   onSendToAgent?: (prompt: string) => void;
 }
 
-const DEFAULT_QUERY = `SELECT timestamp, severityText, attributes.job_id AS job_id,
-       body.message AS message
+const DEFAULT_QUERY = `SELECT timestamp, severityText, json_extract(attributes, '$.job_id') AS job_id,
+       json_extract(body, '$.message') AS message
 FROM logs
 ORDER BY timestamp DESC
 LIMIT 50`;
@@ -38,7 +38,7 @@ const TEMPLATES: { label: string; description: string; sql: string }[] = [
   {
     label: "Errors by job",
     description: "Which jobs produce the most ERROR records",
-    sql: `SELECT attributes.job_id AS job_id, count(*) AS errors
+    sql: `SELECT json_extract(attributes, '$.job_id') AS job_id, count(*) AS errors
 FROM logs
 WHERE severityText = 'ERROR'
 GROUP BY job_id
@@ -47,7 +47,7 @@ ORDER BY errors DESC`,
   {
     label: "Severity by run",
     description: "Record counts per run, split by severity",
-    sql: `SELECT attributes.run_id AS run_id, severityText, count(*) AS records
+    sql: `SELECT json_extract(attributes, '$.run_id') AS run_id, severityText, count(*) AS records
 FROM logs
 GROUP BY run_id, severityText
 ORDER BY run_id DESC, severityText`,
@@ -55,9 +55,9 @@ ORDER BY run_id DESC, severityText`,
   {
     label: "Slowest steps",
     description: "Wall-clock span of each step, longest first",
-    sql: `SELECT attributes.job_id AS job_id, attributes.step_name AS step_name,
-       datediff('millisecond', min(CAST(timestamp AS TIMESTAMP)),
-                max(CAST(timestamp AS TIMESTAMP))) AS duration_ms
+    sql: `SELECT json_extract(attributes, '$.job_id') AS job_id,
+       json_extract(attributes, '$.step_name') AS step_name,
+       (unixepoch(max(timestamp)) - unixepoch(min(timestamp))) * 1000 AS duration_ms
 FROM logs
 GROUP BY job_id, step_name
 ORDER BY duration_ms DESC`,
@@ -65,7 +65,7 @@ ORDER BY duration_ms DESC`,
   {
     label: "Trace overview",
     description: "One row per trace and span, with severity counts",
-    sql: `SELECT traceId, spanId, attributes.job_id AS job_id,
+    sql: `SELECT traceId, spanId, json_extract(attributes, '$.job_id') AS job_id,
        count(*) AS records,
        count(*) FILTER (WHERE severityText = 'ERROR') AS errors
 FROM logs

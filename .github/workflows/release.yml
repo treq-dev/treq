@@ -64,11 +64,11 @@ jobs:
         include:
           - platform: "macos-latest" # for Arm based macs (M1 and above).
             target: "aarch64-apple-darwin"
-            args: "--target aarch64-apple-darwin --config src-tauri/tauri.macos-aarch64.conf.json"
+            args: "--target aarch64-apple-darwin"
             app_bundle: "target/aarch64-apple-darwin/release/bundle/macos/Treq.app"
           - platform: "macos-latest" # for Intel based macs.
             target: "x86_64-apple-darwin"
-            args: "--target x86_64-apple-darwin --config src-tauri/tauri.macos-x86_64.conf.json"
+            args: "--target x86_64-apple-darwin"
             app_bundle: "target/x86_64-apple-darwin/release/bundle/macos/Treq.app"
           # - platform: "macos-latest"
           #   target: "universal-apple-darwin"
@@ -158,12 +158,6 @@ jobs:
           releaseAssetNamePattern: "[name]-[version]-[platform]-[arch][ext]"
           args: ${{ matrix.args }}
 
-      - name: Verify packaged macOS dependencies
+      - name: Verify packaged macOS bundle
         if: runner.os == 'macOS'
-        run: |
-          bash scripts/verify-macos-bundle.sh "${{ matrix.app_bundle }}"
-          loader_log="$RUNNER_TEMP/treq-dyld.log"
-          env -u DYLD_LIBRARY_PATH DYLD_PRINT_LIBRARIES=1 \
-            "${{ matrix.app_bundle }}/Contents/MacOS/treq" --help \
-            > /dev/null 2> "$loader_log" || true
-          grep -F "${{ matrix.app_bundle }}/Contents/Frameworks/libduckdb.dylib" "$loader_log"
+        run: bash scripts/verify-macos-bundle.sh "${{ matrix.app_bundle }}"

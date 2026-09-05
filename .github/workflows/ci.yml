@@ -100,9 +100,8 @@ jobs:
         with:
           path: |
             target/debug/libtreq_lib.so
-            target/debug/deps/libduckdb.so
             src-tauri/target/index.js
-          key: napi-${{ runner.os }}-${{ hashFiles('.cargo/config.toml', 'Cargo.lock', 'Cargo.toml', 'src-tauri/Cargo.toml', 'src-tauri/build.rs', 'src-tauri/src/**', 'src-tauri/tests/**', 'src-tauri/package.json', 'crates/tauri-test-macros/**') }}
+          key: napi-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'src-tauri/Cargo.toml', 'src-tauri/build.rs', 'src-tauri/src/**', 'src-tauri/tests/**', 'src-tauri/package.json', 'crates/tauri-test-macros/**') }}
 
       - name: Install Rust stable
         # Unit JS tests never need Rust. Integration skips the toolchain when
@@ -259,7 +258,6 @@ jobs:
         run: |
           npm run build:napi
           test -f target/debug/libtreq_lib.so
-          test -f target/debug/deps/libduckdb.so
           test -f src-tauri/target/index.js
 
       - name: Save NAPI addon cache
@@ -269,7 +267,6 @@ jobs:
         with:
           path: |
             target/debug/libtreq_lib.so
-            target/debug/deps/libduckdb.so
             src-tauri/target/index.js
           key: ${{ steps.napi-cache.outputs.cache-primary-key }}
 

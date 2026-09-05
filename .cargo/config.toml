@@ -1,7 +1,0 @@
-[env]
-# Downloads the official prebuilt libduckdb for the build target instead of
-# compiling DuckDB's C++ amalgamation from source, which otherwise costs
-# 10+ minutes and several GB of disk on every clean build. Requires the
-# duckdb crate's "bundled" feature to stay off (see src-tauri/Cargo.toml) --
-# libduckdb-sys only reads this var on the non-bundled build path.
-DUCKDB_DOWNLOAD_LIB = "1"

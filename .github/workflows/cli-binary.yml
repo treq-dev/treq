@@ -46,12 +46,6 @@ jobs:
         run: cargo build --release --locked --bin treq --target aarch64-apple-darwin
 
       - name: Run CLI with filesystem writes denied
-        env:
-          # DUCKDB_DOWNLOAD_LIB (repo-wide via .cargo/config.toml) links duckdb
-          # dynamically; libduckdb-sys's rpath link-arg doesn't propagate from
-          # its build script into this binary, so point the loader at the
-          # prebuilt dylib libduckdb-sys copies alongside the other deps.
-          DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/aarch64-apple-darwin/release/deps
         run: |
           sandbox-exec \
             -p '(version 1) (allow default) (deny file-write*)' \
@@ -59,13 +53,8 @@ jobs:
           grep -F "Treq - Stacking ADE" "$RUNNER_TEMP/treq-help.txt"
           grep -F "Usage: treq" "$RUNNER_TEMP/treq-help.txt"
 
-      - name: Build and verify packaged app without loader overrides
+      - name: Build and verify packaged app
         run: |
-          npm run tauri build -- --target aarch64-apple-darwin --config src-tauri/tauri.macos-aarch64.conf.json --bundles app
+          npm run tauri build -- --target aarch64-apple-darwin --bundles app
           codesign --force --deep --sign - target/aarch64-apple-darwin/release/bundle/macos/Treq.app
           bash scripts/verify-macos-bundle.sh target/aarch64-apple-darwin/release/bundle/macos/Treq.app
-          loader_log="$RUNNER_TEMP/treq-app-dyld.log"
-          env -u DYLD_LIBRARY_PATH DYLD_PRINT_LIBRARIES=1 \
-            target/aarch64-apple-darwin/release/bundle/macos/Treq.app/Contents/MacOS/treq --help \
-            > /dev/null 2> "$loader_log" || true
-          grep -F "target/aarch64-apple-darwin/release/bundle/macos/Treq.app/Contents/Frameworks/libduckdb.dylib" "$loader_log"

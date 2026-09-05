@@ -52,7 +52,7 @@ it("captures the OTel logs tab, chart, selection and templates menu", async () =
 	await captureDocument(document, {
 		name: "logs-otel-01-browse-with-chart",
 		expectations: [
-			'The header reads "Checks logs" with the subtitle "OpenTelemetry records · .treq/runs/**/*.jsonl".',
+			'The header reads "Checks logs" with the subtitle "OpenTelemetry records · .treq/telemetry-*.db".',
 			'The view toggle offers "Browse" and "Logs Explorer" (not "SQL Explorer"), with Browse selected.',
 			"A chart area is rendered between the filter row and the log lines, with a legend showing Info, Warn and Error.",
 			"The chart draws stacked bars with a numeric y-axis and time labels along the x-axis.",
@@ -112,7 +112,7 @@ it("captures the OTel logs tab, chart, selection and templates menu", async () =
 	await captureDocument(document, {
 		name: "logs-otel-04-explorer-results",
 		expectations: [
-			'The SQL editor shows a query selecting timestamp, severityText, attributes.job_id and body.message from the logs view.',
+			'The SQL editor shows a query selecting timestamp, severityText, a job_id extracted from attributes, and a message extracted from body, from the logs view.',
 			'A result grid below has columns "timestamp", "severityText", "job_id" and "message".',
 			'The severityText column contains OpenTelemetry severity names such as "INFO", "WARN" or "ERROR" — not lowercase "info"/"error".',
 			'A "Send results to agent" button appears next to "Run query" now that a result set exists.',

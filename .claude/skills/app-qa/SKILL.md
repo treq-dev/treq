@@ -108,42 +108,6 @@ present (`node_modules/`, a working `cargo check`, etc.).
    fetching a crate's build-time download, run `update-ca-certificates --fresh` and
    retry — most such failures are this, not a real network block.
 
-4. **`libduckdb-sys`'s own downloader ignores the system trust store.** `treq`
-   depends on `duckdb`, whose build script (`libduckdb-sys`) downloads a prebuilt
-   `libduckdb` from a GitHub release using a vendored `ureq`/rustls HTTP client with
-   a baked-in (webkit-roots) certificate list — it does **not** read
-   `/etc/ssl/certs`, `SSL_CERT_FILE`, or `CARGO_HTTP_CAINFO`, so step 3 does not fix
-   it. Its TLS handshake fails against a proxy that re-terminates TLS, even after
-   `update-ca-certificates`. Work around it by fetching the same prebuilt lib from
-   npm (registry is typically proxy-allowlisted) instead of GitHub, and pointing the
-   crate at it directly:
-
-   ```bash
-   mkdir -p /opt/duckdb-lib
-   cd /tmp && npm pack @duckdb/node-bindings-linux-x64@<version>   # pick the -r.N tag matching duckdb's version, see below
-   tar xzf duckdb-node-bindings-linux-x64-*.tgz
-   cp package/libduckdb.so /opt/duckdb-lib/
-   ```
-
-   Find the right version: `grep '^duckdb = ' src-tauri/Cargo.toml` gives the
-   `libduckdb-sys` crate version (e.g. `1.10505.0`); decode it as
-   `major = v/10000`, `minor = (v/100)%100`, `patch = v%100` (e.g. `10505` →
-   `1.5.5`). `npm view @duckdb/node-bindings@<major>.<minor>.<patch>-r.<N>
-   optionalDependencies` (bump `N` until a version resolves) lists the per-platform
-   package to `npm pack`; use the `linux-x64` (or matching platform) one. The header
-   isn't needed — this crate ships pregenerated bindings, not `buildtime_bindgen`.
-
-   Then export before every `cargo build`/`build:napi`/`screenshot` invocation in
-   that session:
-
-   ```bash
-   export DUCKDB_LIB_DIR=/opt/duckdb-lib DUCKDB_INCLUDE_DIR=/opt/duckdb-lib
-   export LD_LIBRARY_PATH=/opt/duckdb-lib:$LD_LIBRARY_PATH
-   ```
-
-   This is a local workaround for the sandbox only — never commit anything that
-   points the real build at this path.
-
 ## How the harness works
 
 1. `createTestRepo()` (from `test/utils`, backed by the `tauri-test` addon) creates a
@@ -251,8 +215,8 @@ command, not a test-only stub.
    across the two.
 
 4. **Run it.** If this is a fresh environment (no `node_modules/`, or `cargo build`
-   fails on GTK/webkit headers or a `libduckdb-sys` TLS error), do the
-   "First-time environment setup" section above first.
+   fails on GTK/webkit headers), do the "First-time environment setup" section
+   above first.
    - First run in a session, or after touching `src-tauri`, or
      adding new Tailwind classes: `npm run screenshot` (rebuilds the NAPI addon,
      recompiles CSS, runs every spec — slow but complete).

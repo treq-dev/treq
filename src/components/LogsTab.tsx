@@ -93,7 +93,7 @@ export function LogsTab({ repoPath, onSendToAgent }: Props) {
           <div className="min-w-0 hidden sm:block">
             <div className="text-xs text-muted-foreground font-mono truncate">
               {checksSelected
-                ? "OpenTelemetry records · .treq/runs/**/*.jsonl"
+                ? "OpenTelemetry records · .treq/telemetry-*.db"
                 : "TUI-split conversations · .treq/agent-chats/*.json"}
             </div>
           </div>

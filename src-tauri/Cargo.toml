@@ -58,7 +58,6 @@ opentelemetry = { version = "0.32.0", features = ["logs"] }
 opentelemetry_sdk = { version = "0.32.0", features = ["logs"] }
 opentelemetry-appender-tracing = "0.32.0"
 opentelemetry-stdout = { version = "0.32.0", features = ["logs"] }
-duckdb = "1.10505.0"
 
 tempfile = { version = "3", optional = true }
 async-trait = "0.1.92"
