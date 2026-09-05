@@ -46,6 +46,13 @@ Use `.` as a workspace name when a command needs the home repository. Create a
 new workspace when the task should stay isolated from the current working copy.
 Do not edit sibling workspace directories by hand.
 
+Workspaces you create must be nested under the branch they are based on. From
+the home repository, `treq add <branch_name>` targets the repository's default
+branch. When stacking more work on an existing workspace, pass its branch to
+`treq add` with `-s`. After creation, run `treq st` from the home repository and
+confirm the new workspace appears below its target. If it does not, correct the
+metadata with `treq set <workspace_name> -t <target_branch>` before continuing.
+
 ## Send files to the user
 
 Use `treq send` when the user should see a file, screenshot, or text preview

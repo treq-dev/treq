@@ -252,6 +252,9 @@ mod tests {
     assert!(body.contains("treq send"));
     assert!(body.contains("treq commit"));
     assert!(body.contains("treq add"));
+    assert!(
+      body.contains("Workspaces you create must be nested under the branch they are based on")
+    );
     assert!(Path::new(&files.skill_dir)
       .join(".claude/skills/treq/SKILL.md")
       .exists());
