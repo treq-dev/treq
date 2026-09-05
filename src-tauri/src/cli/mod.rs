@@ -141,6 +141,7 @@ fn classify_cli_error(message: &str) -> &'static str {
     "workspace_not_found",
     "agent_already_running",
     "agent_not_running",
+    "agent_not_found",
     "dependency_error",
     "filesystem_error",
     "not_implemented",
@@ -239,9 +240,17 @@ fn split_csv(value: Option<String>) -> Vec<String> {
     .unwrap_or_default()
 }
 
-fn handle_remote_review_command(command: &str, matches: &Matches) -> Result<(), String> {
+fn require_idempotency_key(key: Option<String>) -> Result<String, String> {
+  key
+    .filter(|k| !k.trim().is_empty())
+    .ok_or_else(|| "invalid_arguments: --idempotency-key is required".to_string())
+}
+
+pub(crate) fn parse_remote_command_request(
+  command: &str,
+  matches: &Matches,
+) -> Result<crate::core::remote::TreqCommandRequest, String> {
   use crate::core::remote::{FileRevision, TreqCommandRequest};
-  let format = OutputFormat::parse(get_arg_value(matches, "format").as_deref())?;
   let action =
     get_arg_value(matches, "action").ok_or_else(|| format!("{command} action is required"))?;
   let repo = get_arg_value(matches, "repo").ok_or_else(|| "--repo is required".to_string())?;
@@ -265,64 +274,66 @@ fn handle_remote_review_command(command: &str, matches: &Matches) -> Result<(), 
       .clone()
       .ok_or_else(|| format!("--target ({what}) is required"))
   };
-  let request = match (command, action.as_str()) {
-    ("repo", "status") => TreqCommandRequest::RepositoryStatus { repo },
-    ("repo", "branches") => TreqCommandRequest::ListBranches { repo },
-    ("repo", "probe") => TreqCommandRequest::ProbeRepo { repo },
-    ("repo", "init") => TreqCommandRequest::InitRepo {
+  match (command, action.as_str()) {
+    ("repo", "status") => Ok(TreqCommandRequest::RepositoryStatus { repo }),
+    ("repo", "branches") => Ok(TreqCommandRequest::ListBranches { repo }),
+    ("repo", "probe") => Ok(TreqCommandRequest::ProbeRepo { repo }),
+    ("repo", "init") => Ok(TreqCommandRequest::InitRepo {
       repo,
-      idempotency_key,
-    },
-    ("repo", "clone") => TreqCommandRequest::CloneRepo {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("repo", "clone") => Ok(TreqCommandRequest::CloneRepo {
       repo_url: require_value("repository URL")?,
       destination: repo,
-      idempotency_key,
-    },
-    ("workspace", "list") => TreqCommandRequest::ListWorkspaces { repo },
-    ("workspace", "inspect") => TreqCommandRequest::InspectWorkspace {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("workspace", "list") => Ok(TreqCommandRequest::ListWorkspaces { repo }),
+    ("workspace", "inspect") => Ok(TreqCommandRequest::InspectWorkspace {
       repo,
       workspace: require_workspace()?,
-    },
-    ("workspace", "create") => TreqCommandRequest::CreateWorkspace {
+    }),
+    ("workspace", "create") => Ok(TreqCommandRequest::CreateWorkspace {
       repo,
       branch_name: require_value("branch name")?,
       source_branch: target,
-      idempotency_key,
-    },
-    ("workspace", "rename") => TreqCommandRequest::RenameWorkspace {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("workspace", "rename") => Ok(TreqCommandRequest::RenameWorkspace {
       repo,
       workspace: require_workspace()?,
       new_name: require_value("new branch name")?,
-    },
-    ("workspace", "update") => TreqCommandRequest::UpdateWorkspace {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("workspace", "update") => Ok(TreqCommandRequest::UpdateWorkspace {
       repo,
       workspace: require_workspace()?,
       target_branch: target,
       description: value,
-    },
-    ("workspace", "delete") => TreqCommandRequest::DeleteWorkspace {
+    }),
+    ("workspace", "delete") => Ok(TreqCommandRequest::DeleteWorkspace {
       repo,
       workspace: require_workspace()?,
-    },
-    ("workspace", "move") => TreqCommandRequest::MoveWorkspaceChanges {
+    }),
+    ("workspace", "move") => Ok(TreqCommandRequest::MoveWorkspaceChanges {
       repo,
       workspace: require_workspace()?,
       destination: require_target("destination workspace/branch")?,
       commits: split_csv(value),
-      idempotency_key,
-    },
-    ("workspace", "rebase") => TreqCommandRequest::RebaseWorkspace {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("workspace", "rebase") => Ok(TreqCommandRequest::RebaseWorkspace {
       repo,
       workspace: require_workspace()?,
       target_branch: require_target("target branch")?,
-    },
-    ("changes", "list") => TreqCommandRequest::ListChanges { repo, workspace },
-    ("changes", "diff") => TreqCommandRequest::DiffFile {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("changes", "list") => Ok(TreqCommandRequest::ListChanges { repo, workspace }),
+    ("changes", "diff") => Ok(TreqCommandRequest::DiffFile {
       repo,
       workspace,
       path: path.ok_or_else(|| "--path is required".to_string())?,
-    },
-    ("file", "read") => TreqCommandRequest::ReadFile {
+    }),
+    ("file", "read") => Ok(TreqCommandRequest::ReadFile {
       repo,
       workspace,
       path: path.ok_or_else(|| "--path is required".to_string())?,
@@ -336,92 +347,115 @@ fn handle_remote_review_command(command: &str, matches: &Matches) -> Result<(), 
       },
       start_line: optional_usize(matches, "start-line")?,
       end_line: optional_usize(matches, "end-line")?,
-    },
-    ("file", "restore") => TreqCommandRequest::RestoreFile {
+    }),
+    ("file", "restore") => Ok(TreqCommandRequest::RestoreFile {
       repo,
       workspace,
       path: path.ok_or_else(|| "--path is required".to_string())?,
-    },
-    ("file", "patch") => TreqCommandRequest::PatchFile {
+    }),
+    ("file", "patch") => Ok(TreqCommandRequest::PatchFile {
       repo,
       workspace,
       path: path.ok_or_else(|| "--path is required".to_string())?,
       patch_base64: require_value("base64 patch content")?,
-      idempotency_key,
-    },
-    ("commits", "list") => TreqCommandRequest::ListCommits { repo, workspace },
-    ("commits", "create") => TreqCommandRequest::CreateCommit {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("commits", "list") => Ok(TreqCommandRequest::ListCommits { repo, workspace }),
+    ("commits", "create") => Ok(TreqCommandRequest::CreateCommit {
       repo,
       workspace,
       message: require_value("commit message")?,
-      idempotency_key,
-    },
-    ("commits", "describe") => TreqCommandRequest::DescribeCommit {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("commits", "describe") => Ok(TreqCommandRequest::DescribeCommit {
       repo,
       workspace: require_workspace()?,
       commit: require_target("commit change id")?,
       message: require_value("description")?,
-    },
-    ("commits", "split") => TreqCommandRequest::SplitCommit {
-      repo,
-      workspace: require_workspace()?,
-      commit: require_target("commit change id")?,
-    },
-    ("commits", "move") => TreqCommandRequest::MoveCommit {
+    }),
+    ("commits", "split") => {
+      let hunks = match &path {
+        Some(raw) => raw
+          .split(',')
+          .map(str::trim)
+          .filter(|s| !s.is_empty())
+          .map(crate::core::workspaces::parse_hunk_spec)
+          .collect::<Result<Vec<_>, _>>()?,
+        None => vec![],
+      };
+      Ok(TreqCommandRequest::SplitCommit {
+        repo,
+        workspace: require_workspace()?,
+        commit: require_target("commit change id")?,
+        files: split_csv(value),
+        hunks,
+        idempotency_key: require_idempotency_key(idempotency_key)?,
+      })
+    }
+    ("commits", "move") => Ok(TreqCommandRequest::MoveCommit {
       repo,
       workspace: require_workspace()?,
       commit: require_target("commit change id")?,
       target_workspace: require_value("target workspace id")?,
-    },
-    ("commits", "abandon") => TreqCommandRequest::AbandonCommit {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("commits", "abandon") => Ok(TreqCommandRequest::AbandonCommit {
       repo,
       workspace: require_workspace()?,
       commit: require_target("commit change id")?,
-    },
-    ("conflicts", "list") => TreqCommandRequest::ListConflicts { repo, workspace },
-    ("workspace", "marker") => TreqCommandRequest::WorkspaceChangeMarker { repo, workspace },
-    ("conflicts", "resolve") => TreqCommandRequest::ResolveConflict {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("conflicts", "list") => Ok(TreqCommandRequest::ListConflicts { repo, workspace }),
+    ("workspace", "marker") => Ok(TreqCommandRequest::WorkspaceChangeMarker { repo, workspace }),
+    ("conflicts", "resolve") => Ok(TreqCommandRequest::ResolveConflict {
       repo,
       revision: require_target("revision")?,
       sides: split_csv(value),
-    },
-    ("git", "fetch") => TreqCommandRequest::GitFetch { repo },
-    ("git", "bookmark-track") => TreqCommandRequest::GitBookmarkTrack {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("git", "fetch") => Ok(TreqCommandRequest::GitFetch { repo }),
+    ("git", "bookmark-track") => Ok(TreqCommandRequest::GitBookmarkTrack {
       repo,
       bookmark: require_value("bookmark name")?,
       remote_name: require_target("remote name")?,
-    },
-    ("git", "push") => TreqCommandRequest::GitPush {
+    }),
+    ("git", "push") => Ok(TreqCommandRequest::GitPush {
       repo,
       workspace,
-      idempotency_key,
-    },
-    ("agent-remote", "start") => TreqCommandRequest::AgentStart {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("agent-remote", "start") => Ok(TreqCommandRequest::AgentStart {
       repo,
       workspace: require_workspace()?,
       agent: require_target("agent name")?,
       prompt: require_value("prompt")?,
-      idempotency_key,
-    },
-    ("agent-remote", "input") => TreqCommandRequest::AgentInput {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("agent-remote", "input") => Ok(TreqCommandRequest::AgentInput {
       repo,
       workspace: require_workspace()?,
       input: require_value("input")?,
-    },
-    ("agent-remote", "status") => TreqCommandRequest::AgentStatus {
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
+    ("agent-remote", "status") => Ok(TreqCommandRequest::AgentStatus {
       repo,
       workspace: require_workspace()?,
-    },
-    ("agent-remote", "stop") => TreqCommandRequest::AgentStop {
+    }),
+    ("agent-remote", "stop") => Ok(TreqCommandRequest::AgentStop {
       repo,
       workspace: require_workspace()?,
-    },
-    ("agent-remote", "logs") => TreqCommandRequest::AgentLogs {
+    }),
+    ("agent-remote", "logs") => Ok(TreqCommandRequest::AgentLogs {
       repo,
       workspace: require_workspace()?,
-    },
-    _ => return Err(format!("unknown {command} action '{action}'")),
-  };
+    }),
+    _ => Err(format!("unknown {command} action '{action}'")),
+  }
+}
+
+fn handle_remote_review_command(command: &str, matches: &Matches) -> Result<(), String> {
+  let format = OutputFormat::parse(get_arg_value(matches, "format").as_deref())?;
+  let request = parse_remote_command_request(command, matches)?;
   match crate::core::remote::execute_local_request(request) {
     Ok(value) => match format {
       OutputFormat::Json => print_json(&value),

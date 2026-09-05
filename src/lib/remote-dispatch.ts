@@ -9,10 +9,8 @@
 // rather than a rewrite of it: the existing ~50 local Tauri commands in
 // `api.ts` are not yet mirrored one-to-one by `TreqCommandRequest` variants,
 // so making every local data hook transport-aware is future work. What is
-// wired here is the read-only review surface (status, changes, commits,
-// conflicts) needed to replace the remote placeholder screen, plus the
-// mutations the PRD calls "not yet supported" so the UI can disable them
-// instead of sending a request that always fails.
+// wired here is the typed command protocol (reads and mutations) that the
+// remote CLI, Tauri IPC, and TypeScript share.
 
 import {
   remoteDispatchLocal,
@@ -21,19 +19,62 @@ import {
 } from "./api-extra";
 import type { SshEndpoint } from "./api-types-remote";
 
+/** Mirrors `core::workspaces::HunkSpec` for non-interactive split/move. */
+export interface RemoteHunkSpec {
+  file_path: string;
+  start_line: number;
+  end_line: number;
+}
+
+/**
+ * Must match `TreqCommandRequest::KIND_NAMES` in
+ * `src-tauri/src/core/remote.rs`. The unit test in
+ * `remote-dispatch.test.ts` asserts this list stays aligned with the
+ * TypeScript union.
+ */
+export const TREQ_COMMAND_KINDS = [
+  "InspectRepository",
+  "RepositoryStatus",
+  "ListBranches",
+  "ListWorkspaces",
+  "InspectWorkspace",
+  "ListChanges",
+  "DiffFile",
+  "ReadFile",
+  "ListCommits",
+  "ListConflicts",
+  "WorkspaceChangeMarker",
+  "ProbeRepo",
+  "CloneRepo",
+  "InitRepo",
+  "CreateWorkspace",
+  "RenameWorkspace",
+  "UpdateWorkspace",
+  "DeleteWorkspace",
+  "MoveWorkspaceChanges",
+  "RebaseWorkspace",
+  "RestoreFile",
+  "PatchFile",
+  "CreateCommit",
+  "DescribeCommit",
+  "SplitCommit",
+  "MoveCommit",
+  "AbandonCommit",
+  "ResolveConflict",
+  "GitFetch",
+  "GitBookmarkTrack",
+  "GitPush",
+  "AgentStart",
+  "AgentInput",
+  "AgentStatus",
+  "AgentStop",
+  "AgentLogs",
+] as const;
+
+export type TreqCommandKind = (typeof TREQ_COMMAND_KINDS)[number];
+
 export type TreqCommandRequest =
   | { kind: "ProbeRepo"; repo: string }
-  | {
-      kind: "CloneRepo";
-      repo_url: string;
-      destination: string;
-      idempotency_key?: string | null;
-    }
-  | {
-      kind: "InitRepo";
-      repo: string;
-      idempotency_key?: string | null;
-    }
   | { kind: "InspectRepository"; repo: string }
   | { kind: "RepositoryStatus"; repo: string }
   | { kind: "ListBranches"; repo: string }
@@ -62,30 +103,144 @@ export type TreqCommandRequest =
       repo: string;
       workspace?: string | null;
     }
-  | { kind: "GitFetch"; repo: string; idempotency_key?: string | null }
+  | {
+      kind: "CloneRepo";
+      repo_url: string;
+      destination: string;
+      idempotency_key: string;
+    }
+  | { kind: "InitRepo"; repo: string; idempotency_key: string }
+  | {
+      kind: "CreateWorkspace";
+      repo: string;
+      branch_name: string;
+      source_branch?: string | null;
+      idempotency_key: string;
+    }
+  | {
+      kind: "RenameWorkspace";
+      repo: string;
+      workspace: string;
+      new_name: string;
+      idempotency_key: string;
+    }
+  | {
+      kind: "UpdateWorkspace";
+      repo: string;
+      workspace: string;
+      target_branch?: string | null;
+      description?: string | null;
+    }
+  | { kind: "DeleteWorkspace"; repo: string; workspace: string }
+  | {
+      kind: "MoveWorkspaceChanges";
+      repo: string;
+      workspace: string;
+      destination: string;
+      commits: string[];
+      idempotency_key: string;
+    }
+  | {
+      kind: "RebaseWorkspace";
+      repo: string;
+      workspace: string;
+      target_branch: string;
+      idempotency_key: string;
+    }
+  | {
+      kind: "RestoreFile";
+      repo: string;
+      workspace?: string | null;
+      path: string;
+    }
+  | {
+      kind: "PatchFile";
+      repo: string;
+      workspace?: string | null;
+      path: string;
+      patch_base64: string;
+      idempotency_key: string;
+    }
+  | {
+      kind: "CreateCommit";
+      repo: string;
+      workspace?: string | null;
+      message: string;
+      idempotency_key: string;
+    }
+  | {
+      kind: "DescribeCommit";
+      repo: string;
+      workspace: string;
+      commit: string;
+      message: string;
+    }
+  | {
+      kind: "SplitCommit";
+      repo: string;
+      workspace: string;
+      commit: string;
+      files: string[];
+      hunks: RemoteHunkSpec[];
+      idempotency_key: string;
+    }
+  | {
+      kind: "MoveCommit";
+      repo: string;
+      workspace: string;
+      commit: string;
+      target_workspace: string;
+      idempotency_key: string;
+    }
+  | {
+      kind: "AbandonCommit";
+      repo: string;
+      workspace: string;
+      commit: string;
+      idempotency_key: string;
+    }
+  | {
+      kind: "ResolveConflict";
+      repo: string;
+      revision: string;
+      sides: string[];
+      idempotency_key: string;
+    }
+  | { kind: "GitFetch"; repo: string }
+  | {
+      kind: "GitBookmarkTrack";
+      repo: string;
+      bookmark: string;
+      remote_name: string;
+    }
+  | {
+      kind: "GitPush";
+      repo: string;
+      workspace?: string | null;
+      idempotency_key: string;
+    }
   | {
       kind: "AgentStart";
       repo: string;
       workspace: string;
       agent: string;
       prompt: string;
-      idempotency_key?: string | null;
+      idempotency_key: string;
     }
-  | { kind: "AgentInput"; repo: string; workspace: string; input: string }
+  | {
+      kind: "AgentInput";
+      repo: string;
+      workspace: string;
+      input: string;
+      idempotency_key: string;
+    }
   | { kind: "AgentStatus"; repo: string; workspace: string }
   | { kind: "AgentStop"; repo: string; workspace: string }
   | { kind: "AgentLogs"; repo: string; workspace: string };
 
-/**
- * Remote commands the PRD or Phase 5 explicitly marks `not_implemented` over
- * the exec channel. The UI must disable the corresponding action rather than
- * let a user trigger a request that always fails - see "Main application
- * integration": "disabling any action not yet supported remotely."
- */
-export const REMOTE_NOT_IMPLEMENTED = new Set(["SplitCommit", "AgentInput"]);
-
-export function isRemoteActionSupported(kind: string): boolean {
-  return !REMOTE_NOT_IMPLEMENTED.has(kind);
+/** Compile-time exhaustiveness: adding a Rust variant without TS fails this. */
+export function treqCommandKind(request: TreqCommandRequest): TreqCommandKind {
+  return request.kind;
 }
 
 export function dispatchLocal<T = unknown>(

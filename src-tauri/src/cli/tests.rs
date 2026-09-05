@@ -1,6 +1,7 @@
 use super::{
   dispatch_agent_request, handle_cli_command, handle_cli_global_args, is_supported_cli_command,
-  normalize_repo_path, parse_agent_mode, parse_agent_mode_or_default, workspace_dir_name_from_cwd,
+  normalize_repo_path, parse_agent_mode, parse_agent_mode_or_default, parse_remote_command_request,
+  workspace_dir_name_from_cwd,
 };
 use crate::agent_dispatch;
 use crate::local_db;
@@ -552,4 +553,256 @@ fn dispatch_agent_request_surfaces_ack_timeout_error() {
       || error.contains("invalid dispatch response payload")
   );
   handle.join().expect("join");
+}
+
+fn remote_matches(pairs: &[(&str, &str)]) -> Matches {
+  let mut matches = Matches::default();
+  for (name, value) in pairs {
+    let mut arg = tauri_plugin_cli::ArgData::default();
+    arg.value = Value::String((*value).to_string());
+    matches.args.insert((*name).to_string(), arg);
+  }
+  matches
+}
+
+#[test]
+fn parses_every_newly_exposed_remote_mutation_at_the_cli_boundary() {
+  let cases: &[(&str, &[(&str, &str)])] = &[
+    (
+      "repo",
+      &[
+        ("action", "init"),
+        ("repo", "/tmp/r"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "repo",
+      &[
+        ("action", "clone"),
+        ("repo", "/tmp/dest"),
+        ("value", "git@ex:x.git"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "workspace",
+      &[
+        ("action", "create"),
+        ("repo", "/tmp/r"),
+        ("value", "feat"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "workspace",
+      &[
+        ("action", "rename"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("value", "feat-2"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "workspace",
+      &[
+        ("action", "update"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("value", "desc"),
+      ],
+    ),
+    (
+      "workspace",
+      &[("action", "delete"), ("repo", "/tmp/r"), ("workspace", "1")],
+    ),
+    (
+      "workspace",
+      &[
+        ("action", "move"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("target", "2"),
+        ("value", "abc"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "workspace",
+      &[
+        ("action", "rebase"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("target", "main"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "file",
+      &[("action", "restore"), ("repo", "/tmp/r"), ("path", "a.txt")],
+    ),
+    (
+      "file",
+      &[
+        ("action", "patch"),
+        ("repo", "/tmp/r"),
+        ("path", "a.txt"),
+        ("value", "YQ=="),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "commits",
+      &[
+        ("action", "create"),
+        ("repo", "/tmp/r"),
+        ("value", "msg"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "commits",
+      &[
+        ("action", "describe"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("target", "abc"),
+        ("value", "msg"),
+      ],
+    ),
+    (
+      "commits",
+      &[
+        ("action", "split"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("target", "abc"),
+        ("value", "a.rs"),
+        ("path", "b.rs:1-2"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "commits",
+      &[
+        ("action", "move"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("target", "abc"),
+        ("value", "2"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "commits",
+      &[
+        ("action", "abandon"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("target", "abc"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "conflicts",
+      &[
+        ("action", "resolve"),
+        ("repo", "/tmp/r"),
+        ("target", "rev"),
+        ("value", "ours"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    ("git", &[("action", "fetch"), ("repo", "/tmp/r")]),
+    (
+      "git",
+      &[
+        ("action", "bookmark-track"),
+        ("repo", "/tmp/r"),
+        ("value", "main"),
+        ("target", "origin"),
+      ],
+    ),
+    (
+      "git",
+      &[
+        ("action", "push"),
+        ("repo", "/tmp/r"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "agent-remote",
+      &[
+        ("action", "start"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("target", "claude"),
+        ("value", "hi"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "agent-remote",
+      &[
+        ("action", "input"),
+        ("repo", "/tmp/r"),
+        ("workspace", "1"),
+        ("value", "more"),
+        ("idempotency-key", "k1"),
+      ],
+    ),
+    (
+      "agent-remote",
+      &[("action", "status"), ("repo", "/tmp/r"), ("workspace", "1")],
+    ),
+    (
+      "agent-remote",
+      &[("action", "stop"), ("repo", "/tmp/r"), ("workspace", "1")],
+    ),
+    (
+      "agent-remote",
+      &[("action", "logs"), ("repo", "/tmp/r"), ("workspace", "1")],
+    ),
+  ];
+  for (command, args) in cases {
+    parse_remote_command_request(command, &remote_matches(args))
+      .unwrap_or_else(|e| panic!("{command} {args:?}: {e}"));
+  }
+}
+
+#[test]
+fn rejects_unknown_remote_action_and_arbitrary_command_kinds() {
+  let error = parse_remote_command_request(
+    "repo",
+    &remote_matches(&[("action", "exec-shell"), ("repo", "/tmp/r")]),
+  )
+  .unwrap_err();
+  assert!(error.contains("unknown repo action"));
+}
+
+#[test]
+fn create_commit_requires_idempotency_key_at_cli_boundary() {
+  let error = parse_remote_command_request(
+    "commits",
+    &remote_matches(&[("action", "create"), ("repo", "/tmp/r"), ("value", "msg")]),
+  )
+  .unwrap_err();
+  assert!(error.contains("idempotency-key is required"));
+}
+
+#[test]
+fn describe_commit_allows_missing_idempotency_key_at_cli_boundary() {
+  parse_remote_command_request(
+    "commits",
+    &remote_matches(&[
+      ("action", "describe"),
+      ("repo", "/tmp/r"),
+      ("workspace", "1"),
+      ("target", "abc"),
+      ("value", "msg"),
+    ]),
+  )
+  .unwrap();
 }

@@ -142,6 +142,7 @@ describe("remote SSH integration", () => {
     const initialized = await dispatchLocal<RepositoryInspection>({
       kind: "InitRepo",
       repo: source,
+      idempotency_key: "test-init-1",
     });
     expect(initialized.repository_type).toBeTruthy();
 
@@ -156,6 +157,7 @@ describe("remote SSH integration", () => {
       kind: "CloneRepo",
       repo_url: source,
       destination: cloneDest,
+      idempotency_key: "test-clone-1",
     });
     expect(cloned.root).toContain("clone");
 

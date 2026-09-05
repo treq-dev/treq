@@ -29,6 +29,10 @@ pub struct AgentRecord {
   pub started_at: String,
   pub prompt: String,
   pub log_path: String,
+  #[serde(default)]
+  pub stdin_path: Option<String>,
+  #[serde(default)]
+  pub keeper_pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +59,10 @@ fn record_path(repo_path: &str, workspace: &str) -> PathBuf {
 
 fn log_path(repo_path: &str, workspace: &str) -> PathBuf {
   agents_dir(repo_path).join(format!("{workspace}.log"))
+}
+
+fn stdin_fifo_path(repo_path: &str, workspace: &str) -> PathBuf {
+  agents_dir(repo_path).join(format!("{workspace}.stdin"))
 }
 
 fn read_record(repo_path: &str, workspace: &str) -> Option<AgentRecord> {
@@ -154,19 +162,20 @@ pub fn start_agent(
     .try_clone()
     .map_err(|e| format!("filesystem_error: Failed to duplicate agent log handle: {e}"))?;
 
+  let fifo_path = stdin_fifo_path(repo_path, workspace);
+  let (agent_stdin, keeper_pid) = setup_agent_stdin(&fifo_path)?;
+
   let child = Command::new(&binary)
     .current_dir(workspace_path)
     .arg(prompt)
-    .stdin(Stdio::piped())
+    .stdin(Stdio::from(agent_stdin))
     .stdout(Stdio::from(log_file))
     .stderr(Stdio::from(log_file_err))
     .spawn()
     .map_err(|e| format!("dependency_error: Failed to start agent '{agent}': {e}"))?;
 
-  // Only the pid is retained; a fresh CLI process reads it back from disk,
-  // it never inherits the live `Child` handle.
   let pid = child.id();
-  std::mem::forget(child.stdin);
+  std::mem::forget(child);
 
   let record = AgentRecord {
     workspace: workspace.to_string(),
@@ -175,6 +184,8 @@ pub fn start_agent(
     started_at: chrono::Utc::now().to_rfc3339(),
     prompt: prompt.to_string(),
     log_path: log_file_path.to_string_lossy().into_owned(),
+    stdin_path: Some(fifo_path.to_string_lossy().into_owned()),
+    keeper_pid,
   };
   write_record(repo_path, &record)?;
   Ok(record)
@@ -191,19 +202,95 @@ fn resolve_agent_binary(agent: &str) -> Option<String> {
     .and_then(|name| crate::binary_paths::detect_binary(name))
 }
 
-/// Sends input to a running agent's stdin. Since the supervisor does not
-/// keep the child's stdin open across the process boundary between CLI
-/// invocations, this appends to a FIFO-like input log the agent process
-/// polls is out of scope for Phase 5; today this returns a structured error
-/// so a caller sees an explicit `not_implemented` rather than a false
-/// success. Interactive input belongs on the PTY attach path instead.
-pub fn send_agent_input(repo_path: &str, workspace: &str, _input: &str) -> Result<String, String> {
+/// Opens a FIFO (Unix) so later CLI invocations can write to the agent's
+/// stdin. A detached `sleep` process holds a write fd so the agent does not
+/// see EOF when the starting `treq` process exits.
+#[cfg(unix)]
+fn setup_agent_stdin(fifo_path: &Path) -> Result<(fs::File, Option<u32>), String> {
+  use std::os::unix::ffi::OsStrExt;
+  if fifo_path.exists() {
+    let _ = fs::remove_file(fifo_path);
+  }
+  let c_path = std::ffi::CString::new(fifo_path.as_os_str().as_bytes())
+    .map_err(|_| "filesystem_error: Invalid agent stdin path".to_string())?;
+  // SAFETY: `c_path` is a valid C string pointing at a path we own; mkfifo
+  // only creates a filesystem node.
+  let rc = unsafe { libc_mkfifo(c_path.as_ptr(), 0o600) };
+  if rc != 0 {
+    return Err(format!(
+      "filesystem_error: Failed to create agent stdin fifo: {}",
+      std::io::Error::last_os_error()
+    ));
+  }
+  let fifo = OpenOptions::new()
+    .read(true)
+    .write(true)
+    .open(fifo_path)
+    .map_err(|e| format!("filesystem_error: Failed to open agent stdin fifo: {e}"))?;
+  let keeper_stdin = fifo
+    .try_clone()
+    .map_err(|e| format!("filesystem_error: Failed to clone stdin fifo: {e}"))?;
+  let keeper = Command::new("sleep")
+    .arg("86400")
+    .stdin(Stdio::from(keeper_stdin))
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .spawn()
+    .map_err(|e| format!("filesystem_error: Failed to start stdin keeper: {e}"))?;
+  let keeper_pid = keeper.id();
+  std::mem::forget(keeper);
+  let agent_stdin = fifo
+    .try_clone()
+    .map_err(|e| format!("filesystem_error: Failed to clone stdin fifo for agent: {e}"))?;
+  Ok((agent_stdin, Some(keeper_pid)))
+}
+
+#[cfg(not(unix))]
+fn setup_agent_stdin(fifo_path: &Path) -> Result<(fs::File, Option<u32>), String> {
+  let file = OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(fifo_path)
+    .map_err(|e| format!("filesystem_error: Failed to open agent stdin file: {e}"))?;
+  Ok((file, None))
+}
+
+#[cfg(unix)]
+extern "C" {
+  #[link_name = "mkfifo"]
+  fn libc_mkfifo(path: *const std::ffi::c_char, mode: u32) -> i32;
+}
+
+/// Sends input to a running agent's stdin via the VM-local FIFO the
+/// supervisor created at start. Distinguishes a missing record from a
+/// recorded-but-stopped process.
+pub fn send_agent_input(repo_path: &str, workspace: &str, input: &str) -> Result<String, String> {
   match read_record(repo_path, workspace) {
-    Some(record) if process_is_alive(record.pid) => Err(
-      "not_implemented: Non-interactive stdin injection is not supported; use PTY attach for interactive input"
-        .to_string(),
-    ),
-    _ => Err(format!("agent_not_running: No running agent for workspace '{workspace}'")),
+    None => Err(format!(
+      "agent_not_found: No agent record for workspace '{workspace}'"
+    )),
+    Some(record) if process_is_alive(record.pid) => {
+      let stdin_path = record
+        .stdin_path
+        .ok_or_else(|| "filesystem_error: Running agent has no stdin path recorded".to_string())?;
+      use std::io::Write;
+      let mut file = OpenOptions::new()
+        .write(true)
+        .open(&stdin_path)
+        .map_err(|e| format!("filesystem_error: Failed to open agent stdin: {e}"))?;
+      file
+        .write_all(input.as_bytes())
+        .map_err(|e| format!("filesystem_error: Failed to write agent input: {e}"))?;
+      if !input.ends_with('\n') {
+        file
+          .write_all(b"\n")
+          .map_err(|e| format!("filesystem_error: Failed to write agent input newline: {e}"))?;
+      }
+      Ok(format!("sent {} bytes", input.len()))
+    }
+    Some(_) => Err(format!(
+      "agent_not_running: Agent for workspace '{workspace}' is not running"
+    )),
   }
 }
 
@@ -254,6 +341,14 @@ pub fn stop_agent(repo_path: &str, workspace: &str) -> Result<AgentStatusResult,
   };
   if process_is_alive(record.pid) {
     kill_process(record.pid);
+  }
+  if let Some(keeper_pid) = record.keeper_pid {
+    if process_is_alive(keeper_pid) {
+      kill_process(keeper_pid);
+    }
+  }
+  if let Some(stdin_path) = &record.stdin_path {
+    let _ = fs::remove_file(stdin_path);
   }
   remove_record(repo_path, workspace);
   Ok(AgentStatusResult {
@@ -349,14 +444,70 @@ mod tests {
     stop_agent(repo, "demo").unwrap();
   }
 
+  #[test]
+  fn send_agent_input_reaches_a_running_process() {
+    let dir = temp_repo();
+    let repo = dir.path().to_str().unwrap();
+    fs::create_dir_all(dir.path().join("ws")).unwrap();
+    let workspace_path = dir.path().join("ws").to_str().unwrap().to_string();
+    struct StopGuard<'a> {
+      repo: &'a str,
+      workspace: &'a str,
+    }
+    impl Drop for StopGuard<'_> {
+      fn drop(&mut self) {
+        let _ = stop_agent(self.repo, self.workspace);
+      }
+    }
+    let _guard = StopGuard {
+      repo,
+      workspace: "demo",
+    };
+    // Unix `cat` echoes stdin into the log. Windows has no FIFO, so the
+    // helper process is only required to stay alive for a successful write.
+    let placeholder = if cfg!(windows) { "sleep" } else { "cat" };
+    let _record = start_test_process(repo, "demo", &workspace_path, placeholder);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    let sent = send_agent_input(repo, "demo", "hello-from-supervisor").unwrap();
+    assert!(sent.contains("sent"));
+    if !cfg!(windows) {
+      std::thread::sleep(std::time::Duration::from_millis(150));
+      let logs = agent_logs(repo, "demo").unwrap();
+      assert!(
+        logs.contains("hello-from-supervisor"),
+        "expected agent log to contain written stdin, got: {logs:?}"
+      );
+    }
+  }
+
+  #[test]
+  fn send_agent_input_errors_when_agent_is_missing() {
+    let dir = temp_repo();
+    let repo = dir.path().to_str().unwrap();
+    let error = send_agent_input(repo, "nope", "x").unwrap_err();
+    assert!(error.contains("agent_not_found"));
+  }
+
+  #[test]
+  fn send_agent_input_errors_when_agent_is_stopped() {
+    let dir = temp_repo();
+    let repo = dir.path().to_str().unwrap();
+    fs::create_dir_all(dir.path().join("ws")).unwrap();
+    let workspace_path = dir.path().join("ws").to_str().unwrap().to_string();
+    let _record = start_test_process(repo, "demo", &workspace_path, "sleep");
+    stop_agent(repo, "demo").unwrap();
+    let error = send_agent_input(repo, "demo", "x").unwrap_err();
+    assert!(error.contains("agent_not_found") || error.contains("agent_not_running"));
+  }
+
   /// Spawns a real long-lived process in place of `start_agent`'s allow-listed
-  /// agent binaries (unavailable in this sandbox). Unix uses `sleep 30`;
   /// Windows uses `ping` because `sleep` is not a lasting executable there.
   fn start_test_process(
     repo_path: &str,
     workspace: &str,
     workspace_path: &str,
-    _agent_placeholder: &str,
+    placeholder: &str,
   ) -> AgentRecord {
     let log_file_path = log_path(repo_path, workspace);
     fs::create_dir_all(agents_dir(repo_path)).unwrap();
@@ -365,7 +516,11 @@ mod tests {
       .append(true)
       .open(&log_file_path)
       .unwrap();
-    let mut command = if cfg!(windows) {
+    let fifo_path = stdin_fifo_path(repo_path, workspace);
+    let (agent_stdin, keeper_pid) = setup_agent_stdin(&fifo_path).unwrap();
+    let mut command = if placeholder == "cat" && !cfg!(windows) {
+      Command::new("cat")
+    } else if cfg!(windows) {
       let mut command = Command::new("ping");
       command.args(["-n", "30", "127.0.0.1"]);
       command
@@ -376,6 +531,7 @@ mod tests {
     };
     let child = command
       .current_dir(workspace_path)
+      .stdin(Stdio::from(agent_stdin))
       .stdout(Stdio::from(log_file.try_clone().unwrap()))
       .stderr(Stdio::from(log_file))
       .spawn()
@@ -387,6 +543,8 @@ mod tests {
       started_at: chrono::Utc::now().to_rfc3339(),
       prompt: String::new(),
       log_path: log_file_path.to_string_lossy().into_owned(),
+      stdin_path: Some(fifo_path.to_string_lossy().into_owned()),
+      keeper_pid,
     };
     write_record(repo_path, &record).unwrap();
     std::mem::forget(child);

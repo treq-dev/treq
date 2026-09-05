@@ -5,7 +5,7 @@ import type {
   SshEndpoint,
   WorkspaceChangeMarker,
 } from "../../lib/api-types-remote";
-import { dispatch, isRemoteActionSupported } from "../../lib/remote-dispatch";
+import { dispatch } from "../../lib/remote-dispatch";
 import { remoteRepoIdentity } from "../../lib/remote-query-keys";
 
 interface RemoteAgentStatus {
@@ -262,12 +262,6 @@ export function RemoteReviewPanel({
             </section>
           )}
         </>
-      )}
-
-      {!isRemoteActionSupported("SplitCommit") && (
-        <p className="text-xs text-muted-foreground">
-          Commit split is not yet available on remote repositories.
-        </p>
       )}
     </div>
   );

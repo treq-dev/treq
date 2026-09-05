@@ -19,9 +19,9 @@ const AGENTS = ["claude", "codex", "cursor-agent"];
 
 /**
  * Phase 4 (agent control): start/status/logs/stop against the VM-local
- * agent supervisor via `dispatchOverSsh`. Interactive `AgentInput` is not
- * supported over this connection (the supervisor returns `not_implemented`
- * for non-interactive stdin injection), so it is intentionally omitted here.
+ * agent supervisor via typed `TreqCommandRequest` dispatch. Non-interactive
+ * `AgentInput` is available on the same protocol; this screen does not add
+ * input controls.
  */
 export function RemoteAgentScreen({
   endpoint,
