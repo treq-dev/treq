@@ -1,6 +1,5 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useLayoutEffect } from "react";
 import { CheckCircle2, FileText, Loader2 } from "lucide-react";
-import type { VirtuosoHandle } from "react-virtuoso";
 import type {
   ConflictRegion,
   GhReviewThread,
@@ -9,7 +8,6 @@ import type {
 import type { ParsedFileChange } from "../../lib/git-utils";
 import { Button } from "../ui/button";
 import { SearchOverlay } from "../SearchOverlay";
-import type { DiffVirtuosoIndexMaps } from "./buildDiffVirtuosoItems";
 import { DiffVirtuosoList } from "./DiffVirtuoso";
 import type {
   CommentLineQuery,
@@ -206,23 +204,9 @@ export function DiffContentArea({
   diffContainerRef,
   diffScrollApiRef,
 }: DiffContentAreaProps) {
-  const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const indexMapsRef = useRef<DiffVirtuosoIndexMaps>({
-    filePathToIndex: new Map(),
-    searchIdToIndex: new Map(),
-  });
-
   useLayoutEffect(() => {
     diffScrollApiRef.current = {
       scrollToFile: (filePath) => {
-        const index = indexMapsRef.current.filePathToIndex.get(filePath);
-        if (index !== undefined) {
-          virtuosoRef.current?.scrollToIndex({
-            index,
-            align: "start",
-            behavior: "smooth",
-          });
-        }
         const fileId = `file-section-${filePath.replace(/[^a-zA-Z0-9]/g, "-")}`;
         document.getElementById(fileId)?.scrollIntoView({
           behavior: "smooth",
@@ -230,14 +214,6 @@ export function DiffContentArea({
         });
       },
       scrollToSearchId: (searchId) => {
-        const index = indexMapsRef.current.searchIdToIndex.get(searchId);
-        if (index !== undefined) {
-          virtuosoRef.current?.scrollToIndex({
-            index,
-            align: "center",
-            behavior: "smooth",
-          });
-        }
         const el = diffContainerRef.current?.querySelector(
           `[data-search-id="${CSS.escape(searchId)}"]`,
         );
@@ -402,8 +378,6 @@ export function DiffContentArea({
                   diffContainerRef,
                   diffScrollApiRef,
                 }}
-                virtuosoRef={virtuosoRef}
-                indexMapsRef={indexMapsRef}
                 scrollerRef={diffContainerRef}
               />
             </div>
