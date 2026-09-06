@@ -12,7 +12,6 @@ import {
   trustRepo,
 } from "../../src/lib/api";
 import { previewSettingKey } from "../../src/lib/features";
-import { useFeaturePreviewStore } from "../../src/stores/featurePreviewStore";
 import { findSidebarBranchElement, writeRepoFile } from "../utils";
 
 describe("feature preview settings", () => {
@@ -50,17 +49,12 @@ describe("feature preview settings", () => {
 
   it("hides Logs, Checks, and the Diff/Browser switcher when disabled", async () => {
     await createWorkspace(repoPath, "feat/hidden-previews");
-    for (const id of ["logs", "checks", "browser"] as const) {
-      await setSetting(previewSettingKey(id), "false");
-    }
-    useFeaturePreviewStore.getState().hydrateFlags({
-      [previewSettingKey("logs")]: "false",
-      [previewSettingKey("checks")]: "false",
-      [previewSettingKey("browser")]: "false",
-    });
+    await openFeaturePreview();
+    await user.click(screen.getByLabelText("Logs"));
+    await user.click(screen.getByLabelText("Checks"));
+    await user.click(screen.getByLabelText("Browser"));
+    await user.click(screen.getByRole("button", { name: "Close" }));
 
-    render(<Dashboard />);
-    await screen.findByRole("tab", { name: "Changes" });
     expect(screen.queryByRole("tab", { name: /^Logs/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /^Checks/ })).toBeNull();
 
