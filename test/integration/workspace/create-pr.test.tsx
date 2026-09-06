@@ -11,6 +11,7 @@ import {
   getWorkspaces,
   ghCreatePr,
   ghViewPr,
+  getPrInfoViaGh,
   pushWorkspaceToRemote,
   updateWorkspace,
 } from "../../../src/lib/api";
@@ -20,6 +21,8 @@ import {
   createTestRepo,
   findSidebarBranchElement,
   openRepo,
+  resolveWorkspacePath,
+  writeWorkspaceFile,
 } from "../../utils";
 import { deriveConventionalPrTitle } from "../../../src/lib/github-pr";
 
@@ -68,6 +71,7 @@ describe("ShowWorkspace - Create PR", () => {
     openRepo(repoPath);
     user = userEvent.setup();
     vi.mocked(getCachedPrInfo).mockReset().mockResolvedValue(null);
+    vi.mocked(getPrInfoViaGh).mockReset().mockResolvedValue(null);
     vi.mocked(ghCreatePr).mockReset().mockResolvedValue(42);
     vi.mocked(openUrl).mockReset();
   });
@@ -328,6 +332,59 @@ describe("ShowWorkspace - Create PR", () => {
       "https://github.com/acme/treq/pull/42",
     );
   });
+
+  it("updates the header to View PR after committing and creating a PR", async () => {
+    const workspaceId = await createWorkspace(repoPath, "feat/commit-create-pr");
+    const workspace = (await getWorkspaces(repoPath)).find(
+      (candidate) => candidate.id === workspaceId,
+    )!;
+    writeWorkspaceFile(
+      resolveWorkspacePath(repoPath, workspace.workspace_path),
+      "feature.txt",
+      "feature content\n",
+    );
+    setOriginUrl(repoPath, "https://github.com/acme/treq.git");
+
+    const createdPr = {
+      number: 42,
+      title: "Feature",
+      state: "OPEN" as const,
+      url: "https://github.com/acme/treq/pull/42",
+      head_ref_name: "feat/commit-create-pr",
+      base_ref_name: "main",
+      merge_state_status: "CLEAN",
+      is_draft: false,
+    };
+    vi.mocked(getPrInfoViaGh).mockImplementation(async () => {
+      vi.mocked(getCachedPrInfo).mockResolvedValue(createdPr);
+      return createdPr;
+    });
+
+    render(<Dashboard />);
+    const header = await openWorkspace("feat/commit-create-pr");
+    await user.click(await screen.findByRole("tab", { name: /changes/i }));
+    await screen.findAllByText("feature.txt");
+    await user.type(await screen.findByPlaceholderText("Message"), "Add feature");
+    await user.click(screen.getByRole("button", { name: /more commit options/i }));
+    const commitAndCreatePr = await screen.findByRole("menuitem", {
+      name: /commit and create pr/i,
+    });
+    await waitFor(() => expect(commitAndCreatePr).toBeEnabled());
+    await user.click(commitAndCreatePr);
+
+    await waitFor(() => {
+      expect(getPrInfoViaGh).toHaveBeenCalledWith(
+        repoPath,
+        "feat/commit-create-pr",
+      );
+    }, { timeout: 15_000 });
+    expect(
+      await within(header).findByRole("button", { name: /view pr.*open/i }),
+    ).toBeVisible();
+    expect(
+      within(header).queryByRole("button", { name: /^create pr$/i }),
+    ).not.toBeInTheDocument();
+  }, 30_000);
 
   it("creates a draft PR from the dropdown", async () => {
     const { title, description } = await setupPushedWorkspaceWithGitHub();

@@ -194,10 +194,11 @@ export async function invalidatePrStatuses(
 ) {
   try {
     if (branchName) {
-      await Promise.all([
+      const [prInfo] = await Promise.all([
         getPrInfoViaGh(repoPath, branchName),
         getPrChecksViaGh(repoPath, branchName),
       ]);
+      await setQueryData(["pr-info-gh", repoPath, branchName], prInfo);
     } else {
       await refreshPrStatuses(repoPath);
     }
