@@ -344,6 +344,7 @@ describe("ShowWorkspace - Create PR", () => {
       "feature content\n",
     );
     setOriginUrl(repoPath, "https://github.com/acme/treq.git");
+    vi.mocked(pushWorkspaceToRemote).mockResolvedValueOnce("pushed");
 
     const createdPr = {
       number: 42,
