@@ -4,8 +4,16 @@ import { createTestRepo, openRepo } from "../utils";
 import { render, screen } from "../test-utils";
 import { Dashboard } from "../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
-import { createWorkspace, scheduleWorkspaces } from "../../src/lib/api";
+import {
+  createWorkspace,
+  runWorkflow,
+  scheduleWorkspaces,
+  setSetting,
+  trustRepo,
+} from "../../src/lib/api";
 import { previewSettingKey } from "../../src/lib/features";
+import { useFeaturePreviewStore } from "../../src/stores/featurePreviewStore";
+import { findSidebarBranchElement, writeRepoFile } from "../utils";
 
 describe("feature preview settings", () => {
   let user: ReturnType<typeof userEvent.setup>;
@@ -35,6 +43,32 @@ describe("feature preview settings", () => {
       screen.getByRole("button", { name: "Workspace scheduling" }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remote SSH" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Logs" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Checks" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Browser" })).toBeTruthy();
+  });
+
+  it("hides Logs, Checks, and the Diff/Browser switcher when disabled", async () => {
+    await createWorkspace(repoPath, "feat/hidden-previews");
+    for (const id of ["logs", "checks", "browser"] as const) {
+      await setSetting(previewSettingKey(id), "false");
+    }
+    useFeaturePreviewStore.getState().hydrateFlags({
+      [previewSettingKey("logs")]: "false",
+      [previewSettingKey("checks")]: "false",
+      [previewSettingKey("browser")]: "false",
+    });
+
+    render(<Dashboard />);
+    await screen.findByRole("tab", { name: "Changes" });
+    expect(screen.queryByRole("tab", { name: /^Logs/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^Checks/ })).toBeNull();
+
+    await user.click(await findSidebarBranchElement("feat/hidden-previews"));
+    await user.click(await screen.findByRole("tab", { name: "Changes" }));
+    expect(
+      screen.queryByRole("button", { name: "Switch review view" }),
+    ).toBeNull();
   });
 
   it("hides the Skills tab when skills installation is off", async () => {
@@ -88,5 +122,21 @@ describe("feature preview rust gates", () => {
     await expect(
       scheduleWorkspaces(repoPath, [workspaceId], "2099-01-01T00:00:00Z"),
     ).rejects.toThrow(/workspaceScheduling/);
+  });
+
+  it("rejects workflow checks when the preview flag is off", async () => {
+    const { repoPath } = createTestRepo(false);
+    const workspaceId = await createWorkspace(repoPath, "feat/checks-gated");
+    await writeRepoFile(
+      repoPath,
+      ".treq/workflows/ci.yaml",
+      "name: CI\non: workflow_dispatch\njobs:\n  test:\n    steps:\n      - run: echo test\n",
+    );
+    await trustRepo(repoPath);
+    await setSetting(previewSettingKey("checks"), "false");
+
+    await expect(
+      runWorkflow(repoPath, "ci.yaml", workspaceId, repoPath),
+    ).rejects.toThrow(/checks/);
   });
 });
