@@ -334,7 +334,10 @@ describe("ShowWorkspace - Create PR", () => {
   });
 
   it("updates the header to View PR after committing and creating a PR", async () => {
-    const workspaceId = await createWorkspace(repoPath, "feat/commit-create-pr");
+    const workspaceId = await createWorkspace(
+      repoPath,
+      "feat/commit-create-pr",
+    );
     const workspace = (await getWorkspaces(repoPath)).find(
       (candidate) => candidate.id === workspaceId,
     )!;
@@ -365,20 +368,28 @@ describe("ShowWorkspace - Create PR", () => {
     const header = await openWorkspace("feat/commit-create-pr");
     await user.click(await screen.findByRole("tab", { name: /changes/i }));
     await screen.findAllByText("feature.txt");
-    await user.type(await screen.findByPlaceholderText("Message"), "Add feature");
-    await user.click(screen.getByRole("button", { name: /more commit options/i }));
+    await user.type(
+      await screen.findByPlaceholderText("Message"),
+      "Add feature",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /more commit options/i }),
+    );
     const commitAndCreatePr = await screen.findByRole("menuitem", {
       name: /commit and create pr/i,
     });
     await waitFor(() => expect(commitAndCreatePr).toBeEnabled());
     await user.click(commitAndCreatePr);
 
-    await waitFor(() => {
-      expect(getPrInfoViaGh).toHaveBeenCalledWith(
-        repoPath,
-        "feat/commit-create-pr",
-      );
-    }, { timeout: 15_000 });
+    await waitFor(
+      () => {
+        expect(getPrInfoViaGh).toHaveBeenCalledWith(
+          repoPath,
+          "feat/commit-create-pr",
+        );
+      },
+      { timeout: 15_000 },
+    );
     expect(
       await within(header).findByRole("button", { name: /view pr.*open/i }),
     ).toBeVisible();
