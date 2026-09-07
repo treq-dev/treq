@@ -37,12 +37,6 @@ jobs:
         run: echo skipped
 ";
 
-fn unique_remote_clone_path(parent: &Path, label: &str) -> PathBuf {
-  static CLONE_COUNTER: AtomicU64 = AtomicU64::new(0);
-  let seq = CLONE_COUNTER.fetch_add(1, Ordering::Relaxed);
-  parent.join(format!("{label}_{seq}"))
-}
-
 fn random_default_branch_name() -> String {
   static COUNTER: AtomicU64 = AtomicU64::new(0);
   let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -234,6 +228,15 @@ impl TestRepo {
     let remote_path = remote_dir.to_string_lossy().to_string();
     gix::init_bare(&remote_dir).map_err(|e| format!("Failed to init bare remote: {}", e))?;
 
+    // A bare repo has no `.git/config` of its own to inherit user identity from, and
+    // `remote_commit_file`/`remote_commit_on_branch` below commit straight into it via
+    // gix (which reads user.name/user.email from config, same as `repo.commit()`
+    // elsewhere in this file).
+    Self::append_config_at(
+      &remote_dir.join("config"),
+      "[user]\n\tname = Test User\n\temail = test@example.com\n",
+    )?;
+
     // Add remote to main repo (a plain config write; gix has no high-level "remote add").
     // Git config values treat `\` as an escape character, so on Windows a raw path
     // (`C:\Users\...`) corrupts the file; forward slashes parse fine everywhere.
@@ -249,9 +252,12 @@ impl TestRepo {
     // still shells out to git, same as the other genuinely network-bound operations below.
     let default_branch = repo.default_branch();
     Self::run_git(&repo.repo_path, &["push", "-u", "origin", default_branch])?;
-    Self::run_git(
+    // `git remote set-head` only ever writes a local symbolic ref; no network call
+    // involved, so this doesn't need the subprocess either.
+    Self::set_symbolic_ref(
       &repo.repo_path,
-      &["remote", "set-head", "origin", default_branch],
+      "refs/remotes/origin/HEAD",
+      &format!("refs/remotes/origin/{}", default_branch),
     )?;
     // Create a remote branch with a commit for testing
     // The test expects a "feature.txt" file in the remote branch
@@ -316,44 +322,57 @@ impl TestRepo {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
   }
 
-  /// Append raw INI text to a repo's local `.git/config`. Used instead of `git config`
-  /// because gix has no high-level "set config and persist to disk" call in its facade API.
-  fn append_git_config(repo_path: &str, content: &str) -> Result<(), String> {
+  /// Append raw INI text to a git config file at `config_path`. Used instead of
+  /// `git config` because gix has no high-level "set config and persist to disk"
+  /// call in its facade API.
+  fn append_config_at(config_path: &Path, content: &str) -> Result<(), String> {
     use std::io::Write;
-    let config_path = Path::new(repo_path).join(".git").join("config");
     let mut file = fs::OpenOptions::new()
       .create(true)
       .append(true)
-      .open(&config_path)
+      .open(config_path)
       .map_err(|e| format!("Failed to open git config: {}", e))?;
     file
       .write_all(content.as_bytes())
       .map_err(|e| format!("Failed to write git config: {}", e))
   }
 
-  /// Point HEAD at `refs/heads/{branch}` via a gix ref-transaction (works both on an
-  /// unborn HEAD, i.e. before any commit exists, and to switch branches afterward).
-  fn set_head_branch(repo_path: &str, branch: &str) -> Result<(), String> {
+  /// Append raw INI text to a non-bare repo's `.git/config`.
+  fn append_git_config(repo_path: &str, content: &str) -> Result<(), String> {
+    Self::append_config_at(&Path::new(repo_path).join(".git").join("config"), content)
+  }
+
+  /// Point ref `name` (e.g. `HEAD` or `refs/remotes/origin/HEAD`) at symbolic
+  /// target `target` (e.g. `refs/heads/main`) via a gix ref-transaction. Works
+  /// both on an unborn ref (before any commit exists) and to repoint an existing
+  /// one. Equivalent to `git symbolic-ref name target`.
+  fn set_symbolic_ref(repo_path: &str, name: &str, target: &str) -> Result<(), String> {
     let repo = gix::open(repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
-    let target: gix::refs::FullName = format!("refs/heads/{}", branch)
+    let target_name: gix::refs::FullName = target
       .try_into()
-      .map_err(|e| format!("Invalid branch ref name: {}", e))?;
-    let head_name: gix::refs::FullName = "HEAD"
+      .map_err(|e| format!("Invalid target ref name '{}': {}", target, e))?;
+    let ref_name: gix::refs::FullName = name
       .try_into()
-      .map_err(|e| format!("Invalid HEAD ref name: {}", e))?;
+      .map_err(|e| format!("Invalid ref name '{}': {}", name, e))?;
 
     repo
       .edit_reference(RefEdit {
         change: Change::Update {
           log: Default::default(),
           expected: PreviousValue::Any,
-          new: Target::Symbolic(target),
+          new: Target::Symbolic(target_name),
         },
-        name: head_name,
+        name: ref_name,
         deref: false,
       })
-      .map_err(|e| format!("Failed to update HEAD ref: {}", e))?;
+      .map_err(|e| format!("Failed to update ref '{}': {}", name, e))?;
     Ok(())
+  }
+
+  /// Point HEAD at `refs/heads/{branch}` (works both on an unborn HEAD, i.e.
+  /// before any commit exists, and to switch branches afterward).
+  fn set_head_branch(repo_path: &str, branch: &str) -> Result<(), String> {
+    Self::set_symbolic_ref(repo_path, "HEAD", &format!("refs/heads/{}", branch))
   }
 
   /// Create `refs/heads/{branch}` pointing at the current HEAD commit (equivalent to
@@ -488,6 +507,125 @@ impl TestRepo {
     index
       .write(gix::index::write::Options::default())
       .map_err(|e| format!("Failed to write git index: {}", e))?;
+    Ok(())
+  }
+
+  /// Return `base_tree`'s entries (or an empty tree if `base_tree` is `None`) with
+  /// `components` resolving to a blob containing `content`, creating any
+  /// intermediate subtree entries needed and leaving everything else untouched.
+  /// Mirrors `git add <path>` at the tree level, without needing an index or a
+  /// checked-out working copy.
+  fn set_path_in_tree(
+    repo: &gix::Repository,
+    base_tree: Option<gix::ObjectId>,
+    components: &[&str],
+    content: &[u8],
+  ) -> Result<gix::ObjectId, String> {
+    let mut entries: Vec<gix::objs::tree::Entry> = match base_tree {
+      Some(id) => {
+        let tree = repo
+          .find_object(id)
+          .map_err(|e| format!("Failed to find tree {}: {}", id, e))?
+          .try_into_tree()
+          .map_err(|e| format!("Object {} is not a tree: {}", id, e))?;
+        let decoded = tree
+          .decode()
+          .map_err(|e| format!("Failed to decode tree {}: {}", id, e))?;
+        decoded
+          .entries
+          .iter()
+          .map(|e| gix::objs::tree::Entry {
+            mode: e.mode,
+            filename: e.filename.to_owned(),
+            oid: e.oid.to_owned(),
+          })
+          .collect()
+      }
+      None => Vec::new(),
+    };
+
+    let (name, rest) = components
+      .split_first()
+      .ok_or_else(|| "set_path_in_tree: empty path".to_string())?;
+    let name: gix::bstr::BString = (*name).into();
+
+    let new_entry = if rest.is_empty() {
+      let blob_id = repo
+        .write_blob(content)
+        .map_err(|e| format!("Failed to write blob for '{}': {}", name, e))?
+        .detach();
+      gix::objs::tree::Entry {
+        mode: gix::objs::tree::EntryKind::Blob.into(),
+        filename: name.clone(),
+        oid: blob_id,
+      }
+    } else {
+      let existing_subtree = entries
+        .iter()
+        .find(|e| e.filename == name && e.mode.is_tree())
+        .map(|e| e.oid);
+      let subtree_id = Self::set_path_in_tree(repo, existing_subtree, rest, content)?;
+      gix::objs::tree::Entry {
+        mode: gix::objs::tree::EntryKind::Tree.into(),
+        filename: name.clone(),
+        oid: subtree_id,
+      }
+    };
+
+    entries.retain(|e| e.filename != name);
+    entries.push(new_entry);
+    entries.sort();
+
+    repo
+      .write_object(&gix::objs::Tree { entries })
+      .map_err(|e| format!("Failed to write tree: {}", e))
+      .map(|id| id.detach())
+  }
+
+  /// Create a commit setting `relative_path` to `content` on `refs/heads/{branch}`
+  /// in the repo at `repo_path`, based on the branch's current tip if it already
+  /// exists there (or as a root commit otherwise).
+  ///
+  /// The "remote" repos in these tests are always local bare repos on the same
+  /// filesystem, so writing straight into their object database and refs via gix
+  /// is equivalent to — and far cheaper than — cloning, checking out, editing,
+  /// and pushing through real git subprocesses.
+  fn gix_commit_file_on_ref(
+    repo_path: &str,
+    branch: &str,
+    relative_path: &str,
+    content: &str,
+    message: &str,
+  ) -> Result<(), String> {
+    let repo = gix::open(repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
+    let ref_name: gix::refs::FullName = format!("refs/heads/{}", branch)
+      .try_into()
+      .map_err(|e| format!("Invalid branch ref name: {}", e))?;
+
+    let (base_tree, parents) = match repo.find_reference(&ref_name) {
+      Ok(r) => {
+        let commit = r
+          .id()
+          .object()
+          .map_err(|e| format!("Failed to resolve '{}': {}", branch, e))?
+          .try_into_commit()
+          .map_err(|e| format!("'{}' does not point at a commit: {}", branch, e))?;
+        let tree_id = commit
+          .tree_id()
+          .map_err(|e| format!("Failed to read tree for '{}': {}", branch, e))?
+          .detach();
+        (Some(tree_id), vec![commit.id])
+      }
+      Err(_) => (None, Vec::new()),
+    };
+
+    let components: Vec<&str> = relative_path.split('/').collect();
+    let tree_id = Self::set_path_in_tree(&repo, base_tree, &components, content.as_bytes())?;
+
+    repo
+      .commit(ref_name, message, tree_id, parents)
+      .map_err(|e| format!("Failed to commit to '{}': {}", branch, e))?;
+
     Ok(())
   }
 
@@ -632,68 +770,22 @@ impl TestRepo {
     Ok(())
   }
 
-  /// Create a commit in the bare remote (requires with_remote()).
-  /// Uses a temporary git clone of the remote to make the commit and push,
-  /// so the local repo is never modified.
+  /// Create a commit in the bare remote (requires with_remote()). Commits directly
+  /// into the bare remote's object database via gix (see gix_commit_file_on_ref);
+  /// the local repo is never touched.
   pub fn remote_commit_file(
     &self,
     relative_path: &str,
     content: &str,
     message: &str,
   ) -> Result<(), String> {
-    let remote_fixture_dir = self.remote_fixture_dir();
-    let remote_path = self.remote_path();
-    // Use a unique path per call and let TestRepo's TempDir clean up at drop.
-    // Eager `remove_dir_all` after `git push` races git's pack/index locks (ENOTEMPTY).
-    let clone_path = unique_remote_clone_path(&remote_fixture_dir, "remote_clone");
-
-    // Clone the bare remote into a temporary working copy
-    Self::run_git(
-      &remote_fixture_dir.to_string_lossy(),
-      &[
-        "clone",
-        remote_path.to_str().unwrap(),
-        clone_path.to_str().unwrap(),
-      ],
-    )?;
-
-    let clone_path_str = clone_path.to_string_lossy().to_string();
-
-    // Configure git user in the clone
-    Self::run_git(
-      &clone_path_str,
-      &["config", "user.email", "test@example.com"],
-    )?;
-    Self::run_git(&clone_path_str, &["config", "user.name", "Test User"])?;
-
-    let default_branch = self.default_branch();
-    if let Err(local_checkout_err) = Self::run_git(&clone_path_str, &["checkout", default_branch]) {
-      let remote_ref = format!("origin/{default_branch}");
-      Self::run_git(
-                &clone_path_str,
-                &["checkout", "-b", default_branch, &remote_ref],
-            )
-            .map_err(|remote_checkout_err| {
-                format!(
-                    "Failed to checkout default branch '{}' in remote clone. Local checkout error: {} Fallback checkout from '{}' error: {}",
-                    default_branch, local_checkout_err, remote_ref, remote_checkout_err
-                )
-            })?;
-    }
-
-    // Write file, commit, and push from the clone
-    let file_path = clone_path.join(relative_path);
-    if let Some(parent) = file_path.parent() {
-      fs::create_dir_all(parent).map_err(|e| format!("Failed to create parent dirs: {}", e))?;
-    }
-    fs::write(&file_path, content)
-      .map_err(|e| format!("Failed to write file in remote clone: {}", e))?;
-
-    Self::run_git(&clone_path_str, &["add", relative_path])?;
-    Self::run_git(&clone_path_str, &["commit", "-m", message])?;
-    Self::run_git(&clone_path_str, &["push", "origin", self.default_branch()])?;
-
-    Ok(())
+    Self::gix_commit_file_on_ref(
+      &self.remote_path().to_string_lossy(),
+      self.default_branch(),
+      relative_path,
+      content,
+      message,
+    )
   }
 
   /// Push a branch to remote (requires with_remote()).
@@ -703,8 +795,10 @@ impl TestRepo {
   }
 
   /// Create a commit on a specific branch in the bare remote (requires with_remote()).
-  /// Clones the remote to a temp dir, checks out the given branch, commits, and pushes back.
-  /// The local repo is never modified — use jj_git_fetch after this to see the new remote commit.
+  /// Commits directly into the bare remote's object database via gix, based on the
+  /// branch's current tip if it exists there already (or as a root commit otherwise).
+  /// The local repo is never modified — use jj_git_fetch after this to see the new
+  /// remote commit.
   pub fn remote_commit_on_branch(
     &self,
     branch_name: &str,
@@ -712,63 +806,13 @@ impl TestRepo {
     content: &str,
     message: &str,
   ) -> Result<(), String> {
-    let remote_fixture_dir = self.remote_fixture_dir();
-    let remote_path = self.remote_path();
-    // Use a unique path per call and let TestRepo's TempDir clean up at drop.
-    // Eager `remove_dir_all` after `git push` races git's pack/index locks (ENOTEMPTY).
-    let clone_path = unique_remote_clone_path(&remote_fixture_dir, "remote_clone_branch");
-
-    // Clone the bare remote into a temporary working copy
-    Self::run_git(
-      &remote_fixture_dir.to_string_lossy(),
-      &[
-        "clone",
-        remote_path.to_str().unwrap(),
-        clone_path.to_str().unwrap(),
-      ],
+    Self::gix_commit_file_on_ref(
+      &self.remote_path().to_string_lossy(),
+      branch_name,
+      relative_path,
+      content,
+      message,
     )
-    .expect("Failed to clone remote");
-
-    let clone_path_str = clone_path.to_string_lossy().to_string();
-
-    // Configure git user in the clone
-    Self::run_git(
-      &clone_path_str,
-      &["config", "user.email", "test@example.com"],
-    )
-    .expect("Failed to configure git user email");
-    Self::run_git(&clone_path_str, &["config", "user.name", "Test User"])
-      .expect("Failed to configure git user name");
-
-    // Checkout the target branch. In a fresh clone the branch may exist only as
-    // origin/<branch>, so fall back to creating a local branch from that ref.
-    if let Err(local_checkout_err) = Self::run_git(&clone_path_str, &["checkout", branch_name]) {
-      let remote_ref = format!("origin/{}", branch_name);
-      if let Err(remote_checkout_err) = Self::run_git(
-        &clone_path_str,
-        &["checkout", "-b", branch_name, &remote_ref],
-      ) {
-        return Err(format!(
-                    "Failed to checkout branch '{}' in remote clone. Local checkout error: {} Fallback checkout from '{}' error: {}",
-                    branch_name, local_checkout_err, remote_ref, remote_checkout_err
-                ));
-      }
-    }
-
-    // Write file, commit, and push from the clone
-    let file_path = clone_path.join(relative_path);
-    if let Some(parent) = file_path.parent() {
-      fs::create_dir_all(parent).map_err(|e| format!("Failed to create parent dirs: {}", e))?;
-    }
-    fs::write(&file_path, content)
-      .map_err(|e| format!("Failed to write file in remote clone: {}", e))
-      .expect("Failed to write file");
-
-    Self::run_git(&clone_path_str, &["add", relative_path]).expect("Failed to add file");
-    Self::run_git(&clone_path_str, &["commit", "-m", message]).expect("Failed to commit");
-    Self::run_git(&clone_path_str, &["push", "origin", branch_name]).expect("Failed to push");
-
-    Ok(())
   }
 
   /// Get the path to the .treq directory.
