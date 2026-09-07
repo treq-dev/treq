@@ -74,32 +74,6 @@ fn test_pty_manager_new() {
 }
 
 #[test]
-fn test_create_session() {
-  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
-  let (manager, output) = setup();
-
-  let result = manager.create_session(
-    "test-create".to_string(),
-    Some(repo.repo_path.clone()),
-    None,
-    Vec::new(),
-    None,
-    None,
-    make_callback(&output),
-  );
-
-  assert!(
-    result.is_ok(),
-    "create_session should succeed: {:?}",
-    result
-  );
-  assert!(manager.session_exists("test-create"));
-
-  // Cleanup
-  let _ = manager.close_session("test-create");
-}
-
-#[test]
 fn test_create_session_with_initial_command() {
   let repo = TestRepo::new_without_init().expect("Failed to create test repo");
   let (manager, output) = setup();
@@ -128,82 +102,12 @@ fn test_create_session_with_initial_command() {
 }
 
 #[test]
-fn test_write_to_session() {
-  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
-  let (manager, output) = setup();
-
-  manager
-    .create_session(
-      "test-write".to_string(),
-      Some(repo.repo_path.clone()),
-      None,
-      Vec::new(),
-      None,
-      None,
-      make_callback(&output),
-    )
-    .expect("create_session should succeed");
-
-  // Wait for shell prompt to appear
-  thread::sleep(Duration::from_millis(500));
-
-  // Write a command
-  let result = manager.write_to_session("test-write", "echo WRITE_TEST_OK\n");
-  assert!(
-    result.is_ok(),
-    "write_to_session should succeed: {:?}",
-    result
-  );
-
-  let found = wait_for_output(&output, "WRITE_TEST_OK", 5000);
-  assert!(
-    found,
-    "Expected 'WRITE_TEST_OK' in output, got: {}",
-    output.lock().unwrap()
-  );
-
-  let _ = manager.close_session("test-write");
-}
-
-#[test]
 fn test_write_to_nonexistent_session() {
   let manager = PtyManager::new();
 
   let result = manager.write_to_session("does-not-exist", "hello\n");
   assert!(result.is_err());
   assert_eq!(result.unwrap_err(), "Session not found");
-}
-
-#[test]
-fn test_resize_session() {
-  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
-  let (manager, output) = setup();
-
-  manager
-    .create_session(
-      "test-resize".to_string(),
-      Some(repo.repo_path.clone()),
-      None,
-      Vec::new(),
-      None,
-      None,
-      make_callback(&output),
-    )
-    .expect("create_session should succeed");
-
-  // Resize should succeed
-  let result = manager.resize_session("test-resize", 48, 120);
-  assert!(
-    result.is_ok(),
-    "resize_session should succeed: {:?}",
-    result
-  );
-
-  // Resize to different dimensions should also succeed
-  let result = manager.resize_session("test-resize", 24, 80);
-  assert!(result.is_ok());
-
-  let _ = manager.close_session("test-resize");
 }
 
 #[test]
@@ -215,69 +119,116 @@ fn test_resize_nonexistent_session() {
   assert_eq!(result.unwrap_err(), "Session not found");
 }
 
+// Consolidates what used to be 7 separate tests (create, write, resize, utf8
+// output, set_auto_command, close, close-terminates-process), each of which
+// spawned its own shell. Windows' PowerShell cold-start (multiple seconds
+// under CI contention, per pty.rs's slow-timeout comments) dominates this
+// suite's wall time there, so reusing one spawned shell across these checks
+// is the biggest lever for cutting it down. Kept in one test (rather than a
+// shared-fixture-across-tests helper) so the checks stay ordered and the
+// session isn't torn down or raced by parallel test execution.
 #[test]
-fn test_close_session() {
+fn test_session_lifecycle_and_io() {
   let repo = TestRepo::new_without_init().expect("Failed to create test repo");
   let (manager, output) = setup();
+  let session_id = "test-lifecycle";
 
-  manager
-    .create_session(
-      "test-close".to_string(),
-      Some(repo.repo_path.clone()),
-      None,
-      Vec::new(),
-      None,
-      None,
-      make_callback(&output),
-    )
-    .expect("create_session should succeed");
-
-  assert!(manager.session_exists("test-close"));
-
-  let result = manager.close_session("test-close");
-  assert!(result.is_ok());
-  assert!(!manager.session_exists("test-close"));
-
-  // Closing again should still succeed (idempotent)
-  let result = manager.close_session("test-close");
-  assert!(result.is_ok());
-}
-
-#[test]
-fn test_close_session_terminates_process() {
-  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
-  let (manager, output) = setup();
-
-  manager
-    .create_session(
-      "test-close-terminates".to_string(),
-      Some(repo.repo_path.clone()),
-      None,
-      Vec::new(),
-      None,
-      None,
-      make_callback(&output),
-    )
-    .expect("create_session should succeed");
+  let result = manager.create_session(
+    session_id.to_string(),
+    Some(repo.repo_path.clone()),
+    None,
+    Vec::new(),
+    None,
+    None,
+    make_callback(&output),
+  );
+  assert!(
+    result.is_ok(),
+    "create_session should succeed: {:?}",
+    result
+  );
+  assert!(manager.session_exists(session_id));
 
   let pid = manager
-    .session_process_id("test-close-terminates")
+    .session_process_id(session_id)
     .expect("session should expose a process id");
-
   assert!(
     is_process_alive(pid),
-    "Process should be alive before close. pid={pid}"
+    "Process should be alive after create. pid={pid}"
+  );
+
+  // Wait for shell prompt to appear
+  thread::sleep(Duration::from_millis(500));
+
+  // --- write_to_session ---
+  manager
+    .write_to_session(session_id, "echo WRITE_TEST_OK\n")
+    .expect("write_to_session should succeed");
+  assert!(
+    wait_for_output(&output, "WRITE_TEST_OK", 5000),
+    "Expected 'WRITE_TEST_OK' in output, got: {}",
+    output.lock().unwrap()
+  );
+
+  // --- resize_session ---
+  assert!(
+    manager.resize_session(session_id, 48, 120).is_ok(),
+    "resize_session should succeed"
+  );
+  assert!(
+    manager.resize_session(session_id, 24, 80).is_ok(),
+    "resize_session to different dimensions should also succeed"
+  );
+
+  // --- utf8 output ---
+  manager
+    .write_to_session(session_id, "echo '你好世界'\n")
+    .expect("write CJK");
+  assert!(
+    wait_for_output(&output, "你好世界", 5000),
+    "CJK output expected, got: {}",
+    output.lock().unwrap()
   );
 
   manager
-    .close_session("test-close-terminates")
-    .expect("close_session should succeed");
+    .write_to_session(session_id, "echo '🎉🚀✨'\n")
+    .expect("write emoji");
+  assert!(
+    wait_for_output(&output, "🎉🚀✨", 5000),
+    "Emoji output expected, got: {}",
+    output.lock().unwrap()
+  );
+
+  manager
+    .write_to_session(session_id, "echo '€£¥©®™'\n")
+    .expect("write symbols");
+  assert!(
+    wait_for_output(&output, "€£¥©®™", 5000),
+    "Symbol output expected, got: {}",
+    output.lock().unwrap()
+  );
+
+  // --- set_auto_command (API surface only; filtering behavior is covered
+  // by test_echo_suppression_filtering) ---
+  assert!(
+    manager
+      .set_auto_command(session_id, "some long test command string here")
+      .is_ok(),
+    "set_auto_command should succeed on an existing session"
+  );
+
+  // --- close_session, idempotency, and process termination ---
+  assert!(manager.close_session(session_id).is_ok());
+  assert!(!manager.session_exists(session_id));
+  assert!(
+    manager.close_session(session_id).is_ok(),
+    "closing again should still succeed (idempotent)"
+  );
 
   let deadline = std::time::Instant::now() + Duration::from_secs(3);
   while std::time::Instant::now() < deadline && is_process_alive(pid) {
     thread::sleep(Duration::from_millis(50));
   }
-
   assert!(
     !is_process_alive(pid),
     "Process should be terminated after close. pid={pid}"
@@ -433,59 +384,6 @@ fn test_session_isolation() {
 }
 
 #[test]
-fn test_utf8_output() {
-  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
-  let (manager, output) = setup();
-
-  manager
-    .create_session(
-      "test-utf8".to_string(),
-      Some(repo.repo_path.clone()),
-      None,
-      Vec::new(),
-      None,
-      None,
-      make_callback(&output),
-    )
-    .expect("create_session should succeed");
-
-  // Wait for shell
-  thread::sleep(Duration::from_millis(500));
-
-  // Test CJK characters
-  manager
-    .write_to_session("test-utf8", "echo '你好世界'\n")
-    .expect("write CJK");
-  assert!(
-    wait_for_output(&output, "你好世界", 5000),
-    "CJK output expected, got: {}",
-    output.lock().unwrap()
-  );
-
-  // Test emoji
-  manager
-    .write_to_session("test-utf8", "echo '🎉🚀✨'\n")
-    .expect("write emoji");
-  assert!(
-    wait_for_output(&output, "🎉🚀✨", 5000),
-    "Emoji output expected, got: {}",
-    output.lock().unwrap()
-  );
-
-  // Test mixed symbols
-  manager
-    .write_to_session("test-utf8", "echo '€£¥©®™'\n")
-    .expect("write symbols");
-  assert!(
-    wait_for_output(&output, "€£¥©®™", 5000),
-    "Symbol output expected, got: {}",
-    output.lock().unwrap()
-  );
-
-  let _ = manager.close_session("test-utf8");
-}
-
-#[test]
 fn test_strip_ansi_codes_plain() {
   assert_eq!(strip_ansi_codes("hello world"), "hello world");
 }
@@ -560,45 +458,22 @@ fn test_set_auto_command_nonexistent_session() {
   assert_eq!(result.unwrap_err(), "Session not found");
 }
 
+// Consolidates what used to be 3 separate tests (suppress_echo_filters_command,
+// normal_output_not_filtered_without_filter, empty_lines_filtered_during_suppression)
+// onto one spawned shell, run sequentially. Each stage resolves the filter it sets
+// (the reader thread clears auto_command once it has emitted enough non-matching
+// lines) before the next stage runs, so state doesn't leak across stages; see
+// test_suppress_echo_at_creation_filters_initial_prompt (kept separate, needs a
+// session with no prior commands) for the filter-suppresses-the-shell-prompt case.
 #[test]
-fn test_set_auto_command_on_session() {
+fn test_echo_suppression_filtering() {
   let repo = TestRepo::new_without_init().expect("Failed to create test repo");
   let (manager, output) = setup();
+  let session_id = "test-filtering";
 
   manager
     .create_session(
-      "test-auto-cmd".to_string(),
-      Some(repo.repo_path.clone()),
-      None,
-      Vec::new(),
-      None,
-      None,
-      make_callback(&output),
-    )
-    .expect("create_session should succeed");
-
-  // set_auto_command should succeed on an existing session
-  let result = manager.set_auto_command("test-auto-cmd", "some long test command string here");
-  assert!(
-    result.is_ok(),
-    "set_auto_command should succeed: {:?}",
-    result
-  );
-
-  let _ = manager.close_session("test-auto-cmd");
-}
-
-#[test]
-fn test_suppress_echo_filters_command() {
-  // Simulates the real workflow: set_auto_command + write the matching command.
-  // The command echo should be filtered, but subsequent output should pass through.
-  // Uses `true` which produces no output (avoids output-matching-filter issue).
-  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
-  let (manager, output) = setup();
-
-  manager
-    .create_session(
-      "test-suppress".to_string(),
+      session_id.to_string(),
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -611,116 +486,59 @@ fn test_suppress_echo_filters_command() {
   // Wait for shell to be ready
   thread::sleep(Duration::from_millis(500));
 
-  // Simulate ptyWriteSuppressEcho: set filter then write the MATCHING command.
+  // --- filtered command echo, followed by visible output ---
+  // Simulates the real workflow: set_auto_command + write the matching command.
   // `true` produces no output, so only the echo is filtered.
-  let cmd = "true # suppress-test-unique-ident-1234567890";
+  let suppress_cmd = "true # suppress-test-unique-ident-1234567890";
   manager
-    .set_auto_command("test-suppress", cmd)
+    .set_auto_command(session_id, suppress_cmd)
     .expect("set_auto_command");
   manager
-    .write_to_session("test-suppress", &format!("{}\n", cmd))
+    .write_to_session(session_id, &format!("{}\n", suppress_cmd))
     .expect("write filtered command");
 
-  // Wait for filtered command to be processed
   thread::sleep(Duration::from_millis(300));
 
-  // Now write a follow-up command — its output should appear
   manager
-    .write_to_session("test-suppress", "echo VISIBLE_AFTER\n")
+    .write_to_session(session_id, "echo VISIBLE_AFTER\n")
     .expect("write follow-up command");
-
-  let found = wait_for_output(&output, "VISIBLE_AFTER", 5000);
   assert!(
-    found,
+    wait_for_output(&output, "VISIBLE_AFTER", 5000),
     "Expected output after filtered command echo, got: {}",
     output.lock().unwrap()
   );
 
-  let _ = manager.close_session("test-suppress");
-}
-
-#[test]
-fn test_normal_output_not_filtered_without_filter() {
-  // Sessions without a filter should pass all output through unmodified
-  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
-  let (manager, output) = setup();
-
+  // --- output passes through normally once the filter has resolved ---
   manager
-    .create_session(
-      "test-no-filter".to_string(),
-      Some(repo.repo_path.clone()),
-      None,
-      Vec::new(),
-      None,
-      None,
-      make_callback(&output),
-    )
-    .expect("create_session should succeed");
-
-  // Wait for shell to be ready
-  thread::sleep(Duration::from_millis(500));
-
-  // No filter set — write a command directly
-  manager
-    .write_to_session("test-no-filter", "echo NORMAL_OUTPUT_VISIBLE\n")
+    .write_to_session(session_id, "echo NORMAL_OUTPUT_VISIBLE\n")
     .expect("write command");
-
-  let found = wait_for_output(&output, "NORMAL_OUTPUT_VISIBLE", 5000);
   assert!(
-    found,
+    wait_for_output(&output, "NORMAL_OUTPUT_VISIBLE", 5000),
     "Normal output should not be filtered, got: {}",
     output.lock().unwrap()
   );
 
-  let _ = manager.close_session("test-no-filter");
-}
-
-#[test]
-fn test_empty_lines_filtered_during_suppression() {
-  // After the command echo is seen, empty lines should still be filtered
-  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
-  let (manager, output) = setup();
-
+  // --- empty lines during suppression are filtered, real output after them appears ---
+  let trigger_cmd = "echo TRIGGER_ECHO_MATCH_1234567890_ABCDE";
   manager
-    .create_session(
-      "test-empty-filter".to_string(),
-      Some(repo.repo_path.clone()),
-      None,
-      Vec::new(),
-      None,
-      None,
-      make_callback(&output),
-    )
-    .expect("create_session should succeed");
-
-  // Wait for shell to be ready
-  thread::sleep(Duration::from_millis(500));
-
-  // Set filter and write matching command (triggers seen_command_echo)
-  let cmd = "echo TRIGGER_ECHO_MATCH_1234567890_ABCDE";
-  manager
-    .set_auto_command("test-empty-filter", cmd)
+    .set_auto_command(session_id, trigger_cmd)
     .expect("set_auto_command");
   manager
-    .write_to_session("test-empty-filter", &format!("{}\n", cmd))
+    .write_to_session(session_id, &format!("{}\n", trigger_cmd))
     .expect("write trigger command");
 
-  // Wait for the trigger to be processed
   thread::sleep(Duration::from_millis(500));
 
-  // Now write empty lines followed by a real command
   manager
-    .write_to_session("test-empty-filter", "echo AFTER_EMPTY_LINES\n")
+    .write_to_session(session_id, "echo AFTER_EMPTY_LINES\n")
     .expect("write commands");
-
-  let found = wait_for_output(&output, "AFTER_EMPTY_LINES", 5000);
   assert!(
-    found,
+    wait_for_output(&output, "AFTER_EMPTY_LINES", 5000),
     "Output after empty lines should appear, got: {}",
     output.lock().unwrap()
   );
 
-  let _ = manager.close_session("test-empty-filter");
+  let _ = manager.close_session(session_id);
 }
 
 #[test]
