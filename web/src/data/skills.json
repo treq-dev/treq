@@ -1,61 +1,61 @@
 {
-  "generatedAt": "2026-08-31T12:27:40.169Z",
+  "generatedAt": "2026-09-07T11:22:08.130Z",
   "sources": [
     {
       "id": "anthropic",
       "name": "Anthropic",
       "url": "https://github.com/anthropics/skills",
       "skillCount": 19,
-      "stars": 172739
+      "stars": 174960
     },
     {
       "id": "openai",
       "name": "OpenAI",
       "url": "https://github.com/openai/skills",
       "skillCount": 44,
-      "stars": 25298
+      "stars": 25795
     },
     {
       "id": "mattpocock",
       "name": "Matt Pocock",
       "url": "https://github.com/mattpocock/skills",
       "skillCount": 37,
-      "stars": 242451
+      "stars": 255670
     },
     {
       "id": "vercel",
       "name": "Vercel",
       "url": "https://github.com/vercel-labs/agent-browser",
       "skillCount": 1,
-      "stars": 41615
+      "stars": 42083
     },
     {
       "id": "microsoft",
       "name": "Microsoft",
       "url": "https://github.com/microsoft/azure-skills",
       "skillCount": 35,
-      "stars": 1434
+      "stars": 1459
     },
     {
       "id": "superpowers",
       "name": "Superpowers",
       "url": "https://github.com/obra/superpowers",
       "skillCount": 14,
-      "stars": 279893
+      "stars": 282635
     },
     {
       "id": "caveman",
       "name": "Caveman",
       "url": "https://github.com/JuliusBrussee/caveman",
       "skillCount": 20,
-      "stars": 101974
+      "stars": 104030
     },
     {
       "id": "prisma",
       "name": "Prisma",
       "url": "https://github.com/prisma/skills",
       "skillCount": 9,
-      "stars": 52
+      "stars": 56
     }
   ],
   "skills": [
@@ -70,6 +70,7 @@
       "path": "skills/academy-guide",
       "url": "https://github.com/anthropics/skills/tree/main/skills/academy-guide",
       "route": "/skills/anthropic/academy-guide",
+      "checksum": "e25b93e244b35d852ec34b87793c8a1418dd4f13e06bd3a32592297fef9d0440",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -98,6 +99,7 @@
       "path": "skills/algorithmic-art",
       "url": "https://github.com/anthropics/skills/tree/main/skills/algorithmic-art",
       "route": "/skills/anthropic/algorithmic-art",
+      "checksum": "5cfc450e7f978f707bc50255b1df71038529f80c38383bfeacca8e6c1d8d1083",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -140,6 +142,7 @@
       "path": "skills/brand-guidelines",
       "url": "https://github.com/anthropics/skills/tree/main/skills/brand-guidelines",
       "route": "/skills/anthropic/brand-guidelines",
+      "checksum": "d3018f790abe86590835eab9d9defbb7de24feb5a5792ad77e5da4ad49e3acee",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -168,6 +171,7 @@
       "path": "skills/canvas-design",
       "url": "https://github.com/anthropics/skills/tree/main/skills/canvas-design",
       "route": "/skills/anthropic/canvas-design",
+      "checksum": "0985ac09d9422b0ee29ecee400da9b00dcb0717b98201160c18b4ca503a9d441",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -763,6 +767,7 @@
       "path": "skills/claude-api",
       "url": "https://github.com/anthropics/skills/tree/main/skills/claude-api",
       "route": "/skills/anthropic/claude-api",
+      "checksum": "55b924798d031579634c497f718048fdce6edca1fd5c9bb6cef78939dc44c756",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -773,469 +778,483 @@
         },
         {
           "path": "SKILL.md",
-          "size": 75707,
+          "size": 85701,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/SKILL.md"
         },
         {
           "path": "csharp/claude-api/README.md",
-          "size": 18448,
+          "size": 18417,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/csharp/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/csharp/claude-api/README.md"
         },
         {
           "path": "csharp/claude-api/batches.md",
-          "size": 413,
+          "size": 411,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/csharp/claude-api/batches.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/csharp/claude-api/batches.md"
         },
         {
           "path": "csharp/claude-api/files-api.md",
-          "size": 679,
+          "size": 900,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/csharp/claude-api/files-api.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/csharp/claude-api/files-api.md"
         },
         {
           "path": "csharp/claude-api/streaming.md",
-          "size": 793,
+          "size": 789,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/csharp/claude-api/streaming.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/csharp/claude-api/streaming.md"
         },
         {
           "path": "csharp/claude-api/tool-use.md",
-          "size": 6022,
+          "size": 6002,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/csharp/claude-api/tool-use.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/csharp/claude-api/tool-use.md"
         },
         {
           "path": "curl/examples.md",
-          "size": 9201,
+          "size": 9193,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/curl/examples.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/curl/examples.md"
         },
         {
           "path": "curl/managed-agents.md",
-          "size": 8761,
+          "size": 8749,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/curl/managed-agents.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/curl/managed-agents.md"
         },
         {
           "path": "go/claude-api/README.md",
-          "size": 7780,
+          "size": 7760,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/go/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/go/claude-api/README.md"
         },
         {
           "path": "go/claude-api/files-api.md",
-          "size": 713,
+          "size": 936,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/go/claude-api/files-api.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/go/claude-api/files-api.md"
         },
         {
           "path": "go/claude-api/streaming.md",
-          "size": 1039,
+          "size": 1037,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/go/claude-api/streaming.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/go/claude-api/streaming.md"
         },
         {
           "path": "go/claude-api/tool-use.md",
-          "size": 8435,
+          "size": 8416,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/go/claude-api/tool-use.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/go/claude-api/tool-use.md"
         },
         {
           "path": "go/managed-agents/README.md",
-          "size": 18949,
+          "size": 18937,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/go/managed-agents/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/go/managed-agents/README.md"
         },
         {
           "path": "java/claude-api/README.md",
-          "size": 11322,
+          "size": 11308,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/java/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/java/claude-api/README.md"
         },
         {
           "path": "java/claude-api/files-api.md",
-          "size": 969,
+          "size": 1198,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/java/claude-api/files-api.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/java/claude-api/files-api.md"
         },
         {
           "path": "java/claude-api/streaming.md",
-          "size": 661,
+          "size": 659,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/java/claude-api/streaming.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/java/claude-api/streaming.md"
         },
         {
           "path": "java/claude-api/tool-use.md",
-          "size": 9542,
+          "size": 9521,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/java/claude-api/tool-use.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/java/claude-api/tool-use.md"
         },
         {
           "path": "java/managed-agents/README.md",
-          "size": 16956,
+          "size": 16942,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/java/managed-agents/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/java/managed-agents/README.md"
         },
         {
           "path": "php/claude-api/README.md",
-          "size": 6123,
+          "size": 6113,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/php/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/php/claude-api/README.md"
         },
         {
           "path": "php/claude-api/batches.md",
-          "size": 447,
+          "size": 445,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/php/claude-api/batches.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/php/claude-api/batches.md"
         },
         {
           "path": "php/claude-api/files-api.md",
-          "size": 241,
+          "size": 476,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/php/claude-api/files-api.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/php/claude-api/files-api.md"
         },
         {
           "path": "php/claude-api/streaming.md",
-          "size": 682,
+          "size": 680,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/php/claude-api/streaming.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/php/claude-api/streaming.md"
         },
         {
           "path": "php/claude-api/tool-use.md",
-          "size": 8099,
+          "size": 8081,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/php/claude-api/tool-use.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/php/claude-api/tool-use.md"
         },
         {
           "path": "php/managed-agents/README.md",
-          "size": 13526,
+          "size": 13511,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/php/managed-agents/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/php/managed-agents/README.md"
         },
         {
           "path": "python/claude-api/README.md",
-          "size": 19926,
+          "size": 19875,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/python/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/python/claude-api/README.md"
         },
         {
           "path": "python/claude-api/batches.md",
-          "size": 5586,
+          "size": 5582,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/python/claude-api/batches.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/python/claude-api/batches.md"
         },
         {
           "path": "python/claude-api/files-api.md",
-          "size": 4373,
+          "size": 4493,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/python/claude-api/files-api.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/python/claude-api/files-api.md"
         },
         {
           "path": "python/claude-api/sdk-upgrade.md",
-          "size": 28841,
+          "size": 28716,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/python/claude-api/sdk-upgrade.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/python/claude-api/sdk-upgrade.md"
         },
         {
           "path": "python/claude-api/streaming.md",
-          "size": 6548,
+          "size": 6531,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/python/claude-api/streaming.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/python/claude-api/streaming.md"
         },
         {
           "path": "python/claude-api/tool-use.md",
-          "size": 19419,
+          "size": 19264,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/python/claude-api/tool-use.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/python/claude-api/tool-use.md"
         },
         {
           "path": "python/managed-agents/README.md",
-          "size": 10357,
+          "size": 10341,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/python/managed-agents/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/python/managed-agents/README.md"
         },
         {
           "path": "ruby/claude-api/README.md",
-          "size": 4481,
+          "size": 4471,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/ruby/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/ruby/claude-api/README.md"
         },
         {
           "path": "ruby/claude-api/streaming.md",
-          "size": 235,
+          "size": 233,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/ruby/claude-api/streaming.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/ruby/claude-api/streaming.md"
         },
         {
           "path": "ruby/claude-api/tool-use.md",
-          "size": 1063,
+          "size": 1061,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/ruby/claude-api/tool-use.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/ruby/claude-api/tool-use.md"
         },
         {
           "path": "ruby/managed-agents/README.md",
-          "size": 10460,
+          "size": 10450,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/ruby/managed-agents/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/ruby/managed-agents/README.md"
         },
         {
+          "path": "shared/admin-api.md",
+          "size": 11604,
+          "binary": false,
+          "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/admin-api.md",
+          "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/admin-api.md"
+        },
+        {
           "path": "shared/agent-design.md",
-          "size": 8600,
+          "size": 8736,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/agent-design.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/agent-design.md"
         },
         {
           "path": "shared/anthropic-cli.md",
-          "size": 16210,
+          "size": 16128,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/anthropic-cli.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/anthropic-cli.md"
         },
         {
           "path": "shared/claude-platform-on-aws.md",
-          "size": 3878,
+          "size": 4412,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/claude-platform-on-aws.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/claude-platform-on-aws.md"
         },
         {
+          "path": "shared/cost-optimization.md",
+          "size": 44959,
+          "binary": false,
+          "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/cost-optimization.md",
+          "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/cost-optimization.md"
+        },
+        {
           "path": "shared/error-codes.md",
-          "size": 12182,
+          "size": 15474,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/error-codes.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/error-codes.md"
         },
         {
           "path": "shared/live-sources.md",
-          "size": 19837,
+          "size": 22226,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/live-sources.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/live-sources.md"
         },
         {
           "path": "shared/managed-agents-api-reference.md",
-          "size": 33634,
+          "size": 33958,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-api-reference.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-api-reference.md"
         },
         {
           "path": "shared/managed-agents-client-patterns.md",
-          "size": 10881,
+          "size": 11286,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-client-patterns.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-client-patterns.md"
         },
         {
           "path": "shared/managed-agents-core.md",
-          "size": 32934,
+          "size": 32573,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-core.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-core.md"
         },
         {
           "path": "shared/managed-agents-environments.md",
-          "size": 12105,
+          "size": 12653,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-environments.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-environments.md"
         },
         {
           "path": "shared/managed-agents-events.md",
-          "size": 22908,
+          "size": 24645,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-events.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-events.md"
         },
         {
           "path": "shared/managed-agents-memory.md",
-          "size": 10006,
+          "size": 11154,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-memory.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-memory.md"
         },
         {
           "path": "shared/managed-agents-multiagent.md",
-          "size": 25099,
+          "size": 25549,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-multiagent.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-multiagent.md"
         },
         {
           "path": "shared/managed-agents-onboarding.md",
-          "size": 10460,
+          "size": 10454,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-onboarding.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-onboarding.md"
         },
         {
           "path": "shared/managed-agents-outcomes.md",
-          "size": 7286,
+          "size": 7244,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-outcomes.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-outcomes.md"
         },
         {
           "path": "shared/managed-agents-overview.md",
-          "size": 12635,
+          "size": 13165,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-overview.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-overview.md"
         },
         {
           "path": "shared/managed-agents-scheduled-deployments.md",
-          "size": 8411,
+          "size": 8734,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-scheduled-deployments.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-scheduled-deployments.md"
         },
         {
           "path": "shared/managed-agents-self-hosted-sandboxes.md",
-          "size": 10181,
+          "size": 27847,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-self-hosted-sandboxes.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-self-hosted-sandboxes.md"
         },
         {
           "path": "shared/managed-agents-tools.md",
-          "size": 23108,
+          "size": 29792,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-tools.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-tools.md"
         },
         {
           "path": "shared/managed-agents-webhooks.md",
-          "size": 11392,
+          "size": 11321,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-webhooks.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-webhooks.md"
         },
         {
           "path": "shared/model-migration.md",
-          "size": 175868,
+          "size": 244863,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/model-migration.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/model-migration.md"
         },
         {
           "path": "shared/models.md",
-          "size": 12146,
+          "size": 13936,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/models.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/models.md"
         },
         {
           "path": "shared/platform-availability.md",
-          "size": 5945,
+          "size": 5537,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/platform-availability.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/platform-availability.md"
         },
         {
           "path": "shared/prompt-audit.md",
-          "size": 32954,
+          "size": 34966,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/prompt-audit.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/prompt-audit.md"
         },
         {
           "path": "shared/prompt-caching.md",
-          "size": 16291,
+          "size": 31084,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/prompt-caching.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/prompt-caching.md"
         },
         {
           "path": "shared/token-counting.md",
-          "size": 1604,
+          "size": 1597,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/token-counting.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/token-counting.md"
         },
         {
           "path": "shared/tool-use-concepts.md",
-          "size": 33807,
+          "size": 35290,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/tool-use-concepts.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/tool-use-concepts.md"
         },
         {
           "path": "typescript/claude-api/README.md",
-          "size": 15179,
+          "size": 15131,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/typescript/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/typescript/claude-api/README.md"
         },
         {
           "path": "typescript/claude-api/batches.md",
-          "size": 2592,
+          "size": 2590,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/typescript/claude-api/batches.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/typescript/claude-api/batches.md"
         },
         {
           "path": "typescript/claude-api/files-api.md",
-          "size": 2259,
+          "size": 2382,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/typescript/claude-api/files-api.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/typescript/claude-api/files-api.md"
         },
         {
           "path": "typescript/claude-api/streaming.md",
-          "size": 5843,
+          "size": 5825,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/typescript/claude-api/streaming.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/typescript/claude-api/streaming.md"
         },
         {
           "path": "typescript/claude-api/tool-use.md",
-          "size": 19116,
+          "size": 18877,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/typescript/claude-api/tool-use.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/typescript/claude-api/tool-use.md"
         },
         {
           "path": "typescript/managed-agents/README.md",
-          "size": 9844,
+          "size": 9828,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/typescript/managed-agents/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/typescript/managed-agents/README.md"
@@ -1253,6 +1272,7 @@
       "path": "skills/discernment-nudge",
       "url": "https://github.com/anthropics/skills/tree/main/skills/discernment-nudge",
       "route": "/skills/anthropic/discernment-nudge",
+      "checksum": "e49e52184baae4f6659a7d548c7971b7cfe5f1fe571681f77feb41a57b18cb4f",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1281,6 +1301,7 @@
       "path": "skills/doc-coauthoring",
       "url": "https://github.com/anthropics/skills/tree/main/skills/doc-coauthoring",
       "route": "/skills/anthropic/doc-coauthoring",
+      "checksum": "26b72c01c0014bfd5df80c2012658b950dacb1e6d9dd42be28e4d952a0d0b464",
       "files": [
         {
           "path": "SKILL.md",
@@ -1302,6 +1323,7 @@
       "path": "skills/docx",
       "url": "https://github.com/anthropics/skills/tree/main/skills/docx",
       "route": "/skills/anthropic/docx",
+      "checksum": null,
       "files": []
     },
     {
@@ -1315,6 +1337,7 @@
       "path": "skills/frontend-design",
       "url": "https://github.com/anthropics/skills/tree/main/skills/frontend-design",
       "route": "/skills/anthropic/frontend-design",
+      "checksum": "253302f9b68793e28a97000de1e299af457308a35b36911e628f5f70f9487359",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1325,7 +1348,7 @@
         },
         {
           "path": "SKILL.md",
-          "size": 8260,
+          "size": 9390,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/frontend-design/SKILL.md"
@@ -1343,6 +1366,7 @@
       "path": "skills/internal-comms",
       "url": "https://github.com/anthropics/skills/tree/main/skills/internal-comms",
       "route": "/skills/anthropic/internal-comms",
+      "checksum": "97748cab65259eb9ab5380d561d474534dad0bd6401d15fa7d580dfc3d7d71da",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1399,6 +1423,7 @@
       "path": "skills/mcp-builder",
       "url": "https://github.com/anthropics/skills/tree/main/skills/mcp-builder",
       "route": "/skills/anthropic/mcp-builder",
+      "checksum": "83f44218f9e1ed430ec79161247413408457e7e6d76651d93d06eec79dd668fb",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1483,6 +1508,7 @@
       "path": "skills/pdf",
       "url": "https://github.com/anthropics/skills/tree/main/skills/pdf",
       "route": "/skills/anthropic/pdf",
+      "checksum": null,
       "files": []
     },
     {
@@ -1496,6 +1522,7 @@
       "path": "skills/pptx",
       "url": "https://github.com/anthropics/skills/tree/main/skills/pptx",
       "route": "/skills/anthropic/pptx",
+      "checksum": null,
       "files": []
     },
     {
@@ -1509,6 +1536,7 @@
       "path": "skills/skill-creator",
       "url": "https://github.com/anthropics/skills/tree/main/skills/skill-creator",
       "route": "/skills/anthropic/skill-creator",
+      "checksum": "46871461fce37fd4ea5737d61156a5e7e2a886c9c3fab91829ad062c6accdf82",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1649,6 +1677,7 @@
       "path": "skills/slack-gif-creator",
       "url": "https://github.com/anthropics/skills/tree/main/skills/slack-gif-creator",
       "route": "/skills/anthropic/slack-gif-creator",
+      "checksum": "cd8e8b2a55d4dbe633af1172e540bab99dbc9e3cec6bb6f91a9e9632b6ad1f54",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1712,6 +1741,7 @@
       "path": "skills/theme-factory",
       "url": "https://github.com/anthropics/skills/tree/main/skills/theme-factory",
       "route": "/skills/anthropic/theme-factory",
+      "checksum": "bdc2194c830c8d996aea7aa664a6f492eca14369302f2152375831426f23c29c",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1817,6 +1847,7 @@
       "path": "skills/web-artifacts-builder",
       "url": "https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder",
       "route": "/skills/anthropic/web-artifacts-builder",
+      "checksum": "ca68f4d02f3ca6705fc428a9961082c8740466c6fa493773e4a56e9c2e649dd4",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1866,6 +1897,7 @@
       "path": "skills/webapp-testing",
       "url": "https://github.com/anthropics/skills/tree/main/skills/webapp-testing",
       "route": "/skills/anthropic/webapp-testing",
+      "checksum": "03f43db1877f4ecff872aa91566023fc66f52a696a2ee2be991377c8be171fac",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -1922,6 +1954,7 @@
       "path": "skills/xlsx",
       "url": "https://github.com/anthropics/skills/tree/main/skills/xlsx",
       "route": "/skills/anthropic/xlsx",
+      "checksum": null,
       "files": []
     },
     {
@@ -1935,6 +1968,7 @@
       "path": "skills/cavecrew",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/cavecrew",
       "route": "/skills/caveman/cavecrew",
+      "checksum": "f59431a04f73c6d8f557a74b6e2e34f3ddddc16fb83b9b19d4a4960616e15cb5",
       "files": [
         {
           "path": "README.md",
@@ -1963,6 +1997,7 @@
       "path": "skills/caveman",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman",
       "route": "/skills/caveman/caveman",
+      "checksum": "131da729e7881c06459ecdf9f4847f51b68ac98d18387860a8e873e1cda59074",
       "files": [
         {
           "path": "README.md",
@@ -1973,7 +2008,7 @@
         },
         {
           "path": "SKILL.md",
-          "size": 6518,
+          "size": 7022,
           "binary": false,
           "githubUrl": "https://github.com/JuliusBrussee/caveman/blob/main/skills/caveman/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/JuliusBrussee/caveman/main/skills/caveman/SKILL.md"
@@ -1991,6 +2026,7 @@
       "path": "skills/caveman-commit",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-commit",
       "route": "/skills/caveman/caveman-commit",
+      "checksum": "7e1170cd80e0219616fef5daf6521ceb74862742a7c440f2b55b5501e103f46f",
       "files": [
         {
           "path": "README.md",
@@ -2019,10 +2055,11 @@
       "path": "skills/caveman-compress",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-compress",
       "route": "/skills/caveman/caveman-compress",
+      "checksum": "8ded5269dda74b813fd4b59af278ba5f26c35159de1d8f745ab7144f0ffe22ce",
       "files": [
         {
           "path": "README.md",
-          "size": 5667,
+          "size": 5675,
           "binary": false,
           "githubUrl": "https://github.com/JuliusBrussee/caveman/blob/main/skills/caveman-compress/README.md",
           "rawUrl": "https://raw.githubusercontent.com/JuliusBrussee/caveman/main/skills/caveman-compress/README.md"
@@ -2071,21 +2108,21 @@
         },
         {
           "path": "scripts/compress.py",
-          "size": 30948,
+          "size": 33727,
           "binary": false,
           "githubUrl": "https://github.com/JuliusBrussee/caveman/blob/main/skills/caveman-compress/scripts/compress.py",
           "rawUrl": "https://raw.githubusercontent.com/JuliusBrussee/caveman/main/skills/caveman-compress/scripts/compress.py"
         },
         {
           "path": "scripts/detect.py",
-          "size": 4836,
+          "size": 5169,
           "binary": false,
           "githubUrl": "https://github.com/JuliusBrussee/caveman/blob/main/skills/caveman-compress/scripts/detect.py",
           "rawUrl": "https://raw.githubusercontent.com/JuliusBrussee/caveman/main/skills/caveman-compress/scripts/detect.py"
         },
         {
           "path": "scripts/validate.py",
-          "size": 14456,
+          "size": 15236,
           "binary": false,
           "githubUrl": "https://github.com/JuliusBrussee/caveman/blob/main/skills/caveman-compress/scripts/validate.py",
           "rawUrl": "https://raw.githubusercontent.com/JuliusBrussee/caveman/main/skills/caveman-compress/scripts/validate.py"
@@ -2103,6 +2140,7 @@
       "path": "skills/caveman-discover",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-discover",
       "route": "/skills/caveman/caveman-discover",
+      "checksum": "bbde8272431c64b83913067d8435dd1b282da94d6475b99ad5455e3cb3a9527c",
       "files": [
         {
           "path": "SKILL.md",
@@ -2124,6 +2162,7 @@
       "path": "skills/caveman-evidence-review",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-evidence-review",
       "route": "/skills/caveman/caveman-evidence-review",
+      "checksum": "f3359533d2f6add9dbf6b730f70002474629b10a5576a1c69d66354d3e69bf68",
       "files": [
         {
           "path": "SKILL.md",
@@ -2145,6 +2184,7 @@
       "path": "skills/caveman-explore",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-explore",
       "route": "/skills/caveman/caveman-explore",
+      "checksum": "9aac9de6121dd945378320fde8f76c7ea45e26adc73bd5e01cb679a652eea55d",
       "files": [
         {
           "path": "SKILL.md",
@@ -2180,6 +2220,7 @@
       "path": "skills/caveman-help",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-help",
       "route": "/skills/caveman/caveman-help",
+      "checksum": "7e9f7b8579d4eee772b44eba84297534600a62ed95f835876d63067ec45414ae",
       "files": [
         {
           "path": "README.md",
@@ -2208,6 +2249,7 @@
       "path": "skills/caveman-learn",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-learn",
       "route": "/skills/caveman/caveman-learn",
+      "checksum": "cf152a01e79b8ea2014325c0c30458eaf8184ed97407af0cd09aecaee53f59fb",
       "files": [
         {
           "path": "CLAUDE.md",
@@ -2264,6 +2306,7 @@
       "path": "skills/caveman-manage",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-manage",
       "route": "/skills/caveman/caveman-manage",
+      "checksum": "16da90ad644fe8fdbd82c4c917e0f36967171863348b8ed46110ee84c1499019",
       "files": [
         {
           "path": "SKILL.md",
@@ -2285,6 +2328,7 @@
       "path": "skills/caveman-optimize",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-optimize",
       "route": "/skills/caveman/caveman-optimize",
+      "checksum": "acc268c091e36c5974ee6270e4670456a73f5d3382da28bc1093c627d39ede73",
       "files": [
         {
           "path": "SKILL.md",
@@ -2306,6 +2350,7 @@
       "path": "skills/caveman-review",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-review",
       "route": "/skills/caveman/caveman-review",
+      "checksum": "eb6ff0ad21a01d2299625ddc4e90fbcbfc9f72442a5183f5f83fb3ebc98c289a",
       "files": [
         {
           "path": "README.md",
@@ -2334,6 +2379,7 @@
       "path": "skills/caveman-setup",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-setup",
       "route": "/skills/caveman/caveman-setup",
+      "checksum": "0996e0776a786710457daa1232259669000526fdb0eac7a2b78c2158fb38e90d",
       "files": [
         {
           "path": "SKILL.md",
@@ -2355,6 +2401,7 @@
       "path": "skills/caveman-stats",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman-stats",
       "route": "/skills/caveman/caveman-stats",
+      "checksum": "81484d7c6d4fd6695b187ca1700af8c67324ac6387913fa941aaf4c7810c58e7",
       "files": [
         {
           "path": "README.md",
@@ -2383,6 +2430,7 @@
       "path": "skills/investigate-first",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/investigate-first",
       "route": "/skills/caveman/investigate-first",
+      "checksum": "477d7a9dc7d3bddaa3d5d5a37116baabdc4f34b0a727b364de4ec407373f6258",
       "files": [
         {
           "path": "SKILL.md",
@@ -2411,6 +2459,7 @@
       "path": "skills/lean-build",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/lean-build",
       "route": "/skills/caveman/lean-build",
+      "checksum": "cddb63ad40f8dc13ae0dc6ae14922838579c51b898ab0554f5cb5ddb973cd76f",
       "files": [
         {
           "path": "SKILL.md",
@@ -2439,6 +2488,7 @@
       "path": "skills/migration",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/migration",
       "route": "/skills/caveman/migration",
+      "checksum": "6124bc03bcd6775d2c1b6bd00879e72f5de77e95c1a97c6acb6ee0be4bc72bad",
       "files": [
         {
           "path": "SKILL.md",
@@ -2467,6 +2517,7 @@
       "path": "skills/safe-refactor",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/safe-refactor",
       "route": "/skills/caveman/safe-refactor",
+      "checksum": "0a400881ed3d5d00e98ffb2912e402b8c0a265e9628ee87a8ebab33eda9b50cb",
       "files": [
         {
           "path": "SKILL.md",
@@ -2495,6 +2546,7 @@
       "path": "skills/surgical-patch",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/surgical-patch",
       "route": "/skills/caveman/surgical-patch",
+      "checksum": "fddbd7341773df98169ddd3e66402c320d7e6d263a1ad8c275d8e57432460a34",
       "files": [
         {
           "path": "SKILL.md",
@@ -2523,6 +2575,7 @@
       "path": "skills/verify-and-stop",
       "url": "https://github.com/JuliusBrussee/caveman/tree/main/skills/verify-and-stop",
       "route": "/skills/caveman/verify-and-stop",
+      "checksum": "59fe90061703924bc56b7deac15c649ab494feb4cd949cefef9cf0012bbcdee6",
       "files": [
         {
           "path": "SKILL.md",
@@ -2551,6 +2604,7 @@
       "path": "skills/engineering/ask-matt",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/ask-matt",
       "route": "/skills/mattpocock/engineering/ask-matt",
+      "checksum": "fb2d3f0da189b858f2daa3fff4a0e504045e4aa81cf2de3b887a0428c5449125",
       "files": [
         {
           "path": "PHASE-BOUNDARIES.md",
@@ -2586,6 +2640,7 @@
       "path": "skills/engineering/code-review",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/code-review",
       "route": "/skills/mattpocock/engineering/code-review",
+      "checksum": "9754664060b5c82399bcc312b01a9b176308cd67312b9e1acf50878bc93fccc3",
       "files": [
         {
           "path": "SKILL.md",
@@ -2614,6 +2669,7 @@
       "path": "skills/engineering/codebase-design",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/codebase-design",
       "route": "/skills/mattpocock/engineering/codebase-design",
+      "checksum": "e36311054b7ff646392a73159d4c797b80b71529db5e90f8df87f292c22d6989",
       "files": [
         {
           "path": "DEEPENING.md",
@@ -2656,6 +2712,7 @@
       "path": "skills/engineering/diagnosing-bugs",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/diagnosing-bugs",
       "route": "/skills/mattpocock/engineering/diagnosing-bugs",
+      "checksum": "055b702edc5fda499dc8dedebfe29cc0cafce37707c44da8ab5104351c2fbc00",
       "files": [
         {
           "path": "SKILL.md",
@@ -2691,6 +2748,7 @@
       "path": "skills/engineering/domain-modeling",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/domain-modeling",
       "route": "/skills/mattpocock/engineering/domain-modeling",
+      "checksum": "874db49ea86e5bffe6d4d1521e2482f0271786b4dbb6abf81e46ff8c06f4c8ed",
       "files": [
         {
           "path": "ADR-FORMAT.md",
@@ -2733,6 +2791,7 @@
       "path": "skills/engineering/grill-with-docs",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/grill-with-docs",
       "route": "/skills/mattpocock/engineering/grill-with-docs",
+      "checksum": "ed5cfc86dca641b2e9a7eb289eada7ff52604b984caa0ef2049147674d007e11",
       "files": [
         {
           "path": "SKILL.md",
@@ -2761,6 +2820,7 @@
       "path": "skills/engineering/implement",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/implement",
       "route": "/skills/mattpocock/engineering/implement",
+      "checksum": "35e3c535285aef54286a3e51a6ce30fb76afaf44723395d71e128d4e84543d1e",
       "files": [
         {
           "path": "SKILL.md",
@@ -2789,6 +2849,7 @@
       "path": "skills/engineering/improve-codebase-architecture",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/improve-codebase-architecture",
       "route": "/skills/mattpocock/engineering/improve-codebase-architecture",
+      "checksum": "a0fc787f75c8d3725767d34556668b30de35c994f557e2dcab514596b99358d1",
       "files": [
         {
           "path": "HTML-REPORT.md",
@@ -2824,6 +2885,7 @@
       "path": "skills/engineering/prototype",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/prototype",
       "route": "/skills/mattpocock/engineering/prototype",
+      "checksum": "5d11bc394c9f6eb23a054ca71fb661e08d9d2a808d867389a5dd2410f4d4b977",
       "files": [
         {
           "path": "LOGIC.md",
@@ -2866,6 +2928,7 @@
       "path": "skills/engineering/research",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/research",
       "route": "/skills/mattpocock/engineering/research",
+      "checksum": "46d47dfe26d2f13352931e260dab8e1cd022490ed015e751dffaa46f4f79f3a4",
       "files": [
         {
           "path": "SKILL.md",
@@ -2894,6 +2957,7 @@
       "path": "skills/engineering/resolving-merge-conflicts",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/resolving-merge-conflicts",
       "route": "/skills/mattpocock/engineering/resolving-merge-conflicts",
+      "checksum": "79eb7b89da74b05ccee219fba1127dcaeee143243326955af3da76e45df90233",
       "files": [
         {
           "path": "SKILL.md",
@@ -2922,6 +2986,7 @@
       "path": "skills/engineering/setup-matt-pocock-skills",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/setup-matt-pocock-skills",
       "route": "/skills/mattpocock/engineering/setup-matt-pocock-skills",
+      "checksum": "ea2d0d29f69d7eb985c23dd2b607339d4c47b10ca7df73faa1ab68c22d98bd83",
       "files": [
         {
           "path": "SKILL.md",
@@ -2985,6 +3050,7 @@
       "path": "skills/engineering/tdd",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/tdd",
       "route": "/skills/mattpocock/engineering/tdd",
+      "checksum": "c4cbdbeb7955bec00c0d5778aa7b6c9104b8201702153c04fe2e93c529e78be6",
       "files": [
         {
           "path": "SKILL.md",
@@ -3027,6 +3093,7 @@
       "path": "skills/engineering/to-spec",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/to-spec",
       "route": "/skills/mattpocock/engineering/to-spec",
+      "checksum": "1765bec4fc90691e3f2d78654661e5efc332a4a96f7667f64c3a3ee016f6affb",
       "files": [
         {
           "path": "SKILL.md",
@@ -3055,6 +3122,7 @@
       "path": "skills/engineering/to-tickets",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/to-tickets",
       "route": "/skills/mattpocock/engineering/to-tickets",
+      "checksum": "b17b4592d22b0b769dcf6b2bbe142ae96ad96a52a4c4ce929de7bc6682bddb82",
       "files": [
         {
           "path": "SKILL.md",
@@ -3083,6 +3151,7 @@
       "path": "skills/engineering/triage",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/triage",
       "route": "/skills/mattpocock/engineering/triage",
+      "checksum": "0554c9b02c5b72ccb14a8d83c227a373b0f26021d272caf728619f64cce1a1d5",
       "files": [
         {
           "path": "AGENT-BRIEF.md",
@@ -3125,6 +3194,7 @@
       "path": "skills/engineering/wayfinder",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/wayfinder",
       "route": "/skills/mattpocock/engineering/wayfinder",
+      "checksum": "d69d3d68ae38bcb2d6dbfba2fa2a55ee67750e3369029579de0e76b4eefacff7",
       "files": [
         {
           "path": "SKILL.md",
@@ -3153,6 +3223,7 @@
       "path": "skills/engineering/wizard",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/wizard",
       "route": "/skills/mattpocock/engineering/wizard",
+      "checksum": "8d7399dbd23b3dc4eebc188fbdd5ed69b7c0a80380c60213619a2da5c2ae31d8",
       "files": [
         {
           "path": "SKILL.md",
@@ -3188,6 +3259,7 @@
       "path": "skills/in-progress/claude-handoff",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/claude-handoff",
       "route": "/skills/mattpocock/in-progress/claude-handoff",
+      "checksum": "336d40f5759a860f95081cfe509008ddd8635b09172633c0d6788d2fae32d63e",
       "files": [
         {
           "path": "SKILL.md",
@@ -3216,6 +3288,7 @@
       "path": "skills/in-progress/implement-spec",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/implement-spec",
       "route": "/skills/mattpocock/in-progress/implement-spec",
+      "checksum": "c639860d1af0ee597a7955d2c4325f9341391feaa2a77e37c35268110432f294",
       "files": [
         {
           "path": "SKILL.md",
@@ -3244,6 +3317,7 @@
       "path": "skills/in-progress/loop-me",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/loop-me",
       "route": "/skills/mattpocock/in-progress/loop-me",
+      "checksum": "cfc3153fb89654ee44f9d5ffc171a5795722081d1502b65a365599855c2f00aa",
       "files": [
         {
           "path": "SKILL.md",
@@ -3272,6 +3346,7 @@
       "path": "skills/in-progress/retro",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/retro",
       "route": "/skills/mattpocock/in-progress/retro",
+      "checksum": "ffb91fcdc59ef4b61dc011150392589b916229b69be224e543c561ff0dc0b447",
       "files": [
         {
           "path": "SKILL.md",
@@ -3300,6 +3375,7 @@
       "path": "skills/in-progress/setup-ts-deep-modules",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/setup-ts-deep-modules",
       "route": "/skills/mattpocock/in-progress/setup-ts-deep-modules",
+      "checksum": "a885541db69079430480abbe64b738e24255f446fa7fcf277361f2e6443738d0",
       "files": [
         {
           "path": "SKILL.md",
@@ -3335,6 +3411,7 @@
       "path": "skills/in-progress/writing-beats",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/writing-beats",
       "route": "/skills/mattpocock/in-progress/writing-beats",
+      "checksum": "3f14c370e40d6f0bd4e66bbb27a7df50d4ea49ef54ad089b177ab835291fb4a1",
       "files": [
         {
           "path": "SKILL.md",
@@ -3363,6 +3440,7 @@
       "path": "skills/in-progress/writing-fragments",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/writing-fragments",
       "route": "/skills/mattpocock/in-progress/writing-fragments",
+      "checksum": "35aad65b301e146e901d9e23bee53ca964c4a92419b6a33e1c44d8692eb72c4c",
       "files": [
         {
           "path": "SKILL.md",
@@ -3391,6 +3469,7 @@
       "path": "skills/in-progress/writing-shape",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/writing-shape",
       "route": "/skills/mattpocock/in-progress/writing-shape",
+      "checksum": "4ecc8bf65f762fc99d98cfaad7ab21de02e4319408b175d7528d90120a32bb73",
       "files": [
         {
           "path": "SKILL.md",
@@ -3419,6 +3498,7 @@
       "path": "skills/misc/git-guardrails-claude-code",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/misc/git-guardrails-claude-code",
       "route": "/skills/mattpocock/misc/git-guardrails-claude-code",
+      "checksum": "5747d1a0fdbab739d820026ea1a196faac4717fb2804d37632ebdd2a0f3beeaa",
       "files": [
         {
           "path": "SKILL.md",
@@ -3454,6 +3534,7 @@
       "path": "skills/misc/migrate-to-shoehorn",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/misc/migrate-to-shoehorn",
       "route": "/skills/mattpocock/misc/migrate-to-shoehorn",
+      "checksum": "5beecc849c47525857bff6c30195fe9f23afaaa11fe65f9a28c0245fd831d608",
       "files": [
         {
           "path": "SKILL.md",
@@ -3482,6 +3563,7 @@
       "path": "skills/misc/scaffold-exercises",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/misc/scaffold-exercises",
       "route": "/skills/mattpocock/misc/scaffold-exercises",
+      "checksum": "c06c1c946beb1a5c305fb181fdd9b5fd2f1c596932d1ef81740a0915fb066d12",
       "files": [
         {
           "path": "SKILL.md",
@@ -3510,6 +3592,7 @@
       "path": "skills/misc/setup-pre-commit",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/misc/setup-pre-commit",
       "route": "/skills/mattpocock/misc/setup-pre-commit",
+      "checksum": "c658007a8600485385f7d33ffac061f5c43618b4e49d1b0dbf0127e0b9a03e97",
       "files": [
         {
           "path": "SKILL.md",
@@ -3538,6 +3621,7 @@
       "path": "skills/productivity/grill-me",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me",
       "route": "/skills/mattpocock/productivity/grill-me",
+      "checksum": "6c8d38b3931f48a3e18ac538118eafa387cdf995de03efff5d86ccc1801f0a34",
       "files": [
         {
           "path": "SKILL.md",
@@ -3566,6 +3650,7 @@
       "path": "skills/productivity/grilling",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/productivity/grilling",
       "route": "/skills/mattpocock/productivity/grilling",
+      "checksum": "2072e2e649c87cf17389168cd36e1beebb69f0138a268a58776cd9e8772f7217",
       "files": [
         {
           "path": "SKILL.md",
@@ -3594,6 +3679,7 @@
       "path": "skills/productivity/handoff",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff",
       "route": "/skills/mattpocock/productivity/handoff",
+      "checksum": "4ca079cb8a320b3cabf40a9a0d8445624f99a569b98df02fe2df7b7105169da8",
       "files": [
         {
           "path": "SKILL.md",
@@ -3622,6 +3708,7 @@
       "path": "skills/productivity/teach",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/productivity/teach",
       "route": "/skills/mattpocock/productivity/teach",
+      "checksum": "71650c8bf27460939e93671b637b463d58867e0663d6f07c197295ea010eca0d",
       "files": [
         {
           "path": "GLOSSARY-FORMAT.md",
@@ -3678,6 +3765,7 @@
       "path": "skills/productivity/to-questionnaire",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/productivity/to-questionnaire",
       "route": "/skills/mattpocock/productivity/to-questionnaire",
+      "checksum": "0b30d6f4ba8bc9b876e99db9f59c753b4e17a7327016ae4f0134120f5d3b0d2b",
       "files": [
         {
           "path": "SKILL.md",
@@ -3706,6 +3794,7 @@
       "path": "skills/productivity/wait-what",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/productivity/wait-what",
       "route": "/skills/mattpocock/productivity/wait-what",
+      "checksum": "f78854b883b66399c5dafa2fe5bdf4d8a008361a7e5bc1b39c758cd01e66d10a",
       "files": [
         {
           "path": "SKILL.md",
@@ -3734,6 +3823,7 @@
       "path": "skills/productivity/writing-for-agents",
       "url": "https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents",
       "route": "/skills/mattpocock/productivity/writing-for-agents",
+      "checksum": "0b198cbd9fe6aba8f0c8e9fdc2548d2a0a7300c5eb2161d475675fcde00894e4",
       "files": [
         {
           "path": "SKILL-MECHANICS.md",
@@ -3769,6 +3859,7 @@
       "path": "skills/airunway-aks-setup",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/airunway-aks-setup",
       "route": "/skills/microsoft/airunway-aks-setup",
+      "checksum": "fd35c2dbc8751b513ccb8fcc9efed01b6e6edfebcf8303c2b754be3c56611de6",
       "files": [
         {
           "path": "SKILL.md",
@@ -3860,6 +3951,7 @@
       "path": "skills/appinsights-instrumentation",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/appinsights-instrumentation",
       "route": "/skills/microsoft/appinsights-instrumentation",
+      "checksum": "366f1bd7d7fdd606a60d9a142bcdd46a71d6ee6a127386551a86f3f3687fd18f",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -3965,6 +4057,7 @@
       "path": "skills/azure-ai",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-ai",
       "route": "/skills/microsoft/azure-ai",
+      "checksum": "3d98811d75457122aa7175f612934b4d5a394b16361fb9e3ce217cb9d6a7b3dd",
       "files": [
         {
           "path": "SKILL.md",
@@ -4091,6 +4184,7 @@
       "path": "skills/azure-aigateway",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-aigateway",
       "route": "/skills/microsoft/azure-aigateway",
+      "checksum": "6353711998adf7d6d8f5f81a95a90cae41615c821baa9dab6c7dacdc10eeb679",
       "files": [
         {
           "path": "SKILL.md",
@@ -4168,6 +4262,7 @@
       "path": "skills/azure-app-onboard",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-app-onboard",
       "route": "/skills/microsoft/azure-app-onboard",
+      "checksum": "d7898b974956e039c1800b8ebc7389a27172abe08452eafe543ddb135cc79d18",
       "files": [
         {
           "path": "SKILL.md",
@@ -4266,6 +4361,7 @@
       "path": "skills/azure-app-onboard-prereq",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-app-onboard-prereq",
       "route": "/skills/microsoft/azure-app-onboard-prereq",
+      "checksum": "ef238526be3c98773bd0d4015dcd583df79c5c34a913ce8e13145b3d19b22aad",
       "files": [
         {
           "path": "SKILL.md",
@@ -4392,6 +4488,7 @@
       "path": "skills/azure-cloud-migrate",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-cloud-migrate",
       "route": "/skills/microsoft/azure-cloud-migrate",
+      "checksum": "9c668bf7db52efbab4d87e3b8bd2d490004b594626423ae44e7d000400949c7b",
       "files": [
         {
           "path": "SKILL.md",
@@ -4623,6 +4720,7 @@
       "path": "skills/azure-compliance",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-compliance",
       "route": "/skills/microsoft/azure-compliance",
+      "checksum": "a2a6ab8c2035b4a88a1074869acdffc32af0b7480a77dc7ef82e439b166fbfd5",
       "files": [
         {
           "path": "SKILL.md",
@@ -4749,6 +4847,7 @@
       "path": "skills/azure-compute",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-compute",
       "route": "/skills/microsoft/azure-compute",
+      "checksum": "414e32978e12b81ae4847796853d4ca71c8fd7d688a77fc88e485fa08c3aae2a",
       "files": [
         {
           "path": "SKILL.md",
@@ -5050,6 +5149,7 @@
       "path": "skills/azure-cost",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-cost",
       "route": "/skills/microsoft/azure-cost",
+      "checksum": "2dbc9f9c5348be0d782f29019884217a9f1870ff94b7c8331c4e9df97da71287",
       "files": [
         {
           "path": "SKILL.md",
@@ -5225,6 +5325,7 @@
       "path": "skills/azure-deploy",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-deploy",
       "route": "/skills/microsoft/azure-deploy",
+      "checksum": "97096dfd6c4b0754ba31ac34ea20b4f409529294548460ef7ea879c8af7c9455",
       "files": [
         {
           "path": "SKILL.md",
@@ -5526,6 +5627,7 @@
       "path": "skills/azure-diagnostics",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-diagnostics",
       "route": "/skills/microsoft/azure-diagnostics",
+      "checksum": "a87410533853159255be0d91ce55859074b16f601549f9dc126c11065520bf56",
       "files": [
         {
           "path": "SKILL.md",
@@ -5897,6 +5999,7 @@
       "path": "skills/azure-enterprise-infra-planner",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-enterprise-infra-planner",
       "route": "/skills/microsoft/azure-enterprise-infra-planner",
+      "checksum": "8aba0775f1593844f19ba7509789af26d8c29e01c1c1cb7aee787033764d03f0",
       "files": [
         {
           "path": "SKILL.md",
@@ -6198,6 +6301,7 @@
       "path": "skills/azure-kubernetes",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-kubernetes",
       "route": "/skills/microsoft/azure-kubernetes",
+      "checksum": "18398b6408b0ae75345b6044210ffe5165d08e6869fa08053057d2615b2edfee",
       "files": [
         {
           "path": "SKILL.md",
@@ -6254,6 +6358,7 @@
       "path": "skills/azure-kusto",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-kusto",
       "route": "/skills/microsoft/azure-kusto",
+      "checksum": "052cddbc432354d9d33e8b0ea52d5651541d84cba9d6e359c6cf16f934d1002b",
       "files": [
         {
           "path": "SKILL.md",
@@ -6275,6 +6380,7 @@
       "path": "skills/azure-messaging",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-messaging",
       "route": "/skills/microsoft/azure-messaging",
+      "checksum": "614837729d632b5378838869ac71b0a89d86e32ae17fd87d7e6bdcd8d71b5351",
       "files": [
         {
           "path": "SKILL.md",
@@ -6296,6 +6402,7 @@
       "path": "skills/azure-prepare",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-prepare",
       "route": "/skills/microsoft/azure-prepare",
+      "checksum": "848b5c4f1cfb29d3f1176b2f7db59c4f0c2e1c9bd3dce7228725e0d504235d71",
       "files": [
         {
           "path": "SKILL.md",
@@ -7458,6 +7565,7 @@
       "path": "skills/azure-quotas",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-quotas",
       "route": "/skills/microsoft/azure-quotas",
+      "checksum": "38a7307f183f4777488fc411c7e24841727b8fe992ca8b7adf06fce57c6b752f",
       "files": [
         {
           "path": "SKILL.md",
@@ -7507,6 +7615,7 @@
       "path": "skills/azure-reliability",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-reliability",
       "route": "/skills/microsoft/azure-reliability",
+      "checksum": "37a90f0b8734ecda03d511d2c01a4e4ef2ee5567fb0337982d0200401251556b",
       "files": [
         {
           "path": "SKILL.md",
@@ -7612,6 +7721,7 @@
       "path": "skills/azure-resource-lookup",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-resource-lookup",
       "route": "/skills/microsoft/azure-resource-lookup",
+      "checksum": "4b28e485752487a12d1ceb99372e30428e001d1991a28fdaccd21e51ee6138c0",
       "files": [
         {
           "path": "SKILL.md",
@@ -7640,6 +7750,7 @@
       "path": "skills/azure-resource-visualizer",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-resource-visualizer",
       "route": "/skills/microsoft/azure-resource-visualizer",
+      "checksum": "dd015d40320eda94d844e7be0bb78a7ba37f918d2ad83e54a3a254d72796d289",
       "files": [
         {
           "path": "SKILL.md",
@@ -7682,6 +7793,7 @@
       "path": "skills/azure-storage",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-storage",
       "route": "/skills/microsoft/azure-storage",
+      "checksum": "25951c65565218b5a64f64514b1a0e0b1126a9d710cb785a636f8e2fbd26fbaa",
       "files": [
         {
           "path": "SKILL.md",
@@ -7794,6 +7906,7 @@
       "path": "skills/azure-upgrade",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-upgrade",
       "route": "/skills/microsoft/azure-upgrade",
+      "checksum": "44c5702b4fe82d5494c94dc3246c8d467fea98d2905ac86b5ba167c3fc4523c8",
       "files": [
         {
           "path": "SKILL.md",
@@ -8025,6 +8138,7 @@
       "path": "skills/azure-validate",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-validate",
       "route": "/skills/microsoft/azure-validate",
+      "checksum": "48f36351f37e001f0de215415f9518a3ddbaff2c39f5c8ba9623971d873e6fad",
       "files": [
         {
           "path": "SKILL.md",
@@ -8228,6 +8342,7 @@
       "path": "skills/entra-agent-id",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/entra-agent-id",
       "route": "/skills/microsoft/entra-agent-id",
+      "checksum": "e435ab00ea8e20763ed470271eabc04ac8e16290c49c1f538e29fdccadd33360",
       "files": [
         {
           "path": "SKILL.md",
@@ -8291,6 +8406,7 @@
       "path": "skills/entra-app-registration",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/entra-app-registration",
       "route": "/skills/microsoft/entra-app-registration",
+      "checksum": "a7372a23054ad8d0763a102c7984fbbf5ccc772890ff36486855809fc4c46af3",
       "files": [
         {
           "path": "SKILL.md",
@@ -8416,7 +8532,7 @@
     {
       "id": "microsoft/microsoft-foundry",
       "name": "microsoft-foundry",
-      "description": "Build, deploy, evaluate, optimize, fine-tune, and manage Microsoft Foundry agents, models, and resources end to end with azd. USE FOR: azd ai agent, azd provision/deploy, hosted agent scaffold/develop/run/deploy, prompt agent create, create agent, update agent, add tool to agent, invoke agent, agent.yaml, evaluate agent, batch eval, continuous eval, continuous monitoring, agent CI/CD, optimize prompt, improve prompt, prompt optimizer, optimize agent instructions, Agent Optimizer scaffold, dataset curation from traces, deploy model, model fine-tuning (SFT/DPO/RFT), Foundry project, RBAC, role assignment, permissions, quota, capacity, region, troubleshoot agent, deployment failure, AI Services, create Foundry resource, knowledge index, customize deployment, onboard, availability, training-data, grader, distillation, fine-tuned model, large file upload. DO NOT USE FOR: Azure Functions, App Service, general Azure deploy (use azure-deploy), general Azure prep (use azure-prepare).",
+      "description": "Build, deploy, evaluate, optimize, fine-tune, and manage Microsoft Foundry agents, models, and resources end to end. USE FOR: azd ai agent, azd provision/deploy, hosted agent scaffold/develop/run/deploy/troubleshoot, prompt agent create, create agent, update agent, add tool to agent, invoke agent, agent.yaml, evaluate agent, batch eval, continuous eval, continuous monitoring, agent CI/CD, optimize prompt, improve prompt, prompt optimizer, optimize agent instructions, Agent Optimizer scaffold, dataset curation from traces, deploy model, model fine-tuning (SFT/DPO/RFT), Foundry project, RBAC, role assignment, permissions, quota, capacity, region, deployment failure, AI Services, create Foundry resource, knowledge index, customize deployment, onboard, availability, training-data, grader, distillation, large file upload. DO NOT USE FOR: Azure Functions, App Service, general Azure deploy (use azure-deploy), general Azure prep (use azure-prepare).",
       "source": "microsoft",
       "category": null,
       "license": "MIT",
@@ -8424,6 +8540,7 @@
       "path": "skills/microsoft-foundry",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry",
       "route": "/skills/microsoft/microsoft-foundry",
+      "checksum": "5e78d6b1a407ec8d9ec66f4e72f2dd590c456c5f9445a3f85e7a32b444918223",
       "files": [
         {
           "path": ".gitignore",
@@ -8434,7 +8551,7 @@
         },
         {
           "path": "SKILL.md",
-          "size": 26102,
+          "size": 26342,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/SKILL.md"
@@ -9176,7 +9293,7 @@
         },
         {
           "path": "foundry-agent/validate/references/default-rules.yaml",
-          "size": 1796,
+          "size": 12279,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/validate/references/default-rules.yaml",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/validate/references/default-rules.yaml"
@@ -9425,6 +9542,7 @@
       "path": "skills/python-appservice-deploy",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/python-appservice-deploy",
       "route": "/skills/microsoft/python-appservice-deploy",
+      "checksum": "bc644b242c65cd171e0f3851572f3846339e1ecba54476224a29890181948a2e",
       "files": [
         {
           "path": "SKILL.md",
@@ -9530,6 +9648,7 @@
       "path": "skills/azure-kubernetes/azure-kubernetes-app-deploy",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-kubernetes/azure-kubernetes-app-deploy",
       "route": "/skills/microsoft/azure-kubernetes/azure-kubernetes-app-deploy",
+      "checksum": "e6fbfc0655de4a682de013bcd0a5e489953360f013e809c518f0cec8bb415ef9",
       "files": [
         {
           "path": "SKILL.md",
@@ -9838,6 +9957,7 @@
       "path": "skills/azure-kubernetes/azure-kubernetes-automatic-readiness",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-kubernetes/azure-kubernetes-automatic-readiness",
       "route": "/skills/microsoft/azure-kubernetes/azure-kubernetes-automatic-readiness",
+      "checksum": "1f1a39a74bec630e4c73e8ce7e259093d3d0e8b97d0ffe8575355d80bbbf5007",
       "files": [
         {
           "path": "SKILL.md",
@@ -9887,6 +10007,7 @@
       "path": "skills/microsoft-foundry/models/deploy-model/capacity",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry/models/deploy-model/capacity",
       "route": "/skills/microsoft/microsoft-foundry/models/deploy-model/capacity",
+      "checksum": "5a833ac133d09afbfdf1ebf1007ae1457167edded39e09d1755a2429d655cf99",
       "files": [
         {
           "path": "SKILL.md",
@@ -9936,6 +10057,7 @@
       "path": "skills/microsoft-foundry/models/deploy-model/customize",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry/models/deploy-model/customize",
       "route": "/skills/microsoft/microsoft-foundry/models/deploy-model/customize",
+      "checksum": "f6c5b91de9c186733d344df63b18f3fa83c089c50d5b06adb897fbc478c302af",
       "files": [
         {
           "path": "EXAMPLES.md",
@@ -9978,6 +10100,7 @@
       "path": "skills/microsoft-foundry/models/deploy-model",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry/models/deploy-model",
       "route": "/skills/microsoft/microsoft-foundry/models/deploy-model",
+      "checksum": "b20fe7dea43c29d465df00389e0f7d7e0bd6530ae50eb5746aebebedfab66269",
       "files": [
         {
           "path": "SKILL.md",
@@ -10020,6 +10143,7 @@
       "path": "skills/microsoft-foundry/finetuning",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry/finetuning",
       "route": "/skills/microsoft/microsoft-foundry/finetuning",
+      "checksum": "0ec5d0795f5e00d0a680cdc1573851a24b1c9fb27894b24e74d975cc306a17be",
       "files": [
         {
           "path": "SKILL.md",
@@ -10272,6 +10396,7 @@
       "path": "skills/microsoft-foundry/models/deploy-model/preset",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry/models/deploy-model/preset",
       "route": "/skills/microsoft/microsoft-foundry/models/deploy-model/preset",
+      "checksum": "bc52e13244c4624fa18d643107d3104022e7408d76f260d5c1832a76c45c3fb8",
       "files": [
         {
           "path": "EXAMPLES.md",
@@ -10314,6 +10439,7 @@
       "path": "skills/.curated/aspnet-core",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/aspnet-core",
       "route": "/skills/openai/curated/aspnet-core",
+      "checksum": "f6df51b1bba7ac1b59dc6e5ef229752861ef7eedae59fe2a4823f241ddfde1d2",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -10447,6 +10573,7 @@
       "path": "skills/.curated/chatgpt-apps",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/chatgpt-apps",
       "route": "/skills/openai/curated/chatgpt-apps",
+      "checksum": "f70f424fd0fd105772b39d5bf09240febc0e8d1c03276bb2e93a204868343093",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -10538,6 +10665,7 @@
       "path": "skills/.curated/cli-creator",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/cli-creator",
       "route": "/skills/openai/curated/cli-creator",
+      "checksum": "c83dfe1f62810db83cc6b283c6407bd99e301f5b65665ff7fb67a56fe0233589",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -10580,6 +10708,7 @@
       "path": "skills/.curated/cloudflare-deploy",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/cloudflare-deploy",
       "route": "/skills/openai/curated/cloudflare-deploy",
+      "checksum": "07dca6bd9c22f5e2c11fbc2e51746dca8320743ac86c486cf8acc0e4c10bddf3",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -12778,6 +12907,7 @@
       "path": "skills/.curated/define-goal",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/define-goal",
       "route": "/skills/openai/curated/define-goal",
+      "checksum": "95213db8c58c6d0cd88cf645746dc00e1e17e66e3354c34149082973d8c9b249",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -12813,6 +12943,7 @@
       "path": "skills/.curated/figma",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/figma",
       "route": "/skills/openai/curated/figma",
+      "checksum": "61d29a4822d22c82b7c53e3a95b276d72048bf31dc3534f0c364dd86bebc4c60",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -12883,6 +13014,7 @@
       "path": "skills/.curated/figma-code-connect-components",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/figma-code-connect-components",
       "route": "/skills/openai/curated/figma-code-connect-components",
+      "checksum": "4643b7da1ea868d9c9b995c254055d3db625771825ca50d0675c7fcf821b0de3",
       "files": [
         {
           "path": "LICENSE.TXT",
@@ -12953,6 +13085,7 @@
       "path": "skills/.curated/figma-create-design-system-rules",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/figma-create-design-system-rules",
       "route": "/skills/openai/curated/figma-create-design-system-rules",
+      "checksum": "70f48f4e524b17192c36b8e5e9edfac445feda42cae46a70f0564dedd44f7976",
       "files": [
         {
           "path": "LICENSE.TXT",
@@ -13023,6 +13156,7 @@
       "path": "skills/.curated/figma-create-new-file",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/figma-create-new-file",
       "route": "/skills/openai/curated/figma-create-new-file",
+      "checksum": "f301cf9ce083b4e30dbefd840dd2923c5a23a1b13989fa60abb4892f9c0212be",
       "files": [
         {
           "path": "LICENSE.TXT",
@@ -13086,6 +13220,7 @@
       "path": "skills/.curated/figma-generate-design",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/figma-generate-design",
       "route": "/skills/openai/curated/figma-generate-design",
+      "checksum": "ef4b0ea37eefba1f4d3a2339b222dbec2a4e715d180ed08ef4d84da96cfd28a9",
       "files": [
         {
           "path": "LICENSE.TXT",
@@ -13149,6 +13284,7 @@
       "path": "skills/.curated/figma-generate-library",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/figma-generate-library",
       "route": "/skills/openai/curated/figma-generate-library",
+      "checksum": "8e567c78deb13a842b4bc9d2b482547a74f2a83f682e2da51f8593faf6f10608",
       "files": [
         {
           "path": "LICENSE.TXT",
@@ -13324,6 +13460,7 @@
       "path": "skills/.curated/figma-implement-design",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/figma-implement-design",
       "route": "/skills/openai/curated/figma-implement-design",
+      "checksum": "22d4145ab4fa79f21a691736dfb59d9b944af29a7942399aa2425103beee7f31",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -13380,6 +13517,7 @@
       "path": "skills/.curated/figma-use",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/figma-use",
       "route": "/skills/openai/curated/figma-use",
+      "checksum": "53844feb0353c206a7fb3ca942dffc622f9be9c4028589c21282b916641a1d5c",
       "files": [
         {
           "path": "LICENSE.TXT",
@@ -13597,6 +13735,7 @@
       "path": "skills/.curated/gh-address-comments",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/gh-address-comments",
       "route": "/skills/openai/curated/gh-address-comments",
+      "checksum": "0949d0eb6b9d29f8192d7dbe21297f2d75e6a01a9d63de4bd9c3758e3907d2d1",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -13653,6 +13792,7 @@
       "path": "skills/.curated/gh-fix-ci",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/gh-fix-ci",
       "route": "/skills/openai/curated/gh-fix-ci",
+      "checksum": "1adbeb3d7ef5cc74c6a7eab1bab737293f6ddfc023734d7189e687ccc8c5aa81",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -13709,6 +13849,7 @@
       "path": "skills/.curated/hatch-pet",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/hatch-pet",
       "route": "/skills/openai/curated/hatch-pet",
+      "checksum": "9d9332f2c05b79d87ff7a6f4c273123bdc13a8c903e068020ff9c07ade78be45",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -13821,6 +13962,7 @@
       "path": "skills/.curated/jupyter-notebook",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/jupyter-notebook",
       "route": "/skills/openai/curated/jupyter-notebook",
+      "checksum": "62898e120cb3bf0fa534d3b027b1c2f4e2716d0dd2e576f43df1e6af5544bfe2",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -13919,6 +14061,7 @@
       "path": "skills/.curated/linear",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/linear",
       "route": "/skills/openai/curated/linear",
+      "checksum": "ce52c4c0be9bfd036f1d167c1ceebfd2805ced2aa5ce55a2fe565ff7bd5f8473",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -13968,6 +14111,7 @@
       "path": "skills/.curated/migrate-to-codex",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/migrate-to-codex",
       "route": "/skills/openai/curated/migrate-to-codex",
+      "checksum": "49dcf82e61b89bc2099869a056f17889e5bee5cbaa96c5bf71beeb64a0ad71e9",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14115,6 +14259,7 @@
       "path": "skills/.curated/netlify-deploy",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/netlify-deploy",
       "route": "/skills/openai/curated/netlify-deploy",
+      "checksum": "ae99889d7b99be9d8d59c88049e0852e081fadc61afb97d06f52c8b6a841d621",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14185,6 +14330,7 @@
       "path": "skills/.curated/notion-knowledge-capture",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/notion-knowledge-capture",
       "route": "/skills/openai/curated/notion-knowledge-capture",
+      "checksum": "fb671c84b12dd6ee0aeb19768efae879b1f006b76a32e7b029d95f69ba9f04df",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14325,6 +14471,7 @@
       "path": "skills/.curated/notion-meeting-intelligence",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/notion-meeting-intelligence",
       "route": "/skills/openai/curated/notion-meeting-intelligence",
+      "checksum": "708b5feb6acc59682725d50935b47d871c600436be596439e5b0420b216bf122",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14472,6 +14619,7 @@
       "path": "skills/.curated/notion-research-documentation",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/notion-research-documentation",
       "route": "/skills/openai/curated/notion-research-documentation",
+      "checksum": "351666de563231c2a02a0eeccb0ce732de0d3c10f61915f586ae9212549afede",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14647,6 +14795,7 @@
       "path": "skills/.curated/notion-spec-to-implementation",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/notion-spec-to-implementation",
       "route": "/skills/openai/curated/notion-spec-to-implementation",
+      "checksum": "307051d9a6cadf09f1be038e584095172ec44772be4bc7abb1f867b8e552a31a",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14794,6 +14943,7 @@
       "path": "skills/.curated/openai-docs",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/openai-docs",
       "route": "/skills/openai/curated/openai-docs",
+      "checksum": "f1f2d68751662463721ef5ade1454244a6f1b6deeccb0aaa76d482e9f4f2608f",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14878,6 +15028,7 @@
       "path": "skills/.curated/pdf",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/pdf",
       "route": "/skills/openai/curated/pdf",
+      "checksum": "aca010a047eb2526e1909dae177edbcdcc2b546c89ff37792ac92c6238e51d5a",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14920,6 +15071,7 @@
       "path": "skills/.curated/playwright",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/playwright",
       "route": "/skills/openai/curated/playwright",
+      "checksum": "0e30863eb58118f9b1b906fe7a72671292e7231ea83c2edf5ce12d34849980b9",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -14997,6 +15149,7 @@
       "path": "skills/.curated/playwright-interactive",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/playwright-interactive",
       "route": "/skills/openai/curated/playwright-interactive",
+      "checksum": "1c0392ce22b3268ff95b8b7908996e559eeea4573920b3ce909d0b38a193af63",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15053,6 +15206,7 @@
       "path": "skills/.curated/render-deploy",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/render-deploy",
       "route": "/skills/openai/curated/render-deploy",
+      "checksum": "9ff456c81d31a749ce28fba74ff4ddbf8f90ac72db3588b5f90657faca6a1e32",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15214,6 +15368,7 @@
       "path": "skills/.curated/screenshot",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/screenshot",
       "route": "/skills/openai/curated/screenshot",
+      "checksum": "1f1d91a8972ea928b9627dbe9c4c43c41b0960df6d8973cec213444571200103",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15305,6 +15460,7 @@
       "path": "skills/.curated/security-best-practices",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/security-best-practices",
       "route": "/skills/openai/curated/security-best-practices",
+      "checksum": "0efba98979d9f5468300161cbb5e92f3f927e6df3bc2e4488d85b8dbf901f6ca",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15410,6 +15566,7 @@
       "path": "skills/.curated/security-ownership-map",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/security-ownership-map",
       "route": "/skills/openai/curated/security-ownership-map",
+      "checksum": "00582dd8b72246109dcf520c376f86817a2bde17c75bab1954641680920409f1",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15480,6 +15637,7 @@
       "path": "skills/.curated/security-threat-model",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/security-threat-model",
       "route": "/skills/openai/curated/security-threat-model",
+      "checksum": "ab822631e3fa9ee42a13141f6522c88692b0eadc3368a35519ec322b08971a9f",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15529,6 +15687,7 @@
       "path": "skills/.curated/sentry",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/sentry",
       "route": "/skills/openai/curated/sentry",
+      "checksum": "cdc618e3028e4fec9fd5cba4fb1646d35c3444756c8442a8921ab7783a97b80f",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15578,6 +15737,7 @@
       "path": "skills/.curated/speech",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/speech",
       "route": "/skills/openai/curated/speech",
+      "checksum": "0b5713d84f848c79b540b1561411e4c9633470806e3407cbd405cad5f090ce20",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15704,6 +15864,7 @@
       "path": "skills/.curated/transcribe",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/transcribe",
       "route": "/skills/openai/curated/transcribe",
+      "checksum": "a43b32ae5e615559885559774b40efd176ebd0b7b3a05a57c8ee2260131d12da",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15767,6 +15928,7 @@
       "path": "skills/.curated/vercel-deploy",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/vercel-deploy",
       "route": "/skills/openai/curated/vercel-deploy",
+      "checksum": "03fbf3ec8ecdef08b3e943e76adae46393c31259dd3b9a7c75a8669b8c7b90ff",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15823,6 +15985,7 @@
       "path": "skills/.curated/winui-app",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/winui-app",
       "route": "/skills/openai/curated/winui-app",
+      "checksum": "358bddf79d2028ba16455f26c1b7079fda6108468eb88823f98ee8af2b93e9de",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -15984,6 +16147,7 @@
       "path": "skills/.curated/yeet",
       "url": "https://github.com/openai/skills/tree/main/skills/.curated/yeet",
       "route": "/skills/openai/curated/yeet",
+      "checksum": "841b8200d010372c66a950c502179c76da1190c45a2afad565119c13894fdc4b",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -16033,6 +16197,7 @@
       "path": "skills/.system/imagegen",
       "url": "https://github.com/openai/skills/tree/main/skills/.system/imagegen",
       "route": "/skills/openai/system/imagegen",
+      "checksum": "0ce37f860221b29b62dee7ed1e1a85eb3455f8a396afc03f0c03055f024c6b57",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -16124,6 +16289,7 @@
       "path": "skills/.system/openai-docs",
       "url": "https://github.com/openai/skills/tree/main/skills/.system/openai-docs",
       "route": "/skills/openai/system/openai-docs",
+      "checksum": "1ed2b6c14de4429eeacb675c7eb6b03eeb952faf4352d00f1e7d1520220092db",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -16208,6 +16374,7 @@
       "path": "skills/.system/plugin-creator",
       "url": "https://github.com/openai/skills/tree/main/skills/.system/plugin-creator",
       "route": "/skills/openai/system/plugin-creator",
+      "checksum": "5e919e828507bbaef55c317eb1ae4fd249c3be8f055abcfb418c84dc49e57963",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -16257,6 +16424,7 @@
       "path": "skills/.system/skill-creator",
       "url": "https://github.com/openai/skills/tree/main/skills/.system/skill-creator",
       "route": "/skills/openai/system/skill-creator",
+      "checksum": "928521a3395e49796d239c4d9fcba87fe2307606a025e2c8588f5fe2c3496319",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -16320,6 +16488,7 @@
       "path": "skills/.system/skill-installer",
       "url": "https://github.com/openai/skills/tree/main/skills/.system/skill-installer",
       "route": "/skills/openai/system/skill-installer",
+      "checksum": "34bcee988e58526277950514eb7d02e9b748ac4a4c44a2bd52b71bd7243caebe",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -16390,6 +16559,7 @@
       "path": "prisma-cli",
       "url": "https://github.com/prisma/skills/tree/main/prisma-cli",
       "route": "/skills/prisma/prisma-cli",
+      "checksum": "f24365ba55d736e5c80aef59c49623fef72ffbbef66ac68236421348607c678e",
       "files": [
         {
           "path": "SKILL.md",
@@ -16551,6 +16721,7 @@
       "path": "prisma-client-api",
       "url": "https://github.com/prisma/skills/tree/main/prisma-client-api",
       "route": "/skills/prisma/prisma-client-api",
+      "checksum": "5e96ccee889733b1b359f49847d1205ad50c771094fc41a6152b62d6625030bf",
       "files": [
         {
           "path": "SKILL.md",
@@ -16628,6 +16799,7 @@
       "path": "prisma-compute",
       "url": "https://github.com/prisma/skills/tree/main/prisma-compute",
       "route": "/skills/prisma/prisma-compute",
+      "checksum": "08ca730f79e50754475426c9bddb04080dca3df2acecd93702f63642bd7ebe85",
       "files": [
         {
           "path": "SKILL.md",
@@ -16691,6 +16863,7 @@
       "path": "prisma-database-setup",
       "url": "https://github.com/prisma/skills/tree/main/prisma-database-setup",
       "route": "/skills/prisma/prisma-database-setup",
+      "checksum": "848bd697deda6eb93e8c9c25e412a7936cb7711311856f6703c9e3a28556c363",
       "files": [
         {
           "path": "SKILL.md",
@@ -16768,6 +16941,7 @@
       "path": "prisma-driver-adapter-implementation",
       "url": "https://github.com/prisma/skills/tree/main/prisma-driver-adapter-implementation",
       "route": "/skills/prisma/prisma-driver-adapter-implementation",
+      "checksum": "054f38134b1f6eb0fda9b27625a27f99d8213dd2046af47506db42d1737330b2",
       "files": [
         {
           "path": "SKILL.md",
@@ -16789,6 +16963,7 @@
       "path": "prisma-mongodb-upgrade",
       "url": "https://github.com/prisma/skills/tree/main/prisma-mongodb-upgrade",
       "route": "/skills/prisma/prisma-mongodb-upgrade",
+      "checksum": "a6bde83ba4ac73098efbbe3d20db6ff020017152cec0f8203f729f250632b4cc",
       "files": [
         {
           "path": "SKILL.md",
@@ -16845,6 +17020,7 @@
       "path": "prisma-postgres",
       "url": "https://github.com/prisma/skills/tree/main/prisma-postgres",
       "route": "/skills/prisma/prisma-postgres",
+      "checksum": "3124eec6493cfd2f70fed12b0b073b2a815d1ca94ee1c6241b4f4272162fe1b2",
       "files": [
         {
           "path": "SKILL.md",
@@ -16894,6 +17070,7 @@
       "path": "prisma-postgres-setup",
       "url": "https://github.com/prisma/skills/tree/main/prisma-postgres-setup",
       "route": "/skills/prisma/prisma-postgres-setup",
+      "checksum": "b60d26cf3dff1a168577c877a4af00287e463fe8b6d91c7afd0bf16e8056f448",
       "files": [
         {
           "path": "SKILL.md",
@@ -16943,6 +17120,7 @@
       "path": "prisma-upgrade-v7",
       "url": "https://github.com/prisma/skills/tree/main/prisma-upgrade-v7",
       "route": "/skills/prisma/prisma-upgrade-v7",
+      "checksum": "618b03a482bfb07587902cbcfc792bd9d21276f1d3f8c27cbf97d25dea1c8115",
       "files": [
         {
           "path": "SKILL.md",
@@ -17013,6 +17191,7 @@
       "path": "skills/brainstorming",
       "url": "https://github.com/obra/superpowers/tree/main/skills/brainstorming",
       "route": "/skills/superpowers/brainstorming",
+      "checksum": "b59085ba297e357b814ac93a280a5c7014d64976f614efedccb727a4e9aeecb5",
       "files": [
         {
           "path": "SKILL.md",
@@ -17083,6 +17262,7 @@
       "path": "skills/dispatching-parallel-agents",
       "url": "https://github.com/obra/superpowers/tree/main/skills/dispatching-parallel-agents",
       "route": "/skills/superpowers/dispatching-parallel-agents",
+      "checksum": "124627442ed128125c82a4caab2408ba00c8b45bc4602aa51b55352148f0c147",
       "files": [
         {
           "path": "SKILL.md",
@@ -17104,6 +17284,7 @@
       "path": "skills/executing-plans",
       "url": "https://github.com/obra/superpowers/tree/main/skills/executing-plans",
       "route": "/skills/superpowers/executing-plans",
+      "checksum": "e4a6a7a1177d28ae32ff37bba61a97a3b62d3b8743aeefd20eeadb3f63a3ddcb",
       "files": [
         {
           "path": "SKILL.md",
@@ -17125,6 +17306,7 @@
       "path": "skills/finishing-a-development-branch",
       "url": "https://github.com/obra/superpowers/tree/main/skills/finishing-a-development-branch",
       "route": "/skills/superpowers/finishing-a-development-branch",
+      "checksum": "d5e5e5d96b3051ba8c9fc799263b8130c1562e4794736fce067b889a3a68cedc",
       "files": [
         {
           "path": "SKILL.md",
@@ -17146,6 +17328,7 @@
       "path": "skills/receiving-code-review",
       "url": "https://github.com/obra/superpowers/tree/main/skills/receiving-code-review",
       "route": "/skills/superpowers/receiving-code-review",
+      "checksum": "d75f076d806c63d1aa83f6ea0b1f872eca1be02f912f1e47ad5ff0b163a9da18",
       "files": [
         {
           "path": "SKILL.md",
@@ -17167,6 +17350,7 @@
       "path": "skills/requesting-code-review",
       "url": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review",
       "route": "/skills/superpowers/requesting-code-review",
+      "checksum": "b9f801503a89f0aff1b0aea1695e2728d574023d6942a6d865df39c7bb1afcbe",
       "files": [
         {
           "path": "SKILL.md",
@@ -17195,6 +17379,7 @@
       "path": "skills/subagent-driven-development",
       "url": "https://github.com/obra/superpowers/tree/main/skills/subagent-driven-development",
       "route": "/skills/superpowers/subagent-driven-development",
+      "checksum": "2dc539e1f15c90ec2a96416ff0ddc83425f498cde9b310d5b4892009d118b488",
       "files": [
         {
           "path": "SKILL.md",
@@ -17258,6 +17443,7 @@
       "path": "skills/systematic-debugging",
       "url": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
       "route": "/skills/superpowers/systematic-debugging",
+      "checksum": "e6f419b7c16b2d62ecf99a5e0087181a16e8d5af5bdf518377b89f00c2ff03e7",
       "files": [
         {
           "path": "CREATION-LOG.md",
@@ -17349,6 +17535,7 @@
       "path": "skills/test-driven-development",
       "url": "https://github.com/obra/superpowers/tree/main/skills/test-driven-development",
       "route": "/skills/superpowers/test-driven-development",
+      "checksum": "91355514e797f14010d93fde70677d7424632e0f90c568251f3a0c3eded243f9",
       "files": [
         {
           "path": "SKILL.md",
@@ -17377,6 +17564,7 @@
       "path": "skills/using-git-worktrees",
       "url": "https://github.com/obra/superpowers/tree/main/skills/using-git-worktrees",
       "route": "/skills/superpowers/using-git-worktrees",
+      "checksum": "b17e3273d2c4db5cdb71a3fd6aa3a6526d8fa22e6ba32a535e38c75deae3f3a7",
       "files": [
         {
           "path": "SKILL.md",
@@ -17398,6 +17586,7 @@
       "path": "skills/using-superpowers",
       "url": "https://github.com/obra/superpowers/tree/main/skills/using-superpowers",
       "route": "/skills/superpowers/using-superpowers",
+      "checksum": "c736616b95659d0916457696f1da0f779743c6a77190856e548c9cc978c1d2f6",
       "files": [
         {
           "path": "SKILL.md",
@@ -17454,6 +17643,7 @@
       "path": "skills/verification-before-completion",
       "url": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion",
       "route": "/skills/superpowers/verification-before-completion",
+      "checksum": "b59bafafb54c2ac24b7d3cb0c495685b3798594acb2722e393e95259b9cea930",
       "files": [
         {
           "path": "SKILL.md",
@@ -17475,6 +17665,7 @@
       "path": "skills/writing-plans",
       "url": "https://github.com/obra/superpowers/tree/main/skills/writing-plans",
       "route": "/skills/superpowers/writing-plans",
+      "checksum": "879d35e88468054c3e50de597ccff82e094a674827db624ba62eb32cab46e125",
       "files": [
         {
           "path": "SKILL.md",
@@ -17503,6 +17694,7 @@
       "path": "skills/writing-skills",
       "url": "https://github.com/obra/superpowers/tree/main/skills/writing-skills",
       "route": "/skills/superpowers/writing-skills",
+      "checksum": "43898486027f954e3b1a75b8edb590811956b1d897fe9d06c62862649db65d11",
       "files": [
         {
           "path": "SKILL.md",
@@ -17566,6 +17758,7 @@
       "path": "skills/agent-browser",
       "url": "https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser",
       "route": "/skills/vercel/agent-browser",
+      "checksum": "e4fd9077dc969b83f4ed3952fb286c623b37fbabad70c3ceebe256e24525285c",
       "files": [
         {
           "path": "SKILL.md",
