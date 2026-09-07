@@ -302,8 +302,13 @@ impl TestRepo {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
   }
 
-  /// Run a jj command in the specified directory.
-  pub fn run_jj(cwd: &str, args: &[&str]) -> Result<String, String> {
+  /// Run a jj command via the real `jj` CLI binary. Only used by the `#[cfg(unix)]`
+  /// differential tests in jj_lib_vs_cli_test.rs, which check the jj-lib-backed
+  /// helpers below against the actual CLI on platforms where it's reliably
+  /// available (see that file for why Windows is excluded). Test bodies
+  /// themselves should use the jj-lib wrappers, not this.
+  #[allow(dead_code)]
+  pub fn run_jj_cli(cwd: &str, args: &[&str]) -> Result<String, String> {
     let jj_binary = treq_lib::binary_paths::detect_binary("jj").unwrap_or_else(|| "jj".to_string());
     let output = Command::new(jj_binary)
       .current_dir(cwd)
@@ -320,6 +325,175 @@ impl TestRepo {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+  }
+
+  /// Import git branches into jj bookmarks before resolving a bookmark/branch name.
+  /// The real `jj` CLI does this automatically on every invocation; raw jj-lib calls
+  /// don't, so a bookmark set purely via git config (e.g. TestRepo's default branch)
+  /// isn't resolvable as a jj revision until something imports it. Best-effort: a
+  /// bare `@`/`@-` lookup has nothing to import, so failures here are ignored and
+  /// left for the real resolve call to report.
+  fn import_git_refs_best_effort(repo_path: &str) {
+    let _ = treq_lib::jj::jj_util_import_git_refs(repo_path);
+  }
+
+  /// Create a new working-copy commit on top of `parent_revisions` (equivalent to
+  /// `jj new <revisions...>`), via jj-lib directly (treq_lib::jj::jj_new_with_parents).
+  /// Returns the new commit's short id.
+  pub fn jj_new(workspace_path: &str, parent_revisions: &[&str]) -> Result<String, String> {
+    treq_lib::jj::jj_new_with_parents(
+      workspace_path,
+      &parent_revisions
+        .iter()
+        .map(|r| r.to_string())
+        .collect::<Vec<_>>(),
+    )
+    .map_err(|e| e.to_string())
+  }
+
+  /// Set a commit's description (equivalent to `jj describe -m <message> -r <change_id>`).
+  pub fn jj_describe(workspace_path: &str, change_id: &str, message: &str) -> Result<(), String> {
+    treq_lib::jj::jj_describe(workspace_path, change_id, message).map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// Finalize the working copy with `message` and start a new empty commit on top
+  /// (equivalent to `jj commit -m <message>`).
+  pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, String> {
+    treq_lib::jj::jj_commit(workspace_path, message).map_err(|e| e.to_string())
+  }
+
+  /// Resolve `revision` to its 12-char change id (equivalent to
+  /// `jj log -r <revision> --no-graph -T change_id`).
+  pub fn jj_change_id(workspace_path: &str, revision: &str) -> Result<String, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_get_change_id(workspace_path, revision).map_err(|e| e.to_string())
+  }
+
+  /// Update a stale workspace's working copy (equivalent to `jj workspace update-stale`).
+  pub fn jj_update_stale(workspace_path: &str) -> Result<(), String> {
+    treq_lib::jj::jj_workspace_update_stale(workspace_path).map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// Whether the working copy has no changes relative to its parent (equivalent to
+  /// checking `jj status`/`jj st` for "The working copy has no changes.").
+  pub fn jj_working_copy_is_clean(workspace_path: &str) -> bool {
+    treq_lib::jj::jj_is_working_copy_empty(workspace_path).unwrap_or(false)
+  }
+
+  /// Snapshot the working copy and return its commit id, failing if `workspace_path`
+  /// isn't a valid jj workspace. Used where a test only needs to confirm the
+  /// workspace is valid (what `jj status`/`jj st` was previously used for, ignoring
+  /// its text output).
+  pub fn jj_snapshot(workspace_path: &str) -> Result<String, String> {
+    treq_lib::jj::jj_snapshot_working_copy(workspace_path).map_err(|e| e.to_string())
+  }
+
+  /// List the working copy's current sparse checkout patterns (equivalent to
+  /// `jj sparse list`).
+  pub fn jj_sparse_patterns(workspace_path: &str) -> Result<Vec<String>, String> {
+    treq_lib::jj::jj_get_sparse_patterns(workspace_path).map_err(|e| e.to_string())
+  }
+
+  /// List every file tracked in `revision`'s tree (equivalent to
+  /// `jj file list -r <revision>`).
+  pub fn jj_files_at_revision(workspace_path: &str, revision: &str) -> Result<Vec<String>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_list_files_at_revision(workspace_path, revision).map_err(|e| e.to_string())
+  }
+
+  /// Initialize a fresh jj repo with its own internal (non-colocated) Git backend
+  /// in an empty directory (equivalent to `jj git init`, no `--colocate`).
+  pub fn jj_git_init(repo_path: &str) -> Result<(), String> {
+    treq_lib::jj::jj_git_init_bare(repo_path).map_err(|e| e.to_string())
+  }
+
+  /// Point a bookmark at `revision`, moving it even backwards (equivalent to
+  /// `jj bookmark set <name> -r <revision> --allow-backwards`).
+  pub fn jj_set_bookmark(
+    workspace_path: &str,
+    bookmark_name: &str,
+    revision: &str,
+  ) -> Result<(), String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_set_bookmark(workspace_path, bookmark_name, revision)
+      .map_err(|e| e.to_string())
+  }
+
+  /// Change ids for commits matching `revset`, in the revset's own order
+  /// (equivalent to `jj log --no-graph -r <revset> -T 'change_id.short() ++ "\n"'`).
+  /// A repeated change id across two entries means those commits diverged (jj
+  /// CLI marks this with a trailing `??` in its default log output).
+  pub fn jj_change_ids_in_revset(
+    workspace_path: &str,
+    revset: &str,
+  ) -> Result<Vec<String>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_log_revset_change_ids(workspace_path, revset).map_err(|e| e.to_string())
+  }
+
+  /// Short commit ids for commits matching `revset`, in the revset's own order
+  /// (equivalent to `jj log --no-graph -r <revset> -T 'commit_id.short(12) ++ "\n"'`).
+  /// Same short-id format as `JjVerifier::get_commit_id_for_rev`/`get_bookmark_commit_id`.
+  pub fn jj_commit_ids_in_revset(
+    workspace_path: &str,
+    revset: &str,
+  ) -> Result<Vec<String>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_log_revset_commit_ids(workspace_path, revset).map_err(|e| e.to_string())
+  }
+
+  /// Local bookmarks pointing at `revision` (equivalent to `jj bookmark list` filtered
+  /// to the ones jj status would show for that revision).
+  pub fn jj_bookmarks_on_revision(
+    workspace_path: &str,
+    revision: &str,
+  ) -> Result<Vec<String>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::get_bookmarks_on_revision(workspace_path, revision).map_err(|e| e.to_string())
+  }
+
+  /// Full log entries (description, short commit id, emptiness) for commits matching
+  /// `revset`, capped at `limit` (equivalent to `jj log -r <revset> -n <limit> --no-graph`,
+  /// minus jj's bookmark/graph decorations — `is_empty` mirrors its `(empty)` marker).
+  pub fn jj_log_entries(
+    workspace_path: &str,
+    revset: &str,
+    limit: usize,
+  ) -> Result<Vec<treq_lib::jj::JjLogEntry>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_log_entries(workspace_path, revset, Some(limit)).map_err(|e| e.to_string())
+  }
+
+  /// (description first line, short commit id) pairs for commits matching `revset`,
+  /// capped at `limit` (equivalent to
+  /// `jj log --no-graph -r <revset> -T 'description.first_line() ++ "|" ++ commit_id.short(12) ++ "\n"' -n <limit>`).
+  pub fn jj_log_descriptions(
+    workspace_path: &str,
+    revset: &str,
+    limit: Option<usize>,
+  ) -> Result<Vec<(String, String)>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_log_descriptions(workspace_path, revset, limit).map_err(|e| e.to_string())
+  }
+
+  /// Whether the working copy's uncommitted changes contain a diff hunk removing a
+  /// line equal to `content` in any changed file (equivalent to grepping
+  /// `jj diff --git` for a `-<content>` line, but checked per-file via jj-lib
+  /// instead of string-matching CLI diff text).
+  pub fn jj_has_revert_hunk_for_line(workspace_path: &str, content: &str) -> bool {
+    let Ok(changed_files) = treq_lib::jj::jj_get_changed_files(workspace_path) else {
+      return false;
+    };
+    changed_files.iter().any(|file| {
+      let Ok(hunks) = treq_lib::jj::jj_get_file_hunks(workspace_path, &file.path, "git") else {
+        return false;
+      };
+      hunks
+        .iter()
+        .any(|hunk| hunk.lines.iter().any(|line| line == &format!("-{content}")))
+    })
   }
 
   /// Append raw INI text to a git config file at `config_path`. Used instead of
@@ -893,299 +1067,64 @@ pub struct JjVerifier;
 
 #[allow(dead_code)]
 impl JjVerifier {
-  /// Get the jj binary path, using treq's binary detection (same as jj.rs internals).
-  fn jj_binary() -> String {
-    treq_lib::binary_paths::detect_binary("jj").unwrap_or_else(|| "jj".to_string())
-  }
-
-  /// Get list of jj workspaces via `jj workspace list`
+  /// Get list of jj workspaces, including `default` (equivalent to `jj workspace list`,
+  /// name column only). Not `list_jj_workspaces`, which filters `default` out for
+  /// product purposes — tests here check the raw jj-level workspace count/membership.
   pub fn list_workspaces(repo_path: &str) -> Result<Vec<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(repo_path)
-      .args(["workspace", "list"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj workspace list: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj workspace list failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let workspaces: Vec<String> = stdout
-      .lines()
-      .filter_map(|line| {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-          return None;
-        }
-        // Format: "workspace_name: commit_id description"
-        trimmed.split(':').next().map(|s| s.trim().to_string())
-      })
-      .collect();
-
-    Ok(workspaces)
+    treq_lib::jj::list_all_workspace_names(repo_path).map_err(|e| e.to_string())
   }
 
-  /// Get jj log output for a workspace
-  pub fn get_log(workspace_path: &str, limit: usize) -> Result<String, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["log", "-n", &limit.to_string(), "--no-graph"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj log failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+  /// Get (description, commit id) pairs for the last `limit` commits in `@`'s
+  /// ancestry (equivalent to `jj log -n <limit> --no-graph`, minus jj's own
+  /// graph/bookmark/`(empty)` decorations — see jj_log_entries for those).
+  pub fn get_log(workspace_path: &str, limit: usize) -> Result<Vec<(String, String)>, String> {
+    TestRepo::jj_log_descriptions(workspace_path, "::@", Some(limit))
   }
 
-  /// Resolve a revset to a single commit id.
+  /// Resolve a revset to a single commit id, or `None` if it doesn't resolve.
   pub fn get_commit_id_for_rev(workspace_path: &str, rev: &str) -> Result<Option<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["log", "-r", rev, "-n", "1", "--no-graph", "-T", "commit_id"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Ok(None);
-    }
-
-    let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if id.is_empty() {
-      Ok(None)
-    } else {
-      Ok(Some(id))
-    }
+    TestRepo::import_git_refs_best_effort(workspace_path);
+    Ok(treq_lib::jj::jj_get_commit_id(workspace_path, rev).ok())
   }
 
-  /// Get jj log output for a workspace
+  /// Get the description of `@-` (equivalent to
+  /// `jj log -n 1 --no-graph -r @- -T description`).
   pub fn get_log_previous_commit(workspace_path: &str) -> Result<String, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["log", "-n", "1", "--no-graph", "-r", "@-"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj log failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-  }
-  /// Get current bookmark (branch) for a workspace
-  pub fn get_current_bookmark(workspace_path: &str) -> Result<Option<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["bookmark", "list", "--all"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj bookmark list: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj bookmark list failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // Find bookmark pointing to @ (current working copy)
-    for line in stdout.lines() {
-      if line.contains("@") && !line.contains("@origin") {
-        // Extract bookmark name (first word before colon)
-        if let Some(name) = line.split(':').next() {
-          let name = name.trim().trim_start_matches('*').trim();
-          if !name.is_empty() {
-            return Ok(Some(name.to_string()));
-          }
-        }
-      }
-    }
-
-    Ok(None)
+    treq_lib::jj::jj_get_commit_description(workspace_path, "@-").map_err(|e| e.to_string())
   }
 
-  /// Get list of all bookmarks in workspace
+  /// Get list of all local bookmarks in the repo (equivalent to
+  /// `jj bookmark list --all`, local names only).
   pub fn list_bookmarks(repo_path: &str) -> Result<Vec<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(repo_path)
-      .args(["bookmark", "list", "--all"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj bookmark list: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj bookmark list failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let bookmarks: Vec<String> = stdout
-      .lines()
-      .filter_map(|line| {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-          return None;
-        }
-        // Extract bookmark name (before colon, strip leading *)
-        trimmed
-          .split(':')
-          .next()
-          .map(|s| s.trim().trim_start_matches('*').trim().to_string())
-      })
-      .filter(|s| !s.is_empty() && !s.contains('@'))
-      .collect();
-
-    Ok(bookmarks)
+    TestRepo::import_git_refs_best_effort(repo_path);
+    Ok(
+      treq_lib::jj::get_branches(repo_path)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|b| b.name)
+        .collect(),
+    )
   }
 
   /// Return the commit id the bookmark currently points to, or None if the bookmark doesn't resolve.
   pub fn get_bookmark_commit_id(repo_path: &str, bookmark: &str) -> Result<Option<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(repo_path)
-      .args([
-        "log",
-        "-r",
-        bookmark,
-        "-n",
-        "1",
-        "--no-graph",
-        "-T",
-        "commit_id",
-      ])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Ok(None);
-    }
-
-    let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if id.is_empty() {
-      Ok(None)
-    } else {
-      Ok(Some(id))
-    }
+    TestRepo::import_git_refs_best_effort(repo_path);
+    Ok(treq_lib::jj::jj_get_commit_id(repo_path, bookmark).ok())
   }
 
-  /// Check if jj working copy has changes (is dirty)
+  /// Check if jj working copy has changes (is dirty).
   pub fn has_changes(workspace_path: &str) -> Result<bool, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["diff", "--stat"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj diff: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj diff failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(!stdout.trim().is_empty())
+    Ok(!treq_lib::jj::jj_is_working_copy_empty(workspace_path).map_err(|e| e.to_string())?)
   }
 
-  /// Get jj status output
+  /// Snapshot the working copy and confirm it produced a commit (equivalent to
+  /// checking `jj status` returned non-empty output).
   pub fn get_status(workspace_path: &str) -> Result<String, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["status"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj status: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj status failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    TestRepo::jj_snapshot(workspace_path)
   }
 
   /// Check if a file exists in the jj working copy
   pub fn file_exists_in_workspace(workspace_path: &str, file_path: &str) -> bool {
     Path::new(workspace_path).join(file_path).exists()
-  }
-
-  /// Get the parent commit of the current working copy
-  pub fn get_parent_info(workspace_path: &str) -> Result<String, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args([
-        "log",
-        "-r",
-        "@-",
-        "-n",
-        "1",
-        "--no-graph",
-        "-T",
-        "description",
-      ])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj log failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-  }
-
-  /// Verify workspace is properly initialized
-  /// jj workspaces may have different structure than git worktrees
-  pub fn verify_workspace_structure(workspace_path: &str) -> Result<(), String> {
-    let path = Path::new(workspace_path);
-
-    // Check workspace directory exists
-    if !path.exists() {
-      return Err(format!("Workspace directory not found: {}", workspace_path));
-    }
-
-    if !path.is_dir() {
-      return Err(format!(
-        "Workspace path is not a directory: {}",
-        workspace_path
-      ));
-    }
-
-    // jj workspaces might have .git file/dir or be jj-native
-    // Check for either .git or verify jj recognizes this as a workspace
-    let git_path = path.join(".git");
-    let has_git = git_path.exists();
-
-    // Try running jj status to verify it's a valid jj workspace
-    let jj_works = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["status"])
-      .output()
-      .map(|o| o.status.success())
-      .unwrap_or(false);
-
-    if !has_git && !jj_works {
-      return Err(format!(
-        "Workspace is not a valid git/jj workspace: {}",
-        workspace_path
-      ));
-    }
-
-    Ok(())
   }
 }

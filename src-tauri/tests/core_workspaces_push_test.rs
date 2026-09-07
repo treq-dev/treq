@@ -24,9 +24,9 @@ fn test_push_workspace_excludes_empty_commits_from_remote() {
   // Simulate an empty commit left behind in local history (e.g. by a squash/rebase
   // that absorbed its content elsewhere) by describing an unchanged commit directly
   // via jj, bypassing commit_workspace.
-  TestRepo::run_jj(ws_dir_str, &["new"]).expect("jj new failed");
-  TestRepo::run_jj(ws_dir_str, &["describe", "-m", "stray empty"]).expect("jj describe failed");
-  TestRepo::run_jj(ws_dir_str, &["new"]).expect("jj new failed");
+  TestRepo::jj_new(ws_dir_str, &["@"]).expect("jj new failed");
+  TestRepo::jj_describe(ws_dir_str, "@", "stray empty").expect("jj describe failed");
+  TestRepo::jj_new(ws_dir_str, &["@"]).expect("jj new failed");
 
   TestRepo::write_workspace_file(ws_dir_str, "second.txt", "world\n")
     .expect("failed to write file");
@@ -47,20 +47,10 @@ fn test_push_workspace_excludes_empty_commits_from_remote() {
   );
 
   // The empty commit must also be gone locally, not merely excluded from the push.
-  let local_log = TestRepo::run_jj(
-    ws_dir_str,
-    &[
-      "log",
-      "--no-graph",
-      "-T",
-      "description.first_line() ++ \"\\n\"",
-      "-n",
-      "20",
-    ],
-  )
-  .expect("jj log failed");
+  let local_log =
+    TestRepo::jj_log_descriptions(ws_dir_str, "::@", Some(20)).expect("jj log failed");
   assert!(
-    !local_log.contains("stray empty"),
-    "expected empty commit to be discarded locally too, got:\n{local_log}"
+    !local_log.iter().any(|(desc, _)| desc == "stray empty"),
+    "expected empty commit to be discarded locally too, got:\n{local_log:?}"
   );
 }

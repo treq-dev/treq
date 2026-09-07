@@ -2,7 +2,6 @@ mod e2e_test_helpers;
 
 use e2e_test_helpers::{JjVerifier, TestRepo};
 use std::path::Path;
-use std::process::Command;
 
 use treq_lib::core::{MaybeEmptyParam, MergeCommit, RemoteSyncStatus};
 use treq_lib::jj;
@@ -362,16 +361,8 @@ fn test_update_workspace_target_branch_rebases_workspace_bookmark_lineage() {
     .expect("Failed to write workspace file");
   treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Workspace feature commit")
     .expect("Failed to create workspace commit");
-  let new_wc_output = Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args(["new"])
-    .output()
-    .expect("Failed to run jj new");
-  assert!(
-    new_wc_output.status.success(),
-    "jj new should create an empty workspace commit: {}",
-    String::from_utf8_lossy(&new_wc_output.stderr)
-  );
+  TestRepo::jj_new(workspace_path_str, &["@"])
+    .expect("jj new should create an empty workspace commit");
 
   TestRepo::run_git(&repo.repo_path, &["checkout", "-b", "develop"][..])
     .expect("Failed to create develop branch");
@@ -394,30 +385,14 @@ fn test_update_workspace_target_branch_rebases_workspace_bookmark_lineage() {
   .expect("Failed to update workspace target branch");
   assert_eq!(updated.target_branch.as_deref(), Some("develop"));
 
-  let output = Command::new("jj")
-    .current_dir(&repo.repo_path)
-    .args([
-      "log",
-      "-r",
-      &format!("ancestors({}) & {}", workspace.branch_name, develop_tip),
-      "-n",
-      "1",
-      "--no-graph",
-      "-T",
-      "commit_id",
-    ])
-    .output()
-    .expect("Failed to run jj log");
-  assert!(
-    output.status.success(),
-    "jj log should succeed: {}",
-    String::from_utf8_lossy(&output.stderr)
-  );
-  let overlap = String::from_utf8_lossy(&output.stdout).trim().to_string();
+  let overlap = TestRepo::jj_commit_ids_in_revset(
+    &repo.repo_path,
+    &format!("ancestors({}) & {}", workspace.branch_name, develop_tip),
+  )
+  .expect("jj log should succeed");
   assert!(
     !overlap.is_empty(),
-    "workspace bookmark lineage should include develop tip after rebase; stdout={}",
-    String::from_utf8_lossy(&output.stdout)
+    "workspace bookmark lineage should include develop tip after rebase"
   );
 }
 
@@ -910,16 +885,8 @@ fn test_sync_workspaces_delete_forgotten_directories() {
 
   let workspace_path = repo.workspaces_dir().join(&workspace.workspace_path);
 
-  let forget_output = Command::new("jj")
-    .current_dir(&repo.repo_path)
-    .args(["workspace", "forget", workspace.workspace_name.as_str()])
-    .output()
-    .expect("Failed to execute jj workspace forget");
-  assert!(
-    forget_output.status.success(),
-    "jj workspace forget should succeed: {}",
-    String::from_utf8_lossy(&forget_output.stderr)
-  );
+  treq_lib::jj::forget_workspace(&repo.repo_path, workspace_path.to_str().unwrap())
+    .expect("jj workspace forget should succeed");
 
   treq_lib::core::sync_workspaces(&repo.repo_path).expect("Failed to sync workspaces");
   let workspaces =
@@ -1223,16 +1190,8 @@ fn test_empty_commits_excluded_from_commits_ahead() {
     .expect("Failed to commit");
 
   // Create empty commits via `jj new` (these have no file changes)
-  Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args(["new"])
-    .output()
-    .expect("Failed to run jj new");
-  Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args(["new"])
-    .output()
-    .expect("Failed to run jj new");
+  TestRepo::jj_new(workspace_path_str, &["@"]).expect("Failed to run jj new");
+  TestRepo::jj_new(workspace_path_str, &["@"]).expect("Failed to run jj new");
 
   // Verify that jj_get_commits_ahead only returns the real commit
   let target_branch = workspace.target_branch.as_deref().unwrap_or(default_branch);
@@ -1278,11 +1237,7 @@ fn test_merge_abandons_empty_commits() {
     .expect("Failed to commit");
 
   // Create empty commits
-  Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args(["new"])
-    .output()
-    .expect("Failed to run jj new");
+  TestRepo::jj_new(workspace_path_str, &["@"]).expect("Failed to run jj new");
 
   let log = treq_lib::core::list_commits(&repo.repo_path, Some(workspace.id), false, None, None)
     .expect("list_commits failed");
@@ -1349,16 +1304,8 @@ fn test_squash_merge_with_empty_commits() {
     .expect("Failed to commit");
 
   // Create empty commits
-  Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args(["new"])
-    .output()
-    .expect("Failed to run jj new");
-  Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args(["new"])
-    .output()
-    .expect("Failed to run jj new");
+  TestRepo::jj_new(workspace_path_str, &["@"]).expect("Failed to run jj new");
+  TestRepo::jj_new(workspace_path_str, &["@"]).expect("Failed to run jj new");
 
   // Squash merge should succeed
   treq_lib::core::merge_workspace(
@@ -1405,11 +1352,7 @@ fn test_rebase_merge_with_empty_commits() {
     .expect("Failed to commit");
 
   // Create empty commits
-  Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args(["new"])
-    .output()
-    .expect("Failed to run jj new");
+  TestRepo::jj_new(workspace_path_str, &["@"]).expect("Failed to run jj new");
 
   // Rebase merge should succeed
   treq_lib::core::merge_workspace(
@@ -1657,23 +1600,12 @@ fn test_pull_home_repo_fetches_remote_commits() {
   assert!(result.success, "Home repo pull should succeed");
 
   // Verify the remote commit is visible via jj log (default branch@origin should have advanced)
-  let log_output = Command::new("jj")
-    .current_dir(&repo.repo_path)
-    .args([
-      "log",
-      "-r",
-      &origin_default_revset,
-      "--no-graph",
-      "-T",
-      r#"description"#,
-    ])
-    .output()
+  let log = TestRepo::jj_log_descriptions(&repo.repo_path, &origin_default_revset, None)
     .expect("Failed to run jj log");
-  let log_str = String::from_utf8_lossy(&log_output.stdout);
   assert!(
-    log_str.contains("Remote commit on main"),
-    "{origin_default_revset} should contain the remote commit after fetch, got: {}",
-    log_str
+    log.iter().any(|(desc, _)| desc == "Remote commit on main"),
+    "{origin_default_revset} should contain the remote commit after fetch, got: {:?}",
+    log
   );
 
   // Verify pull did not change the git branch (no checkout to different branch/tag)
