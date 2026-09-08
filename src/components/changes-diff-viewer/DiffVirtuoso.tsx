@@ -1,40 +1,19 @@
-import React, { useLayoutEffect, useMemo } from "react";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import React, { useMemo } from "react";
 import type { DiffContentAreaProps } from "./DiffContentArea";
 import {
   DiffRenderContext,
   type DiffRenderContextValue,
 } from "./DiffVirtuosoContext";
 import { DiffVirtuosoRow } from "./DiffVirtuosoRow";
-import {
-  type DiffVirtuosoIndexMaps,
-  committedFileToParsed,
-} from "./buildDiffVirtuosoItems";
+import { committedFileToParsed } from "./buildDiffVirtuosoItems";
 import { useDiffVirtuosoItems } from "./useDiffVirtuosoItems";
-import { mergeVirtuosoListStyle } from "./mergeVirtuosoListStyle";
 import { filterVisibleCommittedFiles } from "./utils";
-
-const VirtuosoList = ({
-  style,
-  children,
-  ref,
-  ...listProps
-}: React.ComponentProps<"div">) => (
-  <div ref={ref} {...listProps} style={mergeVirtuosoListStyle(style)}>
-    {children}
-  </div>
-);
-VirtuosoList.displayName = "VirtuosoList";
 
 export function DiffVirtuosoList({
   props,
-  virtuosoRef,
-  indexMapsRef,
   scrollerRef,
 }: {
   props: DiffContentAreaProps;
-  virtuosoRef: React.RefObject<VirtuosoHandle | null>;
-  indexMapsRef: React.MutableRefObject<DiffVirtuosoIndexMaps>;
   scrollerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const visibleCommittedFiles = useMemo(() => {
@@ -52,7 +31,7 @@ export function DiffVirtuosoList({
     props.showCommittedChanges,
   ]);
 
-  const { items, maps } = useDiffVirtuosoItems({
+  const { items } = useDiffVirtuosoItems({
     actualConflictedFiles: props.actualConflictedFiles,
     allFileHunks: props.allFileHunks,
     collapsedFiles: props.collapsedFiles,
@@ -69,15 +48,6 @@ export function DiffVirtuosoList({
     showCommentInput: props.showCommentInput,
     viewedFiles: props.viewedFiles,
   });
-
-  useLayoutEffect(() => {
-    indexMapsRef.current = maps;
-  }, [indexMapsRef, maps]);
-
-  const setScroller = (el: HTMLElement | Window | null) => {
-    (scrollerRef as React.MutableRefObject<HTMLElement | null>).current =
-      (el as HTMLElement) ?? null;
-  };
 
   const hunkLinesProps = {
     conflictedFilePaths: new Set(props.actualConflictedFiles),
@@ -128,16 +98,11 @@ export function DiffVirtuosoList({
 
   return (
     <DiffRenderContext.Provider value={contextValue}>
-      <Virtuoso
-        ref={virtuosoRef}
-        data={items}
-        className="h-full"
-        increaseViewportBy={800}
-        computeItemKey={(_, item) => item.key}
-        scrollerRef={setScroller}
-        itemContent={(_index, item) => <DiffVirtuosoRow item={item} />}
-        components={{ List: VirtuosoList }}
-      />
+      <div ref={scrollerRef} className="h-full overflow-auto pb-32">
+        {items.map((item) => (
+          <DiffVirtuosoRow key={item.key} item={item} />
+        ))}
+      </div>
     </DiffRenderContext.Provider>
   );
 }
