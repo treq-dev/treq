@@ -6,6 +6,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import {
   createPrMutationKey,
+  invalidatePrStatuses,
   useGitRemoteInfo,
   usePrInfoViaGh,
 } from "../../../hooks/useMergeQueueStatus";
@@ -362,6 +363,7 @@ export function useFileActions({
     try {
       const number = await createPrMutation.mutateAsync(commitMsg);
       if (number == null) return;
+      await invalidatePrStatuses(repoPath!, workspace.branch_name);
       await invalidateQueries();
       const prUrl = `https://github.com/${remoteInfo.full_name}/pull/${number}`;
       addToast({
