@@ -330,8 +330,10 @@ export const ShowWorkspace = ({
   const [showFileBrowserInCode, setShowFileBrowserInCode] = useState(false);
 
   useEffect(() => {
-    if ((!logsEnabled && activeTab === "logs") ||
-        (!checksEnabled && activeTab === "checks")) {
+    if (
+      (!logsEnabled && activeTab === "logs") ||
+      (!checksEnabled && activeTab === "checks")
+    ) {
       setActiveTab("overview");
     }
   }, [activeTab, checksEnabled, logsEnabled]);
