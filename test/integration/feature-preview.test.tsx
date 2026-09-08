@@ -1,6 +1,11 @@
 import * as React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createTestRepo, openRepo } from "../utils";
+import {
+  createTestRepo,
+  findSidebarBranchElement,
+  openRepo,
+  writeRepoFile,
+} from "../utils";
 import { render, screen } from "../test-utils";
 import { Dashboard } from "../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
@@ -12,7 +17,6 @@ import {
   trustRepo,
 } from "../../src/lib/api";
 import { previewSettingKey } from "../../src/lib/features";
-import { findSidebarBranchElement, writeRepoFile } from "../utils";
 
 describe("feature preview settings", () => {
   let user: ReturnType<typeof userEvent.setup>;
