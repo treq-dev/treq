@@ -58,6 +58,7 @@ pub struct TestRepo {
   pub temp_dir: TempDir,
   pub repo_path: String,
   default_branch: String,
+  remote_temp_dir: Option<TempDir>,
 }
 
 #[allow(dead_code)]
@@ -119,6 +120,7 @@ impl TestRepo {
       temp_dir,
       repo_path,
       default_branch,
+      remote_temp_dir: None,
     })
   }
 
@@ -134,6 +136,19 @@ impl TestRepo {
       .join(&ws.workspace_path)
       .to_string_lossy()
       .to_string()
+  }
+
+  fn remote_fixture_dir(&self) -> PathBuf {
+    self
+      .remote_temp_dir
+      .as_ref()
+      .expect("remote fixture requested for a repo without a remote")
+      .path()
+      .to_path_buf()
+  }
+
+  pub fn remote_path(&self) -> PathBuf {
+    self.remote_fixture_dir().join("remote.git")
   }
 
   /// Create a workspace with no description/moved-files/source/sparse options set.
@@ -205,10 +220,15 @@ impl TestRepo {
   }
 
   fn with_remote_create(init: bool) -> Result<Self, String> {
-    let repo = Self::create(init)?;
+    let mut repo = Self::create(init)?;
+
+    repo.remote_temp_dir =
+      Some(TempDir::new().map_err(|e| format!("Failed to create remote temp dir: {}", e))?);
 
     // Create a "remote" repository
-    let remote_dir = repo.temp_dir.path().join("remote.git");
+    // Keep remote test infrastructure under Git metadata so jj never snapshots
+    // the bare repository or temporary clones as working-copy content.
+    let remote_dir = repo.remote_path();
     fs::create_dir_all(&remote_dir).map_err(|e| format!("Failed to create remote dir: {}", e))?;
 
     let remote_path = remote_dir.to_string_lossy().to_string();
@@ -621,14 +641,15 @@ impl TestRepo {
     content: &str,
     message: &str,
   ) -> Result<(), String> {
-    let remote_path = self.temp_dir.path().join("remote.git");
+    let remote_fixture_dir = self.remote_fixture_dir();
+    let remote_path = self.remote_path();
     // Use a unique path per call and let TestRepo's TempDir clean up at drop.
     // Eager `remove_dir_all` after `git push` races git's pack/index locks (ENOTEMPTY).
-    let clone_path = unique_remote_clone_path(self.temp_dir.path(), "remote_clone");
+    let clone_path = unique_remote_clone_path(&remote_fixture_dir, "remote_clone");
 
     // Clone the bare remote into a temporary working copy
     Self::run_git(
-      &self.temp_dir.path().to_string_lossy(),
+      &remote_fixture_dir.to_string_lossy(),
       &[
         "clone",
         remote_path.to_str().unwrap(),
@@ -691,14 +712,15 @@ impl TestRepo {
     content: &str,
     message: &str,
   ) -> Result<(), String> {
-    let remote_path = self.temp_dir.path().join("remote.git");
+    let remote_fixture_dir = self.remote_fixture_dir();
+    let remote_path = self.remote_path();
     // Use a unique path per call and let TestRepo's TempDir clean up at drop.
     // Eager `remove_dir_all` after `git push` races git's pack/index locks (ENOTEMPTY).
-    let clone_path = unique_remote_clone_path(self.temp_dir.path(), "remote_clone_branch");
+    let clone_path = unique_remote_clone_path(&remote_fixture_dir, "remote_clone_branch");
 
     // Clone the bare remote into a temporary working copy
     Self::run_git(
-      &self.temp_dir.path().to_string_lossy(),
+      &remote_fixture_dir.to_string_lossy(),
       &[
         "clone",
         remote_path.to_str().unwrap(),
