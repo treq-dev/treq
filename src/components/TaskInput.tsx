@@ -13,7 +13,6 @@ import { TaskInputMentionDropdown } from "./task-input/TaskInputMentionDropdown"
 import { TaskInputToolbar } from "./task-input/TaskInputToolbar";
 import {
   createSession,
-  getWorkspaces,
   getSetting,
   getRepoSetting,
   searchWorkspaceFiles,
@@ -36,7 +35,6 @@ import type { SessionCreationInfo } from "../types/sessions";
 interface TaskInputProps {
   repoPath: string;
   workspaceId: number | null;
-  workspacePath: string | null;
   workingDirectory: string;
   onSessionCreated?: (session: SessionCreationInfo) => void;
   focusRequest?: number;
@@ -50,7 +48,6 @@ interface TaskInputProps {
 export const TaskInput: React.FC<TaskInputProps> = ({
   repoPath,
   workspaceId,
-  workspacePath,
   workingDirectory,
   onSessionCreated,
   focusRequest,
@@ -296,7 +293,6 @@ export const TaskInput: React.FC<TaskInputProps> = ({
             : pendingPrompt;
 
         let targetWorkspaceId = workspaceId;
-        let targetWorkspacePath = workspacePath;
         if (linearIssue) {
           const results = await linearOpenOrCreateWorkspaceFromIssue(
             repoPath,
@@ -311,16 +307,6 @@ export const TaskInput: React.FC<TaskInputProps> = ({
               `Failed to create workspace for ${linearIssue.identifier}`,
             );
           targetWorkspaceId = result.workspace_id;
-          const targetWorkspace = (await getWorkspaces(repoPath)).find(
-            (candidate) => candidate.id === targetWorkspaceId,
-          );
-          if (!targetWorkspace)
-            throw new Error(
-              `Created workspace for ${linearIssue.identifier} was not found`,
-            );
-          targetWorkspacePath = targetWorkspace.workspace_path.startsWith("/")
-            ? targetWorkspace.workspace_path
-            : `${repoPath}/${targetWorkspace.workspace_path}`;
         }
 
         const dbSessionId = await createSession(
@@ -335,7 +321,7 @@ export const TaskInput: React.FC<TaskInputProps> = ({
           sessionId: dbSessionId,
           sessionName,
           workspaceId: targetWorkspaceId,
-          workspacePath: targetWorkspacePath,
+          workspacePath: null,
           repoPath: sessionRepoPath,
           pendingPrompt,
           permissionMode: mode,

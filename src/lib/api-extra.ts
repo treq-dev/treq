@@ -67,6 +67,8 @@ export const ptyCreateSession = (
   initialCommand?: string,
   suppressEchoFor?: string,
   remoteHost?: string,
+  repoPath?: string,
+  workspaceId?: number | null,
 ): Promise<void> =>
   invoke("pty_create_session", {
     sessionId,
@@ -75,6 +77,8 @@ export const ptyCreateSession = (
     initialCommand,
     suppressEchoFor,
     remoteHost: remoteHost ?? null,
+    repoPath: repoPath ?? null,
+    workspaceId: workspaceId ?? null,
   });
 
 export const ptyWrite = (sessionId: string, data: string): Promise<void> =>

@@ -1,11 +1,43 @@
 use crate::AppState;
+use std::path::{Path, PathBuf};
 use tauri::{Emitter, State};
+
+fn resolve_local_working_dir(
+  repo_path: Option<&str>,
+  workspace_id: Option<i64>,
+  working_dir_override: Option<String>,
+) -> Result<Option<String>, String> {
+  if let Some(working_dir) = working_dir_override {
+    return Ok(Some(working_dir));
+  }
+  let Some(repo_path) = repo_path else {
+    return Ok(None);
+  };
+  let Some(workspace_id) = workspace_id else {
+    return Ok(Some(repo_path.to_string()));
+  };
+  let workspace = crate::local_db::get_workspace_by_id(repo_path, workspace_id)?
+    .ok_or_else(|| format!("Workspace {workspace_id} not found"))?;
+  let stored_path = Path::new(&workspace.workspace_path);
+  let absolute_path = if stored_path.is_absolute() {
+    stored_path.to_path_buf()
+  } else if stored_path.starts_with(".treq/workspaces") {
+    Path::new(repo_path).join(stored_path)
+  } else {
+    PathBuf::from(repo_path)
+      .join(".treq/workspaces")
+      .join(stored_path)
+  };
+  Ok(Some(absolute_path.to_string_lossy().into_owned()))
+}
 
 #[tauri::command]
 pub async fn pty_create_session(
   state: State<'_, AppState>,
   session_id: String,
   working_dir: Option<String>,
+  repo_path: Option<String>,
+  workspace_id: Option<i64>,
   shell: Option<String>,
   initial_command: Option<String>,
   suppress_echo_for: Option<String>,
@@ -35,7 +67,12 @@ pub async fn pty_create_session(
     )?;
     (Some(program), args, None, None)
   } else {
-    (shell, Vec::new(), working_dir, initial_command)
+    (
+      shell,
+      Vec::new(),
+      resolve_local_working_dir(repo_path.as_deref(), workspace_id, working_dir)?,
+      initial_command,
+    )
   };
 
   tauri::async_runtime::spawn_blocking(move || {
@@ -60,6 +97,61 @@ pub async fn pty_create_session(
   })
   .await
   .map_err(|error| error.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use tempfile::TempDir;
+
+  #[test]
+  fn resolves_workspace_id_to_absolute_working_directory() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    crate::local_db::init_local_db(repo_path).expect("initialize database");
+    let workspace_id = crate::local_db::add_workspace(
+      repo_path,
+      "feature-one".to_string(),
+      "feature-one".to_string(),
+      "feature/one".to_string(),
+      None,
+      None,
+      None,
+    )
+    .expect("register workspace");
+
+    assert_eq!(
+      resolve_local_working_dir(Some(repo_path), Some(workspace_id), None).unwrap(),
+      Some(
+        temp
+          .path()
+          .join(".treq/workspaces/feature-one")
+          .to_string_lossy()
+          .into_owned()
+      )
+    );
+  }
+
+  #[test]
+  fn resolves_missing_workspace_id_to_home_repository() {
+    assert_eq!(
+      resolve_local_working_dir(Some("/repo"), None, None).unwrap(),
+      Some("/repo".to_string())
+    );
+  }
+
+  #[test]
+  fn preserves_explicit_working_directory_override() {
+    assert_eq!(
+      resolve_local_working_dir(
+        Some("/repo"),
+        Some(7),
+        Some("/repo/.treq/resolve/change".to_string())
+      )
+      .unwrap(),
+      Some("/repo/.treq/resolve/change".to_string())
+    );
+  }
 }
 
 #[tauri::command]

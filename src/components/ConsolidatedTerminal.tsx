@@ -39,6 +39,8 @@ interface ConsolidatedTerminalProps {
   ref?: Ref<ConsolidatedTerminalHandle>;
   sessionId: string;
   workingDirectory?: string;
+  repoPath?: string;
+  workspaceId?: number | null;
   remoteHost?: string;
   shell?: string;
   autoCommand?: string;
@@ -68,6 +70,8 @@ export interface ConsolidatedTerminalHandle {
 export const ConsolidatedTerminal = ({
   sessionId,
   workingDirectory,
+  repoPath,
+  workspaceId,
   remoteHost,
   shell,
   autoCommand,
@@ -353,6 +357,8 @@ export const ConsolidatedTerminal = ({
             undefined,
             initialAutoCommandRef.current || undefined,
             remoteHost,
+            repoPath,
+            workspaceId,
           );
           if (cancelled) return;
         }
@@ -427,6 +433,8 @@ export const ConsolidatedTerminal = ({
   }, [
     sessionId,
     workingDirectory,
+    repoPath,
+    workspaceId,
     remoteHost,
     shell,
     fontSize,
