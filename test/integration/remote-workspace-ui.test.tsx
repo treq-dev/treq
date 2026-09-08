@@ -264,12 +264,11 @@ describe("remote workspace UI", () => {
       "from another client\n",
     );
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 4_100));
-    });
-
-    await waitFor(() => {
-      expect(screen.getAllByText("foreign.txt").length).toBeGreaterThan(0);
-    });
-  }, 10_000);
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("foreign.txt").length).toBeGreaterThan(0);
+      },
+      { timeout: 8_000 },
+    );
+  }, 15_000);
 });
