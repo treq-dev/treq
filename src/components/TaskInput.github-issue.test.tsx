@@ -58,7 +58,6 @@ describe("TaskInput GitHub issue chip", () => {
       <TaskInput
         repoPath="/repo"
         workspaceId={null}
-        workspacePath={null}
         workingDirectory="/repo"
         initialGitHubIssue={{
           number: 42,
@@ -83,7 +82,6 @@ describe("TaskInput GitHub issue chip", () => {
       <TaskInput
         repoPath="/repo"
         workspaceId={1}
-        workspacePath="/repo/.treq/feat"
         workingDirectory="/repo/.treq/feat"
         onSessionCreated={onSessionCreated}
         initialGitHubIssue={{
@@ -112,6 +110,32 @@ describe("TaskInput GitHub issue chip", () => {
     );
   });
 
+  it("identifies the workspace without sending a working directory", async () => {
+    const onSessionCreated = vi.fn();
+    render(
+      <TaskInput
+        repoPath="/repo"
+        workspaceId={1}
+        workingDirectory="/repo/.treq/workspaces/feature-one"
+        onSessionCreated={onSessionCreated}
+      />,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText("Describe a task..."),
+      "fix the workspace bug",
+    );
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+
+    await waitFor(() => expect(onSessionCreated).toHaveBeenCalled());
+    expect(onSessionCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 1,
+        workspacePath: null,
+      }),
+    );
+  });
+
   it("creates the Linear issue workspace before creating its agent session", async () => {
     const onSessionCreated = vi.fn();
     linearApi.linearOpenOrCreateWorkspaceFromIssue.mockResolvedValue([
@@ -133,7 +157,6 @@ describe("TaskInput GitHub issue chip", () => {
       <TaskInput
         repoPath="/repo"
         workspaceId={null}
-        workspacePath={null}
         workingDirectory="/repo"
         onSessionCreated={onSessionCreated}
         initialLinearIssue={{
@@ -165,7 +188,7 @@ describe("TaskInput GitHub issue chip", () => {
     expect(onSessionCreated).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: 7,
-        workspacePath: "/repo/.treq/workspaces/treq-281",
+        workspacePath: null,
         pendingPrompt: expect.stringContaining("Linear issue TREQ-281"),
       }),
     );

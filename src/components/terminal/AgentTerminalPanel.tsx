@@ -478,9 +478,9 @@ export const AgentTerminalPanel = ({
                   }
                 }}
                 sessionId={sessionData.ptySessionId}
-                workingDirectory={
-                  sessionData.workspacePath || sessionData.repoPath
-                }
+                workingDirectory={sessionData.workingDirectoryOverride}
+                repoPath={sessionData.repoPath}
+                workspaceId={sessionData.workspaceId}
                 autoCommand={autoCommand}
                 remoteHost={remoteHost}
                 onSessionError={onSessionError}

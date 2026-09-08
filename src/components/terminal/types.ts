@@ -8,6 +8,8 @@ export interface ClaudeSessionData {
   sessionName: string;
   ptySessionId: string;
   workspacePath: string | null;
+  workspaceId?: number | null;
+  workingDirectoryOverride?: string;
   repoPath: string;
   workspaceName?: string | null; // Branch name or null for main repo
   pendingPrompt?: string; // Optional prompt to send after agent initializes

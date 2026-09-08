@@ -152,7 +152,6 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
           key={taskInputKey}
           repoPath={repoPath}
           workspaceId={selectedWorkspace?.id ?? null}
-          workspacePath={selectedWorkspace?.workspace_path ?? null}
           workingDirectory={selectedWorkspace?.workspace_path ?? repoPath}
           onSessionCreated={handleSessionCreated}
           initialText={initialPrompt}

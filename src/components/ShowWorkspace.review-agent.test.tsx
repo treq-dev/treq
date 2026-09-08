@@ -227,7 +227,7 @@ describe("Send review to terminal respects default agent setting", () => {
     expect(sessionInfo.permissionMode).toBe("plan");
   });
 
-  it("passes the full workspace path to the review agent session", async () => {
+  it("identifies the review agent workspace without passing its path", async () => {
     const onSessionCreated = vi.fn();
     renderWorkspace(onSessionCreated);
 
@@ -238,8 +238,7 @@ describe("Send review to terminal respects default agent setting", () => {
     const [sessionInfo] = onSessionCreated.mock.calls[0] as [
       SessionCreationInfo,
     ];
-    expect(sessionInfo.workspacePath).toBe(
-      "/Users/test/repo/.treq/workspaces/feature-one",
-    );
+    expect(sessionInfo.workspaceId).toBe(7);
+    expect(sessionInfo.workspacePath).toBeNull();
   });
 });

@@ -1107,7 +1107,7 @@ export const ShowWorkspace = ({
         sessionId: dbSessionId,
         sessionName,
         workspaceId: workspace?.id ?? null,
-        workspacePath: workspace ? workingDirectory : null,
+        workspacePath: null,
         repoPath: sessionRepoPath,
         pendingPrompt: formattedComment,
         permissionMode: mode,
@@ -1179,7 +1179,7 @@ export const ShowWorkspace = ({
         sessionId: dbSessionId,
         sessionName,
         workspaceId: workspace?.id ?? null,
-        workspacePath: workspace ? workingDirectory : null,
+        workspacePath: null,
         repoPath: sessionRepoPath,
         pendingPrompt: reviewMarkdown,
         permissionMode: mode,
@@ -1208,7 +1208,7 @@ export const ShowWorkspace = ({
         sessionId: dbSessionId,
         sessionName,
         workspaceId: workspace?.id ?? null,
-        workspacePath: workspace?.workspace_path ?? null,
+        workspacePath: null,
         repoPath: effectiveRepoPath || workingDirectory,
         pendingPrompt: prompt,
         permissionMode: "plan",
@@ -1432,7 +1432,6 @@ export const ShowWorkspace = ({
                   <TaskInput
                     repoPath={effectiveRepoPath}
                     workspaceId={workspace?.id ?? null}
-                    workspacePath={workspace?.workspace_path ?? null}
                     workingDirectory={workingDirectory}
                     focusRequest={taskInputFocusRequest}
                     onSessionCreated={onSessionCreated}

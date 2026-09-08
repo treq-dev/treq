@@ -2474,11 +2474,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
         sessionId: session.id,
         sessionName: session.name,
         ptySessionId: `session-${session.id}`,
+        workspaceId: session.workspace_id,
         workspacePath:
           pending?.workspacePath ??
           (sessionWorkspace ? getFullWorkspacePath(sessionWorkspace) : null),
         repoPath: sessionWorkspace?.repo_path ?? repoPath,
         workspaceName: sessionWorkspace?.branch_name ?? null,
+        workingDirectoryOverride: pending?.workspacePath ?? undefined,
         ...(pending && {
           pendingPrompt: pending.pendingPrompt,
           permissionMode: pending.permissionMode,
