@@ -246,9 +246,18 @@ fn reconcile_colocated_home_repo(repo_path: &str) -> Result<(), JjError> {
   let mut head_tx = loaded.repo.start_transaction();
   block_on(git::import_head(head_tx.repo_mut()))
     .map_err(|e| JjError::GitWorkspaceError(format!("Failed to import Git HEAD: {e}")))?;
-  if head_tx.repo().has_changes() {
-    let new_git_head = head_tx.repo().view().git_head().clone();
-    if let Some(head_id) = new_git_head.as_normal() {
+  let new_git_head = head_tx.repo().view().git_head().clone();
+  let mut locked_ws = None;
+  if let Some(head_id) = new_git_head.as_normal() {
+    let wc_is_based_on_git_head = head_tx
+      .repo()
+      .view()
+      .get_wc_commit_id(&workspace_name)
+      .and_then(|wc_id| head_tx.repo().store().get_commit(wc_id).ok())
+      .is_some_and(|wc_commit| {
+        wc_commit.parent_ids().len() == 1 && wc_commit.parent_ids().first() == Some(head_id)
+      });
+    if !wc_is_based_on_git_head {
       let head_commit = head_tx
         .repo()
         .store()
@@ -260,25 +269,25 @@ fn reconcile_colocated_home_repo(repo_path: &str) -> Result<(), JjError> {
           .check_out(workspace_name.clone(), &head_commit),
       )
       .map_err(|e| JjError::GitWorkspaceError(format!("Failed to check out Git HEAD: {e}")))?;
-      let mut locked_ws = loaded
+      let mut working_copy = loaded
         .workspace
         .start_working_copy_mutation()
         .map_err(|e| JjError::GitWorkspaceError(format!("Failed to lock working copy: {e}")))?;
-      block_on(locked_ws.locked_wc().reset(&wc_commit)).map_err(|e| {
+      block_on(working_copy.locked_wc().reset(&wc_commit)).map_err(|e| {
         JjError::GitWorkspaceError(format!("Failed to reset working-copy metadata: {e}"))
       })?;
       block_on(head_tx.repo_mut().rebase_descendants()).map_err(|e| {
         JjError::GitWorkspaceError(format!("Failed to rebase after Git HEAD import: {e}"))
       })?;
-      loaded.repo = block_on(head_tx.commit("import git head")).map_err(|e| {
-        JjError::GitWorkspaceError(format!("Failed to commit Git HEAD import: {e}"))
-      })?;
-      block_on(locked_ws.finish(loaded.repo.op_id().clone())).map_err(|e| {
+      locked_ws = Some(working_copy);
+    }
+  }
+  if head_tx.repo().has_changes() {
+    loaded.repo = block_on(head_tx.commit("import git head"))
+      .map_err(|e| JjError::GitWorkspaceError(format!("Failed to commit Git HEAD import: {e}")))?;
+    if let Some(working_copy) = locked_ws {
+      block_on(working_copy.finish(loaded.repo.op_id().clone())).map_err(|e| {
         JjError::GitWorkspaceError(format!("Failed to finish working-copy reset: {e}"))
-      })?;
-    } else {
-      loaded.repo = block_on(head_tx.commit("import git head")).map_err(|e| {
-        JjError::GitWorkspaceError(format!("Failed to commit Git HEAD import: {e}"))
       })?;
     }
   }
@@ -8428,6 +8437,203 @@ mod tests {
       .status()
       .expect("jj git init should run");
     assert!(status.success(), "jj git init should succeed");
+  }
+
+  fn git(temp: &TempDir, args: &[&str]) {
+    let status = Command::new("git")
+      .current_dir(temp.path())
+      .args(args)
+      .status()
+      .expect("git command should run");
+    assert!(status.success(), "git {:?} should succeed", args);
+  }
+
+  fn git_output(temp: &TempDir, args: &[&str]) -> String {
+    let output = Command::new("git")
+      .current_dir(temp.path())
+      .args(args)
+      .output()
+      .expect("git command should run");
+    assert!(output.status.success(), "git {:?} should succeed", args);
+    String::from_utf8(output.stdout)
+      .expect("git output should be utf8")
+      .trim()
+      .to_string()
+  }
+
+  fn init_colocated_repo_with_two_branches() -> TempDir {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    git(&temp, &["branch", "branch-a"]);
+    git(&temp, &["switch", "-c", "branch-b"]);
+    fs::write(temp.path().join("branch.txt"), "branch b\n").expect("write branch file");
+    git(&temp, &["add", "branch.txt"]);
+    git(&temp, &["commit", "-m", "branch b"]);
+    git(&temp, &["switch", "branch-a"]);
+    init_jj_repo(&temp);
+    temp
+  }
+
+  fn home_wc_parent_id(repo_path: &str) -> String {
+    let loaded = load_workspace_repo(repo_path).expect("load workspace");
+    let wc_id = loaded
+      .repo
+      .view()
+      .get_wc_commit_id(loaded.workspace.workspace_name())
+      .expect("working-copy commit");
+    let wc = loaded
+      .repo
+      .store()
+      .get_commit(wc_id)
+      .expect("load wc commit");
+    wc.parent_ids().first().expect("wc parent").hex()
+  }
+
+  #[test]
+  fn reconcile_external_checkout_reparents_home_without_false_changes() {
+    let temp = init_colocated_repo_with_two_branches();
+    git(&temp, &["switch", "branch-b"]);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let changes = jj_get_changed_files(repo_path).expect("reconcile changes");
+
+    assert!(
+      changes.is_empty(),
+      "branch delta must not appear as local changes"
+    );
+    assert_eq!(
+      home_wc_parent_id(repo_path),
+      git_output(&temp, &["rev-parse", "HEAD"])
+    );
+  }
+
+  #[test]
+  fn reconcile_reparents_when_git_head_was_already_imported() {
+    let temp = init_colocated_repo_with_two_branches();
+    git(&temp, &["switch", "branch-b"]);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    let mut loaded = load_workspace_repo(repo_path).expect("load workspace");
+    import_git_head_if_needed(&mut loaded, repo_path).expect("lightweight import");
+    assert_ne!(
+      home_wc_parent_id(repo_path),
+      git_output(&temp, &["rev-parse", "HEAD"])
+    );
+
+    let changes = jj_get_changed_files(repo_path).expect("reconcile changes");
+
+    assert!(changes.is_empty());
+    assert_eq!(
+      home_wc_parent_id(repo_path),
+      git_output(&temp, &["rev-parse", "HEAD"])
+    );
+  }
+
+  #[test]
+  fn reconcile_external_checkout_preserves_real_local_edit() {
+    let temp = init_colocated_repo_with_two_branches();
+    fs::write(temp.path().join("local.txt"), "local edit\n").expect("write local edit");
+    git(&temp, &["switch", "branch-b"]);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let changes = jj_get_changed_files(repo_path).expect("reconcile changes");
+
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].path, "local.txt");
+    assert_eq!(
+      fs::read_to_string(temp.path().join("local.txt")).unwrap(),
+      "local edit\n"
+    );
+    assert_eq!(
+      home_wc_parent_id(repo_path),
+      git_output(&temp, &["rev-parse", "HEAD"])
+    );
+  }
+
+  #[test]
+  fn reconcile_external_commit_reparents_without_false_changes() {
+    let temp = init_colocated_repo_with_two_branches();
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    fs::write(temp.path().join("pulled.txt"), "new upstream content\n").expect("write file");
+    git(&temp, &["add", "pulled.txt"]);
+    git(&temp, &["commit", "-m", "advance checked-out branch"]);
+
+    let changes = jj_get_changed_files(repo_path).expect("reconcile changes");
+
+    assert!(
+      changes.is_empty(),
+      "new committed files must not appear as local changes"
+    );
+    assert_eq!(
+      home_wc_parent_id(repo_path),
+      git_output(&temp, &["rev-parse", "HEAD"])
+    );
+  }
+
+  #[test]
+  fn reconcile_detached_external_checkout_reparents_home() {
+    let temp = init_colocated_repo_with_two_branches();
+    git(&temp, &["checkout", "--detach", "branch-b"]);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let changes = jj_get_changed_files(repo_path).expect("reconcile changes");
+
+    assert!(changes.is_empty());
+    assert_eq!(
+      home_wc_parent_id(repo_path),
+      git_output(&temp, &["rev-parse", "HEAD"])
+    );
+  }
+
+  #[test]
+  fn repeated_reconcile_when_aligned_does_not_advance_operation() {
+    let temp = init_colocated_repo_with_two_branches();
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    reconcile_colocated_home_repo(repo_path).expect("initial reconciliation");
+    let before = jj_head_operation_id(repo_path).expect("operation before");
+
+    reconcile_colocated_home_repo(repo_path).expect("repeated reconciliation");
+
+    assert_eq!(
+      jj_head_operation_id(repo_path).expect("operation after"),
+      before
+    );
+  }
+
+  #[test]
+  fn reconcile_home_does_not_reparent_child_workspace() {
+    let temp = init_colocated_repo_with_two_branches();
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    let child_name = create_workspace(
+      repo_path,
+      "child",
+      "child",
+      true,
+      None,
+      Some("branch-a"),
+      None,
+    )
+    .expect("create child workspace");
+    let child_path = temp
+      .path()
+      .join(".treq/workspaces")
+      .join(child_name)
+      .to_string_lossy()
+      .into_owned();
+    let child_parent_before = home_wc_parent_id(&child_path);
+    git(&temp, &["switch", "branch-b"]);
+
+    reconcile_colocated_home_repo(repo_path).expect("reconcile home");
+
+    assert_eq!(home_wc_parent_id(&child_path), child_parent_before);
+    assert_eq!(
+      home_wc_parent_id(repo_path),
+      git_output(&temp, &["rev-parse", "HEAD"])
+    );
   }
 
   #[test]

@@ -115,7 +115,7 @@ fn test_workspace_sync_status_true_divergence_integration() {
 
   let clone_dir = repo.temp_dir.path().join("clone-sync-div");
   let clone_path_str = clone_dir.to_str().unwrap();
-  let remote_dir = repo.temp_dir.path().join("remote.git");
+  let remote_dir = repo.remote_path();
 
   run_git(
     repo.temp_dir.path().to_str().unwrap(),

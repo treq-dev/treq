@@ -528,7 +528,7 @@ fn test_push_workspace_to_remote() {
   );
 
   // Test 5: Verify file was pushed to remote by checking remote branch
-  let remote_dir = repo.temp_dir.path().join("remote.git");
+  let remote_dir = repo.remote_path();
   let remote_dir_str = remote_dir.to_str().expect("remote path should be utf-8");
   let remote_ref = format!("{}:test-push.txt", workspace.branch_name);
   let remote_file_content = TestRepo::run_git(remote_dir_str, &["show", remote_ref.as_str()][..])

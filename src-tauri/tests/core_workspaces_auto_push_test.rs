@@ -2,7 +2,7 @@ mod e2e_test_helpers;
 use e2e_test_helpers::TestRepo;
 
 fn remote_branch_messages(repo: &TestRepo, branch_name: &str) -> String {
-  let remote_path = repo.temp_dir.path().join("remote.git");
+  let remote_path = repo.remote_path();
   let remote_path_str = remote_path.to_str().expect("utf-8 path");
   TestRepo::run_git(
     remote_path_str,
