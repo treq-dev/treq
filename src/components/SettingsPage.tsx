@@ -323,6 +323,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         <option value="claude">Claude</option>
                         <option value="codex">Codex</option>
                         <option value="cursor">Cursor</option>
+                        <option value="copilot">Copilot</option>
                       </select>
                       <p className="text-sm text-muted-foreground mt-1">
                         Default agent for new sessions

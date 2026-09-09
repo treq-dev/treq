@@ -16,6 +16,7 @@ pub enum AgentType {
   Claude,
   Codex,
   Cursor,
+  Copilot,
 }
 
 impl AgentType {
@@ -23,6 +24,7 @@ impl AgentType {
     match value {
       "codex" => Self::Codex,
       "cursor" => Self::Cursor,
+      "copilot" => Self::Copilot,
       _ => Self::Claude,
     }
   }
@@ -313,7 +315,7 @@ fn trim_empty_lines(message: &str) -> String {
 pub fn format_agent_message(agent: AgentType, message: &str, user_input: &str) -> String {
   let without_input = remove_user_input(message, user_input, agent);
   let without_box = match agent {
-    AgentType::Codex => remove_codex_message_box(&without_input),
+    AgentType::Codex | AgentType::Copilot => remove_codex_message_box(&without_input),
     _ => remove_message_box(&without_input),
   };
   trim_empty_lines(&without_box)
@@ -504,6 +506,7 @@ pub fn list_agent_chats(repo_path: &str) -> Result<Vec<AgentChatSummary>, String
         AgentType::Claude => "claude".to_string(),
         AgentType::Codex => "codex".to_string(),
         AgentType::Cursor => "cursor".to_string(),
+        AgentType::Copilot => "copilot".to_string(),
       },
       workspace_id: chat.workspace_id,
       created_at: chat.created_at,

@@ -321,7 +321,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {
         pendingPrompt?: string;
         permissionMode?: "plan" | "acceptEdits";
-        agent?: "claude" | "codex" | "cursor";
+        agent?: "claude" | "codex" | "cursor" | "copilot";
         workspacePath?: string | null;
       }
     >
@@ -1806,7 +1806,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       workspaceBranchName?: string;
       forceNew?: boolean;
       name?: string;
-      agent?: "claude" | "codex" | "cursor";
+      agent?: "claude" | "codex" | "cursor" | "copilot";
     },
   ): Promise<number> => {
     const sessions = await getSessions(repoPath);
@@ -1829,7 +1829,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           ? "Codex"
           : options?.agent === "cursor"
             ? "Cursor"
-            : "Claude";
+            : options?.agent === "copilot"
+              ? "Copilot"
+              : "Claude";
       name = `${agentLabel} ${index}`;
     }
 
@@ -1866,7 +1868,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     workspacePath?: string | null;
     pendingPrompt?: string;
     permissionMode?: "plan" | "acceptEdits";
-    agent?: "claude" | "codex" | "cursor";
+    agent?: "claude" | "codex" | "cursor" | "copilot";
   }) => {
     void invalidateQueries(["sessions"]);
     setActiveSessionId(sessionData.sessionId);
@@ -1945,7 +1947,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       (await getRepoSetting(repoPath, "default_agent")) ||
       (await getSetting("default_agent"));
     const agent =
-      configuredAgent === "codex" || configuredAgent === "cursor"
+      configuredAgent === "codex" ||
+      configuredAgent === "cursor" ||
+      configuredAgent === "copilot"
         ? configuredAgent
         : "claude";
     const sessionId = await getOrCreateSession(selectedWorkspace?.id ?? null, {
@@ -2056,7 +2060,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleCreateSessionFromSidebar = async (
     workspaceId: number | null,
-    agent?: "claude" | "codex" | "cursor",
+    agent?: "claude" | "codex" | "cursor" | "copilot",
   ) => {
     if (!remoteCaps.agentPty.supported) {
       addToast({
@@ -2073,7 +2077,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     // When no agent is specified explicitly, resolve from settings (repo-level
     // overrides app-level, both fall back to "claude").
     const resolvedAgent = await (async (): Promise<
-      "claude" | "codex" | "cursor" | undefined
+      "claude" | "codex" | "cursor" | "copilot" | undefined
     > => {
       if (agent) return agent;
       let repoDefault: string | null = null;
@@ -2089,7 +2093,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         // ignore
       }
       const defaultAgent = repoDefault || appDefault;
-      if (defaultAgent === "codex" || defaultAgent === "cursor") {
+      if (
+        defaultAgent === "codex" ||
+        defaultAgent === "cursor" ||
+        defaultAgent === "copilot"
+      ) {
         return defaultAgent;
       }
       return undefined;

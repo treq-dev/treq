@@ -14,7 +14,7 @@ export interface ClaudeSessionData {
   workspaceName?: string | null; // Branch name or null for main repo
   pendingPrompt?: string; // Optional prompt to send after agent initializes
   permissionMode?: "plan" | "acceptEdits"; // Permission mode for Claude terminal
-  agent?: "claude" | "codex" | "cursor";
+  agent?: "claude" | "codex" | "cursor" | "copilot";
 }
 
 export interface ShellTerminalData {
@@ -49,7 +49,7 @@ export interface TerminalSessionSummary {
   /** null when the terminal belongs to the main repo (not a workspace). */
   branchName: string | null;
   isMainRepo: boolean;
-  agent?: "claude" | "codex" | "cursor";
+  agent?: "claude" | "codex" | "cursor" | "copilot";
   /** Epoch ms of the last output/creation event. */
   lastActivityAt: number;
   /** Epoch ms of the last user input sent to this terminal, or 0 if none. */

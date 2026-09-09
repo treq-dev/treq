@@ -32,7 +32,7 @@ pub fn init_test_state() -> Result<AppState, String> {
     .map_err(|e| format!("Failed to initialize database: {e}"))?;
 
   let mut detected = HashMap::new();
-  for binary in ["git", "jj", "claude", "codex", "cursor-agent"] {
+  for binary in ["git", "jj", "claude", "codex", "cursor-agent", "copilot"] {
     if let Some(path) = binary_paths::detect_binary(binary) {
       detected.insert(binary.to_string(), path);
     }

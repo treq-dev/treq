@@ -6,5 +6,5 @@ export interface SessionCreationInfo {
   repoPath: string;
   pendingPrompt?: string; // Optional prompt to send after agent initializes
   permissionMode?: "plan" | "acceptEdits"; // Permission mode for Claude terminal
-  agent?: "claude" | "codex" | "cursor";
+  agent?: "claude" | "codex" | "cursor" | "copilot";
 }

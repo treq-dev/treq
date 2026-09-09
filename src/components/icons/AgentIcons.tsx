@@ -54,12 +54,30 @@ export function CursorIcon({ className, ...props }: AgentIconProps) {
   );
 }
 
+/** GitHub Copilot mark (currentColor). */
+export function CopilotIcon({ className, ...props }: AgentIconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+      data-agent-icon="copilot"
+      {...props}
+    >
+      <path d="M12 1a11 11 0 1 0 11 11A11.0125 11.0125 0 0 0 12 1Zm4.5303 15.5303a.75.75 0 0 1-1.0606 0L12 13.0607l-3.4697 3.4696a.75.75 0 0 1-1.0606-1.0606l4-4a.75.75 0 0 1 1.0606 0l4 4a.75.75 0 0 1 0 1.0606ZM7.5 8.75a1.25 1.25 0 1 1 1.25 1.25A1.25 1.25 0 0 1 7.5 8.75Zm7.75 1.25a1.25 1.25 0 1 1 1.25-1.25A1.25 1.25 0 0 1 15.25 10Z" />
+    </svg>
+  );
+}
+
 /** Component type for the brand mark of a known agent. Defaults to Claude. */
 export function agentIconComponent(
   agent?: AgentType | null,
 ): ComponentType<AgentIconProps> {
   if (agent === "codex") return CodexIcon;
   if (agent === "cursor") return CursorIcon;
+  if (agent === "copilot") return CopilotIcon;
   return ClaudeIcon;
 }
 
