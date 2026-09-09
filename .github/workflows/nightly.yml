@@ -33,19 +33,13 @@ jobs:
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           fi
 
-  changelog:
+  cleanup:
     needs: check
     if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      notes: ${{ steps.gen.outputs.notes }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Delete pre-existing nightly release and tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -62,22 +56,8 @@ jobs:
             gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly"
           fi
 
-      - name: Install git-cliff
-        uses: taiki-e/install-action@v2
-        with:
-          tool: git-cliff
-
-      - name: Generate release notes
-        id: gen
-        run: |
-          {
-            echo 'notes<<CLIFF_EOF'
-            GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" git-cliff --unreleased --strip all
-            echo 'CLIFF_EOF'
-          } >> "$GITHUB_OUTPUT"
-
   release:
-    needs: [check, changelog]
+    needs: [check, cleanup]
     if: needs.check.outputs.should_run == 'true'
     permissions:
       contents: write
@@ -145,7 +125,7 @@ jobs:
         with:
           tagName: nightly
           releaseName: "Nightly Build"
-          releaseBody: ${{ needs.changelog.outputs.notes }}
+          releaseBody: ""
           generateReleaseNotes: false
           releaseDraft: false
           prerelease: true
