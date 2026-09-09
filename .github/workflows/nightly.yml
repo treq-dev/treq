@@ -1,0 +1,137 @@
+name: Nightly Build
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  schedule:
+    - cron: "0 9 * * *" # 09:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if main hasn't changed since last nightly
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          PREV_SHA=$(gh api "repos/${{ github.repository }}/git/refs/tags/nightly" \
+            --jq '.object.sha' 2>/dev/null || true)
+
+          if [ "$HEAD_SHA" = "$PREV_SHA" ]; then
+            echo "No new commits on main since last nightly build ($HEAD_SHA); skipping."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  cleanup:
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete pre-existing nightly release and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/nightly" --jq '.id' 2>/dev/null || true)
+
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Deleting existing nightly release"
+            gh api -X DELETE "repos/${{ github.repository }}/releases/${RELEASE_ID}"
+          fi
+
+          if gh api "repos/${{ github.repository }}/git/refs/tags/nightly" > /dev/null 2>&1; then
+            echo "Deleting existing nightly tag"
+            gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly"
+          fi
+
+  release:
+    needs: [check, cleanup]
+    if: needs.check.outputs.should_run == 'true'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "macos-latest" # for Arm based macs (M1 and above).
+            target: "aarch64-apple-darwin"
+            args: "--target aarch64-apple-darwin"
+            app_bundle: "target/aarch64-apple-darwin/release/bundle/macos/Treq.app"
+          - platform: "macos-latest" # for Intel based macs.
+            target: "x86_64-apple-darwin"
+            args: "--target x86_64-apple-darwin"
+            app_bundle: "target/x86_64-apple-darwin/release/bundle/macos/Treq.app"
+          - platform: "ubuntu-22.04"
+            target: "x86_64-unknown-linux-gnu"
+            args: "--target x86_64-unknown-linux-gnu"
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
+            args: "--target x86_64-pc-windows-msvc"
+    runs-on: ${{ matrix.platform }}
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: "npm"
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: install dependencies (ubuntu only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: "./src-tauri -> target"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          # Full LTO + single codegen unit for CI release builds only; local
+          # release builds keep the faster thin-LTO settings in Cargo.toml.
+          CARGO_PROFILE_RELEASE_LTO: "true"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: nightly
+          releaseName: "Nightly Build"
+          releaseBody: ""
+          generateReleaseNotes: false
+          releaseDraft: false
+          prerelease: true
+          releaseAssetNamePattern: "[name]-nightly-[platform]-[arch][ext]"
+          args: ${{ matrix.args }}
+
+      - name: Verify packaged macOS bundle
+        if: runner.os == 'macOS'
+        run: bash scripts/verify-macos-bundle.sh "${{ matrix.app_bundle }}"
