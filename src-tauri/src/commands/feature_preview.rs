@@ -6,8 +6,3 @@ pub fn require(state: &State<AppState>, feature: PreviewFeature) -> Result<(), S
   let db = state.db.lock().unwrap();
   feature_preview::require(&db, feature)
 }
-
-pub fn enabled(state: &State<AppState>, feature: PreviewFeature) -> bool {
-  let db = state.db.lock().unwrap();
-  feature_preview::is_enabled(&db, feature)
-}
