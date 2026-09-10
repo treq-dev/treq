@@ -40,6 +40,17 @@ macro_rules! require_jj_cli {
   };
 }
 
+/// Let the CLI touch the repo once and settle any git-HEAD/jj-@ desync from its own
+/// first invocation, before any state gets captured for a wrapper-vs-CLI comparison.
+/// `TestRepo::new()` colocated repos don't keep git HEAD synced with jj's own view on
+/// every jj-lib write (confirmed by jj.rs's own unit tests: a plain `git branch` right
+/// after init still points at the pre-jj-init git commit, not jj's new empty @) — the
+/// CLI's first invocation on such a repo performs that reconciliation itself, which
+/// would otherwise shift @ silently between a wrapper call and a later CLI read.
+fn settle_cli(workspace_path: &str) {
+  let _ = TestRepo::run_jj_cli(workspace_path, &["log", "-r", "@", "-n", "1", "--no-graph"]);
+}
+
 /// CLI-side helper: resolve a revision to its short commit id via `jj log -T commit_id.short(12)`.
 fn cli_commit_id(workspace_path: &str, revision: &str) -> String {
   TestRepo::run_jj_cli(
@@ -83,6 +94,7 @@ fn jj_new_describe_commit_lifecycle_matches_cli() {
   require_jj_cli!();
 
   let repo = TestRepo::new().expect("create repo");
+  settle_cli(&repo.repo_path);
 
   // jj_new on top of @ creates a new working-copy commit; the CLI's own log must
   // show the same commit id our wrapper returns.
@@ -152,6 +164,7 @@ fn jj_set_bookmark_matches_cli_bookmark_list() {
   require_jj_cli!();
 
   let repo = TestRepo::new().expect("create repo");
+  settle_cli(&repo.repo_path);
   TestRepo::jj_set_bookmark(&repo.repo_path, "lib-vs-cli-bookmark", "@")
     .expect("jj_set_bookmark should succeed");
 
@@ -176,6 +189,7 @@ fn jj_files_at_revision_matches_cli_file_list() {
   require_jj_cli!();
 
   let repo = TestRepo::new().expect("create repo");
+  settle_cli(&repo.repo_path);
   TestRepo::write_workspace_file(&repo.repo_path, "a.txt", "a").expect("write a.txt");
   TestRepo::write_workspace_file(&repo.repo_path, "dir/b.txt", "b").expect("write dir/b.txt");
   TestRepo::jj_commit(&repo.repo_path, "add files").expect("commit files");
@@ -204,6 +218,7 @@ fn jj_sparse_patterns_matches_cli_sparse_list() {
   require_jj_cli!();
 
   let repo = TestRepo::new().expect("create repo");
+  settle_cli(&repo.repo_path);
   repo
     .commit_file("src/lib.rs", "pub fn lib() {}\n", "add src")
     .expect("commit src");
@@ -243,6 +258,7 @@ fn jj_has_revert_hunk_for_line_matches_cli_diff_grep() {
   require_jj_cli!();
 
   let repo = TestRepo::new().expect("create repo");
+  settle_cli(&repo.repo_path);
   TestRepo::write_workspace_file(&repo.repo_path, "f.txt", "line one\nline two\n")
     .expect("write f.txt");
   TestRepo::jj_commit(&repo.repo_path, "add f.txt").expect("commit f.txt");

@@ -9404,7 +9404,7 @@ mod tests {
   }
 
   #[test]
-  fn jj_get_sparse_patterns_defaults_to_empty_full_checkout() {
+  fn jj_get_sparse_patterns_defaults_to_root_full_checkout() {
     let temp = TempDir::new().expect("tempdir");
     init_git_repo(&temp);
     git(&temp, &["config", "user.name", "Test User"]);
@@ -9415,10 +9415,13 @@ mod tests {
     init_jj_repo(&temp);
     let repo_path = temp.path().to_str().expect("utf8 path");
 
+    // Full checkout isn't an empty pattern list — it's a single pattern for the
+    // repo root, whose internal-path representation is the empty string.
     let patterns = jj_get_sparse_patterns(repo_path).expect("read sparse patterns");
-    assert!(
-      patterns.is_empty(),
-      "no sparse patterns set means full checkout, got: {:?}",
+    assert_eq!(
+      patterns,
+      vec!["".to_string()],
+      "no sparse patterns set means a single root (full checkout) pattern, got: {:?}",
       patterns
     );
   }
@@ -9525,8 +9528,15 @@ mod tests {
 
     jj_import_remaining_git_refs(repo_path).expect("import remaining git refs");
 
+    // `git branch` with no explicit target points at git HEAD, which is still the
+    // "base" commit here — `jj git init --colocate` doesn't move git HEAD to jj's
+    // new (empty) @ until something reconciles them, so compare against the git
+    // commit the branch actually points at, not jj's own working-copy commit.
     let imported = jj_get_commit_id(repo_path, "git-only-branch")
       .expect("branch should resolve as a jj revision after import");
-    assert_eq!(imported, jj_get_commit_id(repo_path, "@").expect("@ id"));
+    assert_eq!(
+      imported,
+      jj_get_commit_id(repo_path, "master").expect("master id")
+    );
   }
 }
