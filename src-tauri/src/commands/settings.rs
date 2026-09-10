@@ -62,7 +62,11 @@ pub fn set_repo_setting(
 ) -> Result<(), String> {
   let db = state.db.lock().unwrap();
   db.set_repo_setting(&repo_path, &key, &value)
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+  if key == "ignore_generated_treq_paths" && value == "true" {
+    crate::jj::ensure_optional_gitignore_entries(&repo_path).map_err(|e| e.to_string())?;
+  }
+  Ok(())
 }
 
 fn window_map_label(window_label: Option<String>) -> String {
