@@ -33,10 +33,26 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
   }
 }
 
-fn with_working_copy_lock<T>(f: impl FnOnce() -> T) -> T {
-  static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-  let _guard = LOCK
-    .get_or_init(|| std::sync::Mutex::new(()))
+/// Serializes working-copy mutations for a single workspace, keyed by
+/// `workspace_path`, without blocking unrelated workspaces on each other.
+fn with_working_copy_lock<T>(workspace_path: &str, f: impl FnOnce() -> T) -> T {
+  use std::collections::HashMap;
+  use std::sync::{Arc, Mutex, OnceLock};
+
+  static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+  let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+
+  let workspace_lock = {
+    let mut map = locks
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map
+      .entry(workspace_path.to_string())
+      .or_insert_with(|| Arc::new(Mutex::new(())))
+      .clone()
+  };
+
+  let _guard = workspace_lock
     .lock()
     .unwrap_or_else(|poisoned| poisoned.into_inner());
   f()
@@ -339,7 +355,9 @@ fn snapshot_loaded_working_copy(
   loaded: &mut LoadedWorkspaceRepo,
   workspace_path: &str,
 ) -> Result<(), JjError> {
-  with_working_copy_lock(|| snapshot_loaded_working_copy_inner(loaded, workspace_path))
+  with_working_copy_lock(workspace_path, || {
+    snapshot_loaded_working_copy_inner(loaded, workspace_path)
+  })
 }
 
 fn snapshot_loaded_working_copy_inner(
@@ -3465,7 +3483,7 @@ pub fn jj_get_changed_files(workspace_path: &str) -> Result<Vec<JjFileChange>, J
     Ok(s) => s,
     Err(_) => return Ok(Vec::new()),
   };
-  with_working_copy_lock(|| {
+  with_working_copy_lock(workspace_path, || {
     let mut workspace = match Workspace::load(
       &settings,
       path,
@@ -8359,7 +8377,7 @@ mod tests {
   use tempfile::TempDir;
 
   #[test]
-  fn working_copy_lock_serializes_threads() {
+  fn working_copy_lock_serializes_threads_for_the_same_workspace() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
     static CONCURRENT: AtomicUsize = AtomicUsize::new(0);
@@ -8367,7 +8385,7 @@ mod tests {
     let threads: Vec<_> = (0..4)
       .map(|_| {
         thread::spawn(|| {
-          with_working_copy_lock(|| {
+          with_working_copy_lock("/tmp/shared-workspace", || {
             let now = CONCURRENT.fetch_add(1, Ordering::SeqCst) + 1;
             MAX.fetch_max(now, Ordering::SeqCst);
             thread::sleep(std::time::Duration::from_millis(15));
@@ -8380,6 +8398,30 @@ mod tests {
       t.join().unwrap();
     }
     assert_eq!(MAX.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn working_copy_lock_does_not_serialize_different_workspaces() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread;
+    static CONCURRENT: AtomicUsize = AtomicUsize::new(0);
+    static MAX: AtomicUsize = AtomicUsize::new(0);
+    let threads: Vec<_> = (0..4)
+      .map(|i| {
+        thread::spawn(move || {
+          with_working_copy_lock(&format!("/tmp/distinct-workspace-{i}"), || {
+            let now = CONCURRENT.fetch_add(1, Ordering::SeqCst) + 1;
+            MAX.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(std::time::Duration::from_millis(15));
+            CONCURRENT.fetch_sub(1, Ordering::SeqCst);
+          })
+        })
+      })
+      .collect();
+    for t in threads {
+      t.join().unwrap();
+    }
+    assert!(MAX.load(Ordering::SeqCst) > 1);
   }
 
   #[test]
