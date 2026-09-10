@@ -15,6 +15,12 @@ import userEvent from "@testing-library/user-event";
 describe("FilePicker integration", () => {
   let user: ReturnType<typeof userEvent.setup>;
 
+  const openFilePicker = async () => {
+    render(<Dashboard />);
+    await user.keyboard("{Control>}p{/Control}");
+    return screen.findByPlaceholderText("Search files...");
+  };
+
   beforeEach(async () => {
     const { repoPath } = createTestRepo(false);
     await commitRepoFile(repoPath, "makefile", "all:", "add makefile");
@@ -35,22 +41,26 @@ describe("FilePicker integration", () => {
     user = userEvent.setup();
   });
 
-  it("opens via Ctrl+P, shows initial state, searches files, and selects a result", async () => {
-    render(<Dashboard />);
-    await settleReactUpdates();
+  it("opens via Ctrl+P and shows indexed files", async () => {
+    await openFilePicker();
 
-    await user.keyboard("{Control>}p{/Control}");
-
-    await screen.findByPlaceholderText("Search files...");
     await screen.findByText(/Button\.tsx/);
+  });
 
-    const input = screen.getByPlaceholderText("Search files...");
-    await user.clear(input);
+  it("searches files", async () => {
+    const input = await openFilePicker();
     await user.type(input, "Button");
 
     await screen.findByText(/Button\.tsx/);
+    await waitFor(() => {
+      expect(screen.queryByText(/makefile/)).not.toBeInTheDocument();
+    });
+  });
 
-    await screen.clickByText(/Button\.tsx/);
+  it("selects a result and opens the file", async () => {
+    await openFilePicker();
+
+    await user.click(await screen.findByText(/Button\.tsx/));
     expect(
       screen.queryByPlaceholderText("Search files..."),
     ).not.toBeInTheDocument();
@@ -63,11 +73,7 @@ describe("FilePicker integration", () => {
   });
 
   it("shows 'No files found' for a nonexistent query", async () => {
-    render(<Dashboard />);
-    await settleReactUpdates();
-
-    await user.keyboard("{Control>}p{/Control}");
-    const input = await screen.findByPlaceholderText("Search files...");
+    const input = await openFilePicker();
     await user.type(input, "zzz_nonexistent_file");
 
     await screen.findByText("No files found");
@@ -77,11 +83,7 @@ describe("FilePicker integration", () => {
     ["make file", /makefile/],
     ["taurgit", /src-tauri\/.gitignore/],
   ])("fuzzy searches files with query %s", async (query, expectedFile) => {
-    render(<Dashboard />);
-    await settleReactUpdates();
-
-    await user.keyboard("{Control>}p{/Control}");
-    const input = await screen.findByPlaceholderText("Search files...");
+    const input = await openFilePicker();
     await user.type(input, query);
 
     await screen.findByText(expectedFile);
