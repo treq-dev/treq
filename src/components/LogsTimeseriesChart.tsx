@@ -62,7 +62,7 @@ export function LogsTimeseriesChart({
     const index = new Map(timeline.map((t, i) => [t, i]));
 
     const series = SERIES.map(({ severity, label, color }) => {
-      const data = new Array<number>(timeline.length).fill(0);
+      const data = Array.from<number>({ length: timeline.length }).fill(0);
       for (const bucket of buckets) {
         if (bucket.severity_text !== severity) continue;
         const at = index.get(Date.parse(bucket.bucket));

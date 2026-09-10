@@ -11,7 +11,10 @@
     "skillsInstallation": false,
     "workspaceScheduling": false,
     "remoteSsh": false,
-    "linearIntegration": false
+    "linearIntegration": false,
+    "logs": false,
+    "checks": false,
+    "browser": false
   },
   "env": {
     "dev": {

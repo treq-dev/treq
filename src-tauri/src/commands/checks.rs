@@ -1,5 +1,7 @@
 use crate::core::checks_logs::{LogBucket, LogQuery, LogRecordView, SqlResult};
 use crate::core::{JobResult, RunSummary, SetupScriptStatus, WorkflowInfo};
+use crate::AppState;
+use tauri::State;
 
 #[tauri::command]
 pub async fn list_workflows(repo_path: String) -> Result<Vec<WorkflowInfo>, String> {
@@ -10,12 +12,17 @@ pub async fn list_workflows(repo_path: String) -> Result<Vec<WorkflowInfo>, Stri
 
 #[tauri::command]
 pub async fn run_workflow_job(
+  state: State<'_, AppState>,
   repo_path: String,
   filename: String,
   job_id: String,
   workspace_id: i64,
   workspace_path: String,
 ) -> Result<JobResult, String> {
+  crate::commands::feature_preview::require(
+    &state,
+    crate::core::feature_preview::PreviewFeature::Checks,
+  )?;
   tauri::async_runtime::spawn_blocking(move || {
     crate::core::run_workflow_job_sync(
       &repo_path,
@@ -31,11 +38,16 @@ pub async fn run_workflow_job(
 
 #[tauri::command]
 pub async fn run_workflow(
+  state: State<'_, AppState>,
   repo_path: String,
   filename: String,
   workspace_id: i64,
   workspace_path: String,
 ) -> Result<Vec<JobResult>, String> {
+  crate::commands::feature_preview::require(
+    &state,
+    crate::core::feature_preview::PreviewFeature::Checks,
+  )?;
   tauri::async_runtime::spawn_blocking(move || {
     crate::core::run_workflow_sync(&repo_path, &filename, workspace_id, &workspace_path)
   })
