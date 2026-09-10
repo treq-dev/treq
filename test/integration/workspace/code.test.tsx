@@ -1,10 +1,8 @@
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import fs from "fs";
-import path from "path";
 import { fireEvent, render, screen, waitFor } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
-import { createTestRepo, openRepo } from "../../utils";
+import { commitRepoFile, createTestRepo, openRepo } from "../../utils";
 import { createWorkspace } from "../../../src/lib/api";
 import { Dashboard } from "../../../src/components/Dashboard";
 
@@ -46,7 +44,7 @@ describe("ShowWorkspace - Code tab", () => {
   it("clicking a non-readme file opens FileBrowser and allows line comments to start an agent", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
 
-    fs.writeFileSync(path.join(repoPath, "main.ts"), "const x = 1;\n");
+    await commitRepoFile(repoPath, "main.ts", "const x = 1;", "add main.ts");
 
     render(<Dashboard />);
 
@@ -61,17 +59,7 @@ describe("ShowWorkspace - Code tab", () => {
     const backButton = await screen.findByRole("button", { name: /back/i });
     expect(backButton).toBeTruthy();
 
-    await waitFor(
-      () => {
-        const el = document.querySelector('[data-testid="code-line"]');
-        expect(el).toBeTruthy();
-      },
-      { timeout: 10_000 },
-    );
-
-    const codeLineDiv = document.querySelector(
-      '[data-testid="code-line"]',
-    ) as HTMLElement;
+    const [codeLineDiv] = await screen.findAllByTestId("code-line");
     fireEvent.mouseOver(codeLineDiv);
     fireEvent.mouseEnter(codeLineDiv);
 
@@ -87,5 +75,5 @@ describe("ShowWorkspace - Code tab", () => {
     await waitFor(() => {
       expect(screen.queryByPlaceholderText("Add a comment...")).toBeNull();
     });
-  }, 15_000);
+  });
 });
