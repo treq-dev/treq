@@ -1335,8 +1335,9 @@ mod tests {
     parse_workspace_metadata, plan_workspace_target_move,
     resolve_workspace_diff_base_revision_from_last_rebased,
     resolve_workspace_diff_conflict_marker_style,
-    resolve_workspace_diff_tip_revision_from_workspace_state, schedule_workspaces, HunkSpec,
-    WorkspaceMetadata, WorkspaceMoveRequest, WorkspaceTargetMoveStep,
+    resolve_workspace_diff_tip_revision_from_workspace_state,
+    resolve_workspace_diff_workspace_revision, schedule_workspaces, HunkSpec, WorkspaceMetadata,
+    WorkspaceMoveRequest, WorkspaceTargetMoveStep,
   };
   use crate::jj;
   use crate::local_db::Workspace;
@@ -1731,6 +1732,18 @@ mod tests {
   fn resolve_workspace_diff_tip_revision_uses_parent_pointer_only_for_empty_target_workspace() {
     let tip = resolve_workspace_diff_tip_revision_from_workspace_state("main", "main", 0);
     assert_eq!(tip, "@-");
+  }
+
+  #[test]
+  fn resolve_workspace_diff_uses_working_copy_for_conflicted_bookmark() {
+    assert_eq!(
+      resolve_workspace_diff_workspace_revision("feature", true),
+      "@"
+    );
+    assert_eq!(
+      resolve_workspace_diff_workspace_revision("feature", false),
+      "feature"
+    );
   }
 
   #[test]
@@ -3063,7 +3076,11 @@ fn resolve_workspace_diff_base_revision(
     target_branch,
   );
   if base_revision != target_branch {
-    let current_tip = jj::jj_get_commit_id(workspace_dir_str, &workspace.branch_name)
+    let workspace_revision = resolve_workspace_diff_workspace_revision(
+      &workspace.branch_name,
+      jj::jj_is_bookmark_conflicted(workspace_dir_str, &workspace.branch_name),
+    );
+    let current_tip = jj::jj_get_commit_id(workspace_dir_str, &workspace_revision)
       .map_err(|e| format!("Failed to resolve workspace tip: {}", e))?;
     if current_tip != base_revision {
       return Ok(base_revision);
@@ -3088,11 +3105,29 @@ fn resolve_workspace_diff_tip_revision(
   let target_branch = workspace.target_branch.as_deref().unwrap_or("main");
   let committed_ahead = jj::jj_get_commits_ahead(workspace_dir_str, &workspace.branch_name)
     .map_err(|e| format!("Failed to get workspace commits ahead: {}", e))?;
-  Ok(resolve_workspace_diff_tip_revision_from_workspace_state(
+  let tip_revision = resolve_workspace_diff_tip_revision_from_workspace_state(
     &workspace.branch_name,
     target_branch,
     committed_ahead.total_count,
-  ))
+  );
+  if tip_revision == workspace.branch_name {
+    Ok(resolve_workspace_diff_workspace_revision(
+      &workspace.branch_name,
+      jj::jj_is_bookmark_conflicted(workspace_dir_str, &workspace.branch_name),
+    ))
+  } else {
+    Ok(tip_revision)
+  }
+}
+
+/// A conflicted bookmark names multiple revisions, but `@` always identifies
+/// the concrete working-copy side whose changes the workspace view should show.
+fn resolve_workspace_diff_workspace_revision(branch_name: &str, is_conflicted: bool) -> String {
+  if is_conflicted {
+    "@".to_string()
+  } else {
+    branch_name.to_string()
+  }
 }
 
 fn resolve_workspace_diff_tip_revision_from_workspace_state(
