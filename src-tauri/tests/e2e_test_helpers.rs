@@ -334,7 +334,7 @@ impl TestRepo {
   /// bare `@`/`@-` lookup has nothing to import, so failures here are ignored and
   /// left for the real resolve call to report.
   fn import_git_refs_best_effort(repo_path: &str) {
-    let _ = treq_lib::jj::jj_util_import_git_refs(repo_path);
+    let _ = treq_lib::jj::jj_import_remaining_git_refs(repo_path);
   }
 
   /// Create a new working-copy commit on top of `parent_revisions` (equivalent to

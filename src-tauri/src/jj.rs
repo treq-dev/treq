@@ -8490,6 +8490,15 @@ pub fn jj_util_import_git_refs(repo_path: &str) -> Result<(), JjError> {
   reconcile_colocated_home_repo(repo_path)
 }
 
+/// Import git branch refs into jj bookmarks (e.g. a branch set purely via git
+/// config, never touched by jj) without the git-HEAD/working-copy reconciliation
+/// [`jj_util_import_git_refs`] also does — safe to call before resolving a
+/// revision that might be a bookmark name, without risking a working-copy reset.
+pub fn jj_import_remaining_git_refs(repo_path: &str) -> Result<(), JjError> {
+  let mut loaded = load_workspace_repo(repo_path)?;
+  import_remaining_git_refs(&mut loaded)
+}
+
 fn import_remaining_git_refs(loaded: &mut LoadedWorkspaceRepo) -> Result<(), JjError> {
   let import_options = git::GitImportOptions {
     auto_local_bookmark: false,
@@ -9493,5 +9502,31 @@ mod tests {
       entries[0].is_empty,
       "wc has no file changes relative to its parent"
     );
+  }
+
+  #[test]
+  fn jj_import_remaining_git_refs_makes_git_only_branch_resolvable() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    // A branch created purely via git, never touched by jj, isn't yet a jj bookmark.
+    git(&temp, &["branch", "git-only-branch"]);
+    assert!(
+      jj_get_commit_id(repo_path, "git-only-branch").is_err(),
+      "branch should not resolve as a jj revision before import"
+    );
+
+    jj_import_remaining_git_refs(repo_path).expect("import remaining git refs");
+
+    let imported = jj_get_commit_id(repo_path, "git-only-branch")
+      .expect("branch should resolve as a jj revision after import");
+    assert_eq!(imported, jj_get_commit_id(repo_path, "@").expect("@ id"));
   }
 }
