@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -859,7 +860,7 @@ impl LinearAutoKickoffPoller {
 
   pub fn watch_repo(&self, repo_path: &str) {
     {
-      let mut watched = self.inner.watched.lock().unwrap();
+      let mut watched = self.inner.watched.lock_or_recover();
       watched.insert(repo_path.to_string());
     }
     self.ensure_started();
@@ -886,7 +887,7 @@ fn kickoff_background_loop(inner: Arc<LinearAutoKickoffInner>) {
       .unwrap_or(true);
 
     if poll_due {
-      let repos: Vec<String> = inner.watched.lock().unwrap().iter().cloned().collect();
+      let repos: Vec<String> = inner.watched.lock_or_recover().iter().cloned().collect();
       for repo_path in repos {
         if inner.shutdown.load(Ordering::SeqCst) {
           break;
@@ -911,7 +912,7 @@ fn kickoff_background_loop(inner: Arc<LinearAutoKickoffInner>) {
       .max(Duration::from_millis(5));
 
     let (lock, cvar) = &inner.wake;
-    let guard = lock.lock().unwrap();
+    let guard = lock.lock_or_recover();
     let _ = cvar
       .wait_timeout_while(guard, wait, |_| !inner.shutdown.load(Ordering::SeqCst))
       .unwrap();

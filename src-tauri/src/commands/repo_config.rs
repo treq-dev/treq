@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use crate::repo_config::RepoConfig;
 use crate::AppState;
 use tauri::State;
@@ -12,7 +13,7 @@ pub fn load_repo_yaml_config(
   repo_path: String,
 ) -> Result<RepoConfig, String> {
   let config = crate::repo_config::parse_config(&repo_path)?;
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   crate::repo_config::sync_to_settings(&db, &repo_path, &config)?;
   Ok(config)
 }

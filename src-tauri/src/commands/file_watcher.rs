@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, FileIdMap};
 use std::collections::HashMap;
@@ -22,7 +23,7 @@ impl WatcherManager {
   }
 
   pub fn set_app_handle(&self, handle: AppHandle) {
-    let mut app_handle = self.app_handle.lock().unwrap();
+    let mut app_handle = self.app_handle.lock_or_recover();
     *app_handle = Some(handle);
   }
 
@@ -31,7 +32,7 @@ impl WatcherManager {
   }
 
   pub fn start_watching(&self, workspace_id: i64, workspace_path: String) -> Result<(), String> {
-    let mut watchers = self.watchers.lock().unwrap();
+    let mut watchers = self.watchers.lock_or_recover();
 
     // Stop existing watcher for this workspace if any
     watchers.remove(&workspace_path);
@@ -59,7 +60,7 @@ impl WatcherManager {
             .collect();
 
           if !changed_paths.is_empty() {
-            if let Some(handle) = app_handle.lock().unwrap().as_ref() {
+            if let Some(handle) = app_handle.lock_or_recover().as_ref() {
               let payload = serde_json::json!({
                   "workspace_id": ws_id,
                   "changed_paths": changed_paths
@@ -86,7 +87,7 @@ impl WatcherManager {
   }
 
   pub fn stop_watching(&self, workspace_path: &str) -> Result<(), String> {
-    let mut watchers = self.watchers.lock().unwrap();
+    let mut watchers = self.watchers.lock_or_recover();
     watchers.remove(workspace_path);
     Ok(())
   }

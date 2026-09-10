@@ -27,6 +27,7 @@ pub mod skills;
 pub mod stash;
 pub mod submodules;
 pub mod workspaces;
+use crate::lock_ext::LockExt;
 pub use agent_chat::*;
 pub use agent_cli::*;
 pub use app::*;
@@ -63,7 +64,7 @@ pub fn resolve_conflict_marker_style_from_db(db: &crate::db::Database) -> String
 }
 
 pub fn resolve_conflict_marker_style(db: &std::sync::Mutex<crate::db::Database>) -> String {
-  resolve_conflict_marker_style_from_db(&db.lock().unwrap())
+  resolve_conflict_marker_style_from_db(&db.lock_or_recover())
 }
 
 pub fn resolve_app_db_path(repo_path: &str) -> PathBuf {
@@ -96,7 +97,7 @@ mod tests {
 
   #[test]
   fn resolve_app_db_path_prefers_explicit_db_path() {
-    let _guard = env_lock().lock().unwrap();
+    let _guard = env_lock().lock_or_recover();
     std::env::set_var("TREQ_APP_DB_PATH", "/tmp/explicit-treq.db");
     std::env::set_var("TREQ_APP_DATA_DIR", "/tmp/ignored-dir");
 
@@ -109,7 +110,7 @@ mod tests {
 
   #[test]
   fn resolve_app_db_path_falls_back_to_app_data_dir() {
-    let _guard = env_lock().lock().unwrap();
+    let _guard = env_lock().lock_or_recover();
     std::env::remove_var("TREQ_APP_DB_PATH");
     std::env::set_var("TREQ_APP_DATA_DIR", "/tmp/app-data");
 

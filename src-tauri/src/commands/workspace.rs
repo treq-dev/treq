@@ -1,5 +1,6 @@
 use crate::jj::{self, JjRebaseResult};
 use crate::local_db::{self, Workspace};
+use crate::lock_ext::LockExt;
 use crate::AppState;
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
@@ -110,7 +111,7 @@ pub async fn create_workspace(
 
   // Read included_copy_files setting from DB (small files to copy into every workspace)
   let included_copy_files: Option<Vec<String>> = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     db.get_repo_setting(&repo_path, "included_copy_files")
       .ok()
       .flatten()
@@ -356,7 +357,7 @@ pub fn ensure_workspace_indexed(
   workspace_path: String,
 ) -> Result<bool, String> {
   let indexed = INDEXED_WORKSPACES.get_or_init(|| Mutex::new(HashSet::new()));
-  let mut guard = indexed.lock().unwrap();
+  let mut guard = indexed.lock_or_recover();
 
   // Use workspace_path as the key
   if guard.contains(&workspace_path) {

@@ -13,6 +13,7 @@ pub mod github;
 pub mod jj;
 pub mod linear;
 pub mod local_db;
+pub mod lock_ext;
 mod open_new_window;
 pub mod pr_status;
 pub mod pty;

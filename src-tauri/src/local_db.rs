@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
@@ -762,11 +763,11 @@ fn get_connection(repo_path: &str) -> Result<Connection, String> {
   let db_key = repo_path.to_string();
 
   {
-    let guard = initialized.lock().unwrap();
+    let guard = initialized.lock_or_recover();
     if !guard.contains(&db_key) {
       drop(guard);
       init_local_db(repo_path)?;
-      initialized.lock().unwrap().insert(db_key);
+      initialized.lock_or_recover().insert(db_key);
     }
   }
 
@@ -2367,7 +2368,7 @@ mod tests {
     assert_eq!(table_exists, 1, "instance_registry table should exist");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2395,7 +2396,7 @@ mod tests {
     assert_eq!(instances, vec![instance]);
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2435,7 +2436,7 @@ mod tests {
     assert_eq!(instances[0].instance_id, "alive");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2490,7 +2491,7 @@ mod tests {
     );
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2530,7 +2531,7 @@ mod tests {
     assert_eq!(workspaces[1].workspace_name, "workspace-2");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2555,7 +2556,7 @@ mod tests {
     assert_eq!(workspaces[0].id, id);
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
 
     let workspaces_after_reload =
@@ -2569,7 +2570,7 @@ mod tests {
     assert_eq!(workspaces_after_reload[0].workspace_name, "test-workspace");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2627,7 +2628,7 @@ mod tests {
     assert_eq!(main_workspaces[1].target_branch, Some("main".to_string()));
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2654,7 +2655,7 @@ mod tests {
     assert!(workspace.refreshed_at.is_some());
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2707,7 +2708,7 @@ mod tests {
     assert_eq!(workspace.refreshed_at.as_deref(), Some(refreshed_at));
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2756,7 +2757,7 @@ mod tests {
     assert_eq!(review.summary_text, Some(summary.to_string()));
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2803,7 +2804,7 @@ mod tests {
     assert_eq!(review.summary_text, Some("New summary".to_string()));
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2847,7 +2848,7 @@ mod tests {
     assert!(review.is_none(), "Review should be cleared");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2894,7 +2895,7 @@ mod tests {
     );
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -2955,7 +2956,7 @@ mod tests {
     assert_ne!(updated_review.updated_at, first_created_at);
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3036,7 +3037,7 @@ mod tests {
 
     // Clear the cache so init_local_db will process the old database
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
 
     // Call init_local_db to trigger migration
@@ -3090,7 +3091,7 @@ mod tests {
     );
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3129,7 +3130,7 @@ mod tests {
     assert_eq!(review.summary_text, Some(summary.to_string()));
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3176,7 +3177,7 @@ mod tests {
     assert_eq!(review.summary_text, Some("New summary".to_string()));
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3214,7 +3215,7 @@ mod tests {
     assert!(review.is_none(), "Review should be cleared");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3238,7 +3239,7 @@ mod tests {
     assert!(review.is_none());
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3312,7 +3313,7 @@ mod tests {
     fs::rename(&db_path, &expected_db_path).expect("Failed to move database");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
 
     // First migration
@@ -3332,7 +3333,7 @@ mod tests {
 
     // Second migration (should be idempotent)
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
     init_local_db(repo_path).expect("Second init_local_db should succeed");
 
@@ -3357,7 +3358,7 @@ mod tests {
     assert_eq!(review, r#"[{"id":"c1"}]"#, "Data should be intact");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3414,7 +3415,7 @@ mod tests {
     fs::rename(&db_path, &expected_db_path).expect("Failed to move database");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
 
     // Call init_local_db to trigger migration
@@ -3438,7 +3439,7 @@ mod tests {
       .expect("Should execute query with new columns");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3529,7 +3530,7 @@ mod tests {
     fs::rename(&db_path, &expected_db_path).expect("Failed to move database");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
 
     // Call init_local_db to trigger migration
@@ -3568,7 +3569,7 @@ mod tests {
     assert_eq!(total_count, 3, "Should have exactly 3 reviews");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3615,7 +3616,7 @@ mod tests {
     assert_eq!(history[1].workspace_label.as_deref(), Some("feature-one"));
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3655,7 +3656,7 @@ mod tests {
       .is_empty());
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3700,7 +3701,7 @@ mod tests {
     assert_eq!(starting_prompt.prompt_text, "the starting prompt");
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 
@@ -3726,7 +3727,7 @@ mod tests {
     assert!(starting_prompt.is_none());
 
     if let Some(initialized) = INITIALIZED_DBS.get() {
-      initialized.lock().unwrap().remove(repo_path);
+      initialized.lock_or_recover().remove(repo_path);
     }
   }
 }

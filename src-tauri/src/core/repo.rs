@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -29,7 +30,7 @@ static REPO_COMMIT_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = Onc
 /// Mutex shared with `commit_repo` and `commit_workspace` so jj commits for one repo path never run concurrently.
 pub(crate) fn commit_lock_for_repo(repo_path: &str) -> Arc<Mutex<()>> {
   let locks = REPO_COMMIT_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-  let mut guard = locks.lock().unwrap();
+  let mut guard = locks.lock_or_recover();
   guard
     .entry(repo_path.to_string())
     .or_insert_with(|| Arc::new(Mutex::new(())))
@@ -39,7 +40,7 @@ pub(crate) fn commit_lock_for_repo(repo_path: &str) -> Arc<Mutex<()>> {
 /// Create a new commit on the home repo from the current jj working copy (colocated layout).
 pub fn commit_repo(repo_path: &str, message: &str) -> Result<String, String> {
   let lock = commit_lock_for_repo(repo_path);
-  let _guard = lock.lock().unwrap();
+  let _guard = lock.lock_or_recover();
   let result =
     jj::jj_commit(repo_path, message).map_err(|e| format!("Failed to create commit: {}", e))?;
   let _ = jj::jj_drop_autosave_ancestors(repo_path);

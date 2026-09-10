@@ -12,6 +12,7 @@
 //! close) so a caller who already knows the local PTY API is not learning a
 //! second vocabulary.
 
+use crate::lock_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -483,7 +484,7 @@ mod tests {
       data: &[u8],
       session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
-      *self.last_exec_command.lock().unwrap() = Some(String::from_utf8_lossy(data).to_string());
+      *self.last_exec_command.lock_or_recover() = Some(String::from_utf8_lossy(data).to_string());
       session.channel_success(channel)?;
       // Announce readiness so the client's first write is not racing pty
       // setup, then behave like an interactive echo shell.
