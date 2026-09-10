@@ -771,6 +771,50 @@ impl TestRepo {
     Ok(())
   }
 
+  /// Merge a target branch into another branch in a clone of the bare remote,
+  /// create the merge without a description, and push it back to the remote.
+  /// Returns the merge commit ID. The local repo is never modified.
+  pub fn remote_undescribed_merge(
+    &self,
+    branch_name: &str,
+    target_branch: &str,
+  ) -> Result<String, String> {
+    let remote_fixture_dir = self.remote_fixture_dir();
+    let remote_path = self.remote_path();
+    let clone_path = unique_remote_clone_path(&remote_fixture_dir, "remote_clone_merge");
+    let clone_path_str = clone_path.to_string_lossy().to_string();
+
+    Self::run_git(
+      &remote_fixture_dir.to_string_lossy(),
+      &[
+        "clone",
+        remote_path.to_str().unwrap(),
+        clone_path.to_str().unwrap(),
+      ],
+    )?;
+    Self::run_git(
+      &clone_path_str,
+      &["config", "user.email", "test@example.com"],
+    )?;
+    Self::run_git(&clone_path_str, &["config", "user.name", "Test User"])?;
+    Self::run_git(&clone_path_str, &["checkout", branch_name])?;
+    Self::run_git(
+      &clone_path_str,
+      &[
+        "merge",
+        "--no-ff",
+        "--no-commit",
+        &format!("origin/{target_branch}"),
+      ],
+    )?;
+    Self::run_git(
+      &clone_path_str,
+      &["commit", "--allow-empty-message", "-m", ""],
+    )?;
+    Self::run_git(&clone_path_str, &["push", "origin", branch_name])?;
+    Self::run_git(&clone_path_str, &["rev-parse", "HEAD"])
+  }
+
   /// Get the path to the .treq directory.
   pub fn treq_dir(&self) -> PathBuf {
     Path::new(&self.repo_path).join(".treq")
