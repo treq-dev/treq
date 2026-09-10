@@ -105,9 +105,19 @@ fn jj_new_describe_commit_lifecycle_matches_cli() {
     "jj_new's returned commit id should match what the CLI resolves @ to"
   );
 
-  // jj_describe sets the description; the CLI must see the same text.
+  // jj_describe sets the description; the CLI must see the same text. Check the
+  // wrapper's own view (description + clean-ness) BEFORE any further CLI subprocess
+  // call — the CLI's own colocated-repo snapshot/reconciliation on each invocation
+  // can otherwise shift @ between the wrapper write and a later CLI read, so every
+  // CLI touch after a wrapper write must come only after we've captured the
+  // wrapper's post-write state.
   TestRepo::jj_describe(&repo.repo_path, "@", "lib vs cli description")
     .expect("jj_describe should succeed");
+  assert!(
+    TestRepo::jj_working_copy_is_clean(&repo.repo_path),
+    "freshly described commit with no file changes should still read as clean"
+  );
+
   let cli_description = TestRepo::run_jj_cli(
     &repo.repo_path,
     &[
@@ -127,11 +137,8 @@ fn jj_new_describe_commit_lifecycle_matches_cli() {
     "CLI should see the description jj_describe set, got: {cli_description}"
   );
 
-  // jj_working_copy_is_clean must agree with the CLI's "no changes" status.
-  assert!(
-    TestRepo::jj_working_copy_is_clean(&repo.repo_path),
-    "freshly described commit with no file changes should still read as clean"
-  );
+  // The CLI's own status check comes last since it's a CLI-side subprocess touch;
+  // it should still agree the working copy is clean.
   let cli_status = TestRepo::run_jj_cli(&repo.repo_path, &["status"]).expect("cli status");
   assert!(
     cli_status.contains("The working copy has no changes."),
