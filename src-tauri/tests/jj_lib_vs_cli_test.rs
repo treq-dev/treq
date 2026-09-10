@@ -93,33 +93,43 @@ fn jj_git_init_bare_matches_cli_jj_git_init() {
 fn jj_new_describe_commit_lifecycle_matches_cli() {
   require_jj_cli!();
 
+  // Exercise the lifecycle on a created workspace, not the colocated home repo
+  // root: jj_new/jj_describe are low-level primitives that (unlike jj_commit)
+  // don't export the new commit to Git HEAD, and at the home-repo root that
+  // leaves the workspace looking "not based on Git HEAD" to
+  // reconcile_colocated_home_repo — which a later "is it clean" read triggers
+  // as a side effect, silently checking @ back out to the stale Git HEAD and
+  // discarding the wrapper's own write. A regular workspace isn't colocated
+  // with the home repo's Git HEAD, so it isn't subject to that reconciliation,
+  // matching how the app actually drives these primitives outside the home repo.
   let repo = TestRepo::new().expect("create repo");
   settle_cli(&repo.repo_path);
+  let workspace = treq_lib::core::create_workspace(
+    &repo.repo_path,
+    "feat/lifecycle-lib-vs-cli",
+    None,
+    None,
+    None,
+    None,
+    None,
+  )
+  .expect("create workspace");
+  let ws_path = repo.workspace_full_path(&workspace);
 
   // jj_new on top of @ creates a new working-copy commit; the CLI's own log must
   // show the same commit id our wrapper returns.
-  let new_id = TestRepo::jj_new(&repo.repo_path, &["@"]).expect("jj_new should succeed");
+  let new_id = TestRepo::jj_new(&ws_path, &["@"]).expect("jj_new should succeed");
   assert_eq!(
     new_id,
-    cli_commit_id(&repo.repo_path, "@"),
+    cli_commit_id(&ws_path, "@"),
     "jj_new's returned commit id should match what the CLI resolves @ to"
   );
 
-  // jj_describe sets the description; the CLI must see the same text. Check the
-  // wrapper's own view (description + clean-ness) BEFORE any further CLI subprocess
-  // call — the CLI's own colocated-repo snapshot/reconciliation on each invocation
-  // can otherwise shift @ between the wrapper write and a later CLI read, so every
-  // CLI touch after a wrapper write must come only after we've captured the
-  // wrapper's post-write state.
-  TestRepo::jj_describe(&repo.repo_path, "@", "lib vs cli description")
+  // jj_describe sets the description; the CLI must see the same text.
+  TestRepo::jj_describe(&ws_path, "@", "lib vs cli description")
     .expect("jj_describe should succeed");
-  assert!(
-    TestRepo::jj_working_copy_is_clean(&repo.repo_path),
-    "freshly described commit with no file changes should still read as clean"
-  );
-
   let cli_description = TestRepo::run_jj_cli(
-    &repo.repo_path,
+    &ws_path,
     &[
       "log",
       "-r",
@@ -137,9 +147,12 @@ fn jj_new_describe_commit_lifecycle_matches_cli() {
     "CLI should see the description jj_describe set, got: {cli_description}"
   );
 
-  // The CLI's own status check comes last since it's a CLI-side subprocess touch;
-  // it should still agree the working copy is clean.
-  let cli_status = TestRepo::run_jj_cli(&repo.repo_path, &["status"]).expect("cli status");
+  // jj_working_copy_is_clean must agree with the CLI's "no changes" status.
+  assert!(
+    TestRepo::jj_working_copy_is_clean(&ws_path),
+    "freshly described commit with no file changes should still read as clean"
+  );
+  let cli_status = TestRepo::run_jj_cli(&ws_path, &["status"]).expect("cli status");
   assert!(
     cli_status.contains("The working copy has no changes."),
     "CLI status should agree the working copy is clean, got: {cli_status}"
@@ -147,9 +160,9 @@ fn jj_new_describe_commit_lifecycle_matches_cli() {
 
   // jj_commit finalizes @ and starts a new empty commit on top; the CLI's log
   // must show the finalized commit's description and an empty new @.
-  TestRepo::jj_commit(&repo.repo_path, "lib vs cli commit").expect("jj_commit should succeed");
+  TestRepo::jj_commit(&ws_path, "lib vs cli commit").expect("jj_commit should succeed");
   let cli_log = TestRepo::run_jj_cli(
-    &repo.repo_path,
+    &ws_path,
     &[
       "log",
       "--no-graph",
