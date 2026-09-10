@@ -1,7 +1,7 @@
 import type { Workspace } from "./api";
 
 export type AgentPermissionMode = "plan" | "acceptEdits";
-export type AgentType = "claude" | "codex" | "cursor";
+export type AgentType = "claude" | "codex" | "cursor" | "copilot";
 
 export type AgentDeepLinkRequest = {
   repo: string;
@@ -17,7 +17,10 @@ const PENDING_PREFIX = "treq.agent.pending.";
 const CLAIM_PREFIX = "treq.agent.claim.";
 
 const isAgentType = (value: string): value is AgentType =>
-  value === "claude" || value === "codex" || value === "cursor";
+  value === "claude" ||
+  value === "codex" ||
+  value === "cursor" ||
+  value === "copilot";
 
 const normalizeMode = (value: string): AgentPermissionMode | null => {
   if (value === "plan") return "plan";

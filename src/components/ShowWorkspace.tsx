@@ -1135,7 +1135,7 @@ export const ShowWorkspace = ({
     try {
       // Resolve the default agent from repo-level then app-level settings,
       // so "send review to terminal" honours the configured default agent.
-      let resolvedAgent: "claude" | "codex" | "cursor" | undefined;
+      let resolvedAgent: "claude" | "codex" | "cursor" | "copilot" | undefined;
       const repoPathForSettings = effectiveRepoPath || workingDirectory;
       try {
         let repoDefault: string | null = null;
@@ -1157,6 +1157,7 @@ export const ShowWorkspace = ({
         if (
           defaultAgent === "codex" ||
           defaultAgent === "cursor" ||
+          defaultAgent === "copilot" ||
           defaultAgent === "claude"
         ) {
           resolvedAgent = defaultAgent;

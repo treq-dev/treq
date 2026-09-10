@@ -153,7 +153,9 @@ const WorkspaceTerminalPaneInner = ({
   };
 
   // Create Agent session in the active terminal's workspace, or sidebar-selected workspace
-  const handleCreateAgentSession = (agent?: "claude" | "codex" | "cursor") => {
+  const handleCreateAgentSession = (
+    agent?: "claude" | "codex" | "cursor" | "copilot",
+  ) => {
     onCreateNewSession?.(activeWorkspaceDir, agent);
   };
 
