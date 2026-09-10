@@ -8,7 +8,13 @@ import {
   openRepo,
 } from "../utils";
 import { createWorkspace, ensureWorkspaceIndexed } from "../../src/lib/api";
-import { render, screen, settleReactUpdates, waitFor } from "../test-utils";
+import {
+  render,
+  screen,
+  settleReactUpdates,
+  waitFor,
+  within,
+} from "../test-utils";
 import { Dashboard } from "../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
 
@@ -51,9 +57,10 @@ describe("FilePicker integration", () => {
     const input = await openFilePicker();
     await user.type(input, "Button");
 
-    await screen.findByText(/Button\.tsx/);
+    const picker = within(screen.getByTestId("modal"));
+    await picker.findByText(/Button\.tsx/);
     await waitFor(() => {
-      expect(screen.queryByText(/makefile/)).not.toBeInTheDocument();
+      expect(picker.queryByText(/makefile/)).not.toBeInTheDocument();
     });
   });
 
