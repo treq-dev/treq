@@ -335,7 +335,7 @@ impl IdempotencyStore {
   /// detected rather than silently overwritten.
   fn reclaim_stale(
     &self,
-    operation: &str,
+    _operation: &str,
     key: &str,
     previous_claimed_at: &str,
   ) -> Result<bool, String> {
@@ -356,7 +356,7 @@ impl IdempotencyStore {
     })
   }
 
-  fn claimed_at(&self, operation: &str, key: &str) -> Result<Option<String>, String> {
+  fn claimed_at(&self, _operation: &str, key: &str) -> Result<Option<String>, String> {
     self.with_connection(|conn| {
       conn
         .query_row(
@@ -371,7 +371,7 @@ impl IdempotencyStore {
 
   /// Marks `operation`/`key` completed with `result` (already redacted by
   /// the caller). Called after the mutation this claim guards actually ran.
-  pub fn complete(&self, operation: &str, key: &str, result: &Value) -> Result<(), String> {
+  pub fn complete(&self, _operation: &str, key: &str, result: &Value) -> Result<(), String> {
     self.with_connection(|conn| {
       conn
         .execute(
@@ -403,7 +403,7 @@ impl IdempotencyStore {
   /// a structured error rather than a network failure) so a later retry with
   /// the same key is free to execute again rather than being stuck pending
   /// forever.
-  pub fn abandon(&self, operation: &str, key: &str) -> Result<(), String> {
+  pub fn abandon(&self, _operation: &str, key: &str) -> Result<(), String> {
     self.with_connection(|conn| {
       conn
         .execute(
