@@ -112,7 +112,7 @@ jobs:
           (matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true')
         uses: dtolnay/rust-toolchain@v1
         with:
-          components: rustfmt
+          components: rustfmt, clippy
           toolchain: stable
 
       - name: Install cargo-nextest
@@ -293,6 +293,7 @@ jobs:
           if [ "${{ matrix.kind }}" = "verify" ] || [ "${{ matrix.task }}" = "verify" ]; then
             cargo fmt --check
             cargo check --locked
+            cargo clippy --locked --all-targets --all-features
           else
             cargo nextest run --locked --no-fail-fast
           fi
