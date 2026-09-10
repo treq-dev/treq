@@ -340,6 +340,29 @@ impl RemotePtyManager {
     }
   }
 
+  /// Closes every session across all endpoints. Used for application-exit
+  /// cleanup, mirroring `close_all_for_endpoint` but unscoped: a window or
+  /// app shutdown must not leave remote PTY channels (and the SSH sessions
+  /// backing them) dangling after the Tauri backend is gone.
+  pub async fn close_all(&self) {
+    let to_close: Vec<(String, Arc<RemotePtyChannel>, Arc<AtomicBool>)> = {
+      let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+      sessions
+        .iter()
+        .map(|(id, session)| (id.clone(), session.channel.clone(), session.closed.clone()))
+        .collect()
+    };
+    for (id, channel, closed) in to_close {
+      closed.store(true, Ordering::SeqCst);
+      let _ = channel.close().await;
+      self
+        .sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id);
+    }
+  }
+
   async fn reject_if_cut_off(&self, endpoint_id: &str) -> Result<(), RemotePtyError> {
     if let Some(reason) = self.pool.cutoff_reason(endpoint_id).await {
       return Err(RemotePtyError::Cutoff {
@@ -937,6 +960,58 @@ mod tests {
     assert_eq!(got, b"still-alive\n");
 
     manager.close("keep-b").await.unwrap();
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn close_all_terminates_sessions_across_every_endpoint() {
+    let (addr, host_key) = start_echo_server().await;
+    let client_key = test_host_key();
+    let dir = tempfile::tempdir().unwrap();
+    let key_reference = write_client_key(dir.path(), &client_key);
+    let endpoint_a = test_endpoint("ep-a", addr, &host_key, key_reference.clone());
+    let endpoint_b = test_endpoint("ep-b", addr, &host_key, key_reference);
+
+    let pool = Arc::new(SshConnectionPool::new());
+    let manager = RemotePtyManager::new(pool);
+    let (tx_a, rx_a) = mpsc::channel::<Vec<u8>>();
+    let (tx_b, rx_b) = mpsc::channel::<Vec<u8>>();
+
+    manager
+      .create(
+        binding("ep-a", "close-all-a"),
+        &endpoint_a,
+        PtyLaunchSpec::Shell,
+        80,
+        24,
+        move |c| {
+          let _ = tx_a.send(c);
+        },
+        |_| {},
+      )
+      .await
+      .unwrap();
+    let _ = rx_a.recv_timeout(Duration::from_secs(2)).unwrap();
+
+    manager
+      .create(
+        binding("ep-b", "close-all-b"),
+        &endpoint_b,
+        PtyLaunchSpec::Shell,
+        80,
+        24,
+        move |c| {
+          let _ = tx_b.send(c);
+        },
+        |_| {},
+      )
+      .await
+      .unwrap();
+    let _ = rx_b.recv_timeout(Duration::from_secs(2)).unwrap();
+
+    manager.close_all().await;
+
+    assert!(!manager.session_exists("close-all-a"));
+    assert!(!manager.session_exists("close-all-b"));
   }
 
   #[tokio::test]
