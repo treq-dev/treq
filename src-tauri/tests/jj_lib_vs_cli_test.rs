@@ -82,7 +82,7 @@ fn jj_git_init_bare_matches_cli_jj_git_init() {
 fn jj_new_describe_commit_lifecycle_matches_cli() {
   require_jj_cli!();
 
-  let repo = TestRepo::new_without_init().expect("create repo");
+  let repo = TestRepo::new().expect("create repo");
 
   // jj_new on top of @ creates a new working-copy commit; the CLI's own log must
   // show the same commit id our wrapper returns.
@@ -151,7 +151,7 @@ fn jj_new_describe_commit_lifecycle_matches_cli() {
 fn jj_set_bookmark_matches_cli_bookmark_list() {
   require_jj_cli!();
 
-  let repo = TestRepo::new_without_init().expect("create repo");
+  let repo = TestRepo::new().expect("create repo");
   TestRepo::jj_set_bookmark(&repo.repo_path, "lib-vs-cli-bookmark", "@")
     .expect("jj_set_bookmark should succeed");
 
@@ -175,7 +175,7 @@ fn jj_set_bookmark_matches_cli_bookmark_list() {
 fn jj_files_at_revision_matches_cli_file_list() {
   require_jj_cli!();
 
-  let repo = TestRepo::new_without_init().expect("create repo");
+  let repo = TestRepo::new().expect("create repo");
   TestRepo::write_workspace_file(&repo.repo_path, "a.txt", "a").expect("write a.txt");
   TestRepo::write_workspace_file(&repo.repo_path, "dir/b.txt", "b").expect("write dir/b.txt");
   TestRepo::jj_commit(&repo.repo_path, "add files").expect("commit files");
@@ -242,7 +242,7 @@ fn jj_sparse_patterns_matches_cli_sparse_list() {
 fn jj_has_revert_hunk_for_line_matches_cli_diff_grep() {
   require_jj_cli!();
 
-  let repo = TestRepo::new_without_init().expect("create repo");
+  let repo = TestRepo::new().expect("create repo");
   TestRepo::write_workspace_file(&repo.repo_path, "f.txt", "line one\nline two\n")
     .expect("write f.txt");
   TestRepo::jj_commit(&repo.repo_path, "add f.txt").expect("commit f.txt");

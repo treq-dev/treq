@@ -9375,4 +9375,123 @@ mod tests {
     assert_eq!(lines.start_line, 2);
     assert_eq!(lines.end_line, 3);
   }
+
+  #[test]
+  fn jj_git_init_bare_creates_working_repo_without_git_dir() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    jj_git_init_bare(repo_path).expect("jj_git_init_bare should succeed");
+
+    assert!(temp.path().join(".jj").exists(), ".jj should exist");
+    assert!(
+      !temp.path().join(".git").exists(),
+      "non-colocated init should not create .git"
+    );
+    assert!(
+      jj_snapshot_working_copy(repo_path).is_ok(),
+      "the resulting repo should be usable"
+    );
+  }
+
+  #[test]
+  fn jj_get_sparse_patterns_defaults_to_empty_full_checkout() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let patterns = jj_get_sparse_patterns(repo_path).expect("read sparse patterns");
+    assert!(
+      patterns.is_empty(),
+      "no sparse patterns set means full checkout, got: {:?}",
+      patterns
+    );
+  }
+
+  #[test]
+  fn list_all_workspace_names_includes_default() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let names = list_all_workspace_names(repo_path).expect("list workspace names");
+    assert_eq!(names, vec!["default".to_string()]);
+  }
+
+  #[test]
+  fn jj_list_files_at_revision_lists_tree_contents() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    fs::create_dir_all(temp.path().join("dir")).expect("mkdir");
+    fs::write(temp.path().join("dir/nested.txt"), "nested\n").expect("write nested");
+    git(&temp, &["add", "base.txt", "dir/nested.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let files = jj_list_files_at_revision(repo_path, "@-").expect("list files at @-");
+    assert_eq!(
+      files,
+      vec!["base.txt".to_string(), "dir/nested.txt".to_string()]
+    );
+  }
+
+  #[test]
+  fn jj_log_revset_change_ids_returns_one_id_for_at_symbol() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let ids = jj_log_revset_change_ids(repo_path, "@").expect("log revset change ids");
+    assert_eq!(ids.len(), 1);
+    assert_eq!(
+      ids[0].len(),
+      12,
+      "change id should be the 12-char short form"
+    );
+  }
+
+  #[test]
+  fn jj_log_entries_reports_description_and_emptiness() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    jj_describe(repo_path, "@", "described wc").expect("describe wc");
+
+    let entries = jj_log_entries(repo_path, "@", Some(1)).expect("log entries");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].description, "described wc");
+    assert!(
+      entries[0].is_empty,
+      "wc has no file changes relative to its parent"
+    );
+  }
 }
