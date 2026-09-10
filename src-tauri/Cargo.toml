@@ -50,14 +50,10 @@ urlencoding = "2"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 imara-diff = "0.1.8"
-gix = { version = "0.81.0", features = ["blocking-network-client", "worktree-mutation"] }
+gix = { version = "0.81.0" }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["registry", "env-filter"] }
-opentelemetry = { version = "0.32.0", features = ["logs"] }
-opentelemetry_sdk = { version = "0.32.0", features = ["logs"] }
-opentelemetry-appender-tracing = "0.32.0"
-opentelemetry-stdout = { version = "0.32.0", features = ["logs"] }
 
 tempfile = { version = "3", optional = true }
 async-trait = "0.1.92"
@@ -129,7 +125,7 @@ debug = false           # Strip debug info from dependencies
 # Release profile - optimized for size and performance
 [profile.release]
 opt-level = "z"         # Optimize for size (alternative: "s" for slightly faster code)
-lto = "thin"            # Thin Link Time Optimization (good balance of speed vs build time)
+lto = "fat"             # Full Link Time Optimization across the whole dependency graph (smaller, slower build)
 codegen-units = 1       # Single codegen unit for better optimization (slower build, smaller binary)
 strip = true            # Strip symbols from binary (reduces size significantly)
 panic = "abort"         # Abort on panic instead of unwinding (smaller binary)

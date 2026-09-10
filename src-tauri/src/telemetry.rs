@@ -1,35 +1,20 @@
-use opentelemetry::logs::AnyValue;
-use opentelemetry::KeyValue;
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_sdk::error::OTelSdkResult;
-use opentelemetry_sdk::logs::{LogBatch, LogExporter, SdkLoggerProvider, SimpleLogProcessor};
-use opentelemetry_sdk::Resource;
 use serde_json::{json, Map, Value};
-use std::io::Write;
-use std::mem::ManuallyDrop;
 use std::path::Path;
-use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing::field::{Field, Visit};
+use tracing::{Event, Subscriber};
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{EnvFilter, Registry};
+use tracing_subscriber::layer::{Context, SubscriberExt};
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{EnvFilter, Layer, Registry};
 
 pub const MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 pub struct TelemetryGuards {
-  file_guard: ManuallyDrop<WorkerGuard>,
-  provider: ManuallyDrop<SdkLoggerProvider>,
-}
-
-impl Drop for TelemetryGuards {
-  fn drop(&mut self) {
-    // Shut down OTel provider before stopping the non-blocking writer worker.
-    unsafe {
-      ManuallyDrop::drop(&mut self.provider);
-      ManuallyDrop::drop(&mut self.file_guard);
-    }
-  }
+  // Held only for its Drop impl, which flushes the non-blocking writer.
+  #[allow(dead_code)]
+  file_guard: WorkerGuard,
 }
 
 /// Installs a panic hook that forwards panic messages into the `tracing` pipeline
@@ -61,34 +46,17 @@ pub fn init(log_dir: &Path) -> Result<TelemetryGuards, Box<dyn std::error::Error
   let appender = rolling::daily(log_dir, "treq");
   let (writer, file_guard) = tracing_appender::non_blocking(appender);
 
-  let exporter = FileLogExporter::new(writer);
-
-  let resource = Resource::builder()
-    .with_attributes(vec![
-      KeyValue::new("service.name", "treq"),
-      KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
-    ])
-    .build();
-
-  let provider = SdkLoggerProvider::builder()
-    .with_log_processor(SimpleLogProcessor::new(exporter))
-    .with_resource(resource)
-    .build();
-
-  let otel_layer = OpenTelemetryTracingBridge::new(&provider);
+  let json_layer = JsonLogLayer { writer };
 
   let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-  let subscriber = Registry::default().with(filter).with(otel_layer);
+  let subscriber = Registry::default().with(filter).with(json_layer);
   tracing::subscriber::set_global_default(subscriber)?;
 
-  Ok(TelemetryGuards {
-    file_guard: ManuallyDrop::new(file_guard),
-    provider: ManuallyDrop::new(provider),
-  })
+  Ok(TelemetryGuards { file_guard })
 }
 
 /// Forward a `log` record into tracing so records from `tauri-plugin-log`
-/// (Rust `log::*` macros and JS `@tauri-apps/plugin-log`) end up in the OTel pipeline.
+/// (Rust `log::*` macros and JS `@tauri-apps/plugin-log`) end up in the log file.
 pub fn forward_log_record(record: &log::Record<'_>) {
   let source = record.target();
   let msg = record.args();
@@ -122,162 +90,72 @@ pub fn cleanup_old_logs(dir: &Path, max_age: Duration) {
   }
 }
 
-/// Custom OTel log exporter that writes one OTLP-shaped JSON object per line
-/// to the provided writer. Used because `opentelemetry-stdout` 0.32 hardcodes
-/// output to stdout and provides no writer hook.
-#[derive(Debug)]
-pub struct FileLogExporter {
-  writer: Mutex<NonBlocking>,
-  resource_attributes: Mutex<Vec<Value>>,
+/// Minimal `tracing_subscriber::Layer` that writes one JSON object per line to
+/// the log file. Replaces the previous OTel SDK pipeline (SdkLoggerProvider +
+/// OpenTelemetryTracingBridge + a hand-rolled OTLP exporter) with a direct
+/// tracing -> JSON path; nothing else parses this file back, so there is no
+/// need to keep the OTLP field shape here (unlike `core/checks_logs.rs`,
+/// which builds its own OTel-shaped records independently of this crate).
+struct JsonLogLayer {
+  writer: tracing_appender::non_blocking::NonBlocking,
 }
 
-impl FileLogExporter {
-  pub fn new(writer: NonBlocking) -> Self {
-    Self {
-      writer: Mutex::new(writer),
-      resource_attributes: Mutex::new(Vec::new()),
-    }
-  }
-}
+impl<S> Layer<S> for JsonLogLayer
+where
+  S: Subscriber + for<'a> LookupSpan<'a>,
+{
+  fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+    let mut visitor = MessageVisitor::default();
+    event.record(&mut visitor);
 
-impl LogExporter for FileLogExporter {
-  async fn export(&self, batch: LogBatch<'_>) -> OTelSdkResult {
-    let resource_attrs = self
-      .resource_attributes
-      .lock()
-      .ok()
-      .map(|r| r.clone())
+    let time_unix_nano = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map(|d| d.as_nanos().to_string())
       .unwrap_or_default();
 
-    // Group log records by instrumentation scope so the OTLP envelope stays correct across scopes.
-    let mut scope_groups: Vec<(String, Option<String>, Vec<Value>)> = Vec::new();
-    for (record, scope) in batch.iter() {
-      let name = scope.name().to_string();
-      let version = scope.version().map(|v| v.to_string());
-      let record_json = otlp_log_record(record);
-      if let Some(group) = scope_groups
-        .iter_mut()
-        .find(|(n, v, _)| *n == name && *v == version)
-      {
-        group.2.push(record_json);
-      } else {
-        scope_groups.push((name, version, vec![record_json]));
-      }
-    }
-
-    let scope_logs: Vec<Value> = scope_groups
-      .into_iter()
-      .map(|(name, version, records)| {
-        let mut scope_obj = Map::new();
-        if !name.is_empty() {
-          scope_obj.insert("name".to_string(), Value::String(name));
-        }
-        if let Some(v) = version {
-          scope_obj.insert("version".to_string(), Value::String(v));
-        }
-        json!({
-            "scope": Value::Object(scope_obj),
-            "logRecords": records,
-        })
-      })
-      .collect();
-
-    if scope_logs.is_empty() {
-      return Ok(());
+    let metadata = event.metadata();
+    let mut fields = Map::new();
+    for (k, v) in visitor.fields {
+      fields.insert(k, v);
     }
 
     let line = json!({
-        "resourceLogs": [{
-            "resource": { "attributes": resource_attrs },
-            "scopeLogs": scope_logs,
-        }]
+        "timeUnixNano": time_unix_nano,
+        "severityText": metadata.level().as_str(),
+        "target": metadata.target(),
+        "message": visitor.message,
+        "fields": fields,
     });
 
-    let out = format!("{}\n", line);
-    if let Ok(mut w) = self.writer.lock() {
-      let _ = w.write_all(out.as_bytes());
-    }
-    Ok(())
-  }
-
-  fn set_resource(&mut self, resource: &Resource) {
-    let mut attrs: Vec<Value> = Vec::new();
-    for (k, v) in resource.iter() {
-      attrs.push(json!({
-          "key": k.as_str(),
-          "value": otel_value_to_otlp(v),
-      }));
-    }
-    if let Ok(mut slot) = self.resource_attributes.lock() {
-      *slot = attrs;
-    }
+    use std::io::Write;
+    let mut writer = self.writer.clone();
+    let _ = writeln!(writer, "{}", line);
   }
 }
 
-fn otlp_log_record(record: &opentelemetry_sdk::logs::SdkLogRecord) -> Value {
-  let time_unix_nano = record
-    .timestamp()
-    .or_else(|| record.observed_timestamp())
-    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-    .map(|d| d.as_nanos().to_string())
-    .unwrap_or_default();
-
-  let severity_number = record
-    .severity_number()
-    .map(|s| s as u8 as i64)
-    .unwrap_or(0);
-  let severity_text = record.severity_text().unwrap_or("");
-
-  let body = record.body().map(any_value_to_otlp).unwrap_or(Value::Null);
-
-  let mut attributes: Vec<Value> = Vec::new();
-  for (k, v) in record.attributes_iter() {
-    attributes.push(json!({
-        "key": k.as_str(),
-        "value": any_value_to_otlp(v),
-    }));
-  }
-
-  json!({
-      "timeUnixNano": time_unix_nano,
-      "severityNumber": severity_number,
-      "severityText": severity_text,
-      "body": body,
-      "attributes": attributes,
-  })
+#[derive(Default)]
+struct MessageVisitor {
+  message: String,
+  fields: Vec<(String, Value)>,
 }
 
-fn any_value_to_otlp(v: &AnyValue) -> Value {
-  match v {
-    AnyValue::Int(i) => json!({ "intValue": i.to_string() }),
-    AnyValue::Double(f) => json!({ "doubleValue": *f }),
-    AnyValue::String(s) => json!({ "stringValue": s.as_str() }),
-    AnyValue::Boolean(b) => json!({ "boolValue": *b }),
-    AnyValue::Bytes(b) => json!({ "bytesValue": b.iter().copied().collect::<Vec<u8>>() }),
-    AnyValue::ListAny(list) => json!({
-        "arrayValue": {
-            "values": list.iter().map(any_value_to_otlp).collect::<Vec<_>>()
-        }
-    }),
-    AnyValue::Map(map) => {
-      let kvlist: Vec<Value> = map
-        .iter()
-        .map(|(k, v)| json!({ "key": k.as_str(), "value": any_value_to_otlp(v) }))
-        .collect();
-      json!({ "kvlistValue": { "values": kvlist } })
+impl Visit for MessageVisitor {
+  fn record_str(&mut self, field: &Field, value: &str) {
+    if field.name() == "message" {
+      self.message = value.to_string();
+    } else {
+      self
+        .fields
+        .push((field.name().to_string(), Value::String(value.to_string())));
     }
-    _ => Value::Null,
   }
-}
 
-fn otel_value_to_otlp(v: &opentelemetry::Value) -> Value {
-  use opentelemetry::Value as V;
-  match v {
-    V::Bool(b) => json!({ "boolValue": *b }),
-    V::I64(i) => json!({ "intValue": i.to_string() }),
-    V::F64(f) => json!({ "doubleValue": *f }),
-    V::String(s) => json!({ "stringValue": s.as_str() }),
-    V::Array(_) => json!({ "stringValue": format!("{:?}", v) }),
-    _ => Value::Null,
+  fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+    let rendered = format!("{:?}", value);
+    if field.name() == "message" {
+      self.message = rendered;
+    } else {
+      self.fields.push((field.name().to_string(), Value::String(rendered)));
+    }
   }
 }
