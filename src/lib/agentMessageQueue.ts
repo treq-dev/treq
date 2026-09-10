@@ -95,3 +95,23 @@ export function looksLikeAgentUserQuestion(output: string): boolean {
   if (lines.length === 0) return false;
   return lines.slice(-QUESTION_TAIL_LINES).some((line) => line.endsWith("?"));
 }
+
+/** True when the agent process has returned control to an interactive shell. */
+export function looksLikeShellPrompt(output: string): boolean {
+  const visible = stripAnsiEscapes(output).replace(/\r/g, "");
+  const lastLine = visible
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .at(-1);
+  if (!lastLine) return false;
+
+  if (
+    /^(?:(?:subsh|cmdsubst|mathsubst) )*(?:dquote|quote|cmdsubst|mathsubst|subsh)>\s*$/.test(
+      lastLine,
+    )
+  ) {
+    return true;
+  }
+  return /(?:^|\s)[$#%❯»]\s*$/.test(lastLine);
+}

@@ -24,7 +24,7 @@ export interface UseAgentMessageQueueResult {
   /** Mark the agent as producing output (busy). */
   markBusy: () => void;
   /** Mark the agent idle and flush the oldest queued message if any. */
-  markIdle: (options?: { awaitingQuestion?: boolean }) => void;
+  markIdle: (options?: { awaitingQuestion?: boolean; shellPrompt?: boolean }) => void;
   clear: () => void;
 }
 
@@ -130,8 +130,12 @@ export function useAgentMessageQueue({
     isBusyRef.current = true;
   };
 
-  const markIdle = (options?: { awaitingQuestion?: boolean }) => {
-    awaitingQuestionRef.current = options?.awaitingQuestion === true;
+  const markIdle = (options?: {
+    awaitingQuestion?: boolean;
+    shellPrompt?: boolean;
+  }) => {
+    awaitingQuestionRef.current =
+      options?.awaitingQuestion === true || options?.shellPrompt === true;
     setIsBusy(false);
     isBusyRef.current = false;
     void flushOldest();

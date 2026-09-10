@@ -154,6 +154,21 @@ describe("useAgentMessageQueue", () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it("does not send queued text after the agent has returned to a shell", async () => {
+    const { result } = renderHook(() =>
+      useAgentMessageQueue({ ptySessionId: "pty-1", write }),
+    );
+
+    act(() => {
+      result.current.enqueue("text with ' quotes and $(substitutions)");
+      result.current.markIdle({ shellPrompt: true });
+    });
+
+    await waitFor(() => expect(result.current.isBusy).toBe(false));
+    expect(write).not.toHaveBeenCalled();
+    expect(result.current.messages).toHaveLength(1);
+  });
+
   it("sends after a later idle that is not a user question", async () => {
     const { result } = renderHook(() =>
       useAgentMessageQueue({ ptySessionId: "pty-1", write }),
