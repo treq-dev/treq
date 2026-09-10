@@ -254,7 +254,7 @@ export const AgentTerminalPanel = ({
       if (!options?.silent) {
         addToast({
           title: "Terminal Reset",
-          description: `Starting new ${sessionData.agent === "codex" ? "Codex" : sessionData.agent === "cursor" ? "Cursor" : "Claude"} session`,
+          description: `Starting new ${sessionData.agent === "codex" ? "Codex" : sessionData.agent === "cursor" ? "Cursor" : sessionData.agent === "copilot" ? "Copilot" : "Claude"} session`,
           type: "info",
         });
       }
@@ -341,13 +341,15 @@ export const AgentTerminalPanel = ({
             overlayContainer={terminalBodyEl}
           />
           {/* Model selector — Claude only */}
-          {sessionData.agent !== "codex" && sessionData.agent !== "cursor" && (
-            <ModelSelector
-              currentModel={sessionModel}
-              onModelChange={handleModelChange}
-              disabled={isChangingModel || isResetting}
-            />
-          )}
+          {sessionData.agent !== "codex" &&
+            sessionData.agent !== "cursor" &&
+            sessionData.agent !== "copilot" && (
+              <ModelSelector
+                currentModel={sessionModel}
+                onModelChange={handleModelChange}
+                disabled={isChangingModel || isResetting}
+              />
+            )}
           {/* Scroll to bottom */}
           <TooltipProvider>
             <Tooltip>

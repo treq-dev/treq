@@ -84,9 +84,10 @@ export const TaskInputToolbar: React.FC<TaskInputToolbarProps> = ({
           <option value="claude">Claude</option>
           <option value="codex">Codex</option>
           <option value="cursor">Cursor</option>
+          <option value="copilot">Copilot</option>
         </select>
       </div>
-      {selectedAgent !== "codex" && (
+      {selectedAgent !== "codex" && selectedAgent !== "copilot" && (
         <Button
           size="sm"
           variant="secondary"
