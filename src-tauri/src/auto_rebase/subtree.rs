@@ -180,7 +180,7 @@ pub fn rebase_root_subtree_from_workspace_force(
 
 #[cfg(test)]
 mod tests {
-  use super::resolve_rooted_subtree_ordered;
+  use super::{format_workspace_rebase_message, resolve_rooted_subtree_ordered};
   use crate::local_db::Workspace;
 
   fn ws(id: i64, branch: &str, target: Option<&str>) -> Workspace {
@@ -219,5 +219,28 @@ mod tests {
     let branches_from_c: Vec<String> = from_c.into_iter().map(|w| w.branch_name).collect();
     assert_eq!(branches_from_b, vec!["A", "B", "C", "D"]);
     assert_eq!(branches_from_c, vec!["A", "B", "C", "D"]);
+  }
+
+  #[test]
+  fn omits_noop_rebase_and_deferred_refresh_details() {
+    let message = format_workspace_rebase_message(
+      "fix-agent-terminal-escaping",
+      "Skipped rebase of 1 commits already in place",
+    );
+
+    assert_eq!(message, None);
+  }
+
+  #[test]
+  fn preserves_actual_rebase_details_without_deferred_refresh_note() {
+    let message = format_workspace_rebase_message(
+      "fix-agent-terminal-escaping",
+      "Rebased 1 commits to destination\nSkipped rebase of 2 commits already in place",
+    );
+
+    assert_eq!(
+      message,
+      Some("Workspace 'fix-agent-terminal-escaping': Rebased 1 commits to destination".to_string())
+    );
   }
 }
