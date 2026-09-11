@@ -741,11 +741,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
       : undefined,
   );
 
-  useEffect(() => {
-    void useRemoteCutoffStore.getState().startListening();
-    return () => useRemoteCutoffStore.getState().stopListening();
-  }, []);
-
   useRemoteChangeMarkerWatch(
     isRemoteActive ? activeRepository : null,
     selectedWorkspace?.id ?? null,
