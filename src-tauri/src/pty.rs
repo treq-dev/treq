@@ -626,7 +626,8 @@ impl PtyManager {
         .filter(|(_, session)| session.window_label.as_deref() == Some(window_label))
         .map(|(id, _)| id.clone())
         .collect();
-      ids.into_iter()
+      ids
+        .into_iter()
         .filter_map(|id| sessions.remove(&id))
         .collect()
     };
