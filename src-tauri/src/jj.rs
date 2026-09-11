@@ -6853,7 +6853,7 @@ pub fn jj_get_home_repo_diverged_log(
     .cloned()
     .collect();
 
-  let immutable_revset_expr = format!("::{}", &target_sym);
+  let immutable_revset_expr = format!("::{target_sym}");
   let immutable_revset = evaluate_revset(&loaded, &immutable_revset_expr)?;
   let is_immutable = immutable_revset.containing_fn();
 
