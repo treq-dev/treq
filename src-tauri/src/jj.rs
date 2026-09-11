@@ -8776,8 +8776,8 @@ mod tests {
       "precondition: HEAD should be detached before repair"
     );
 
-    let repaired = repair_detached_home_head_at_default_branch(repo_path)
-      .expect("repair should not error");
+    let repaired =
+      repair_detached_home_head_at_default_branch(repo_path).expect("repair should not error");
 
     assert_eq!(
       repaired,
