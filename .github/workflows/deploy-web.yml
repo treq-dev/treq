@@ -204,8 +204,8 @@ jobs:
 
   lighthouse:
     runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'pull_request'
+    needs: [detect-web-changes, build]
+    if: github.event_name == 'pull_request' && needs.detect-web-changes.outputs.web == 'true'
     defaults:
       run:
         working-directory: ${{ github.workspace }}
