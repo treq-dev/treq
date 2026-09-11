@@ -97,7 +97,7 @@ mod tests {
 
   #[test]
   fn resolve_app_db_path_prefers_explicit_db_path() {
-    let _guard = env_lock().lock_or_recover();
+    let _guard = env_lock().lock().unwrap();
     std::env::set_var("TREQ_APP_DB_PATH", "/tmp/explicit-treq.db");
     std::env::set_var("TREQ_APP_DATA_DIR", "/tmp/ignored-dir");
 
@@ -110,7 +110,7 @@ mod tests {
 
   #[test]
   fn resolve_app_db_path_falls_back_to_app_data_dir() {
-    let _guard = env_lock().lock_or_recover();
+    let _guard = env_lock().lock().unwrap();
     std::env::remove_var("TREQ_APP_DB_PATH");
     std::env::set_var("TREQ_APP_DATA_DIR", "/tmp/app-data");
 

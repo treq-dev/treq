@@ -1672,7 +1672,7 @@ mod tests {
 
   #[test]
   fn resolve_workspace_diff_conflict_marker_style_defaults_when_settings_table_missing() {
-    let _guard = env_lock().lock_or_recover();
+    let _guard = env_lock().lock().unwrap();
     let temp_dir = TempDir::new().expect("temp dir should be created");
     let db_path = temp_dir.path().join("treq.db");
     Connection::open(&db_path)
