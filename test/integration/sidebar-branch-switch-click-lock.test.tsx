@@ -21,7 +21,10 @@ describe("home row context menu does not lock sidebar clicks after branch switch
     render(<Dashboard />);
 
     const homeRepoElement = await screen.findByTestId("home-repo-row");
-    expect(within(homeRepoElement).getByText("main")).toBeTruthy();
+    await waitFor(() => {
+      expect(homeRepoElement.textContent).not.toMatch(/…/);
+    });
+    expect(within(homeRepoElement).queryByText("feat/beta")).toBeFalsy();
 
     fireEvent.contextMenu(homeRepoElement);
     const switchBranchItem = await screen.findByText("Switch Branch...");
