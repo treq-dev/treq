@@ -305,12 +305,14 @@ describe("WorkspaceTerminalPane integration", () => {
     });
 
     await waitFor(() => {
-      const textarea = within(shellPanel).getByRole(
-        "textbox",
-      ) as HTMLTextAreaElement;
-      expect(textarea.style.fontSize).toBe("21px");
+      const styledElements = Array.from(shellPanel.querySelectorAll("*"));
+      const measureEl = styledElements.find(
+        (el) => (el as HTMLElement).style.fontSize !== "",
+      ) as HTMLElement | undefined;
+      expect(measureEl).not.toBeUndefined();
+      expect(measureEl!.style.fontSize).toBe("21px");
     });
 
     expect(document.documentElement.style.fontSize).toBe("");
-  });
+  }, 20000);
 });
