@@ -60,6 +60,7 @@ fn remote_pty_error_to_string(error: RemotePtyError) -> String {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn remote_pty_create(
   app: tauri::AppHandle,
   session_id: String,

@@ -333,17 +333,15 @@ pub fn resolve_alias_from_paths(
           }
         }
       }
-    } else if keyword.eq_ignore_ascii_case("identityfile") {
-      if !identity_set {
-        if value.trim().is_empty() {
-          return Err(SshConfigError::Malformed {
-            directive: "IdentityFile".to_string(),
-            detail: "value is empty".to_string(),
-          });
-        }
-        result.identity_file = Some(value.trim().to_string());
-        identity_set = true;
+    } else if keyword.eq_ignore_ascii_case("identityfile") && !identity_set {
+      if value.trim().is_empty() {
+        return Err(SshConfigError::Malformed {
+          directive: "IdentityFile".to_string(),
+          detail: "value is empty".to_string(),
+        });
       }
+      result.identity_file = Some(value.trim().to_string());
+      identity_set = true;
     }
     // Unrecognized directives are ignored rather than rejected: OpenSSH
     // itself tolerates keywords a given client build does not act on, and
@@ -528,7 +526,7 @@ mod tests {
     let dir = TempDir::new().unwrap();
     let config = write(&dir, "config", "Host !staging *\n  User everyone-else\n");
 
-    let error = resolve_alias_from_paths("staging", &[config.clone()]).unwrap_err();
+    let error = resolve_alias_from_paths("staging", std::slice::from_ref(&config)).unwrap_err();
     assert_eq!(error, SshConfigError::AliasNotFound("staging".to_string()));
 
     let resolved = resolve_alias_from_paths("prod", &[config]).unwrap();

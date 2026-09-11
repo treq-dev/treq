@@ -542,6 +542,7 @@ pub fn open_or_create_workspace_from_linear_issue(
 /// `symlinked_dirs` are paths relative to the repo root (e.g. `node_modules`). Each
 /// existing path is linked into the new workspace instead of being copied, so large
 /// dependency trees are shared with the home working copy.
+#[allow(clippy::too_many_arguments)]
 pub fn create_workspace_with_symlinked_dirs(
   repo_path: &str,
   branch_name: &str,
@@ -1232,7 +1233,7 @@ pub fn workspace_status(
 
   // Find direct children (workspaces where target_branch matches current.branch_name)
   let children: Vec<local_db::Workspace> =
-    local_db::get_workspaces_by_target_branch(&repo_path, &current_workspace.branch_name)
+    local_db::get_workspaces_by_target_branch(repo_path, &current_workspace.branch_name)
       .unwrap_or_default();
 
   let dag_nodes = Vec::new();

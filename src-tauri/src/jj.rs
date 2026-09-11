@@ -718,9 +718,8 @@ fn build_log_commit(
   let bookmarks: Vec<String> = repo
     .view()
     .local_bookmarks_for_commit(commit.id())
-    .filter_map(|(name, target)| {
-      (target.as_normal() == Some(commit.id())).then(|| name.as_str().to_string())
-    })
+    .filter(|&(_, target)| target.as_normal() == Some(commit.id()))
+    .map(|(name, _)| name.as_str().to_string())
     .collect();
   let is_immutable_val = is_immutable(commit.id()).unwrap_or(false);
   let has_conflicts = tree_override
@@ -1298,8 +1297,7 @@ pub fn ensure_jj_initialized(db: &crate::db::Database, repo_path: &str) -> Resul
 /// Sanitize workspace name for filesystem use
 pub fn sanitize_workspace_name(name: &str) -> String {
   name
-    .replace('/', "-")
-    .replace('\\', "-")
+    .replace(['/', '\\'], "-")
     .replace(['*', '?', '<', '>', '|', '"', ':'], "_")
     .trim_matches('.')
     .trim()
@@ -1617,8 +1615,11 @@ pub fn create_workspace(
 
   let mut tx = new_repo.start_transaction();
 
-  let parent_tree = block_on(merge_commit_trees(tx.repo(), &[source_commit.clone()]))
-    .map_err(|e| JjError::GitWorkspaceError(format!("Failed to merge trees: {}", e)))?;
+  let parent_tree = block_on(merge_commit_trees(
+    tx.repo(),
+    std::slice::from_ref(&source_commit),
+  ))
+  .map_err(|e| JjError::GitWorkspaceError(format!("Failed to merge trees: {}", e)))?;
 
   // Create new wc commit on top of source_commit (empty, inherits source tree)
   let new_wc = block_on(
@@ -2259,9 +2260,8 @@ fn branch_name_for_workspace_commit(
   let exact_bookmarks: Vec<String> = repo
     .view()
     .local_bookmarks_for_commit(wc_commit.id())
-    .filter_map(|(name, target)| {
-      (target.as_normal() == Some(wc_commit.id())).then(|| name.as_str().to_string())
-    })
+    .filter(|&(_, target)| target.as_normal() == Some(wc_commit.id()))
+    .map(|(name, _)| name.as_str().to_string())
     .collect();
   if let Some(name) = exact_bookmarks
     .iter()
@@ -2289,9 +2289,8 @@ fn branch_name_for_workspace_commit(
       repo
         .view()
         .local_bookmarks_for_commit(parent_id)
-        .filter_map(move |(name, target)| {
-          (target.as_normal() == Some(parent_id)).then(|| name.as_str().to_string())
-        })
+        .filter(move |&(_, target)| target.as_normal() == Some(parent_id))
+        .map(|(name, _)| name.as_str().to_string())
     })
     .collect();
   if let Some(name) = parent_bookmarks
@@ -3343,7 +3342,7 @@ pub fn reconcile_all_workspaces_after_rewrite(
     .to_string_lossy()
     .into_owned();
 
-  for (workspace_name, _wc_commit_id) in repo.view().wc_commit_ids() {
+  for workspace_name in repo.view().wc_commit_ids().keys() {
     let ws_name_str = workspace_name.as_str();
 
     // Skip the workspace whose checkout was already handled by the caller.
@@ -4702,7 +4701,7 @@ pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError>
         .as_normal()
         .cloned();
       let wc_only_parent_root =
-        wc_pre.parent_ids().len() == 1 && wc_pre.parent_ids().first() == Some(&root_id);
+        wc_pre.parent_ids().len() == 1 && wc_pre.parent_ids().first() == Some(root_id);
       if wc_only_parent_root {
         if let Some(branch_tip_id) = branch_bookmark_target {
           if branch_tip_id != *wc_pre.id() {
@@ -4771,9 +4770,8 @@ pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError>
     .repo()
     .view()
     .local_bookmarks_for_commit(wc_commit.id())
-    .filter_map(|(name, target)| {
-      (target.as_normal() == Some(wc_commit.id())).then(|| name.to_owned())
-    })
+    .filter(|&(_, target)| target.as_normal() == Some(wc_commit.id()))
+    .map(|(name, _)| name.to_owned())
     .collect::<Vec<_>>();
 
   if repo_path_opt.is_none()
@@ -4998,7 +4996,7 @@ fn reset_git_index_to_head_with_gix(repo_path: &str) -> Result<(), String> {
 pub fn resolve_home_repo_branch(repo_path: &str) -> Result<String, JjError> {
   let git_branch = read_git_head_branch(repo_path)
     .map_err(|e| JjError::IoError(format!("Failed to determine branch: {}", e)))?;
-  return Ok(git_branch);
+  Ok(git_branch)
 }
 
 /// Split selected files from working copy into a new parent commit
@@ -5884,7 +5882,7 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
   let remote_ref = tx.repo().view().get_remote_bookmark(remote_symbol);
   let update = match classify_ref_push_action(LocalAndRemoteRef {
     local_target: &local_target,
-    remote_ref: &remote_ref,
+    remote_ref,
   }) {
     RefPushAction::Update(update) => Some(update),
     RefPushAction::AlreadyMatches => None,
@@ -5911,7 +5909,7 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
     let _ = git::push_refs(
       tx.repo_mut(),
       git_settings.to_subprocess_options(),
-      &RemoteName::new("origin"),
+      RemoteName::new("origin"),
       &targets,
       &mut callback,
       &git::GitPushOptions::default(),
@@ -6652,9 +6650,7 @@ pub fn jj_get_log(
       .map(|(commit_id, tree)| (commit_id, tree)),
     &is_immutable,
   );
-  let tentative_working_copy = if is_home {
-    None
-  } else if jj_is_working_copy_empty(workspace_path)? {
+  let tentative_working_copy = if is_home || jj_is_working_copy_empty(workspace_path)? {
     None
   } else {
     get_workspace_wc_commit(&loaded).map(|wc_commit| {
@@ -6732,8 +6728,8 @@ pub fn jj_get_target_branch_log(
   let mut commits: Vec<_> = commits
     .into_iter()
     .filter(|commit| {
-      !wc_commit_ids.contains(commit.id())
-        && !(commit_description_first_line(commit) == "(no description)"
+      !(wc_commit_ids.contains(commit.id())
+        || commit_description_first_line(commit) == "(no description)"
           && loaded
             .repo
             .view()
@@ -8093,6 +8089,7 @@ pub fn jj_new_with_parents(
 /// 1. Resolve workspace and target branch tips and create a two-parent merge commit
 /// 2. Check out a fresh working-copy commit on top
 /// 3. jj bookmark set target_branch -r @- - move target_branch to merge commit
+///
 /// This is executed in the context of the workspace directory, @ refers to workspace HEAD
 pub fn jj_create_merge_commit(
   workspace_path: &str,

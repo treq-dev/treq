@@ -203,6 +203,7 @@ impl RemotePtyManager {
   /// background task with each output chunk (never logged by this module);
   /// `on_exit` is invoked exactly once when the remote process/channel ends,
   /// with the exit status if one was observed.
+  #[allow(clippy::too_many_arguments)]
   pub async fn create(
     &self,
     binding: RemotePtyBinding,

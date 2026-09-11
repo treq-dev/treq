@@ -1091,8 +1091,7 @@ pub fn get_cached_commit_diff_stats_batch(
     return Ok(HashMap::new());
   }
   let conn = get_connection(repo_path)?;
-  let placeholders = std::iter::repeat("?")
-    .take(commit_ids.len())
+  let placeholders = std::iter::repeat_n("?", commit_ids.len())
     .collect::<Vec<_>>()
     .join(",");
   let sql = format!(
@@ -1131,6 +1130,7 @@ pub fn get_cached_commit_diff_stats_batch(
   Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn cache_commit_row(
   repo_path: &str,
   commit_id: &str,
@@ -1838,6 +1838,7 @@ pub fn get_prompt_history(repo_path: &str) -> Result<Vec<PromptHistoryEntry>, St
 }
 
 /// Persist a newly created stash entry.
+#[allow(clippy::too_many_arguments)]
 pub fn add_stash(
   repo_path: &str,
   workspace_id: Option<i64>,
@@ -3556,7 +3557,7 @@ mod tests {
             ))
           },
         )
-        .expect(&format!("Should find pending review for workspace {}", i));
+        .unwrap_or_else(|e| panic!("Should find pending review for workspace {}: {}", i, e));
 
       assert_eq!(
         review.0,
@@ -3776,6 +3777,7 @@ pub fn create_workflow_run(
   Ok(conn.last_insert_rowid())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn add_workflow_job_result(
   repo_path: &str,
   run_id: i64,

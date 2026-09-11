@@ -196,27 +196,28 @@ mod tests {
   #[test]
   fn resolves_focused_before_recency() {
     let repo = normalize_repo_path("/tmp/repo");
-    let mut instances = vec![];
-    instances.push(make_instance(
-      "a",
-      10,
-      vec![InstanceWindowSnapshot {
-        window_label: "w1".to_string(),
-        normalized_repo_path: repo.clone(),
-        focused: false,
-        last_focused_at: Some(100),
-      }],
-    ));
-    instances.push(make_instance(
-      "b",
-      10,
-      vec![InstanceWindowSnapshot {
-        window_label: "w2".to_string(),
-        normalized_repo_path: repo,
-        focused: true,
-        last_focused_at: Some(50),
-      }],
-    ));
+    let instances = vec![
+      make_instance(
+        "a",
+        10,
+        vec![InstanceWindowSnapshot {
+          window_label: "w1".to_string(),
+          normalized_repo_path: repo.clone(),
+          focused: false,
+          last_focused_at: Some(100),
+        }],
+      ),
+      make_instance(
+        "b",
+        10,
+        vec![InstanceWindowSnapshot {
+          window_label: "w2".to_string(),
+          normalized_repo_path: repo,
+          focused: true,
+          last_focused_at: Some(50),
+        }],
+      ),
+    ];
 
     let selected = resolve_target_instance(&instances, "/tmp/repo").unwrap();
     assert_eq!(selected.instance_id, "b");
