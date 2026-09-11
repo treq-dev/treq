@@ -81,8 +81,32 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-22.04
-            kind: verify
-            task: verify
+            kind: verify-js
+            task: check
+            timeout-minutes: 15
+          - platform: ubuntu-22.04
+            kind: verify-js
+            task: check:format
+            timeout-minutes: 15
+          - platform: ubuntu-22.04
+            kind: verify-js
+            task: lint
+            timeout-minutes: 15
+          - platform: ubuntu-22.04
+            kind: verify-js
+            task: knip
+            timeout-minutes: 15
+          - platform: ubuntu-22.04
+            kind: verify-rust
+            task: fmt
+            timeout-minutes: 15
+          - platform: ubuntu-22.04
+            kind: verify-rust
+            task: check
+            timeout-minutes: 15
+          - platform: ubuntu-22.04
+            kind: verify-rust
+            task: clippy
             timeout-minutes: 15
           # Unit tests: mocked Tauri, no NAPI/jj. Parallel file execution.
           - platform: ubuntu-22.04
@@ -109,10 +133,11 @@ jobs:
 
     name: ${{ matrix.kind }} / ${{ matrix.task }} / ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
-    # Rust-only jobs are skipped entirely when the diff doesn't touch
-    # src-tauri or its Cargo files; verify/js jobs still run (see the
-    # "Run Rust task" step below for how verify's rust checks are gated).
-    if: matrix.kind != 'rust' || needs.detect-rust-changes.outputs.rust_changed == 'true'
+    # Rust-only jobs (including the per-check verify-rust jobs) are skipped
+    # entirely when the diff doesn't touch src-tauri or its Cargo files.
+    if: >
+      (matrix.kind != 'rust' && matrix.kind != 'verify-rust') ||
+      needs.detect-rust-changes.outputs.rust_changed == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -144,7 +169,7 @@ jobs:
         # the prebuilt .node addon was restored from cache.
         if: >
           matrix.kind == 'rust' ||
-          matrix.kind == 'verify' ||
+          matrix.kind == 'verify-rust' ||
           (matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true')
         uses: dtolnay/rust-toolchain@v1
         with:
@@ -164,7 +189,7 @@ jobs:
         if: >
           matrix.platform == 'ubuntu-22.04' && (
             matrix.kind == 'rust' ||
-            matrix.kind == 'verify' ||
+            matrix.kind == 'verify-rust' ||
             matrix.task == 'test:integration'
           )
         uses: awalsh128/cache-apt-pkgs-action@v1.6.1
@@ -266,6 +291,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: >
           matrix.kind == 'rust' ||
+          matrix.kind == 'verify-rust' ||
           (matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true')
         with:
           cache-on-failure: true
@@ -290,34 +316,34 @@ jobs:
           key: ${{ steps.napi-cache.outputs.cache-primary-key }}
 
       - name: Run JS task
-        if: matrix.kind == 'js' || matrix.kind == 'verify'
+        if: matrix.kind == 'js' || matrix.kind == 'verify-js'
         run: |
-          if [ "${{ matrix.kind }}" = "verify" ] || [ "${{ matrix.task }}" = "verify" ]; then
-            npm run check
-            npm run check:format
-            npm run lint
-            npm run knip
-          elif [ "${{ matrix.task }}" = "test:integration" ]; then
+          if [ "${{ matrix.task }}" = "test:integration" ]; then
             npm run test:integration:run
           else
             npm run ${{ matrix.task }}
           fi
 
       - name: Run Rust task
-        if: >
-          matrix.kind == 'rust' ||
-          (matrix.kind == 'verify' && needs.detect-rust-changes.outputs.rust_changed == 'true')
+        if: matrix.kind == 'rust' || matrix.kind == 'verify-rust'
         working-directory: src-tauri
         env:
           RUST_BACKTRACE: 1
         run: |
-          if [ "${{ matrix.kind }}" = "verify" ] || [ "${{ matrix.task }}" = "verify" ]; then
-            cargo fmt --check
-            cargo check --locked
-            cargo clippy --locked --all-targets --all-features -- -D warnings
-          else
-            cargo nextest run --locked --no-fail-fast
-          fi
+          case "${{ matrix.task }}" in
+            fmt)
+              cargo fmt --check
+              ;;
+            check)
+              cargo check --locked
+              ;;
+            clippy)
+              cargo clippy --locked --all-targets --all-features -- -D warnings
+              ;;
+            *)
+              cargo nextest run --locked --no-fail-fast
+              ;;
+          esac
 
   # Windows rust tests are slow (45m) and only ever catch bugs in code that
   # branches on the Windows target, so they're gated on detect-windows-changes
