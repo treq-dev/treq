@@ -55,7 +55,26 @@ jobs:
             echo "windows_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
+  detect-rust-changes:
+    name: detect rust changes
+    runs-on: ubuntu-22.04
+    outputs:
+      rust_changed: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for src-tauri/Cargo changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            rust:
+              - "src-tauri/**"
+              - "crates/tauri-test-macros/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+
   ci:
+    needs: detect-rust-changes
     timeout-minutes: ${{ matrix.timeout-minutes }}
     strategy:
       fail-fast: false
@@ -90,6 +109,10 @@ jobs:
 
     name: ${{ matrix.kind }} / ${{ matrix.task }} / ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
+    # Rust-only jobs are skipped entirely when the diff doesn't touch
+    # src-tauri or its Cargo files; verify/js jobs still run (see the
+    # "Run Rust task" step below for how verify's rust checks are gated).
+    if: matrix.kind != 'rust' || needs.detect-rust-changes.outputs.rust_changed == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -281,7 +304,9 @@ jobs:
           fi
 
       - name: Run Rust task
-        if: matrix.kind == 'rust' || matrix.kind == 'verify'
+        if: >
+          matrix.kind == 'rust' ||
+          (matrix.kind == 'verify' && needs.detect-rust-changes.outputs.rust_changed == 'true')
         working-directory: src-tauri
         env:
           RUST_BACKTRACE: 1
