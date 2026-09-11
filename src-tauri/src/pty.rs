@@ -165,6 +165,12 @@ pub struct PtySession {
   master: Box<dyn MasterPty + Send>,
   child: Box<dyn Child + Send>,
   auto_command: Arc<Mutex<Option<String>>>,
+  /// Label of the Tauri window that opened this session, so a window's own
+  /// teardown can close only its own PTYs (`close_all_for_window`) without
+  /// touching another window's terminals. Not required to be set: sessions
+  /// created without a caller-facing window (tests, and any future
+  /// non-window caller) simply never match a window-scoped close.
+  window_label: Option<String>,
 }
 
 /// Windows shells (PowerShell/cmd) submit a line on carriage return; a bare `\n`
@@ -263,6 +269,7 @@ impl PtyManager {
   pub fn create_session(
     &self,
     session_id: String,
+    window_label: Option<String>,
     working_dir: Option<String>,
     shell: Option<String>,
     shell_args: Vec<String>,
@@ -280,6 +287,7 @@ impl PtyManager {
     }
     let result = self.create_session_inner(
       session_id.clone(),
+      window_label,
       working_dir,
       shell,
       shell_args,
@@ -291,9 +299,11 @@ impl PtyManager {
     result
   }
 
+  #[allow(clippy::too_many_arguments)]
   fn create_session_inner(
     &self,
     session_id: String,
+    window_label: Option<String>,
     working_dir: Option<String>,
     shell: Option<String>,
     shell_args: Vec<String>,
@@ -386,6 +396,7 @@ impl PtyManager {
           master,
           child,
           auto_command,
+          window_label,
         },
       );
     }
@@ -603,6 +614,27 @@ impl PtyManager {
     }
   }
 
+  /// Terminates every session opened by the given window, leaving other
+  /// windows' sessions untouched. Sessions created with no window label
+  /// (tests, or any caller outside the normal Tauri command path) never
+  /// match and are never closed by this.
+  pub fn close_all_for_window(&self, window_label: &str) {
+    let drained: Vec<PtySession> = {
+      let mut sessions = self.sessions.lock().unwrap();
+      let ids: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.window_label.as_deref() == Some(window_label))
+        .map(|(id, _)| id.clone())
+        .collect();
+      ids.into_iter()
+        .filter_map(|id| sessions.remove(&id))
+        .collect()
+    };
+    for mut session in drained {
+      let _ = session.shutdown();
+    }
+  }
+
   pub fn set_auto_command(&self, session_id: &str, command: &str) -> Result<(), String> {
     let sessions = self.sessions.lock().unwrap();
     if let Some(session) = sessions.get(session_id) {
@@ -661,6 +693,7 @@ mod tests {
       .create_session(
         "duplicate".into(),
         None,
+        None,
         shell(),
         Vec::new(),
         None,
@@ -671,6 +704,7 @@ mod tests {
 
     let duplicate = manager.create_session(
       "duplicate".into(),
+      None,
       None,
       shell(),
       Vec::new(),
@@ -690,6 +724,7 @@ mod tests {
     manager
       .create_session(
         "eof".into(),
+        None,
         None,
         shell(),
         Vec::new(),
@@ -721,6 +756,7 @@ mod tests {
         .create_session(
           id.into(),
           None,
+          None,
           shell(),
           Vec::new(),
           None,
@@ -738,6 +774,56 @@ mod tests {
     assert!(!manager.session_exists("close-all-b"));
   }
 
+  #[test]
+  fn close_all_for_window_only_closes_that_windows_sessions() {
+    let manager = PtyManager::new();
+    manager
+      .create_session(
+        "win-a-1".into(),
+        Some("window-a".into()),
+        None,
+        shell(),
+        Vec::new(),
+        None,
+        None,
+        Box::new(|_| {}),
+      )
+      .unwrap();
+    manager
+      .create_session(
+        "win-b-1".into(),
+        Some("window-b".into()),
+        None,
+        shell(),
+        Vec::new(),
+        None,
+        None,
+        Box::new(|_| {}),
+      )
+      .unwrap();
+    manager
+      .create_session(
+        "no-window".into(),
+        None,
+        None,
+        shell(),
+        Vec::new(),
+        None,
+        None,
+        Box::new(|_| {}),
+      )
+      .unwrap();
+
+    manager.close_all_for_window("window-a");
+
+    assert!(!manager.session_exists("win-a-1"));
+    assert!(manager.session_exists("win-b-1"));
+    assert!(manager.session_exists("no-window"));
+
+    manager.close_session("win-b-1").unwrap();
+    manager.close_session("no-window").unwrap();
+  }
+
   #[cfg(unix)]
   #[test]
   fn close_session_terminates_background_descendants() {
@@ -746,6 +832,7 @@ mod tests {
     manager
       .create_session(
         "descendant".into(),
+        None,
         None,
         shell(),
         Vec::new(),
@@ -807,6 +894,7 @@ mod tests {
       .create_session(
         "prompt".into(),
         None,
+        None,
         shell(),
         Vec::new(),
         Some("printf ready".into()),
@@ -835,6 +923,7 @@ mod tests {
     manager
       .create_session(
         "bounded-filter".into(),
+        None,
         None,
         shell(),
         Vec::new(),
