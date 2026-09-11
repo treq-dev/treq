@@ -771,7 +771,11 @@ fn get_connection(repo_path: &str) -> Result<Connection, String> {
   }
 
   let db_path = get_local_db_path(repo_path);
-  Connection::open(db_path).map_err(|e| format!("Failed to open local db: {}", e))
+  let conn = Connection::open(db_path).map_err(|e| format!("Failed to open local db: {}", e))?;
+  conn
+    .pragma_update(None, "foreign_keys", true)
+    .map_err(|e| format!("Failed to enable foreign key enforcement: {}", e))?;
+  Ok(conn)
 }
 
 pub fn upsert_instance_registry(
