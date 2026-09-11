@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -558,7 +559,7 @@ pub fn create_workspace_with_symlinked_dirs(
   // auto-rebases. Keep the guard through JJ creation and DB registration so
   // an in-process retry cannot observe a half-registered workspace.
   let repo_mutation_lock = commit_lock_for_repo(repo_path);
-  let _repo_mutation_guard = repo_mutation_lock.lock().unwrap();
+  let _repo_mutation_guard = repo_mutation_lock.lock_or_recover();
 
   if local_db::get_workspace_by_branch(repo_path, branch_name)
     .map_err(|e| format!("Failed to check existing workspace: {e}"))?
@@ -3198,7 +3199,7 @@ pub fn check_and_rebase_workspaces(
   // share one operation store across all workspaces, so serialize these history rewrites with
   // commits to prevent stale operations, competing checkouts, and conflicted bookmarks.
   let repo_commit_lock = commit_lock_for_repo(repo_path);
-  let _repo_commit_guard = repo_commit_lock.lock().unwrap();
+  let _repo_commit_guard = repo_commit_lock.lock_or_recover();
 
   if let Some(id) = workspace_id {
     let default_branch = default_branch.unwrap_or_else(|| "main".to_string());
@@ -3320,7 +3321,7 @@ where
 {
   let workspace_id = workspace_id.into();
   let repo_commit_lock = commit_lock_for_repo(repo_path);
-  let _repo_commit_guard = repo_commit_lock.lock().unwrap();
+  let _repo_commit_guard = repo_commit_lock.lock_or_recover();
   let workspace_root = resolve_workspace_root(repo_path, workspace_id)?;
   let (committed_branch, target_branch) = if let Some(id) = workspace_id {
     let workspace = local_db::get_workspace_by_id(repo_path, id)

@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -171,7 +172,7 @@ impl PtyManager {
     callback: Box<dyn Fn(String) + Send + 'static>,
   ) -> Result<(), String> {
     {
-      let mut creating = self.creating.lock().unwrap();
+      let mut creating = self.creating.lock_or_recover();
       if !creating.insert(session_id.clone()) {
         return Err(format!(
           "PTY session creation already in progress: {session_id}"
@@ -187,7 +188,7 @@ impl PtyManager {
       suppress_echo_for,
       callback,
     );
-    self.creating.lock().unwrap().remove(&session_id);
+    self.creating.lock_or_recover().remove(&session_id);
     result
   }
 
@@ -202,7 +203,7 @@ impl PtyManager {
     callback: Box<dyn Fn(String) + Send + 'static>,
   ) -> Result<(), String> {
     let stale = {
-      let mut sessions = self.sessions.lock().unwrap();
+      let mut sessions = self.sessions.lock_or_recover();
       match sessions.get_mut(&session_id) {
         Some(session) => match session.child.try_wait() {
           Ok(Some(_)) => sessions.remove(&session_id),
@@ -277,7 +278,7 @@ impl PtyManager {
 
     // Store session with master for resizing
     {
-      let mut sessions = self.sessions.lock().unwrap();
+      let mut sessions = self.sessions.lock_or_recover();
       sessions.insert(
         session_id.clone(),
         PtySession {
@@ -333,7 +334,7 @@ impl PtyManager {
             // attached, so answer it here with a fixed position to unblock the child.
             const CURSOR_POS_QUERY: &str = "\x1b[6n";
             if cfg!(windows) && data.contains(CURSOR_POS_QUERY) {
-              let mut sessions = reader_sessions.lock().unwrap();
+              let mut sessions = reader_sessions.lock_or_recover();
               if let Some(session) = sessions.get_mut(&reader_session_id) {
                 let _ = session.write(b"\x1b[1;1R");
               }
@@ -346,7 +347,7 @@ impl PtyManager {
 
             // Check if filtering is active
             let filter_cmd = {
-              let guard = auto_command_reader.lock().unwrap();
+              let guard = auto_command_reader.lock_or_recover();
               guard.clone()
             };
 
@@ -368,7 +369,7 @@ impl PtyManager {
                 callback(suppressed_tail[start..].to_string());
                 suppressed_tail.clear();
                 line_buffer.clear();
-                *auto_command_reader.lock().unwrap() = None;
+                *auto_command_reader.lock_or_recover() = None;
                 continue;
               }
             }
@@ -403,7 +404,7 @@ impl PtyManager {
               if non_matching_lines_emitted >= FILTER_STOP_THRESHOLD {
                 {
                   // Stop filtering by clearing the auto_command
-                  let mut guard = auto_command_reader.lock().unwrap();
+                  let mut guard = auto_command_reader.lock_or_recover();
                   *guard = None;
                 }
                 if !line_buffer.is_empty() {
@@ -418,7 +419,7 @@ impl PtyManager {
         }
       }
       let removed = {
-        let mut sessions = reader_sessions.lock().unwrap();
+        let mut sessions = reader_sessions.lock_or_recover();
         if sessions.get(&reader_session_id).map(|s| s.generation) == Some(generation) {
           sessions.remove(&reader_session_id)
         } else {
@@ -449,7 +450,7 @@ impl PtyManager {
     generation: u64,
     data: &str,
   ) -> Result<(), String> {
-    let mut sessions = self.sessions.lock().unwrap();
+    let mut sessions = self.sessions.lock_or_recover();
     match sessions.get_mut(session_id) {
       Some(session) if session.generation == generation => {
         session.write(data.as_bytes()).map_err(|e| e.to_string())
@@ -459,7 +460,7 @@ impl PtyManager {
   }
 
   pub fn write_to_session(&self, session_id: &str, data: &str) -> Result<(), String> {
-    let mut sessions = self.sessions.lock().unwrap();
+    let mut sessions = self.sessions.lock_or_recover();
     if let Some(session) = sessions.get_mut(session_id) {
       session.write(data.as_bytes()).map_err(|e| e.to_string())
     } else {
@@ -468,7 +469,7 @@ impl PtyManager {
   }
 
   pub fn resize_session(&self, session_id: &str, rows: u16, cols: u16) -> Result<(), String> {
-    let mut sessions = self.sessions.lock().unwrap();
+    let mut sessions = self.sessions.lock_or_recover();
     if let Some(session) = sessions.get_mut(session_id) {
       session.resize(rows, cols).map_err(|e| e.to_string())
     } else {
@@ -478,7 +479,7 @@ impl PtyManager {
 
   pub fn close_session(&self, session_id: &str) -> Result<(), String> {
     let mut session = {
-      let mut sessions = self.sessions.lock().unwrap();
+      let mut sessions = self.sessions.lock_or_recover();
       sessions.remove(session_id)
     };
 
@@ -504,9 +505,9 @@ impl PtyManager {
   }
 
   pub fn set_auto_command(&self, session_id: &str, command: &str) -> Result<(), String> {
-    let sessions = self.sessions.lock().unwrap();
+    let sessions = self.sessions.lock_or_recover();
     if let Some(session) = sessions.get(session_id) {
-      let mut guard = session.auto_command.lock().unwrap();
+      let mut guard = session.auto_command.lock_or_recover();
       *guard = Some(command.to_string());
       Ok(())
     } else {
@@ -516,7 +517,7 @@ impl PtyManager {
 
   pub fn session_exists(&self, session_id: &str) -> bool {
     let stale = {
-      let mut sessions = self.sessions.lock().unwrap();
+      let mut sessions = self.sessions.lock_or_recover();
       match sessions.get_mut(session_id) {
         Some(session) => match session.child.try_wait() {
           Ok(None) => return true,
@@ -533,7 +534,7 @@ impl PtyManager {
 
   #[doc(hidden)]
   pub fn session_process_id(&self, session_id: &str) -> Option<u32> {
-    let sessions = self.sessions.lock().unwrap();
+    let sessions = self.sessions.lock_or_recover();
     sessions
       .get(session_id)
       .and_then(|session| session.process_id())
