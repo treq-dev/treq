@@ -158,7 +158,7 @@ pub fn list_workflows_sync(repo_path: &str) -> Result<Vec<WorkflowInfo>, String>
       .into_iter()
       .map(|(id, def)| JobInfo {
         id: id.clone(),
-        name: def.name.unwrap_or_else(|| id),
+        name: def.name.unwrap_or(id),
         steps: def
           .steps
           .into_iter()

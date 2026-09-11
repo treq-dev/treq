@@ -200,7 +200,7 @@ fn is_safe_agent_cli_temp_path(canonical: &Path, temp_dir: &Path) -> bool {
   canonical.starts_with(temp_dir) && file_name.starts_with(FILE_PREFIX)
 }
 
-fn path_to_string(path: &PathBuf) -> String {
+fn path_to_string(path: &Path) -> String {
   path.to_string_lossy().into_owned()
 }
 
@@ -406,6 +406,9 @@ mod tests {
     let result = write_agent_cli_files("prompt", None, cwd_path.to_str());
 
     let mut perms = fs::metadata(&cwd_path).expect("metadata").permissions();
+    // Restore write access so the tempdir can clean itself up; this is test
+    // teardown, not a security-relevant permission change.
+    #[allow(clippy::permissions_set_readonly_false)]
     perms.set_readonly(false);
     let _ = fs::set_permissions(&cwd_path, perms);
 

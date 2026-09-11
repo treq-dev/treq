@@ -178,15 +178,9 @@ impl Default for LinearStateData {
   }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct LinearLabelsConnection {
   nodes: Vec<LinearLabelNode>,
-}
-
-impl Default for LinearLabelsConnection {
-  fn default() -> Self {
-    Self { nodes: vec![] }
-  }
 }
 
 #[derive(Deserialize)]
@@ -199,15 +193,9 @@ struct LinearParent {
   id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct LinearSubIssuesConnection {
   nodes: Vec<LinearSubIssueNode>,
-}
-
-impl Default for LinearSubIssuesConnection {
-  fn default() -> Self {
-    Self { nodes: vec![] }
-  }
 }
 
 #[derive(Deserialize)]
@@ -831,6 +819,7 @@ pub struct LinearAutoKickoffPoller {
 }
 
 impl LinearAutoKickoffPoller {
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     Self {
       inner: Arc::new(LinearAutoKickoffInner {

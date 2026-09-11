@@ -211,7 +211,7 @@ impl PtySession {
         pixel_width: 0,
         pixel_height: 0,
       })
-      .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+      .map_err(std::io::Error::other)
   }
 
   fn shutdown(&mut self) -> Result<(), String> {
@@ -259,6 +259,7 @@ pub struct PtyManager {
 }
 
 impl PtyManager {
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     PtyManager {
       sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -267,6 +268,7 @@ impl PtyManager {
     }
   }
 
+  #[allow(clippy::too_many_arguments)]
   pub fn create_session(
     &self,
     session_id: String,

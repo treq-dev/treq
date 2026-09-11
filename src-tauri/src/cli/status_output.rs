@@ -135,7 +135,7 @@ pub(crate) fn print_workspace_partial_status(
   } else {
     ""
   };
-  println!("  {} {}{}", "●", status.current.branch_name, flags);
+  println!("  ● {}{}", status.current.branch_name, flags);
   for line in format_workspace_metadata_lines(&status.current, "    ") {
     println!("{line}");
   }

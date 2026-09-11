@@ -289,7 +289,7 @@ jobs:
           if [ "${{ matrix.kind }}" = "verify" ] || [ "${{ matrix.task }}" = "verify" ]; then
             cargo fmt --check
             cargo check --locked
-            cargo clippy --locked --all-targets --all-features
+            cargo clippy --locked --all-targets --all-features -- -D warnings
           else
             cargo nextest run --locked --no-fail-fast
           fi
