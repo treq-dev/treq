@@ -12,8 +12,25 @@ on:
       - ".github/workflows/cli-binary.yml"
 
 jobs:
+  detect-rust-changes:
+    name: detect rust changes
+    runs-on: ubuntu-22.04
+    outputs:
+      rust_changed: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for src-tauri changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            rust:
+              - "src-tauri/**"
+
   sandboxed-cli:
     name: Sandboxed macOS CLI
+    needs: detect-rust-changes
+    if: needs.detect-rust-changes.outputs.rust_changed == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
