@@ -1,6 +1,7 @@
 use crate::core::checks_logs::{
   infer_level, job_log_relative_path, make_log_line, now_timestamp, strip_ansi, LogWriter,
 };
+use crate::lock_ext::LockExt;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -525,7 +526,7 @@ fn maybe_autosave_on_pass(repo_path: &str, workspace_path: &str) {
     return;
   }
   let lock = crate::core::repo::commit_lock_for_repo(repo_path);
-  let _guard = lock.lock().unwrap();
+  let _guard = lock.lock_or_recover();
   let Ok(changes) = crate::jj::jj_get_changed_files(workspace_path) else {
     return;
   };

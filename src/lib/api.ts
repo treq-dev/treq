@@ -1,6 +1,5 @@
 /* eslint-disable max-lines */
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { InstalledSkill, RepoYamlConfig } from "./api-extra";
 import type {
   BookmarkConflictResolutionResult,
@@ -46,14 +45,7 @@ import {
   transportListRepoBranches,
   transportListWorkspaceStatuses,
 } from "./repository-adapter";
-
-function currentWindowLabel(): string {
-  try {
-    return getCurrentWindow()?.label ?? "main";
-  } catch {
-    return "main";
-  }
-}
+import { currentWindowLabel } from "./window-label";
 
 export * from "./api-browser";
 export * from "./api-checks-logs";

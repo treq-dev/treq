@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -558,7 +559,7 @@ pub fn create_workspace_with_symlinked_dirs(
   // auto-rebases. Keep the guard through JJ creation and DB registration so
   // an in-process retry cannot observe a half-registered workspace.
   let repo_mutation_lock = commit_lock_for_repo(repo_path);
-  let _repo_mutation_guard = repo_mutation_lock.lock().unwrap();
+  let _repo_mutation_guard = repo_mutation_lock.lock_or_recover();
 
   if local_db::get_workspace_by_branch(repo_path, branch_name)
     .map_err(|e| format!("Failed to check existing workspace: {e}"))?
@@ -914,7 +915,7 @@ pub fn push_workspace_to_remote(
   workspace_id: Option<i64>,
 ) -> Result<String, String> {
   // Determine the push path and target branch based on workspace_id
-  let (push_path, target_branch) = if let Some(id) = workspace_id {
+  let (push_path, branch_name, target_branch) = if let Some(id) = workspace_id {
     // For workspace, look up the path from database
     let workspace = local_db::get_workspace_by_id(repo_path, id)
       .map_err(|e| format!("Failed to get workspace: {}", e))?
@@ -931,13 +932,18 @@ pub fn push_workspace_to_remote(
       .target_branch
       .clone()
       .unwrap_or_else(|| "main".to_string());
-    (push_path, target_branch)
+    (push_path, workspace.branch_name, target_branch)
   } else {
     // For home repo, use repo_path directly
+    let branch_name = jj::resolve_home_repo_branch(repo_path)
+      .map_err(|e| format!("Failed to resolve home repo branch: {}", e))?;
     let target_branch = jj::get_default_branch(repo_path).unwrap_or_else(|_| "main".to_string());
-    (repo_path.to_string(), target_branch)
+    (repo_path.to_string(), branch_name, target_branch)
   };
 
+  // An ancestry-only merge cannot be abandoned cleanly while its bookmark still
+  // points at it: jj preserves both parents and turns the bookmark into a conflict.
+  let _ = jj::jj_collapse_empty_merge_tip(&push_path, &branch_name);
   // Ensure no empty commits reach the remote; best-effort, never blocks the push.
   let _ = jj::jj_abandon_empty_commits(&push_path, &target_branch);
 
@@ -3198,7 +3204,7 @@ pub fn check_and_rebase_workspaces(
   // share one operation store across all workspaces, so serialize these history rewrites with
   // commits to prevent stale operations, competing checkouts, and conflicted bookmarks.
   let repo_commit_lock = commit_lock_for_repo(repo_path);
-  let _repo_commit_guard = repo_commit_lock.lock().unwrap();
+  let _repo_commit_guard = repo_commit_lock.lock_or_recover();
 
   if let Some(id) = workspace_id {
     let default_branch = default_branch.unwrap_or_else(|| "main".to_string());
@@ -3320,7 +3326,7 @@ where
 {
   let workspace_id = workspace_id.into();
   let repo_commit_lock = commit_lock_for_repo(repo_path);
-  let _repo_commit_guard = repo_commit_lock.lock().unwrap();
+  let _repo_commit_guard = repo_commit_lock.lock_or_recover();
   let workspace_root = resolve_workspace_root(repo_path, workspace_id)?;
   let (committed_branch, target_branch) = if let Some(id) = workspace_id {
     let workspace = local_db::get_workspace_by_id(repo_path, id)

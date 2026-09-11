@@ -162,6 +162,11 @@ struct RemotePtySession {
   endpoint_id: String,
   channel: Arc<RemotePtyChannel>,
   closed: Arc<AtomicBool>,
+  /// Label of the Tauri window that opened this session, so
+  /// `close_all_for_window` can tear down only that window's sessions. Not
+  /// required to be set: sessions created with no window label (tests) simply
+  /// never match a window-scoped close.
+  window_label: Option<String>,
 }
 
 /// Identifying metadata a remote PTY session is bound to.
@@ -172,6 +177,7 @@ pub struct RemotePtyBinding {
   pub workspace_id: String,
   pub remote_working_directory: String,
   pub local_session_id: String,
+  pub window_label: Option<String>,
 }
 
 /// Manages native remote PTY sessions across endpoints. Reuses each
@@ -237,6 +243,7 @@ impl RemotePtyManager {
           endpoint_id: binding.endpoint_id.clone(),
           channel: channel.clone(),
           closed: closed.clone(),
+          window_label: binding.window_label.clone(),
         },
       );
     }
@@ -349,6 +356,29 @@ impl RemotePtyManager {
       let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
       sessions
         .iter()
+        .map(|(id, session)| (id.clone(), session.channel.clone(), session.closed.clone()))
+        .collect()
+    };
+    for (id, channel, closed) in to_close {
+      closed.store(true, Ordering::SeqCst);
+      let _ = channel.close().await;
+      self
+        .sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id);
+    }
+  }
+
+  /// Closes every session opened by the given window, leaving other
+  /// windows' (and other endpoints') sessions untouched. Sessions created
+  /// with no window label (tests) never match and are never closed by this.
+  pub async fn close_all_for_window(&self, window_label: &str) {
+    let to_close: Vec<(String, Arc<RemotePtyChannel>, Arc<AtomicBool>)> = {
+      let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+      sessions
+        .iter()
+        .filter(|(_, session)| session.window_label.as_deref() == Some(window_label))
         .map(|(id, session)| (id.clone(), session.channel.clone(), session.closed.clone()))
         .collect()
     };
@@ -577,6 +607,7 @@ mod tests {
       workspace_id: "workspace-1".to_string(),
       remote_working_directory: "/srv/project".to_string(),
       local_session_id: session_id.to_string(),
+      window_label: None,
     }
   }
 
@@ -1012,6 +1043,68 @@ mod tests {
 
     assert!(!manager.session_exists("close-all-a"));
     assert!(!manager.session_exists("close-all-b"));
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn close_all_for_window_only_closes_that_windows_sessions() {
+    let (addr, host_key) = start_echo_server().await;
+    let client_key = test_host_key();
+    let dir = tempfile::tempdir().unwrap();
+    let key_reference = write_client_key(dir.path(), &client_key);
+    let endpoint = test_endpoint("ep-window", addr, &host_key, key_reference);
+
+    let pool = Arc::new(SshConnectionPool::new());
+    let manager = RemotePtyManager::new(pool);
+    let (tx_a, rx_a) = mpsc::channel::<Vec<u8>>();
+    let (tx_b, rx_b) = mpsc::channel::<Vec<u8>>();
+
+    let binding_a = RemotePtyBinding {
+      window_label: Some("window-a".to_string()),
+      ..binding("ep-window", "win-a-1")
+    };
+    let binding_b = RemotePtyBinding {
+      window_label: Some("window-b".to_string()),
+      ..binding("ep-window", "win-b-1")
+    };
+
+    manager
+      .create(
+        binding_a,
+        &endpoint,
+        PtyLaunchSpec::Shell,
+        80,
+        24,
+        move |c| {
+          let _ = tx_a.send(c);
+        },
+        |_| {},
+      )
+      .await
+      .unwrap();
+    let _ = rx_a.recv_timeout(Duration::from_secs(2)).unwrap();
+
+    manager
+      .create(
+        binding_b,
+        &endpoint,
+        PtyLaunchSpec::Shell,
+        80,
+        24,
+        move |c| {
+          let _ = tx_b.send(c);
+        },
+        |_| {},
+      )
+      .await
+      .unwrap();
+    let _ = rx_b.recv_timeout(Duration::from_secs(2)).unwrap();
+
+    manager.close_all_for_window("window-a").await;
+
+    assert!(!manager.session_exists("win-a-1"));
+    assert!(manager.session_exists("win-b-1"));
+
+    manager.close("win-b-1").await.unwrap();
   }
 
   #[tokio::test]

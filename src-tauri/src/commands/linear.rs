@@ -2,6 +2,7 @@ use crate::linear::{
   LinearClientSource, LinearComment, LinearDocument, LinearIssue, LinearProject, LinearTeam,
   LinearUser,
 };
+use crate::lock_ext::LockExt;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -24,7 +25,7 @@ pub async fn linear_list_teams(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
@@ -47,7 +48,7 @@ pub async fn linear_list_issues(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
@@ -73,7 +74,7 @@ pub async fn linear_open_or_create_workspace_from_issue(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
@@ -90,7 +91,7 @@ pub async fn linear_open_or_create_workspace_from_issue(
               match open_or_create_workspace_from_linear_issue(&repo_path, &sub_issue).await {
                 Ok(result) => {
                   if result.created {
-                    let db = state.db.lock().unwrap();
+                    let db = state.db.lock_or_recover();
                     record_linear_workspace_parent(
                       &db,
                       &repo_path,
@@ -207,7 +208,7 @@ pub async fn linear_get_viewer(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
@@ -229,7 +230,7 @@ pub async fn linear_list_projects(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
@@ -252,7 +253,7 @@ pub async fn linear_list_project_documents(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
@@ -277,7 +278,7 @@ pub async fn linear_list_issue_comments(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
@@ -302,7 +303,7 @@ pub async fn linear_list_project_comments(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
@@ -327,7 +328,7 @@ pub async fn linear_list_document_comments(
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
   )?;
   let client_source = {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 

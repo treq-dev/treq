@@ -63,6 +63,7 @@ fn remote_pty_error_to_string(error: RemotePtyError) -> String {
 pub async fn remote_pty_create(
   app: tauri::AppHandle,
   session_id: String,
+  window_label: Option<String>,
   endpoint: SshEndpoint,
   repository_id: String,
   workspace_id: String,
@@ -88,6 +89,7 @@ pub async fn remote_pty_create(
     workspace_id,
     remote_working_directory,
     local_session_id: session_id.clone(),
+    window_label,
   };
 
   let data_event = data_event_name(&session_id);

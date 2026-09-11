@@ -21,6 +21,9 @@ tauri-test = ["dep:tauri-test", "dep:napi", "dep:napi-derive", "dep:tempfile"]
 tauri-build = { version = "2", features = [] }
 napi-build = "2"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dependencies]
 tauri = { version = "2.10.3", features = ["protocol-asset", "unstable"] }
 tauri-test = { version = "0.2.1", optional = true }

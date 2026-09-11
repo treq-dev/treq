@@ -1,6 +1,7 @@
 import React from "react";
-import { FileText, Loader2, X } from "lucide-react";
+import { FileText, X } from "lucide-react";
 import { Button } from "../ui/button";
+import { Skeleton } from "../ui/skeleton";
 import { CommentInput } from "../CommentInput";
 import { FileCommentSection } from "./FileCommentSection";
 import { FileRowHeader } from "./FileRowHeader";
@@ -136,9 +137,10 @@ function FilePlaceholderItem({
         <span>File deleted</span>
       </div>
     ) : item.variant === "loading" ? (
-      <div className="flex items-center justify-center py-[32px] text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin mr-[8px]" />
-        Loading diff...
+      <div className="flex flex-col gap-[8px] px-[12px] py-[16px]">
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-4 w-5/6" />
       </div>
     ) : item.variant === "error" ? (
       <div className="text-sm text-destructive px-[12px] py-[8px]">

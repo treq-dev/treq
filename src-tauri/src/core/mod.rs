@@ -27,6 +27,7 @@ pub mod skills;
 pub mod stash;
 pub mod submodules;
 pub mod workspaces;
+use crate::lock_ext::LockExt;
 pub use agent_chat::*;
 pub use agent_cli::*;
 pub use app::*;
@@ -63,7 +64,7 @@ pub fn resolve_conflict_marker_style_from_db(db: &crate::db::Database) -> String
 }
 
 pub fn resolve_conflict_marker_style(db: &std::sync::Mutex<crate::db::Database>) -> String {
-  resolve_conflict_marker_style_from_db(&db.lock().unwrap())
+  resolve_conflict_marker_style_from_db(&db.lock_or_recover())
 }
 
 pub fn resolve_app_db_path(repo_path: &str) -> PathBuf {

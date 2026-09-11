@@ -1,4 +1,5 @@
 use crate::core;
+use crate::lock_ext::LockExt;
 use crate::AppState;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -23,7 +24,7 @@ pub async fn init_repo(repo_path: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>, String> {
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   db.get_setting(&key).map_err(|e| e.to_string())
 }
 
@@ -32,13 +33,13 @@ pub fn get_settings_batch(
   state: State<AppState>,
   keys: Vec<String>,
 ) -> Result<HashMap<String, Option<String>>, String> {
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   db.get_settings_batch(&keys).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn set_setting(state: State<AppState>, key: String, value: String) -> Result<(), String> {
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   db.set_setting(&key, &value).map_err(|e| e.to_string())
 }
 
@@ -48,7 +49,7 @@ pub fn get_repo_setting(
   repo_path: String,
   key: String,
 ) -> Result<Option<String>, String> {
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   db.get_repo_setting(&repo_path, &key)
     .map_err(|e| e.to_string())
 }
@@ -60,7 +61,7 @@ pub fn set_repo_setting(
   key: String,
   value: String,
 ) -> Result<(), String> {
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   db.set_repo_setting(&repo_path, &key, &value)
     .map_err(|e| e.to_string())
 }
@@ -80,7 +81,7 @@ pub fn set_window_repo_path(
   repo_path: String,
   window_label: Option<String>,
 ) -> Result<(), String> {
-  let mut map = state.window_repo_paths.lock().unwrap();
+  let mut map = state.window_repo_paths.lock_or_recover();
   map.insert(window_map_label(window_label), repo_path);
   Ok(())
 }
@@ -90,6 +91,6 @@ pub fn get_window_repo_path(
   state: State<AppState>,
   window_label: Option<String>,
 ) -> Result<Option<String>, String> {
-  let map = state.window_repo_paths.lock().unwrap();
+  let map = state.window_repo_paths.lock_or_recover();
   Ok(map.get(&window_map_label(window_label)).cloned())
 }
