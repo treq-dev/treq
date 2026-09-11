@@ -7121,6 +7121,37 @@ pub fn jj_abandon_empty_commits(
   abandon_commits_matching_revset(workspace_path, &revset_expr)
 }
 
+/// Collapse an undescribed merge at the workspace bookmark when its tree is
+/// identical to one of its parents.
+///
+/// `jj abandon` preserves every parent of a merge commit. If the bookmark points
+/// at that commit, abandoning it therefore leaves a conflicted bookmark, which
+/// cannot be pushed. Sync-created ancestry-only merges need to move the bookmark
+/// to the tree-equivalent (normally first) parent before the generic empty-commit
+/// cleanup runs.
+pub fn jj_collapse_empty_merge_tip(
+  workspace_path: &str,
+  branch_name: &str,
+) -> Result<bool, JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let tip = resolve_commit_by_revision(&loaded, branch_name)?;
+  if !tip.description().trim().is_empty() || tip.parent_ids().len() < 2 {
+    return Ok(false);
+  }
+
+  let tip_tree = tip.tree_ids();
+  let equivalent_parent = block_on(tip.parents())
+    .map_err(|e| JjError::IoError(format!("Failed to load merge parents: {e}")))?
+    .into_iter()
+    .find(|parent| parent.tree_ids() == tip_tree);
+  let Some(parent) = equivalent_parent else {
+    return Ok(false);
+  };
+
+  jj_set_bookmark(workspace_path, branch_name, &parent.id().hex())?;
+  Ok(true)
+}
+
 /// After a manual commit, drop consecutive autosave ancestors of `@-`.
 ///
 /// Reparents the new commit onto the last non-autosave ancestor, keeping the
