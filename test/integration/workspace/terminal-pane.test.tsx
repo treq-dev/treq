@@ -9,6 +9,8 @@ import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
+import { useZoomSettingsStore } from "../../../src/stores/zoomSettingsStore";
+import { useTerminalSettingsStore } from "../../../src/stores/terminalSettingsStore";
 
 async function setupWorkspace(branchName: string) {
   const { repoPath } = createTestRepo(false);
@@ -284,5 +286,31 @@ describe("WorkspaceTerminalPane integration", () => {
       within(shellPanel).getByTestId("terminal-workspace-label"),
     ).toHaveTextContent("feat/terminal-header-label");
     expect(within(shellPanel).getByText("Shell")).toBeInTheDocument();
+  });
+
+  it("scales a newly opened terminal's font size by the current UI zoom", async () => {
+    const { workspace } = await setupWorkspace("feat/terminal-zoom-scale");
+    useTerminalSettingsStore.getState().hydrateFontSize(14);
+    await useZoomSettingsStore.getState().setZoom(150);
+
+    render(<Dashboard />);
+    await user.click(await findSidebarBranchElement(workspace.branch_name));
+    await screen.findByTestId("workspace-terminal-pane");
+
+    await user.keyboard("{Meta>}\\{/Meta}");
+    const shellPanel = await waitFor(() => {
+      const el = document.querySelector('[data-terminal-id^="shell-"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+
+    await waitFor(() => {
+      const textarea = within(shellPanel).getByRole(
+        "textbox",
+      ) as HTMLTextAreaElement;
+      expect(textarea.style.fontSize).toBe("21px");
+    });
+
+    expect(document.documentElement.style.fontSize).toBe("");
   });
 });
