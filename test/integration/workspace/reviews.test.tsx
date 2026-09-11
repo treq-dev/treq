@@ -122,7 +122,7 @@ describe("ShowWorkspace - Reviews integration", () => {
     });
   });
 
-  it("is able to mark files as viewed and expand/collapse files", async () => {
+  it("is able to mark a file as viewed and back to unviewed", async () => {
     const branchName = "feat/reviews-viewed";
     await openReviewWithChange(branchName);
     await openReviewTab(user, branchName);
@@ -147,6 +147,13 @@ describe("ShowWorkspace - Reviews integration", () => {
         screen.getByRole("button", { name: "Collapse file diff" }),
       ).toBeInTheDocument();
     });
+  });
+
+  it("is able to expand and collapse a file diff", async () => {
+    const branchName = "feat/reviews-expand-collapse";
+    await openReviewWithChange(branchName);
+    await openReviewTab(user, branchName);
+    await waitForChangedFile(REVIEW_FILE);
 
     await user.click(
       screen.getByRole("button", { name: "Collapse file diff" }),
