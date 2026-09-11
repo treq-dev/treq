@@ -19,61 +19,53 @@ import { render, screen, waitFor } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import { captureDocument } from "../capture";
 
-// Verifies the right-aligned agent-session spinner: grey with no changes,
-// yellow with uncommitted changes, blue with committed-but-unmerged changes,
-// and red (replacing the static conflict triangle) when conflicted -- all
-// only while the workspace has at least one open agent terminal.
-it("shows a color-coded spinner per workspace git state while an agent session is open", async () => {
+// Verifies the workspace sidebar's right-aligned git status indicator:
+// - no active agent session: no dot when clean, a static yellow dot with
+//   uncommitted changes, and the static red conflict triangle when conflicted.
+// - with an active agent session: the triangle/dot slot instead shows a
+//   color-coded dot that spins while the session streams -- blue when there
+//   are no uncommitted changes (grey was dropped), yellow with uncommitted
+//   changes, and red (never the triangle) when conflicted.
+it("shows the right git-state indicator for sessioned and session-less workspaces", async () => {
   const { repoPath, defaultBranch } = createTestRepo(false);
   openRepo(repoPath);
 
-  const cleanId = await createWorkspace(repoPath, "feat/agent-clean");
-  const dirtyId = await createWorkspace(repoPath, "feat/agent-dirty");
-  const aheadId = await createWorkspace(repoPath, "feat/agent-ahead");
-  const conflictId = await createWorkspace(repoPath, "feat/agent-conflict");
-  await createWorkspace(repoPath, "feat/no-agent-conflict");
+  const noSessionCleanId = await createWorkspace(repoPath, "feat/no-session-clean");
+  const noSessionDirtyId = await createWorkspace(repoPath, "feat/no-session-dirty");
+  const noSessionConflictId = await createWorkspace(
+    repoPath,
+    "feat/no-session-conflict",
+  );
+  const sessionCleanId = await createWorkspace(repoPath, "feat/session-clean");
+  const sessionDirtyId = await createWorkspace(repoPath, "feat/session-dirty");
+  const sessionConflictId = await createWorkspace(repoPath, "feat/session-conflict");
 
   const workspaces = await getWorkspaces(repoPath);
-  const dirty = workspaces.find((w) => w.id === dirtyId)!;
-  const ahead = workspaces.find((w) => w.id === aheadId)!;
-  const conflict = workspaces.find((w) => w.id === conflictId)!;
-  const noAgentConflict = workspaces.find(
-    (w) => w.branch_name === "feat/no-agent-conflict",
-  )!;
+  const byId = (id: number) => workspaces.find((w) => w.id === id)!;
+  const noSessionDirty = byId(noSessionDirtyId);
+  const sessionDirty = byId(sessionDirtyId);
+  const conflictRows = [byId(noSessionConflictId), byId(sessionConflictId)];
 
-  // Uncommitted change.
-  writeWorkspaceFile(
-    resolveWorkspacePath(repoPath, dirty.workspace_path),
-    "dirty.txt",
-    "uncommitted\n",
-  );
+  // Uncommitted changes on the two "dirty" rows.
+  for (const ws of [noSessionDirty, sessionDirty]) {
+    const workspacePath = resolveWorkspacePath(repoPath, ws.workspace_path);
+    writeWorkspaceFile(workspacePath, "dirty.txt", "uncommitted\n");
+  }
 
-  // Committed change not yet merged into the target branch.
-  await commitWorkspaceFile(
-    repoPath,
-    { id: ahead.id, path: ahead.workspace_path },
-    "ahead.txt",
-    "committed\n",
-    "Ahead of target",
-  );
-
-  // Real conflict, on both the agent-session and non-agent-session rows.
-  for (const target of [
-    { id: conflict.id, path: conflict.workspace_path },
-    { id: noAgentConflict.id, path: noAgentConflict.workspace_path },
-  ]) {
-    const workspacePath = resolveWorkspacePath(repoPath, target.path);
+  // Real conflicts on the two "conflict" rows.
+  for (const ws of conflictRows) {
+    const workspacePath = resolveWorkspacePath(repoPath, ws.workspace_path);
     writeWorkspaceFile(workspacePath, "README.md", "workspace side\n");
-    await createCommit(repoPath, target.id, "workspace conflicting change");
+    await createCommit(repoPath, ws.id, "workspace conflicting change");
   }
   writeWorkspaceFile(repoPath, "README.md", "main side\n");
   await createCommit(repoPath, null, "main conflicting change");
-  for (const target of [conflict, noAgentConflict]) {
-    await checkAndRebaseWorkspaces(repoPath, target.id, defaultBranch, true);
+  for (const ws of conflictRows) {
+    await checkAndRebaseWorkspaces(repoPath, ws.id, defaultBranch, true);
     await ensureWorkspaceIndexed(
       repoPath,
-      target.id,
-      resolveWorkspacePath(repoPath, target.workspace_path),
+      ws.id,
+      resolveWorkspacePath(repoPath, ws.workspace_path),
     );
   }
 
@@ -91,31 +83,36 @@ it("shows a color-coded spinner per workspace git state while an agent session i
     });
   }
 
-  await openAgentSession("feat/agent-clean");
-  await openAgentSession("feat/agent-dirty");
-  await openAgentSession("feat/agent-ahead");
-  await openAgentSession("feat/agent-conflict");
+  await openAgentSession("feat/session-clean");
+  await openAgentSession("feat/session-dirty");
+  await openAgentSession("feat/session-conflict");
 
-  await screen.findByTestId(`workspace-agent-session-spinner-${cleanId}`);
-  await screen.findByTestId(`workspace-agent-session-spinner-${dirtyId}`);
-  await screen.findByTestId(`workspace-agent-session-spinner-${aheadId}`);
-  await screen.findByTestId(`workspace-agent-session-spinner-${conflictId}`);
-  await screen.findByTestId(
-    `workspace-conflict-indicator-${noAgentConflict.id}`,
-  );
+  // No-session rows: no dot when clean, yellow dot when dirty, triangle when conflicted.
   expect(
-    screen.queryByTestId(`workspace-agent-session-spinner-${noAgentConflict.id}`),
+    screen.queryByTestId(`workspace-status-indicator-${noSessionCleanId}`),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByTestId(`workspace-conflict-indicator-${conflictId}`),
+    screen.queryByTestId(`workspace-conflict-indicator-${noSessionCleanId}`),
+  ).not.toBeInTheDocument();
+  await screen.findByTestId(`workspace-status-indicator-${noSessionDirtyId}`);
+  await screen.findByTestId(
+    `workspace-conflict-indicator-${noSessionConflictId}`,
+  );
+
+  // Session rows: dot in place of the triangle, never both at once.
+  await screen.findByTestId(`workspace-status-indicator-${sessionCleanId}`);
+  await screen.findByTestId(`workspace-status-indicator-${sessionDirtyId}`);
+  await screen.findByTestId(`workspace-status-indicator-${sessionConflictId}`);
+  expect(
+    screen.queryByTestId(`workspace-conflict-indicator-${sessionConflictId}`),
   ).not.toBeInTheDocument();
 
   await captureDocument(document, {
     name: "workspace-agent-session-spinner-01-states",
     expectations: [
-      "feat/agent-clean shows a grey spinning loader icon flush to the right edge of its row.",
-      "feat/agent-dirty shows a yellow spinning loader icon and feat/agent-ahead shows a blue spinning loader icon, each in that same right-edge slot.",
-      "feat/agent-conflict shows a red spinning loader icon (not a static triangle) while feat/no-agent-conflict shows the static red conflict triangle instead of a spinner.",
+      "feat/no-session-clean has no dot or triangle at its right edge, feat/no-session-dirty shows a small yellow dot, and feat/no-session-conflict shows a red conflict triangle.",
+      "feat/session-clean and feat/session-dirty each show a small colored indicator (blue for clean, yellow for dirty) at the right edge in place of any triangle.",
+      "feat/session-conflict shows a red indicator at its right edge, not the static conflict triangle.",
     ],
   });
 }, 120000);

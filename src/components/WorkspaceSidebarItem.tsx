@@ -19,6 +19,11 @@ import { useRemoteCapabilities } from "../lib/active-repository-context";
 import { cn, getFullWorkspacePath } from "../lib/utils";
 import type { FlattenedWorkspaceNode } from "../lib/workspace-tree";
 import {
+  getWorkspaceStatusIndicator,
+  WORKSPACE_STATUS_DOT_BG_CLASS,
+  WORKSPACE_STATUS_DOT_TEXT_CLASS,
+} from "../lib/workspace-status-indicator";
+import {
   getWorkspaceTitle as getWorkspaceTitleFromUtils,
   isWorkspaceHidden,
 } from "../lib/workspace-utils";
@@ -70,29 +75,8 @@ interface WorkspaceSidebarItemProps {
   onDropChangeFiles?: (request: ChangeFilesMoveRequest) => void;
   /** Whether at least one agent terminal session is currently open on this workspace. */
   hasActiveAgentSession?: boolean;
-}
-
-function agentSessionSpinnerStyle(params: {
-  isConflicted: boolean;
-  hasChanges: boolean;
-  commitsAhead: number;
-}): { color: string; label: string } {
-  if (params.isConflicted) {
-    return { color: "text-destructive", label: "Agent running (conflicted)" };
-  }
-  if (params.hasChanges) {
-    return {
-      color: "text-yellow-500",
-      label: "Agent running (uncommitted changes)",
-    };
-  }
-  if (params.commitsAhead > 0) {
-    return {
-      color: "text-blue-500",
-      label: "Agent running (committed changes)",
-    };
-  }
-  return { color: "text-muted-foreground", label: "Agent running" };
+  /** Whether any open agent session on this workspace is actively streaming. */
+  isAgentSessionStreaming?: boolean;
 }
 
 function prIconStyle(prInfo: PrInfo): { color: string; label: string } {
@@ -162,6 +146,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
   hasRemote = false,
   onDropChangeFiles,
   hasActiveAgentSession = false,
+  isAgentSessionStreaming = false,
 }) => {
   const caps = useRemoteCapabilities();
   const workspace = node.status.current;
@@ -174,13 +159,12 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
     paddingLeft: `${16 + (node.depth - 1) * 6}px`,
   };
   const isConflicted = node.status.has_conflicts;
-  const agentSpinnerStatus = hasActiveAgentSession
-    ? agentSessionSpinnerStyle({
-        isConflicted,
-        hasChanges: node.status.has_changes ?? false,
-        commitsAhead: node.status.commits_ahead_of_target_count ?? 0,
-      })
-    : null;
+  const statusIndicator = getWorkspaceStatusIndicator({
+    isConflicted,
+    hasChanges: node.status.has_changes ?? false,
+    hasActiveAgentSession,
+    isAgentSessionStreaming,
+  });
   const isHidden = isWorkspaceHidden(workspace);
   const workspaceTitle = getWorkspaceTitleFromUtils(workspace);
   const prStatus = hasRemote && prInfo ? prIconStyle(prInfo) : null;
@@ -291,7 +275,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                       )}
                       <span
                         className={`flex-1 min-w-0 truncate font-mono ${
-                          isConflicted || hasActiveAgentSession ? "pr-7" : ""
+                          statusIndicator ? "pr-7" : ""
                         } ${
                           isSelected
                             ? "text-primary font-medium"
@@ -306,24 +290,37 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                           aria-label="Scheduled hidden"
                         />
                       )}
-                      {agentSpinnerStatus ? (
-                        <Loader2
-                          data-testid={`workspace-agent-session-spinner-${workspace.id}`}
-                          className={cn(
-                            "w-3.5 h-3.5 shrink-0 animate-spin absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
-                            agentSpinnerStatus.color,
-                          )}
-                          aria-label={agentSpinnerStatus.label}
+                      {statusIndicator?.shape === "triangle" && (
+                        <AlertTriangle
+                          data-testid={`workspace-conflict-indicator-${workspace.id}`}
+                          className="w-3.5 h-3.5 text-destructive shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden"
+                          aria-label="Conflicted workspace"
                         />
-                      ) : (
-                        isConflicted && (
-                          <AlertTriangle
-                            data-testid={`workspace-conflict-indicator-${workspace.id}`}
-                            className="w-3.5 h-3.5 text-destructive shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden"
-                            aria-label="Conflicted workspace"
-                          />
-                        )
                       )}
+                      {statusIndicator?.shape === "dot" &&
+                        (statusIndicator.spin ? (
+                          <Loader2
+                            data-testid={`workspace-status-indicator-${workspace.id}`}
+                            className={cn(
+                              "w-3.5 h-3.5 shrink-0 animate-spin absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
+                              WORKSPACE_STATUS_DOT_TEXT_CLASS[
+                                statusIndicator.color
+                              ],
+                            )}
+                            aria-label={statusIndicator.label}
+                          />
+                        ) : (
+                          <span
+                            data-testid={`workspace-status-indicator-${workspace.id}`}
+                            className={cn(
+                              "w-2 h-2 rounded-full shrink-0 absolute right-3.5 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
+                              WORKSPACE_STATUS_DOT_BG_CLASS[
+                                statusIndicator.color
+                              ],
+                            )}
+                            aria-label={statusIndicator.label}
+                          />
+                        ))}
                       {queueStatus && (
                         <Tooltip>
                           <TooltipTrigger asChild>
