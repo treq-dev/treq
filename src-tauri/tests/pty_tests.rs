@@ -80,6 +80,7 @@ fn test_create_session() {
 
   let result = manager.create_session(
     "test-create".to_string(),
+    None,
     Some(repo.repo_path.clone()),
     None,
     Vec::new(),
@@ -106,6 +107,7 @@ fn test_create_session_with_initial_command() {
 
   let result = manager.create_session(
     "test-initial-cmd".to_string(),
+    None,
     Some(repo.repo_path.clone()),
     None,
     Vec::new(),
@@ -135,6 +137,7 @@ fn test_write_to_session() {
   manager
     .create_session(
       "test-write".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -182,6 +185,7 @@ fn test_resize_session() {
   manager
     .create_session(
       "test-resize".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -223,6 +227,7 @@ fn test_close_session() {
   manager
     .create_session(
       "test-close".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -251,6 +256,7 @@ fn test_close_session_terminates_process() {
   manager
     .create_session(
       "test-close-terminates".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -297,6 +303,7 @@ fn test_multiple_concurrent_sessions() {
   manager
     .create_session(
       "multi-a".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -309,6 +316,7 @@ fn test_multiple_concurrent_sessions() {
   manager
     .create_session(
       "multi-b".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -321,6 +329,7 @@ fn test_multiple_concurrent_sessions() {
   manager
     .create_session(
       "multi-c".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -382,6 +391,7 @@ fn test_session_isolation() {
   manager
     .create_session(
       "iso-a".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -394,6 +404,7 @@ fn test_session_isolation() {
   manager
     .create_session(
       "iso-b".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -440,6 +451,7 @@ fn test_utf8_output() {
   manager
     .create_session(
       "test-utf8".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -568,6 +580,7 @@ fn test_set_auto_command_on_session() {
   manager
     .create_session(
       "test-auto-cmd".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -599,6 +612,7 @@ fn test_suppress_echo_filters_command() {
   manager
     .create_session(
       "test-suppress".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -648,6 +662,7 @@ fn test_normal_output_not_filtered_without_filter() {
   manager
     .create_session(
       "test-no-filter".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -684,6 +699,7 @@ fn test_empty_lines_filtered_during_suppression() {
   manager
     .create_session(
       "test-empty-filter".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -735,6 +751,7 @@ fn test_suppress_echo_at_creation_filters_initial_prompt() {
   manager
     .create_session(
       "test-creation-filter".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),

@@ -35,6 +35,7 @@ fn resolve_local_working_dir(
 pub async fn pty_create_session(
   state: State<'_, AppState>,
   session_id: String,
+  window_label: Option<String>,
   working_dir: Option<String>,
   repo_path: Option<String>,
   workspace_id: Option<i64>,
@@ -78,6 +79,7 @@ pub async fn pty_create_session(
   tauri::async_runtime::spawn_blocking(move || {
     pty_manager.create_session(
       session_id,
+      window_label,
       working_dir,
       shell,
       shell_args,

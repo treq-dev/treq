@@ -8136,6 +8136,7 @@ dependencies = [
  "ignore",
  "imara-diff 0.1.8",
  "jj-lib",
+ "libc",
  "log",
  "mockall",
  "napi",

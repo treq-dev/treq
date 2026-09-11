@@ -282,7 +282,14 @@ export function useFileLoading({
       setAllFileHunks((prev) => replaceGeneration(prev, paths));
     }
     try {
-      const batches = chunkPaths(paths, 32);
+      // Load the first couple of files immediately so the Changes tab shows
+      // real content right away, then chunk the rest in the background.
+      const priorityPaths = paths.slice(0, 2);
+      const remainingPaths = paths.slice(2);
+      const batches = [
+        ...(priorityPaths.length > 0 ? [priorityPaths] : []),
+        ...chunkPaths(remainingPaths, 32),
+      ];
       const results: import("../../../lib/api").WorkspaceFileHunksBatchFile[] =
         [];
       const loadBatch = async (index: number): Promise<void> => {

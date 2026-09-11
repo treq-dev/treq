@@ -71,12 +71,107 @@ pub fn line_matches_auto_command(stripped_line: &str, auto_command: &str) -> boo
   false
 }
 
+/// Returns every live process's (pid, ppid) pair, read from `ps` rather
+/// than `/proc` so this works on both Linux and macOS.
+#[cfg(unix)]
+fn all_pid_ppid_pairs() -> Vec<(u32, u32)> {
+  let Ok(output) = std::process::Command::new("ps")
+    .args(["-e", "-o", "pid=,ppid="])
+    .output()
+  else {
+    return Vec::new();
+  };
+  String::from_utf8_lossy(&output.stdout)
+    .lines()
+    .filter_map(|line| {
+      let mut fields = line.split_whitespace();
+      let pid = fields.next()?.parse().ok()?;
+      let ppid = fields.next()?.parse().ok()?;
+      Some((pid, ppid))
+    })
+    .collect()
+}
+
+/// Walks the live process table for every descendant of `root` (children,
+/// grandchildren, ...), breadth-first. A shell under job control puts each
+/// job it launches into its own new process group — the group a `setsid()`
+/// session leader starts in does not propagate to what it forks — so
+/// signaling `root`'s process group misses forked children entirely.
+/// Walking parent/child links instead catches everything regardless of how
+/// process groups were rearranged.
+#[cfg(unix)]
+fn descendant_pids(root: u32) -> Vec<u32> {
+  let pairs = all_pid_ppid_pairs();
+  let mut frontier = vec![root];
+  let mut descendants = Vec::new();
+  while let Some(parent) = frontier.pop() {
+    for &(pid, ppid) in &pairs {
+      if ppid == parent && pid != root {
+        descendants.push(pid);
+        frontier.push(pid);
+      }
+    }
+  }
+  descendants
+}
+
+/// Terminates a pty child's whole process tree: SIGTERM to every descendant
+/// plus the child itself, a short grace period, then SIGKILL for whatever
+/// is still alive. Descendants are re-discovered after the grace period
+/// (not just re-checked) since a still-alive process may itself have
+/// forked more children in the meantime.
+#[cfg(unix)]
+fn terminate_process_tree(root: u32, child: &mut Box<dyn Child + Send>) {
+  const GRACE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(20);
+  const GRACE_PERIOD: std::time::Duration = std::time::Duration::from_millis(200);
+
+  fn signal_all(pids: &[u32], root: u32, signal: libc::c_int) {
+    for &pid in pids {
+      unsafe {
+        libc::kill(pid as libc::pid_t, signal);
+      }
+    }
+    unsafe {
+      libc::kill(root as libc::pid_t, signal);
+    }
+  }
+
+  fn any_alive(pids: &[u32]) -> bool {
+    pids
+      .iter()
+      .any(|&pid| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0)
+  }
+
+  let descendants = descendant_pids(root);
+  signal_all(&descendants, root, libc::SIGTERM);
+
+  let deadline = std::time::Instant::now() + GRACE_PERIOD;
+  loop {
+    let root_done = matches!(child.try_wait(), Ok(Some(_)) | Err(_));
+    if root_done && !any_alive(&descendants) {
+      return;
+    }
+    if std::time::Instant::now() >= deadline {
+      break;
+    }
+    thread::sleep(GRACE_POLL_INTERVAL);
+  }
+
+  signal_all(&descendant_pids(root), root, libc::SIGKILL);
+}
+
 pub struct PtySession {
   generation: u64,
   writer: Box<dyn Write + Send>,
   master: Box<dyn MasterPty + Send>,
   child: Box<dyn Child + Send>,
   auto_command: Arc<Mutex<Option<String>>>,
+  /// Label of the Tauri window that opened this session, so a window's own
+  /// teardown can close only its own PTYs (`close_all_for_window`) without
+  /// touching another window's terminals. Not required to be set: sessions
+  /// created without a caller-facing window (tests, and any future
+  /// non-window caller) simply never match a window-scoped close.
+  window_label: Option<String>,
 }
 
 /// Windows shells (PowerShell/cmd) submit a line on carriage return; a bare `\n`
@@ -120,6 +215,17 @@ impl PtySession {
   }
 
   fn shutdown(&mut self) -> Result<(), String> {
+    // `self.child.kill()` below only signals the shell itself: anything it
+    // forked (an agent, a subshell, a backgrounded job) is left running,
+    // and once the pty and its reader thread are gone it's an orphan with
+    // nothing left to reap it. Walk and signal its whole descendant tree
+    // first, on Unix, giving it a brief grace period to exit cleanly
+    // before force-killing what's left.
+    #[cfg(unix)]
+    if let Some(pid) = self.process_id() {
+      terminate_process_tree(pid, &mut self.child);
+    }
+
     if let Err(err) = self.child.kill() {
       let err_text = err.to_string().to_lowercase();
       if !err_text.contains("no such process") && !err_text.contains("not found") {
@@ -164,6 +270,7 @@ impl PtyManager {
   pub fn create_session(
     &self,
     session_id: String,
+    window_label: Option<String>,
     working_dir: Option<String>,
     shell: Option<String>,
     shell_args: Vec<String>,
@@ -181,6 +288,7 @@ impl PtyManager {
     }
     let result = self.create_session_inner(
       session_id.clone(),
+      window_label,
       working_dir,
       shell,
       shell_args,
@@ -192,9 +300,11 @@ impl PtyManager {
     result
   }
 
+  #[allow(clippy::too_many_arguments)]
   fn create_session_inner(
     &self,
     session_id: String,
+    window_label: Option<String>,
     working_dir: Option<String>,
     shell: Option<String>,
     shell_args: Vec<String>,
@@ -287,6 +397,7 @@ impl PtyManager {
           master,
           child,
           auto_command,
+          window_label,
         },
       );
     }
@@ -504,6 +615,28 @@ impl PtyManager {
     }
   }
 
+  /// Terminates every session opened by the given window, leaving other
+  /// windows' sessions untouched. Sessions created with no window label
+  /// (tests, or any caller outside the normal Tauri command path) never
+  /// match and are never closed by this.
+  pub fn close_all_for_window(&self, window_label: &str) {
+    let drained: Vec<PtySession> = {
+      let mut sessions = self.sessions.lock().unwrap();
+      let ids: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.window_label.as_deref() == Some(window_label))
+        .map(|(id, _)| id.clone())
+        .collect();
+      ids
+        .into_iter()
+        .filter_map(|id| sessions.remove(&id))
+        .collect()
+    };
+    for mut session in drained {
+      let _ = session.shutdown();
+    }
+  }
+
   pub fn set_auto_command(&self, session_id: &str, command: &str) -> Result<(), String> {
     let sessions = self.sessions.lock_or_recover();
     if let Some(session) = sessions.get(session_id) {
@@ -562,6 +695,7 @@ mod tests {
       .create_session(
         "duplicate".into(),
         None,
+        None,
         shell(),
         Vec::new(),
         None,
@@ -572,6 +706,7 @@ mod tests {
 
     let duplicate = manager.create_session(
       "duplicate".into(),
+      None,
       None,
       shell(),
       Vec::new(),
@@ -591,6 +726,7 @@ mod tests {
     manager
       .create_session(
         "eof".into(),
+        None,
         None,
         shell(),
         Vec::new(),
@@ -622,6 +758,7 @@ mod tests {
         .create_session(
           id.into(),
           None,
+          None,
           shell(),
           Vec::new(),
           None,
@@ -639,6 +776,179 @@ mod tests {
     assert!(!manager.session_exists("close-all-b"));
   }
 
+  #[cfg(unix)]
+  #[test]
+  fn close_session_terminates_background_descendants() {
+    let manager = PtyManager::new();
+    let (tx, rx) = mpsc::channel::<String>();
+    manager
+      .create_session(
+        "descendant".into(),
+        None,
+        shell(),
+        Vec::new(),
+        // Backgrounds a long-lived grandchild and prints its pid, so the
+        // test can confirm it (not just the shell) is gone after close.
+        Some("sleep 30 & echo GRANDCHILD_PID:$!".into()),
+        None,
+        Box::new(move |chunk| {
+          let _ = tx.send(chunk);
+        }),
+      )
+      .unwrap();
+
+    // The marker can land split across separate reads (e.g. "GRAND" then
+    // "CHILD_PID:123\n"), so accumulate before searching rather than
+    // matching against each chunk in isolation. It can also appear twice
+    // (the pty's line-echo of the typed command, unexpanded, ahead of the
+    // shell's real output), so take the first occurrence that parses as a
+    // pid rather than assuming the first occurrence is the real one.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut output = String::new();
+    let mut grandchild_pid: Option<i32> = None;
+    while grandchild_pid.is_none() && Instant::now() < deadline {
+      if let Ok(chunk) = rx.recv_timeout(Duration::from_millis(200)) {
+        output.push_str(&chunk);
+        grandchild_pid = output
+          .split("GRANDCHILD_PID:")
+          .skip(1)
+          .find_map(|rest| rest.split_whitespace().next().and_then(|s| s.parse().ok()));
+      }
+    }
+    let grandchild_pid = grandchild_pid.expect("shell printed its background pid");
+
+    // Alive prior to close: kill(pid, 0) checks existence without signaling.
+    assert_eq!(unsafe { libc::kill(grandchild_pid, 0) }, 0);
+
+    manager.close_session("descendant").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut still_alive = true;
+    while Instant::now() < deadline {
+      if unsafe { libc::kill(grandchild_pid, 0) } != 0 {
+        still_alive = false;
+        break;
+      }
+      thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+      !still_alive,
+      "background descendant {grandchild_pid} survived session close"
+    );
+  }
+
+  #[test]
+  fn close_all_for_window_only_closes_that_windows_sessions() {
+    let manager = PtyManager::new();
+    manager
+      .create_session(
+        "win-a-1".into(),
+        Some("window-a".into()),
+        None,
+        shell(),
+        Vec::new(),
+        None,
+        None,
+        Box::new(|_| {}),
+      )
+      .unwrap();
+    manager
+      .create_session(
+        "win-b-1".into(),
+        Some("window-b".into()),
+        None,
+        shell(),
+        Vec::new(),
+        None,
+        None,
+        Box::new(|_| {}),
+      )
+      .unwrap();
+    manager
+      .create_session(
+        "no-window".into(),
+        None,
+        None,
+        shell(),
+        Vec::new(),
+        None,
+        None,
+        Box::new(|_| {}),
+      )
+      .unwrap();
+
+    manager.close_all_for_window("window-a");
+
+    assert!(!manager.session_exists("win-a-1"));
+    assert!(manager.session_exists("win-b-1"));
+    assert!(manager.session_exists("no-window"));
+
+    manager.close_session("win-b-1").unwrap();
+    manager.close_session("no-window").unwrap();
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn close_session_terminates_background_descendants() {
+    let manager = PtyManager::new();
+    let (tx, rx) = mpsc::channel::<String>();
+    manager
+      .create_session(
+        "descendant".into(),
+        None,
+        None,
+        shell(),
+        Vec::new(),
+        // Backgrounds a long-lived grandchild and prints its pid, so the
+        // test can confirm it (not just the shell) is gone after close.
+        Some("sleep 30 & echo GRANDCHILD_PID:$!".into()),
+        None,
+        Box::new(move |chunk| {
+          let _ = tx.send(chunk);
+        }),
+      )
+      .unwrap();
+
+    // The marker can land split across separate reads (e.g. "GRAND" then
+    // "CHILD_PID:123\n"), so accumulate before searching rather than
+    // matching against each chunk in isolation. It can also appear twice
+    // (the pty's line-echo of the typed command, unexpanded, ahead of the
+    // shell's real output), so take the first occurrence that parses as a
+    // pid rather than assuming the first occurrence is the real one.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut output = String::new();
+    let mut grandchild_pid: Option<i32> = None;
+    while grandchild_pid.is_none() && Instant::now() < deadline {
+      if let Ok(chunk) = rx.recv_timeout(Duration::from_millis(200)) {
+        output.push_str(&chunk);
+        grandchild_pid = output
+          .split("GRANDCHILD_PID:")
+          .skip(1)
+          .find_map(|rest| rest.split_whitespace().next().and_then(|s| s.parse().ok()));
+      }
+    }
+    let grandchild_pid = grandchild_pid.expect("shell printed its background pid");
+
+    // Alive prior to close: kill(pid, 0) checks existence without signaling.
+    assert_eq!(unsafe { libc::kill(grandchild_pid, 0) }, 0);
+
+    manager.close_session("descendant").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut still_alive = true;
+    while Instant::now() < deadline {
+      if unsafe { libc::kill(grandchild_pid, 0) } != 0 {
+        still_alive = false;
+        break;
+      }
+      thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+      !still_alive,
+      "background descendant {grandchild_pid} survived session close"
+    );
+  }
+
   #[test]
   fn schedules_initial_command_without_blocking_creation() {
     let manager = PtyManager::new();
@@ -646,6 +956,7 @@ mod tests {
     manager
       .create_session(
         "prompt".into(),
+        None,
         None,
         shell(),
         Vec::new(),
@@ -675,6 +986,7 @@ mod tests {
     manager
       .create_session(
         "bounded-filter".into(),
+        None,
         None,
         shell(),
         Vec::new(),

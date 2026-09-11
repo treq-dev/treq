@@ -303,6 +303,25 @@ pub fn run() {
   };
   builder
         .plugin(tauri_plugin_cli::init())
+        .on_window_event(|window, event| {
+            // Fires once, after the window is actually gone (not on a
+            // cancellable close request), for every window this app opens —
+            // "main" and any later "Open in New Window" targets alike — so
+            // this is the one place that reliably closes a window's own
+            // terminals without touching another window's, regardless of
+            // which UI path (dashboard unmount, native "Close Window", the
+            // OS window-close button) tore it down.
+            if let tauri::WindowEvent::Destroyed = event {
+                let label = window.label().to_string();
+                let app_handle = window.app_handle().clone();
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.pty_manager.close_all_for_window(&label);
+                }
+                if let Some(state) = app_handle.try_state::<commands::remote_pty_commands::RemotePtyState>() {
+                    tauri::async_runtime::block_on(state.0.close_all_for_window(&label));
+                }
+            }
+        })
         .setup(move |app| {
             // CLI commands must not touch the GUI app's log directory: agent sandboxes may
             // intentionally deny access to it. GUI processes retain the existing telemetry.
