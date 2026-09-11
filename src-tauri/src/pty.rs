@@ -771,9 +771,10 @@ mod tests {
     while grandchild_pid.is_none() && Instant::now() < deadline {
       if let Ok(chunk) = rx.recv_timeout(Duration::from_millis(200)) {
         output.push_str(&chunk);
-        grandchild_pid = output.split("GRANDCHILD_PID:").skip(1).find_map(|rest| {
-          rest.split_whitespace().next().and_then(|s| s.parse().ok())
-        });
+        grandchild_pid = output
+          .split("GRANDCHILD_PID:")
+          .skip(1)
+          .find_map(|rest| rest.split_whitespace().next().and_then(|s| s.parse().ok()));
       }
     }
     let grandchild_pid = grandchild_pid.expect("shell printed its background pid");
