@@ -68,6 +68,31 @@ interface WorkspaceSidebarItemProps {
   /** Whether the repo has a GitHub remote (gates PR icon coloring). */
   hasRemote?: boolean;
   onDropChangeFiles?: (request: ChangeFilesMoveRequest) => void;
+  /** Whether at least one agent terminal session is currently open on this workspace. */
+  hasActiveAgentSession?: boolean;
+}
+
+function agentSessionSpinnerStyle(params: {
+  isConflicted: boolean;
+  hasChanges: boolean;
+  commitsAhead: number;
+}): { color: string; label: string } {
+  if (params.isConflicted) {
+    return { color: "text-destructive", label: "Agent running (conflicted)" };
+  }
+  if (params.hasChanges) {
+    return {
+      color: "text-yellow-500",
+      label: "Agent running (uncommitted changes)",
+    };
+  }
+  if (params.commitsAhead > 0) {
+    return {
+      color: "text-blue-500",
+      label: "Agent running (committed changes)",
+    };
+  }
+  return { color: "text-muted-foreground", label: "Agent running" };
 }
 
 function prIconStyle(prInfo: PrInfo): { color: string; label: string } {
@@ -136,6 +161,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
   prInfo = null,
   hasRemote = false,
   onDropChangeFiles,
+  hasActiveAgentSession = false,
 }) => {
   const caps = useRemoteCapabilities();
   const workspace = node.status.current;
@@ -148,6 +174,13 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
     paddingLeft: `${16 + (node.depth - 1) * 6}px`,
   };
   const isConflicted = node.status.has_conflicts;
+  const agentSpinnerStatus = hasActiveAgentSession
+    ? agentSessionSpinnerStyle({
+        isConflicted,
+        hasChanges: node.status.has_changes ?? false,
+        commitsAhead: node.status.commits_ahead_of_target_count ?? 0,
+      })
+    : null;
   const isHidden = isWorkspaceHidden(workspace);
   const workspaceTitle = getWorkspaceTitleFromUtils(workspace);
   const prStatus = hasRemote && prInfo ? prIconStyle(prInfo) : null;
@@ -258,7 +291,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                       )}
                       <span
                         className={`flex-1 min-w-0 truncate font-mono ${
-                          isConflicted ? "pr-7" : ""
+                          isConflicted || hasActiveAgentSession ? "pr-7" : ""
                         } ${
                           isSelected
                             ? "text-primary font-medium"
@@ -273,12 +306,23 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                           aria-label="Scheduled hidden"
                         />
                       )}
-                      {isConflicted && (
-                        <AlertTriangle
-                          data-testid={`workspace-conflict-indicator-${workspace.id}`}
-                          className="w-3.5 h-3.5 text-destructive shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden"
-                          aria-label="Conflicted workspace"
+                      {agentSpinnerStatus ? (
+                        <Loader2
+                          data-testid={`workspace-agent-session-spinner-${workspace.id}`}
+                          className={cn(
+                            "w-3.5 h-3.5 shrink-0 animate-spin absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
+                            agentSpinnerStatus.color,
+                          )}
+                          aria-label={agentSpinnerStatus.label}
                         />
+                      ) : (
+                        isConflicted && (
+                          <AlertTriangle
+                            data-testid={`workspace-conflict-indicator-${workspace.id}`}
+                            className="w-3.5 h-3.5 text-destructive shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden"
+                            aria-label="Conflicted workspace"
+                          />
+                        )
                       )}
                       {queueStatus && (
                         <Tooltip>

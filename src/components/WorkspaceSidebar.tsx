@@ -1,6 +1,6 @@
 import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { Archive, Github, ListTodo, Search } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   useGitRemoteInfo,
@@ -144,13 +144,32 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   );
   const workspacesLoaded = workspacesPending === false && Boolean(repoPath);
 
+  const branchesWithActiveAgentSession = useMemo(() => {
+    const branches = new Set<string>();
+    for (const session of terminalSessions ?? []) {
+      if (session.kind === "agent" && session.branchName) {
+        branches.add(session.branchName);
+      }
+    }
+    return branches;
+  }, [terminalSessions]);
+
   const { data: workspaceStatuses = [] } = useSWR(
-    cacheKey && workspacesLoaded ? ["workspace-statuses", cacheKey] : null,
+    cacheKey && workspacesLoaded
+      ? [
+          "workspace-statuses",
+          cacheKey,
+          Array.from(branchesWithActiveAgentSession).sort().join(","),
+        ]
+      : null,
     async () => {
       const baseStatuses = await listWorkspaceStatuses(repoPath || "");
       return Promise.all(
         baseStatuses.map(async (status) => {
-          if (status.has_conflicts) return status;
+          const needsDetail =
+            status.has_conflicts ||
+            branchesWithActiveAgentSession.has(status.current.branch_name);
+          if (!needsDetail) return status;
           const detailed = await getWorkspaceStatus(
             repoPath || "",
             status.current.id,
@@ -158,6 +177,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
           return {
             ...status,
             has_conflicts: detailed.has_conflicts,
+            has_changes: detailed.has_changes,
+            commits_ahead_of_target_count:
+              detailed.commits_ahead_of_target.length,
           };
         }),
       );
@@ -445,6 +467,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                           }
                           hasRemote={!!remoteInfo}
                           onDropChangeFiles={onDropChangeFiles}
+                          hasActiveAgentSession={branchesWithActiveAgentSession.has(
+                            node.status.current.branch_name,
+                          )}
                         />
                       ))}
                       {droppableProvided.placeholder}
