@@ -151,15 +151,15 @@ fn test_force_rebase_workspace_uses_rooted_subtree_scope_excluding_root() {
     result.message
   );
   assert!(
-    result.message.contains("feat-child-b")
-      && result.message.contains("feat-grandchild-c")
-      && result.message.contains("feat-sibling-d"),
-    "descendants/siblings should be included: {}",
+    result.message.contains("feat-child-b") && result.message.contains("feat-grandchild-c"),
+    "rebased descendants should be reported: {}",
     result.message
   );
   assert!(
-    result.message.contains("wc refresh deferred"),
-    "force rooted-subtree should report deferred working-copy refresh: {}",
+    !result.message.contains("feat-sibling-d")
+      && !result.message.contains("already in place")
+      && !result.message.contains("wc refresh deferred"),
+    "informational no-op details should be omitted: {}",
     result.message
   );
 
