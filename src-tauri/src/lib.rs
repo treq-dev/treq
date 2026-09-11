@@ -937,8 +937,27 @@ pub fn run() {
             commands::list_agent_chats,
             commands::get_agent_chat,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Local and remote PTY children (and their reader threads) are
+            // otherwise only closed by an explicit `pty_close`/`remote_pty_close`
+            // call from the frontend. Neither happens when a window is closed
+            // via dashboard teardown or the native "Close Window" menu, so
+            // without this the PTY processes and reader threads outlive the
+            // window (and, on platforms that keep the app running with no
+            // windows open, outlive it indefinitely). `Exit` fires once, after
+            // every window has closed or `app.exit()` was called, so this is
+            // the one place that's safe to tear every session down at once.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.pty_manager.close_all();
+                }
+                if let Some(state) = app_handle.try_state::<commands::remote_pty_commands::RemotePtyState>() {
+                    tauri::async_runtime::block_on(state.0.close_all());
+                }
+            }
+        });
 }
 
 #[cfg(test)]

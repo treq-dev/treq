@@ -489,6 +489,20 @@ impl PtyManager {
     Ok(())
   }
 
+  /// Terminates every live session. Used for application-exit cleanup, so
+  /// PTY children (and their reader threads) don't outlive the Tauri
+  /// backend when a window closes without going through `pty_close` first
+  /// (dashboard teardown, native "Close Window", full app quit).
+  pub fn close_all(&self) {
+    let drained: Vec<PtySession> = {
+      let mut sessions = self.sessions.lock().unwrap();
+      sessions.drain().map(|(_, session)| session).collect()
+    };
+    for mut session in drained {
+      let _ = session.shutdown();
+    }
+  }
+
   pub fn set_auto_command(&self, session_id: &str, command: &str) -> Result<(), String> {
     let sessions = self.sessions.lock().unwrap();
     if let Some(session) = sessions.get(session_id) {
@@ -597,6 +611,31 @@ mod tests {
       thread::sleep(Duration::from_millis(10));
     }
     assert!(!manager.session_exists("eof"));
+  }
+
+  #[test]
+  fn close_all_terminates_every_session() {
+    let manager = PtyManager::new();
+    for id in ["close-all-a", "close-all-b"] {
+      manager
+        .create_session(
+          id.into(),
+          None,
+          shell(),
+          Vec::new(),
+          None,
+          None,
+          Box::new(|_| {}),
+        )
+        .unwrap();
+    }
+    assert!(manager.session_exists("close-all-a"));
+    assert!(manager.session_exists("close-all-b"));
+
+    manager.close_all();
+
+    assert!(!manager.session_exists("close-all-a"));
+    assert!(!manager.session_exists("close-all-b"));
   }
 
   #[test]
