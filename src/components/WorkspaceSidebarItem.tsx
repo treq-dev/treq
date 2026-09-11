@@ -313,7 +313,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                           <span
                             data-testid={`workspace-status-indicator-${workspace.id}`}
                             className={cn(
-                              "w-2 h-2 rounded-full shrink-0 absolute right-3.5 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
+                              "w-2 h-2 rounded-full shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
                               WORKSPACE_STATUS_DOT_BG_CLASS[
                                 statusIndicator.color
                               ],
