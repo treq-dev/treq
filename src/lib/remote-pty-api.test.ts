@@ -35,6 +35,7 @@ describe("remote PTY API wrappers (src/lib/api-extra.ts)", () => {
 
     expect(invoke).toHaveBeenCalledWith("remote_pty_create", {
       sessionId: "sess-1",
+      windowLabel: "main",
       endpoint,
       repositoryId: "repo-1",
       workspaceId: "workspace-1",
