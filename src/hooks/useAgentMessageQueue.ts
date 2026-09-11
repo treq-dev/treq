@@ -24,7 +24,10 @@ export interface UseAgentMessageQueueResult {
   /** Mark the agent as producing output (busy). */
   markBusy: () => void;
   /** Mark the agent idle and flush the oldest queued message if any. */
-  markIdle: (options?: { awaitingQuestion?: boolean; shellPrompt?: boolean }) => void;
+  markIdle: (options?: {
+    awaitingQuestion?: boolean;
+    shellPrompt?: boolean;
+  }) => void;
   clear: () => void;
 }
 
