@@ -19,14 +19,11 @@ import { render, screen, waitFor } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import { captureDocument } from "../capture";
 
-// Verifies the workspace sidebar's right-aligned git status indicator:
-// - no active agent session: no dot when clean, a static yellow dot with
-//   uncommitted changes, and the static red conflict triangle when conflicted.
-// - with an active agent session: the triangle/dot slot instead shows a
-//   color-coded dot that spins while the session streams -- blue when there
-//   are no uncommitted changes (grey was dropped), yellow with uncommitted
-//   changes, and red (never the triangle) when conflicted.
-it("shows the right git-state indicator for sessioned and session-less workspaces", async () => {
+// Verifies the workspace sidebar's right-aligned git status pip: nothing
+// when clean, a yellow pip with uncommitted changes, and a red pip when
+// conflicted -- the same for every workspace whether or not it has an open
+// agent session (an open session only makes the pip spin while it streams).
+it("shows the right git-state pip for sessioned and session-less workspaces", async () => {
   const { repoPath, defaultBranch } = createTestRepo(false);
   openRepo(repoPath);
 
@@ -87,32 +84,36 @@ it("shows the right git-state indicator for sessioned and session-less workspace
   await openAgentSession("feat/session-dirty");
   await openAgentSession("feat/session-conflict");
 
-  // No-session rows: no dot when clean, yellow dot when dirty, triangle when conflicted.
+  // Clean rows never show a pip, session or not.
   expect(
     screen.queryByTestId(`workspace-status-indicator-${noSessionCleanId}`),
   ).not.toBeInTheDocument();
   expect(
     screen.queryByTestId(`workspace-conflict-indicator-${noSessionCleanId}`),
   ).not.toBeInTheDocument();
+  expect(
+    screen.queryByTestId(`workspace-status-indicator-${sessionCleanId}`),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByTestId(`workspace-conflict-indicator-${sessionCleanId}`),
+  ).not.toBeInTheDocument();
+
+  // Dirty rows show the yellow pip, session or not.
   await screen.findByTestId(`workspace-status-indicator-${noSessionDirtyId}`);
+  await screen.findByTestId(`workspace-status-indicator-${sessionDirtyId}`);
+
+  // Conflicted rows show the red pip, session or not.
   await screen.findByTestId(
     `workspace-conflict-indicator-${noSessionConflictId}`,
   );
-
-  // Session rows: dot in place of the triangle, never both at once.
-  await screen.findByTestId(`workspace-status-indicator-${sessionCleanId}`);
-  await screen.findByTestId(`workspace-status-indicator-${sessionDirtyId}`);
-  await screen.findByTestId(`workspace-status-indicator-${sessionConflictId}`);
-  expect(
-    screen.queryByTestId(`workspace-conflict-indicator-${sessionConflictId}`),
-  ).not.toBeInTheDocument();
+  await screen.findByTestId(`workspace-conflict-indicator-${sessionConflictId}`);
 
   await captureDocument(document, {
     name: "workspace-agent-session-spinner-01-states",
     expectations: [
-      "feat/no-session-clean has no dot or triangle at its right edge, feat/no-session-dirty shows a small yellow dot, and feat/no-session-conflict shows a red conflict triangle.",
-      "feat/session-clean and feat/session-dirty each show a small colored indicator (blue for clean, yellow for dirty) at the right edge in place of any triangle.",
-      "feat/session-conflict shows a red indicator at its right edge, not the static conflict triangle.",
+      "feat/no-session-clean and feat/session-clean have no pip at their right edge at all.",
+      "feat/no-session-dirty and feat/session-dirty each show a small yellow pip at the right edge.",
+      "feat/no-session-conflict and feat/session-conflict each show a small red pip at the right edge.",
     ],
   });
 }, 120000);

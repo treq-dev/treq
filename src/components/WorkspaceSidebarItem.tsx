@@ -1,6 +1,5 @@
 import { Draggable } from "@hello-pangea/dnd";
 import {
-  AlertTriangle,
   Archive,
   Bot,
   CalendarClock,
@@ -162,8 +161,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
   const statusIndicator = getWorkspaceStatusIndicator({
     isConflicted,
     hasChanges: node.status.has_changes ?? false,
-    hasActiveAgentSession,
-    isAgentSessionStreaming,
+    isAgentSessionStreaming: hasActiveAgentSession && isAgentSessionStreaming,
   });
   const isHidden = isWorkspaceHidden(workspace);
   const workspaceTitle = getWorkspaceTitleFromUtils(workspace);
@@ -290,37 +288,36 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                           aria-label="Scheduled hidden"
                         />
                       )}
-                      {statusIndicator?.shape === "triangle" && (
-                        <AlertTriangle
-                          data-testid={`workspace-conflict-indicator-${workspace.id}`}
-                          className="w-3.5 h-3.5 text-destructive shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden"
-                          aria-label="Conflicted workspace"
-                        />
-                      )}
-                      {statusIndicator?.shape === "dot" &&
-                        (statusIndicator.spin ? (
-                          <Loader2
-                            data-testid={`workspace-status-indicator-${workspace.id}`}
-                            className={cn(
-                              "w-3.5 h-3.5 shrink-0 animate-spin absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
-                              WORKSPACE_STATUS_DOT_TEXT_CLASS[
-                                statusIndicator.color
-                              ],
-                            )}
-                            aria-label={statusIndicator.label}
-                          />
-                        ) : (
-                          <span
-                            data-testid={`workspace-status-indicator-${workspace.id}`}
-                            className={cn(
-                              "w-2 h-2 rounded-full shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
-                              WORKSPACE_STATUS_DOT_BG_CLASS[
-                                statusIndicator.color
-                              ],
-                            )}
-                            aria-label={statusIndicator.label}
-                          />
-                        ))}
+                      {statusIndicator &&
+                        (() => {
+                          const testId =
+                            statusIndicator.color === "red"
+                              ? `workspace-conflict-indicator-${workspace.id}`
+                              : `workspace-status-indicator-${workspace.id}`;
+                          return statusIndicator.spin ? (
+                            <Loader2
+                              data-testid={testId}
+                              className={cn(
+                                "w-3.5 h-3.5 shrink-0 animate-spin absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
+                                WORKSPACE_STATUS_DOT_TEXT_CLASS[
+                                  statusIndicator.color
+                                ],
+                              )}
+                              aria-label={statusIndicator.label}
+                            />
+                          ) : (
+                            <span
+                              data-testid={testId}
+                              className={cn(
+                                "w-2 h-2 rounded-full shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
+                                WORKSPACE_STATUS_DOT_BG_CLASS[
+                                  statusIndicator.color
+                                ],
+                              )}
+                              aria-label={statusIndicator.label}
+                            />
+                          );
+                        })()}
                       {queueStatus && (
                         <Tooltip>
                           <TooltipTrigger asChild>
