@@ -137,11 +137,20 @@ const DropdownMenuCheckboxItem = ({
   className,
   children,
   checked,
+  onSelect,
+  onClick,
   ref,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) => (
+}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem> & {
+  /** @deprecated Base UI's Menu.CheckboxItem has no `onSelect`; kept for API parity with the previous Radix-based component. */
+  onSelect?: (event: React.MouseEvent<HTMLDivElement>) => void;
+}) => (
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
+    onClick={(event) => {
+      onClick?.(event);
+      onSelect?.(event);
+    }}
     className={cn(
       "relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
@@ -162,11 +171,20 @@ DropdownMenuCheckboxItem.displayName = "DropdownMenuCheckboxItem";
 const DropdownMenuRadioItem = ({
   className,
   children,
+  onSelect,
+  onClick,
   ref,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) => (
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem> & {
+  /** @deprecated Base UI's Menu.RadioItem has no `onSelect`; kept for API parity with the previous Radix-based component. */
+  onSelect?: (event: React.MouseEvent<HTMLDivElement>) => void;
+}) => (
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
+    onClick={(event) => {
+      onClick?.(event);
+      onSelect?.(event);
+    }}
     className={cn(
       "relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
