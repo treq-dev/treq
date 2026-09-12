@@ -147,7 +147,7 @@ export function CreatePrButtonGroup({
     "Make a commit before creating a pull request. Uncommitted working-copy changes don't count.";
 
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delay={200}>
       <div className="inline-flex items-center">
         <Tooltip>
           <TooltipTrigger asChild>

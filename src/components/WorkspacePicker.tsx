@@ -1,6 +1,4 @@
 import { Command } from "cmdk";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import { GitBranch } from "lucide-react";
 import { Session, Workspace } from "../lib/api";
 
@@ -47,12 +45,12 @@ export const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
       onOpenChange={onOpenChange}
       label="Go to Workspace"
     >
-      <VisuallyHidden.Root>
-        <DialogPrimitive.Title>Go to Workspace</DialogPrimitive.Title>
-        <DialogPrimitive.Description>
+      <span className="sr-only">
+        <h2>Go to Workspace</h2>
+        <p>
           Go to workspace
-        </DialogPrimitive.Description>
-      </VisuallyHidden.Root>
+        </p>
+      </span>
       <div
         data-testid="modal"
         className="bg-popover text-popover-foreground rounded-xl border border-border/50 shadow-2xl w-[40vw] max-w-none overflow-hidden"
