@@ -1,6 +1,6 @@
 import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { Archive, Github, ListTodo, Search } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   useGitRemoteInfo,
@@ -8,17 +8,13 @@ import {
   usePrStatusPolling,
 } from "../hooks/useMergeQueueStatus";
 import { useWorkspaceSidebarMultiSelect } from "../hooks/useWorkspaceSidebarMultiSelect";
+import { useWorkspaceGitDetail } from "../hooks/useWorkspaceGitDetail";
 import {
-  getWorkspaceStatus,
   getWorkspaces,
   listWorkspaceStatuses,
   type Workspace,
 } from "../lib/api";
-import type {
-  PrInfo,
-  QueueEntryStatus,
-  WorkspaceSidebarStatus,
-} from "../lib/api-types";
+import type { PrInfo, QueueEntryStatus } from "../lib/api-types";
 import type { ChangeFilesMoveRequest } from "../lib/change-file-drag";
 import { FEATURES } from "../lib/features";
 import { supabase } from "../lib/supabase";
@@ -28,6 +24,7 @@ import {
   flattenWorkspaceTree,
   getDescendants,
   getEntireStack,
+  type WorkspaceSidebarStatusWithAgentDetail,
 } from "../lib/workspace-tree";
 import { isWorkspaceHidden } from "../lib/workspace-utils";
 import { useRepositoryCacheKey } from "../lib/active-repository-context";
@@ -144,26 +141,35 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   );
   const workspacesLoaded = workspacesPending === false && Boolean(repoPath);
 
+  // Branches with an open agent terminal, and whether any of those sessions
+  // is actively streaming -- drives the sidebar spinner's spin vs. idle pip.
+  const streamingByBranchWithAgentSession = useMemo(() => {
+    const branches = new Map<string, boolean>();
+    for (const session of terminalSessions ?? []) {
+      if (session.kind !== "agent" || !session.branchName) continue;
+      branches.set(
+        session.branchName,
+        (branches.get(session.branchName) ?? false) || session.isStreaming,
+      );
+    }
+    return branches;
+  }, [terminalSessions]);
+
+  // Shares its key with Dashboard.tsx's own plain `listWorkspaceStatuses`
+  // poll, so this fetcher must stay a plain pass-through of that call --
+  // see useWorkspaceGitDetail for the extra per-workspace detail this
+  // sidebar needs on top of it.
   const { data: workspaceStatuses = [] } = useSWR(
     cacheKey && workspacesLoaded ? ["workspace-statuses", cacheKey] : null,
-    async () => {
-      const baseStatuses = await listWorkspaceStatuses(repoPath || "");
-      return Promise.all(
-        baseStatuses.map(async (status) => {
-          if (status.has_conflicts) return status;
-          const detailed = await getWorkspaceStatus(
-            repoPath || "",
-            status.current.id,
-          );
-          return {
-            ...status,
-            has_conflicts: detailed.has_conflicts,
-          };
-        }),
-      );
-    },
+    () => listWorkspaceStatuses(repoPath || ""),
     { keepPreviousData: true },
   );
+  const gitDetailById = useWorkspaceGitDetail({
+    repoPath,
+    cacheKey,
+    enabled: workspacesLoaded,
+    statuses: workspaceStatuses,
+  });
 
   const { data: remoteInfo } = useGitRemoteInfo(repoPath);
   const { data: queueEnabled } = useMergeQueueEnabled(repoPath);
@@ -191,13 +197,17 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     { refreshInterval: pollMs(30_000) },
   );
 
-  const statuses: WorkspaceSidebarStatus[] = (() => {
+  const statuses: WorkspaceSidebarStatusWithAgentDetail[] = (() => {
     const statusById = new Map(
       (workspaceStatuses ?? []).map((status) => [status.current.id, status]),
     );
     return (workspaces ?? []).map((workspace) => {
       const status = statusById.get(workspace.id);
-      return status ?? { current: workspace, has_conflicts: false };
+      const detail = gitDetailById?.get(workspace.id);
+      return {
+        ...(status ?? { current: workspace, has_conflicts: false }),
+        ...detail,
+      };
     });
   })();
   const workspacesForSelection = statuses.map((s) => s.current);
@@ -445,6 +455,14 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                           }
                           hasRemote={!!remoteInfo}
                           onDropChangeFiles={onDropChangeFiles}
+                          hasActiveAgentSession={streamingByBranchWithAgentSession.has(
+                            node.status.current.branch_name,
+                          )}
+                          isAgentSessionStreaming={
+                            streamingByBranchWithAgentSession.get(
+                              node.status.current.branch_name,
+                            ) ?? false
+                          }
                         />
                       ))}
                       {droppableProvided.placeholder}
