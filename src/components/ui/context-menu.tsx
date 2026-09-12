@@ -175,10 +175,10 @@ const ContextMenuLabel = ({
   inset,
   ref,
   ...props
-}: React.ComponentProps<typeof MenuPrimitive.GroupLabel> & {
+}: React.HTMLAttributes<HTMLDivElement> & {
   inset?: boolean;
 }) => (
-  <MenuPrimitive.GroupLabel
+  <div
     ref={ref}
     className={cn(
       "px-2 py-1.5 text-sm font-semibold",
