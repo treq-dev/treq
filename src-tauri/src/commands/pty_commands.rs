@@ -32,6 +32,7 @@ fn resolve_local_working_dir(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn pty_create_session(
   state: State<'_, AppState>,
   session_id: String,

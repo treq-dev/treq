@@ -2,7 +2,7 @@ use crate::lock_ext::LockExt;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, FileIdMap};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
@@ -95,7 +95,7 @@ impl WatcherManager {
 
 // TODO: Implement .gitignore support using the `ignore` crate
 // For now, we use a simple hardcoded list of common ignore patterns
-fn is_ignored_path(path: &PathBuf) -> bool {
+fn is_ignored_path(path: &Path) -> bool {
   let path_str = path.to_string_lossy();
   path_str.contains("/.jj/")
     || path_str.contains("/.git/")

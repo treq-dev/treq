@@ -184,14 +184,9 @@ fn find_user_input_end_idx(
 ) -> usize {
   let mut user_input_idx = 0usize;
   let mut msg_idx = user_input_start_idx;
-  loop {
-    match find_next_match(msg_idx, user_input_idx, msg, user_input) {
-      Some((m, u)) => {
-        msg_idx = m;
-        user_input_idx = u;
-      }
-      None => break,
-    }
+  while let Some((m, u)) = find_next_match(msg_idx, user_input_idx, msg, user_input) {
+    msg_idx = m;
+    user_input_idx = u;
   }
   msg_idx
 }
@@ -262,15 +257,11 @@ fn find_generic_slim_message_box(lines: &[String]) -> Option<usize> {
   }
   let start = lines.len().saturating_sub(9);
   let end = lines.len() - 3;
-  for i in (start..=end).rev() {
-    if contains_horizontal_border(&lines[i])
+  (start..=end).rev().find(|&i| {
+    contains_horizontal_border(&lines[i])
       && (lines[i + 1].contains('|') || lines[i + 1].contains('│') || lines[i + 1].contains('❯'))
       && contains_horizontal_border(&lines[i + 2])
-    {
-      return Some(i);
-    }
-  }
-  None
+  })
 }
 
 fn remove_message_box(msg: &str) -> String {

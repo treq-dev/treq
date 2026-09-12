@@ -526,6 +526,7 @@ pub fn gh_set_pr_draft_impl(
   check_gh_output(out).map(|_| ())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn gh_create_pr_impl(
   gh_path: &str,
   repo_full_name: &str,

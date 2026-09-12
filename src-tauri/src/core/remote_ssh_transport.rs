@@ -792,9 +792,11 @@ impl SshConnectionPool {
       metrics: self.metrics.clone(),
     };
 
-    let mut config = russh::client::Config::default();
-    config.keepalive_interval = Some(self.keepalive_interval);
-    config.keepalive_max = 3;
+    let config = russh::client::Config {
+      keepalive_interval: Some(self.keepalive_interval),
+      keepalive_max: 3,
+      ..Default::default()
+    };
     let config = Arc::new(config);
 
     let address = (endpoint.hostname.as_str(), endpoint.port);
@@ -1027,17 +1029,14 @@ pub async fn exec_command(
     },
   };
 
-  match &outcome {
-    // A deadline blows past the connection's usability the same way a raw
-    // I/O error does: the client cannot tell whether the still-open channel
-    // will ever produce the rest of the response, so the next command must
-    // not gamble on multiplexing a fresh channel onto it. Reconnecting is
-    // exactly the reconnect-before-verify step the PRD's "Retrying after
-    // network loss" section describes.
-    Err(SshTransportError::ChannelError(_) | SshTransportError::DeadlineExceeded) => {
-      pool.mark_dead(endpoint).await
-    }
-    _ => {}
+  // A deadline blows past the connection's usability the same way a raw
+  // I/O error does: the client cannot tell whether the still-open channel
+  // will ever produce the rest of the response, so the next command must
+  // not gamble on multiplexing a fresh channel onto it. Reconnecting is
+  // exactly the reconnect-before-verify step the PRD's "Retrying after
+  // network loss" section describes.
+  if let Err(SshTransportError::ChannelError(_) | SshTransportError::DeadlineExceeded) = &outcome {
+    pool.mark_dead(endpoint).await
   }
 
   pool.metrics.exec_channel_duration.record(started.elapsed());

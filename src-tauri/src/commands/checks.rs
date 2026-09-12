@@ -84,6 +84,7 @@ pub async fn list_workflow_runs(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn get_run_logs(
   repo_path: String,
   run_id: i64,

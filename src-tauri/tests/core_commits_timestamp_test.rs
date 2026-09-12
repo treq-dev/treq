@@ -8,7 +8,7 @@ fn parse_millis(timestamp: &str) -> i64 {
     .timestamp_millis()
 }
 
-fn workspace_commits<'a>(log: &'a treq_lib::jj::JjLogResult) -> Vec<&'a treq_lib::jj::JjLogCommit> {
+fn workspace_commits(log: &treq_lib::jj::JjLogResult) -> Vec<&treq_lib::jj::JjLogCommit> {
   log
     .commits
     .iter()

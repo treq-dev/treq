@@ -55,6 +55,7 @@ struct BookmarkConflictResolution {
 /// 1. Capturing local-only mutable commits
 /// 2. Pointing the local bookmark to the remote tip
 /// 3. Rebasing any local commits onto the new tip
+///
 /// Returns early (not conflicted) if bookmark is clean.
 fn resolve_bookmark_conflict_if_needed(
   workspace_path: &str,
