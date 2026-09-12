@@ -54,7 +54,7 @@ export function HomeRepoSidebarRow({
   const caps = useRemoteCapabilities();
   return (
     <SidebarMenuItem>
-      <ContextMenu>
+      <ContextMenu modal={false}>
         <Tooltip>
           <ContextMenuTrigger asChild>
             <TooltipTrigger asChild>
