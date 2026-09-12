@@ -36,13 +36,15 @@ export type TreqSshModule = {
   disconnect(sessionId: string): Promise<void>;
 };
 
-const { TreqSsh } = NativeModules as { TreqSsh?: TreqSshModule };
+const { TreqSsh: NativeTreqSsh } = NativeModules as { TreqSsh?: TreqSshModule };
 
-if (!TreqSsh) {
+if (!NativeTreqSsh) {
   throw new Error(
     'TreqSsh native module is not linked. Build the iOS/Android native ' +
       'projects with the treq-mobile-ssh bridge (see mobile/README.md).',
   );
 }
+
+const TreqSsh: TreqSshModule = NativeTreqSsh;
 
 export default TreqSsh;
