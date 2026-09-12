@@ -193,7 +193,7 @@ const ContextMenuLabel = ({
   inset,
   ref,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & {
+}: React.ComponentProps<"div"> & {
   inset?: boolean;
 }) => (
   <div
