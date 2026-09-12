@@ -8,6 +8,16 @@ publish = false
 crate-type = ["cdylib", "staticlib", "lib"]
 name = "treq_mobile_ssh"
 
+[features]
+# Exposes `mock_server` (an in-process SSH server) as a public module so the
+# `mock_ssh_server` example binary can serve it for the Kotlin/Swift FFI CI
+# jobs. Never enabled in a normal build.
+ffi-tests = []
+
+[[example]]
+name = "mock_ssh_server"
+required-features = ["ffi-tests"]
+
 [dependencies]
 russh = "0.63.1"
 bytes = "1"

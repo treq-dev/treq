@@ -1,0 +1,210 @@
+name: Mobile
+
+# Verifies the mobile/ React Native app and crates/treq-mobile-ssh, the
+# russh + UniFFI crate it calls into (see mobile/README.md and
+# prds/mobile.md). Every job here exercises real, compiled code:
+#
+# - `rust`: the crate's own unit tests, including a real in-process SSH
+#   server round trip (see crates/treq-mobile-ssh/src/lib.rs's `mod tests`).
+# - `rn-checks`: typecheck and Jest for the RN app itself (the native
+#   module boundary is mocked here deliberately - it is component-level
+#   coverage for screens/navigation, not FFI coverage).
+# - `kotlin-ffi` / `swift-ffi`: the FFI coverage those RN tests don't
+#   provide. Each builds the crate for the host, generates real
+#   UniFFI Kotlin/Swift bindings, starts a real SSH server (the
+#   `mock_ssh_server` example, gated behind the `ffi-tests` feature so it
+#   never ships in a normal build) on a real socket, and runs a real
+#   Kotlin/Swift program against it - no JS/TS mock anywhere in this path.
+#   `kotlin-ffi` runs on the JVM with JNA (proves the JVM/JNA loading path
+#   any Kotlin consumer of these bindings uses); `swift-ffi` runs on
+#   macOS with the system Swift toolchain (the same one Xcode uses for an
+#   iOS build, modulo iOS-only frameworks like UIKit). Neither spins up an
+#   Android emulator or iOS simulator - see "What this does not prove"
+#   below.
+#
+# ## What this does not prove
+#
+# - That `mobile/ios/TreqMobile/TreqSshBridge.swift` (the actual
+#   `@objc`/`RCTBridgeModule` wrapper React Native calls) compiles: that
+#   requires the React-Core CocoaPod and a generated Xcode project, which
+#   in turn requires `pod install`/`xcodebuild` against a real RN iOS
+#   project shell this repo does not have yet (see mobile/README.md
+#   "Status"). `swift-ffi` compiles and runs the generated UniFFI bindings
+#   plus a plain Swift caller instead, proving the Rust<->Swift half of
+#   that bridge.
+# - That `mobile/android/native/kotlin/TreqSshModule.kt` (the actual RN
+#   `NativeModule`) compiles against the real React Native Android
+#   artifact, for the same reason - no generated Android Gradle project
+#   exists yet. `kotlin-ffi` proves the Rust<->Kotlin half via JNA instead.
+# - Anything about running on an actual Android/iOS device or emulator.
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  JNA_VERSION: "5.14.0"
+  SWIFT_VERSION: "6.0.3"
+
+on:
+  pull_request:
+    paths:
+      - "crates/treq-mobile-ssh/**"
+      - "mobile/**"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+
+jobs:
+  rust:
+    name: rust (treq-mobile-ssh unit tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - name: cargo test
+        run: cargo test -p treq-mobile-ssh
+
+  rn-checks:
+    name: rn-checks (typecheck + jest)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test -- --ci
+
+  kotlin-ffi:
+    name: kotlin-ffi (JVM + JNA against real Rust)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build treq-mobile-ssh (lib + uniffi-bindgen + mock server)
+        run: |
+          cargo build -p treq-mobile-ssh --lib
+          cargo build -p treq-mobile-ssh --bin uniffi-bindgen
+          cargo build -p treq-mobile-ssh --example mock_ssh_server --features ffi-tests
+
+      - name: Generate Kotlin bindings
+        working-directory: crates/treq-mobile-ssh
+        run: |
+          cargo run --bin uniffi-bindgen -- generate \
+            --library ../../target/debug/libtreq_mobile_ssh.so \
+            --language kotlin --out-dir "$RUNNER_TEMP/kt-bindings"
+
+      - name: Download Kotlin compiler and JNA
+        run: |
+          set -euo pipefail
+          curl -sSL -o "$RUNNER_TEMP/kotlinc.zip" \
+            "https://github.com/JetBrains/kotlin/releases/download/v1.9.24/kotlin-compiler-1.9.24.zip"
+          unzip -q "$RUNNER_TEMP/kotlinc.zip" -d "$RUNNER_TEMP"
+          curl -sSL -o "$RUNNER_TEMP/jna.jar" \
+            "https://repo1.maven.org/maven2/net/java/dev/jna/jna/${JNA_VERSION}/jna-${JNA_VERSION}.jar"
+
+      - name: Compile the Kotlin FFI test
+        run: |
+          "$RUNNER_TEMP/kotlinc/bin/kotlinc" \
+            -cp "$RUNNER_TEMP/jna.jar" \
+            "$RUNNER_TEMP/kt-bindings/uniffi/treq_mobile_ssh/treq_mobile_ssh.kt" \
+            crates/treq-mobile-ssh/ffi-tests/kotlin/SshClientFfiTest.kt \
+            -include-runtime -d "$RUNNER_TEMP/ffitest.jar"
+
+      - name: Start the real mock SSH server
+        run: |
+          ./target/debug/examples/mock_ssh_server 127.0.0.1:0 > "$RUNNER_TEMP/mock_server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/mock_server.pid"
+          for _ in $(seq 1 20); do
+            grep -q LISTENING "$RUNNER_TEMP/mock_server.log" 2>/dev/null && break
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/mock_server.log"
+
+      - name: Run the Kotlin FFI test against the real server
+        run: |
+          set -euo pipefail
+          read -r _ _ port fingerprint < "$RUNNER_TEMP/mock_server.log"
+          java -Djna.library.path="$PWD/target/debug" \
+            -cp "$RUNNER_TEMP/ffitest.jar:$RUNNER_TEMP/jna.jar" \
+            SshClientFfiTestKt "$port" "$fingerprint"
+
+      - name: Stop the mock server
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/mock_server.pid")" 2>/dev/null || true
+
+  swift-ffi:
+    name: swift-ffi (native Swift against real Rust)
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build treq-mobile-ssh (lib + uniffi-bindgen + mock server)
+        run: |
+          cargo build -p treq-mobile-ssh --lib
+          cargo build -p treq-mobile-ssh --bin uniffi-bindgen
+          cargo build -p treq-mobile-ssh --example mock_ssh_server --features ffi-tests
+
+      - name: Generate Swift bindings
+        working-directory: crates/treq-mobile-ssh
+        run: |
+          cargo run --bin uniffi-bindgen -- generate \
+            --library ../../target/debug/libtreq_mobile_ssh.dylib \
+            --language swift --out-dir "$RUNNER_TEMP/swift-bindings"
+
+      - name: Compile the Swift FFI test
+        run: |
+          xcrun swiftc \
+            -I "$RUNNER_TEMP/swift-bindings" \
+            -Xcc -fmodule-map-file="$RUNNER_TEMP/swift-bindings/treq_mobile_sshFFI.modulemap" \
+            -L target/debug -ltreq_mobile_ssh \
+            "$RUNNER_TEMP/swift-bindings/treq_mobile_ssh.swift" \
+            crates/treq-mobile-ssh/ffi-tests/swift/main.swift \
+            -o "$RUNNER_TEMP/ffitest"
+
+      - name: Start the real mock SSH server
+        run: |
+          ./target/debug/examples/mock_ssh_server 127.0.0.1:0 > "$RUNNER_TEMP/mock_server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/mock_server.pid"
+          for _ in $(seq 1 20); do
+            grep -q LISTENING "$RUNNER_TEMP/mock_server.log" 2>/dev/null && break
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/mock_server.log"
+
+      - name: Run the Swift FFI test against the real server
+        run: |
+          set -euo pipefail
+          read -r _ _ port fingerprint < "$RUNNER_TEMP/mock_server.log"
+          DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/ffitest" "$port" "$fingerprint"
+
+      - name: Stop the mock server
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/mock_server.pid")" 2>/dev/null || true

@@ -232,15 +232,22 @@ fn shell_words_join(argv: &[String]) -> String {
         .join(" ")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// In-process mock SSH server shared by the crate's own unit tests and, via
+/// the `ffi-tests` feature, the `mock_ssh_server` example binary that the
+/// Kotlin/Swift FFI CI jobs (`.github/workflows/mobile.yml`) run against to
+/// exercise the *real* compiled library from real Kotlin/Swift code rather
+/// than a JS/mock stand-in. Not compiled into ordinary builds of the crate.
+#[cfg(any(test, feature = "ffi-tests"))]
+pub mod mock_server {
+    use crate::generate_ed25519_private_key;
+    use russh::keys::PrivateKey;
     use russh::server::{self, Msg as ServerMsg, Server as _, Session as ServerSession};
     use russh::{Channel, ChannelId};
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
-    fn test_host_key() -> PrivateKey {
+    pub fn test_host_key() -> PrivateKey {
         generate_ed25519_private_key().unwrap()
     }
 
@@ -300,14 +307,17 @@ mod tests {
         }
     }
 
-    async fn start_mock_server() -> (std::net::SocketAddr, PrivateKey) {
+    /// Binds on `bind_addr` (use `"127.0.0.1:0"` for an OS-assigned port)
+    /// and serves forever in a background task. Returns the bound address
+    /// and the host key so a caller can compute the expected fingerprint.
+    pub async fn start_mock_server(bind_addr: &str) -> (std::net::SocketAddr, PrivateKey) {
         let host_key = test_host_key();
         let mut config = server::Config::default();
         config.keys.push(host_key.clone());
         config.auth_rejection_time = Duration::from_millis(10);
         let config = Arc::new(config);
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
         let addr = listener.local_addr().unwrap();
 
         let mut server = MockServer {
@@ -329,6 +339,12 @@ mod tests {
 
         (addr, host_key)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mock_server::start_mock_server;
+    use super::*;
 
     #[test]
     fn generates_a_valid_ed25519_device_key() {
@@ -342,7 +358,7 @@ mod tests {
     #[test]
     fn connect_rejects_mismatched_host_key_fingerprint() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let (addr, _host_key) = runtime.block_on(start_mock_server());
+        let (addr, _host_key) = runtime.block_on(start_mock_server("127.0.0.1:0"));
 
         let client = SshClient::new();
         let device_key = client.generate_device_key().unwrap();
@@ -361,7 +377,7 @@ mod tests {
     #[test]
     fn connect_and_exec_round_trips_through_a_real_ssh_session() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let (addr, host_key) = runtime.block_on(start_mock_server());
+        let (addr, host_key) = runtime.block_on(start_mock_server("127.0.0.1:0"));
         let expected_fingerprint = host_key.public_key().fingerprint(HashAlg::Sha256).to_string();
 
         let client = SshClient::new();
