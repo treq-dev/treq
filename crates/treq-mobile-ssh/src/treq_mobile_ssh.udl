@@ -1,0 +1,48 @@
+namespace treq_mobile_ssh {};
+
+[Error]
+enum SshError {
+  "HostKeyMismatch",
+  "ConnectionFailed",
+  "AuthenticationFailed",
+  "KeyMaterialUnavailable",
+  "CommandFailed",
+  "SessionNotFound",
+};
+
+dictionary DeviceKeyInfo {
+  string public_key_openssh;
+  string fingerprint_sha256;
+  string private_key_pem;
+};
+
+dictionary ExecResult {
+  i32 exit_status;
+  string stdout;
+  string stderr;
+};
+
+interface SshClient {
+  constructor();
+
+  // Generates a fresh ed25519 device keypair. The caller (the iOS/Android
+  // native bridge, not JS) is responsible for immediately moving
+  // `private_key_pem` into Keychain / Android Keystore and discarding this
+  // value; it must never be forwarded across the React Native JS bridge.
+  [Throws=SshError]
+  DeviceKeyInfo generate_device_key();
+
+  // Opens (or reuses a pooled) SSH connection authenticated with
+  // `private_key_pem`, verifying the server host key against
+  // `expected_fingerprint_sha256` before sending any credentials.
+  // Returns an opaque session id used by exec_command / disconnect.
+  [Throws=SshError]
+  u64 connect(string host, u16 port, string username, string private_key_pem, string expected_fingerprint_sha256);
+
+  // Runs a single allow-listed Treq CLI command over a non-interactive
+  // exec channel on an already-open session.
+  [Throws=SshError]
+  ExecResult exec_command(u64 session_id, sequence<string> argv);
+
+  void disconnect(u64 session_id);
+};

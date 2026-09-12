@@ -1,0 +1,26 @@
+[package]
+name = "treq-mobile-ssh"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib", "lib"]
+name = "treq_mobile_ssh"
+
+[dependencies]
+russh = "0.45"
+russh-keys = "0.45"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "io-util"] }
+thiserror = "1"
+async-trait = "0.1"
+uniffi = { version = "0.28", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"

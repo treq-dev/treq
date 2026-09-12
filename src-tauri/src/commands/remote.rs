@@ -1,7 +1,6 @@
 use crate::core::feature_preview::PreviewFeature;
 use crate::core::remote::{self, SshHost};
 use crate::core::remote_control_plane::SshEndpoint;
-use crate::core::remote_device_key::{self, DeviceKeyInfo};
 use crate::core::remote_local_keys::{self, LocalSshIdentity};
 use crate::core::remote_ssh_config::{self, ResolvedSshAlias};
 use crate::AppState;
@@ -88,16 +87,4 @@ pub fn read_local_ssh_public_key(
 ) -> Result<String, String> {
   require_remote_ssh(&state)?;
   remote_local_keys::read_local_public_key(&reference)
-}
-
-/// Ensures this device has an ed25519 keypair for control-plane
-/// registration and certificate-based SSH auth, generating one on first
-/// use. Returns only public material - see `core::remote_device_key`.
-#[tauri::command]
-pub fn ensure_mobile_device_key(
-  state: State<AppState>,
-  app: tauri::AppHandle,
-) -> Result<DeviceKeyInfo, String> {
-  require_remote_ssh(&state)?;
-  remote_device_key::ensure_device_key(&app)
 }

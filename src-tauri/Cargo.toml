@@ -69,8 +69,6 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", 
 russh = "0.63.1"
 bytes = "1"
 getrandom = "0.4"
-tauri-plugin-keystore = "2.1.0-alpha.1"
-tauri-plugin-biometric = "2"
 
 [dev-dependencies]
 mockall = "0.14.0"
