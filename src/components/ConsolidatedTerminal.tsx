@@ -25,6 +25,7 @@ import {
 import { consumePtyEcho } from "./terminal/consumePtyEcho";
 import { readXtermScreen } from "./terminal/readXtermScreen";
 import { useTerminalSettingsStore } from "../stores/terminalSettingsStore";
+import { useZoomSettingsStore } from "../stores/zoomSettingsStore";
 import { cn } from "../lib/utils";
 import { Loader2 } from "lucide-react";
 import { TerminalErrorOverlay } from "./terminal/TerminalErrorOverlay";
@@ -115,6 +116,8 @@ export const ConsolidatedTerminal = ({
   const onTerminalInputRef = useRef(onTerminalInput);
   const onTerminalIdleRef = useRef(onTerminalIdle);
   const fontSize = useTerminalSettingsStore((s) => s.fontSize);
+  const zoom = useZoomSettingsStore((s) => s.zoom);
+  const scaledFontSize = Math.round((fontSize * zoom) / 100);
 
   useEffect(() => {
     isPtyReadyRef.current = isPtyReady;
@@ -175,7 +178,7 @@ export const ConsolidatedTerminal = ({
     const xterm = new XTerm({
       cursorBlink: true,
       cursorStyle: "bar",
-      fontSize,
+      fontSize: scaledFontSize,
       fontFamily:
         '"JetBrains Mono", "JetBrains Mono Fallback", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       theme: { background: "#1e1e1e" },
@@ -437,7 +440,7 @@ export const ConsolidatedTerminal = ({
     workspaceId,
     remoteHost,
     shell,
-    fontSize,
+    scaledFontSize,
     instanceKey,
     idleTimeoutMs,
   ]);
