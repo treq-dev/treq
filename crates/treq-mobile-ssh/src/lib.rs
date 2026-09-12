@@ -20,6 +20,9 @@ use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertifi
 
 uniffi::include_scaffolding!("treq_mobile_ssh");
 
+#[cfg(feature = "napi")]
+mod napi_bridge;
+
 #[derive(Debug, thiserror::Error)]
 pub enum SshError {
     #[error("host key did not match the expected fingerprint")]

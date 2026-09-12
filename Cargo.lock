@@ -8293,6 +8293,9 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
+ "napi",
+ "napi-build",
+ "napi-derive",
  "rand_core 0.10.1",
  "russh",
  "thiserror 1.0.69",

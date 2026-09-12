@@ -3,10 +3,12 @@ import { ActivityIndicator, Button, StyleSheet, Text, TextInput, View } from 're
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import TreqSsh from '../native/TreqSsh';
+import { parseConnectionString } from '../lib/parseConnectionString';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Connect'>;
 
 export function ConnectScreen({ navigation }: Props): React.JSX.Element {
+  const [connectionString, setConnectionString] = useState('');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
   const [username, setUsername] = useState('');
@@ -15,6 +17,19 @@ export function ConnectScreen({ navigation }: Props): React.JSX.Element {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleParseConnectionString = () => {
+    try {
+      const parsed = parseConnectionString(connectionString);
+      setUsername(parsed.username);
+      setHost(parsed.host);
+      setPort(String(parsed.port));
+      setFingerprint(parsed.fingerprintSha256);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const handleGenerateKey = async () => {
     setBusy(true);
@@ -49,6 +64,16 @@ export function ConnectScreen({ navigation }: Props): React.JSX.Element {
 
   return (
     <View style={styles.container}>
+      <Text style={styles.label}>Connection string (temporary quick-fill)</Text>
+      <TextInput
+        style={styles.input}
+        value={connectionString}
+        onChangeText={setConnectionString}
+        autoCapitalize="none"
+        placeholder="treq@127.0.0.1:2222#SHA256:abc123"
+      />
+      <Button title="Parse connection string" onPress={handleParseConnectionString} />
+
       <Text style={styles.label}>Device key</Text>
       <Button title={publicKey ? 'Regenerate device key' : 'Generate device key'} onPress={handleGenerateKey} disabled={busy} />
       {publicKey ? <Text style={styles.mono}>{publicKey}</Text> : null}

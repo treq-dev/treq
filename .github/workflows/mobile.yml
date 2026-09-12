@@ -9,8 +9,18 @@ name: Mobile
 # - `rn-checks`: typecheck and Jest for the RN app itself (the native
 #   module boundary is mocked here deliberately - it is component-level
 #   coverage for screens/navigation, not FFI coverage).
-# - `kotlin-ffi` / `swift-ffi`: the FFI coverage those RN tests don't
-#   provide. Each builds the crate for the host, generates real
+# - `rn-real-ssh`: the same screens (ConnectScreen, WorkspacesScreen),
+#   driven by @testing-library/react-native's render/fireEvent/waitFor,
+#   but with the native module boundary backed by a real N-API build of
+#   treq-mobile-ssh (feature `napi`, see src/native/TreqSsh.real.ts and
+#   jest.config.real.js) instead of a mock - typing a connection string,
+#   pressing Connect, and pressing Run really opens a TCP connection and
+#   runs an exec channel against a real `mock_ssh_server` process. This is
+#   a Node-hosted stand-in for the native bridge layer, not iOS/Android -
+#   see "What this does not prove" below for that boundary.
+# - `kotlin-ffi` / `swift-ffi`: FFI coverage for the two platforms
+#   `rn-real-ssh` cannot reach (it runs under Node, not a JVM or Swift
+#   runtime). Each builds the crate for the host, generates real
 #   UniFFI Kotlin/Swift bindings, starts a real SSH server (the
 #   `mock_ssh_server` example, gated behind the `ffi-tests` feature so it
 #   never ships in a normal build) on a real socket, and runs a real
@@ -87,6 +97,30 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test -- --ci
+
+  rn-real-ssh:
+    name: rn-real-ssh (UI-driven, real Rust, no mocks)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Build the native-test addon (treq-mobile-ssh with --features napi)
+        run: npm run build:native-test
+      - name: Drive ConnectScreen/WorkspacesScreen with @testing-library/react-native
+        run: npx jest --config jest.config.real.js --ci
 
   kotlin-ffi:
     name: kotlin-ffi (JVM + JNA against real Rust)
