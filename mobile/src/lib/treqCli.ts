@@ -73,6 +73,21 @@ export type Commit = {
   hasConflicts: boolean;
 };
 
+/**
+ * Mirrors `AgentStatusResult` (`core::agent_supervisor`) as returned by
+ * `agent-remote status`/`stop` - see `crates/treq-mobile-ssh`'s architecture
+ * note in `treqCli.ts`'s module doc: mobile drives the same VM-local
+ * supervisor over its own SSH exec channel rather than desktop's Tauri IPC.
+ */
+export type AgentStatus = {
+  workspace: string;
+  running: boolean;
+  agent: string | null;
+  pid: number | null;
+  startedAt: string | null;
+  shouldRefresh: boolean;
+};
+
 function baseArgv(command: string, action: string, repo: string, workspaceId?: number): string[] {
   const argv = [command, action, '--repo', repo];
   if (workspaceId !== undefined) {
@@ -99,6 +114,127 @@ export function listCommitsArgv(repo: string, workspaceId?: number): string[] {
 
 export function listConflictsArgv(repo: string, workspaceId?: number): string[] {
   return [...baseArgv('conflicts', 'list', repo, workspaceId), '--format', 'json'];
+}
+
+// --- Phase 4: agent control (`agent-remote <action>`) ---
+
+export function agentStartArgv(
+  repo: string,
+  workspace: number,
+  agent: string,
+  prompt: string,
+  idempotencyKey: string,
+): string[] {
+  return [
+    'agent-remote', 'start', '--repo', repo, '--workspace', String(workspace),
+    '--target', agent, '--value', prompt, '--idempotency-key', idempotencyKey,
+    '--format', 'json',
+  ];
+}
+
+export function agentInputArgv(
+  repo: string,
+  workspace: number,
+  input: string,
+  idempotencyKey: string,
+): string[] {
+  return [
+    'agent-remote', 'input', '--repo', repo, '--workspace', String(workspace),
+    '--value', input, '--idempotency-key', idempotencyKey, '--format', 'json',
+  ];
+}
+
+export function agentStatusArgv(repo: string, workspace: number): string[] {
+  return ['agent-remote', 'status', '--repo', repo, '--workspace', String(workspace), '--format', 'json'];
+}
+
+export function agentStopArgv(repo: string, workspace: number): string[] {
+  return ['agent-remote', 'stop', '--repo', repo, '--workspace', String(workspace), '--format', 'json'];
+}
+
+export function agentLogsArgv(repo: string, workspace: number): string[] {
+  return ['agent-remote', 'logs', '--repo', repo, '--workspace', String(workspace), '--format', 'json'];
+}
+
+export function parseAgentStatus(stdout: string): AgentStatus {
+  type RawAgentStatus = {
+    workspace: string;
+    running: boolean;
+    agent: string | null;
+    pid: number | null;
+    started_at: string | null;
+    should_refresh: boolean;
+  };
+  const raw = parseCliJson<RawAgentStatus>(stdout);
+  return {
+    workspace: raw.workspace,
+    running: raw.running,
+    agent: raw.agent,
+    pid: raw.pid,
+    startedAt: raw.started_at,
+    shouldRefresh: raw.should_refresh,
+  };
+}
+
+/** `agent-remote logs` returns the log tail as a bare JSON string. */
+export function parseAgentLogs(stdout: string): string {
+  return parseCliJson<string>(stdout);
+}
+
+// --- Phase 5: controlled mutations ---
+// Each mutation carries a caller-supplied idempotency key (see
+// `generateIdempotencyKey` in `controlPlane.ts`) so a retry after a dropped
+// connection replays the original result instead of double-applying, per
+// `core::remote`'s `with_idempotency_key` on the desktop/CLI side.
+
+export function createWorkspaceArgv(repo: string, branchName: string, idempotencyKey: string, sourceBranch?: string): string[] {
+  const argv = ['workspace', 'create', '--repo', repo, '--value', branchName, '--idempotency-key', idempotencyKey];
+  if (sourceBranch) {
+    argv.push('--target', sourceBranch);
+  }
+  argv.push('--format', 'json');
+  return argv;
+}
+
+export function rebaseWorkspaceArgv(repo: string, workspace: number, targetBranch: string, idempotencyKey: string): string[] {
+  return [
+    'workspace', 'rebase', '--repo', repo, '--workspace', String(workspace),
+    '--target', targetBranch, '--idempotency-key', idempotencyKey, '--format', 'json',
+  ];
+}
+
+export function patchFileArgv(
+  repo: string,
+  path: string,
+  patchBase64: string,
+  idempotencyKey: string,
+  workspace?: number,
+): string[] {
+  return [
+    ...baseArgv('file', 'patch', repo, workspace),
+    '--path', path, '--value', patchBase64, '--idempotency-key', idempotencyKey, '--format', 'json',
+  ];
+}
+
+export function createCommitArgv(repo: string, message: string, idempotencyKey: string, workspace?: number): string[] {
+  return [
+    ...baseArgv('commits', 'create', repo, workspace),
+    '--value', message, '--idempotency-key', idempotencyKey, '--format', 'json',
+  ];
+}
+
+/** `sides` are jj resolve-side tokens (e.g. `left`, `right`, `base`); omit for the CLI's default resolution. */
+export function resolveConflictArgv(repo: string, revision: string, idempotencyKey: string, sides: string[] = []): string[] {
+  const argv = ['conflicts', 'resolve', '--repo', repo, '--target', revision, '--idempotency-key', idempotencyKey];
+  if (sides.length > 0) {
+    argv.push('--value', sides.join(','));
+  }
+  argv.push('--format', 'json');
+  return argv;
+}
+
+export function gitPushArgv(repo: string, idempotencyKey: string, workspace?: number): string[] {
+  return [...baseArgv('git', 'push', repo, workspace), '--idempotency-key', idempotencyKey, '--format', 'json'];
 }
 
 export function readFileArgv(

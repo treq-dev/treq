@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { WorkspaceDetailScreen } from '../WorkspaceDetailScreen';
 import TreqSsh from '../../native/TreqSsh';
 
@@ -44,5 +44,35 @@ describe('WorkspaceDetailScreen', () => {
     const { getByText } = renderScreen();
 
     await waitFor(() => expect(getByText('boom')).toBeTruthy());
+  });
+
+  it('navigates to the Agent screen', async () => {
+    (TreqSsh.execCommand as jest.Mock).mockResolvedValue({ exitStatus: 0, stdout: '[]', stderr: '' });
+
+    const { getByText } = renderScreen();
+    await waitFor(() => expect(TreqSsh.execCommand).toHaveBeenCalled());
+
+    fireEvent.press(getByText('Agent'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('Agent', { sessionId: 'session-1', repo: '/repo', workspaceId: 3 });
+  });
+
+  it('rebases the workspace via the rebase modal', async () => {
+    (TreqSsh.execCommand as jest.Mock).mockResolvedValue({ exitStatus: 0, stdout: '[]', stderr: '' });
+
+    const { getByText, getAllByText, getByPlaceholderText } = renderScreen();
+    await waitFor(() => expect(TreqSsh.execCommand).toHaveBeenCalled());
+
+    fireEvent.press(getByText('Rebase'));
+    fireEvent.changeText(getByPlaceholderText('main'), 'main');
+    const rebaseButtons = getAllByText('Rebase');
+    fireEvent.press(rebaseButtons[rebaseButtons.length - 1]);
+
+    await waitFor(() =>
+      expect(TreqSsh.execCommand).toHaveBeenLastCalledWith(
+        'session-1',
+        expect.arrayContaining(['workspace', 'rebase', '--repo', '/repo', '--workspace', '3', '--target', 'main']),
+      ),
+    );
   });
 });

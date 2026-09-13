@@ -3,7 +3,8 @@ import { ActivityIndicator, Button, FlatList, ScrollView, StyleSheet, Text, Text
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import TreqSsh, { ExecResult } from '../native/TreqSsh';
-import { listWorkspacesArgv, parseWorkspaces, Workspace } from '../lib/treqCli';
+import { generateIdempotencyKey } from '../lib/controlPlane';
+import { createWorkspaceArgv, listWorkspacesArgv, parseWorkspaces, Workspace } from '../lib/treqCli';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Workspaces'>;
 
@@ -13,6 +14,10 @@ export function WorkspacesScreen({ navigation, route }: Props): React.JSX.Elemen
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [newBranchName, setNewBranchName] = useState('');
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const [command, setCommand] = useState('');
   const [result, setResult] = useState<ExecResult | null>(null);
@@ -33,6 +38,26 @@ export function WorkspacesScreen({ navigation, route }: Props): React.JSX.Elemen
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleCreateWorkspace = async () => {
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const execResult = await TreqSsh.execCommand(
+        sessionId,
+        createWorkspaceArgv(repo, newBranchName.trim(), generateIdempotencyKey()),
+      );
+      if (execResult.exitStatus !== 0) {
+        throw new Error(execResult.stderr || `treq exited with status ${execResult.exitStatus}`);
+      }
+      setNewBranchName('');
+      await handleLoadWorkspaces();
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreateBusy(false);
     }
   };
 
@@ -90,6 +115,21 @@ export function WorkspacesScreen({ navigation, route }: Props): React.JSX.Elemen
           )}
         />
       ) : null}
+
+      <Text style={styles.label}>New workspace</Text>
+      <TextInput
+        style={styles.input}
+        value={newBranchName}
+        onChangeText={setNewBranchName}
+        autoCapitalize="none"
+        placeholder="branch-name"
+      />
+      {createBusy ? (
+        <ActivityIndicator />
+      ) : (
+        <Button title="Create" onPress={handleCreateWorkspace} disabled={!repo.trim() || !newBranchName.trim()} />
+      )}
+      {createError ? <Text style={styles.error}>{createError}</Text> : null}
 
       <Text style={styles.label}>Raw command (temporary)</Text>
       <TextInput

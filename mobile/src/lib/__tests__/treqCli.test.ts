@@ -1,9 +1,19 @@
 import {
+  agentInputArgv,
+  agentLogsArgv,
+  agentStartArgv,
+  agentStatusArgv,
+  agentStopArgv,
+  createCommitArgv,
+  createWorkspaceArgv,
   diffFileArgv,
+  gitPushArgv,
   listChangesArgv,
   listCommitsArgv,
   listConflictsArgv,
   listWorkspacesArgv,
+  parseAgentLogs,
+  parseAgentStatus,
   parseCliJson,
   parseCommits,
   parseConflicts,
@@ -11,7 +21,10 @@ import {
   parseFileChanges,
   parseFileLines,
   parseWorkspaces,
+  patchFileArgv,
   readFileArgv,
+  rebaseWorkspaceArgv,
+  resolveConflictArgv,
 } from '../treqCli';
 
 describe('treqCli argv builders', () => {
@@ -142,5 +155,68 @@ describe('response parsers', () => {
 
   it('parses conflicts as a flat path list', () => {
     expect(parseConflicts(JSON.stringify(['src/a.rs', 'src/b.rs']))).toEqual(['src/a.rs', 'src/b.rs']);
+  });
+
+  it('builds agent-remote argv and parses agent status', () => {
+    expect(agentStartArgv('/repo', 1, 'claude', 'do the thing', 'key-1')).toEqual([
+      'agent-remote', 'start', '--repo', '/repo', '--workspace', '1',
+      '--target', 'claude', '--value', 'do the thing', '--idempotency-key', 'key-1', '--format', 'json',
+    ]);
+    expect(agentStatusArgv('/repo', 1)).toEqual([
+      'agent-remote', 'status', '--repo', '/repo', '--workspace', '1', '--format', 'json',
+    ]);
+    expect(agentStopArgv('/repo', 1)).toEqual([
+      'agent-remote', 'stop', '--repo', '/repo', '--workspace', '1', '--format', 'json',
+    ]);
+    expect(agentLogsArgv('/repo', 1)).toEqual([
+      'agent-remote', 'logs', '--repo', '/repo', '--workspace', '1', '--format', 'json',
+    ]);
+    expect(agentInputArgv('/repo', 1, 'yes', 'key-2')).toEqual([
+      'agent-remote', 'input', '--repo', '/repo', '--workspace', '1',
+      '--value', 'yes', '--idempotency-key', 'key-2', '--format', 'json',
+    ]);
+
+    const statusStdout = JSON.stringify({
+      workspace: 'feature-x', running: true, agent: 'claude', pid: 42,
+      started_at: '2026-01-01T00:00:00Z', should_refresh: false,
+    });
+    expect(parseAgentStatus(statusStdout)).toEqual({
+      workspace: 'feature-x', running: true, agent: 'claude', pid: 42,
+      startedAt: '2026-01-01T00:00:00Z', shouldRefresh: false,
+    });
+
+    expect(parseAgentLogs(JSON.stringify('hello\nworld'))).toBe('hello\nworld');
+  });
+
+  it('builds mutation argv for workspace, commit, conflict, and push actions', () => {
+    expect(createWorkspaceArgv('/repo', 'feature-x', 'key-1')).toEqual([
+      'workspace', 'create', '--repo', '/repo', '--value', 'feature-x', '--idempotency-key', 'key-1', '--format', 'json',
+    ]);
+    expect(createWorkspaceArgv('/repo', 'feature-x', 'key-1', 'main')).toEqual([
+      'workspace', 'create', '--repo', '/repo', '--value', 'feature-x', '--idempotency-key', 'key-1',
+      '--target', 'main', '--format', 'json',
+    ]);
+    expect(rebaseWorkspaceArgv('/repo', 1, 'main', 'key-2')).toEqual([
+      'workspace', 'rebase', '--repo', '/repo', '--workspace', '1', '--target', 'main',
+      '--idempotency-key', 'key-2', '--format', 'json',
+    ]);
+    expect(patchFileArgv('/repo', 'src/a.rs', 'YmFzZTY0', 'key-3', 1)).toEqual([
+      'file', 'patch', '--repo', '/repo', '--workspace', '1', '--path', 'src/a.rs',
+      '--value', 'YmFzZTY0', '--idempotency-key', 'key-3', '--format', 'json',
+    ]);
+    expect(createCommitArgv('/repo', 'Add feature', 'key-4', 1)).toEqual([
+      'commits', 'create', '--repo', '/repo', '--workspace', '1', '--value', 'Add feature',
+      '--idempotency-key', 'key-4', '--format', 'json',
+    ]);
+    expect(resolveConflictArgv('/repo', 'zzz', 'key-5')).toEqual([
+      'conflicts', 'resolve', '--repo', '/repo', '--target', 'zzz', '--idempotency-key', 'key-5', '--format', 'json',
+    ]);
+    expect(resolveConflictArgv('/repo', 'zzz', 'key-5', ['left', 'right'])).toEqual([
+      'conflicts', 'resolve', '--repo', '/repo', '--target', 'zzz', '--idempotency-key', 'key-5',
+      '--value', 'left,right', '--format', 'json',
+    ]);
+    expect(gitPushArgv('/repo', 'key-6', 1)).toEqual([
+      'git', 'push', '--repo', '/repo', '--workspace', '1', '--idempotency-key', 'key-6', '--format', 'json',
+    ]);
   });
 });

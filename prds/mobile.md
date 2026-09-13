@@ -164,19 +164,22 @@ Status: see the implementation delivered alongside this PRD update for what's bu
 
 Not done regardless of the above: parent-revision file context as a separate screen, a dedicated commit-diff view, and per-commit conflict detail beyond a flat list - all deferred past this pass.
 
-### Phase 4: Agent control (not started)
+### Phase 4: Agent control (done)
 
-### Phase 4: Agent control (not started)
+`mobile/src/screens/AgentScreen.tsx` starts, inspects, sends input to, and stops a remote coding agent by running the same `agent-remote start`/`input`/`status`/`stop`/`logs` CLI invocations desktop's `core::agent_supervisor` backs, over mobile's own SSH exec channel (`mobile/src/lib/treqCli.ts`'s `agentStartArgv`/`agentInputArgv`/`agentStatusArgv`/`agentStopArgv`/`agentLogsArgv`, `parseAgentStatus`, `parseAgentLogs`). `WorkspaceDetailScreen` links into it alongside Commits/Conflicts. The screen polls `agent-remote status` (and, while running, `agent-remote logs`) every 4 seconds rather than holding an interactive PTY, per the PRD's "Terminal UX" note that structured agent control comes before a terminal.
 
-Mobile has no agent screens, and no calls to `AgentStart`/`AgentStatus`/`AgentStop`/`AgentLogs`-equivalent CLI commands, yet. Desktop's `core::agent_supervisor` and its `not_implemented` stdin limitation apply here unchanged once this phase starts, since mobile would drive the same VM-local supervisor over its own SSH exec channel.
+Not done: push notifications for agent events, and reattaching an agent session across an app restart beyond what a fresh `agent-remote status` poll already provides for free (the VM-local record survives; the mobile UI does not yet persist which workspace's agent screen was last open).
 
-### Phase 5: Controlled mutations
+### Phase 5: Controlled mutations (partial)
 
-- Workspace creation and rebase.
-- Patch application.
-- Commit creation.
-- Conflict resolution.
-- Bookmark push with explicit confirmation.
+Wired, each carrying a caller-generated idempotency key (`generateIdempotencyKey` in `controlPlane.ts`) so a retry after a dropped connection replays rather than double-applies, mirroring `core::remote`'s `with_idempotency_key`:
+
+- Workspace creation (`WorkspacesScreen`'s "New workspace" form) and rebase (`WorkspaceDetailScreen`'s "Rebase" modal), both with explicit confirmation before dispatch.
+- Commit creation (`CommitsScreen`'s "New commit" form).
+- Conflict resolution (`CommitsScreen`'s per-commit "Resolve" action, confirmed via alert) - resolves by change id (the same commit `changeId` `commits list` already reports as `hasConflicts`), using the CLI's default resolution since mobile has no per-side conflict editor yet.
+- Bookmark push with explicit confirmation (`WorkspaceDetailScreen`'s "Push" button).
+
+Not done: patch application. `patchFileArgv` (`treqCli.ts`) plumbs the CLI call (`file patch --value <base64>`), but there is no mobile diff-editing UI to produce a patch from, so nothing calls it yet - deferred past this pass along with per-side conflict resolution (picking `left`/`right`/`base` explicitly rather than always taking the CLI default).
 
 ### Phase 6: Mobile test infrastructure
 
