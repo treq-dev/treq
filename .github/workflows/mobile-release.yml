@@ -1,0 +1,158 @@
+name: Mobile Release
+
+# Builds mobile/ (React Native) for Android and iOS, signs both, and pushes
+# them to the Play Store internal testing track and TestFlight (internal
+# testing group). See mobile/RELEASE.md for the secrets this needs and how
+# to set them up. Manual only, same as .github/workflows/release.yml
+# (desktop) - never runs on every push.
+#
+# Mobile ships in lockstep with desktop: the marketing version (versionName
+# / CFBundleShortVersionString) always comes from src-tauri/tauri.conf.json,
+# the same file desktop's release.yml reads its own version/tag from, so a
+# mobile release always carries the same version number as the desktop
+# release it accompanies. Only the store-required monotonic build number
+# (Android versionCode, iOS CFBundleVersion) is generated per-run.
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  workflow_dispatch:
+
+jobs:
+  version:
+    name: resolve shared version (from src-tauri/tauri.conf.json)
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: echo "version=$(jq -r '.version' src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+
+  android:
+    name: android (signed AAB -> Play Store internal track)
+    needs: version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: mobile/android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - run: cargo install cargo-ndk --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+        working-directory: mobile
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+      - run: gem install fastlane --no-document
+
+      - name: Install Android SDK platform/build-tools/NDK
+        run: |
+          set -euo pipefail
+          curl -sSL -o "$RUNNER_TEMP/cmdline-tools.zip" \
+            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125"
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+
+      - name: Decode release keystore
+        run: |
+          echo "$TREQ_ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "TREQ_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+        env:
+          TREQ_ANDROID_KEYSTORE_BASE64: ${{ secrets.TREQ_ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Decode Play Store service account key
+        run: |
+          echo "$TREQ_PLAY_STORE_JSON_KEY_BASE64" | base64 -d > "$RUNNER_TEMP/play-store-key.json"
+          echo "TREQ_PLAY_STORE_JSON_KEY_PATH=$RUNNER_TEMP/play-store-key.json" >> "$GITHUB_ENV"
+        env:
+          TREQ_PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.TREQ_PLAY_STORE_JSON_KEY_BASE64 }}
+
+      - name: fastlane android internal
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          fastlane internal
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.1.10909125
+          TREQ_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.TREQ_ANDROID_KEYSTORE_PASSWORD }}
+          TREQ_ANDROID_KEY_ALIAS: ${{ secrets.TREQ_ANDROID_KEY_ALIAS }}
+          TREQ_ANDROID_KEY_PASSWORD: ${{ secrets.TREQ_ANDROID_KEY_PASSWORD }}
+          TREQ_VERSION_NAME: ${{ needs.version.outputs.version }}
+          TREQ_VERSION_CODE: ${{ github.run_number }}
+
+  ios:
+    name: ios (signed IPA -> TestFlight internal testing)
+    needs: version
+    runs-on: macos-14
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile/ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+        working-directory: mobile
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+      - run: gem install fastlane --no-document
+
+      - name: Build the treq-mobile-ssh XCFramework + Swift bindings
+        run: ../scripts/build-ios-xcframework.sh
+
+      - run: pod install
+
+      - name: fastlane ios beta
+        run: fastlane beta
+        env:
+          TREQ_APPLE_ID: ${{ secrets.TREQ_APPLE_ID }}
+          TREQ_APPLE_TEAM_ID: ${{ secrets.TREQ_APPLE_TEAM_ID }}
+          TREQ_ITC_TEAM_ID: ${{ secrets.TREQ_ITC_TEAM_ID }}
+          TREQ_ASC_KEY_ID: ${{ secrets.TREQ_ASC_KEY_ID }}
+          TREQ_ASC_ISSUER_ID: ${{ secrets.TREQ_ASC_ISSUER_ID }}
+          TREQ_ASC_KEY_CONTENT: ${{ secrets.TREQ_ASC_KEY_CONTENT }}
+          TREQ_MATCH_GIT_URL: ${{ secrets.TREQ_MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.TREQ_MATCH_PASSWORD }}
+          TREQ_VERSION_NAME: ${{ needs.version.outputs.version }}
+          TREQ_BUILD_NUMBER: ${{ github.run_number }}

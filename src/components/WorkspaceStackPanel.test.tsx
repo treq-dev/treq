@@ -182,7 +182,12 @@ describe("WorkspaceStackPanel", () => {
     );
     vi.mocked(api.listCommits).mockResolvedValue(makeLogResult(0, 0));
     vi.mocked(openUrl).mockClear();
-    const user = userEvent.setup();
+    // Base UI's tooltip hover-safe-area briefly toggles `pointer-events` on
+    // ancestor elements based on real pointer trajectory; userEvent's
+    // synthetic instant pointer jump can race that transition even though a
+    // real mouse path never triggers it, so the pointer-events safety check
+    // is disabled for this interaction.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
 
     render(
       <WorkspaceStackPanel

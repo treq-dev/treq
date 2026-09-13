@@ -4948,13 +4948,44 @@ fn set_git_head_branch_with_gix(repo_path: &str, branch: &str) -> Result<(), Str
   Ok(())
 }
 
-/// Reattach a detached colocated Git HEAD when it still points at the default branch tip.
+/// Finds the single local branch (refs/heads/*) whose tip commit matches `commit_hex`.
+///
+/// Returns `None` when no local branch matches, or when more than one does (an ambiguous
+/// match is left alone rather than guessed at).
+fn find_unambiguous_local_branch_at_commit(repo_path: &str, commit_hex: &str) -> Option<String> {
+  let repo = gix::open(repo_path).ok()?;
+  let platform = repo.references().ok()?;
+  let mut matches = platform
+    .prefixed("refs/heads/")
+    .ok()?
+    .filter_map(Result::ok)
+    .filter_map(|mut r| {
+      let id = r.peel_to_id().ok()?;
+      if id.to_hex().to_string() != commit_hex {
+        return None;
+      }
+      r.name()
+        .as_bstr()
+        .to_string()
+        .strip_prefix("refs/heads/")
+        .map(|s| s.to_string())
+    });
+  let first = matches.next()?;
+  if matches.next().is_some() {
+    return None;
+  }
+  Some(first)
+}
+
+/// Reattach a detached colocated Git HEAD when it still points at a local branch tip.
 ///
 /// jj history rewrites and ref export can leave Git's HEAD direct even though the checkout
-/// is still exactly on the default branch. In that state the UI displays a commit hash and
-/// subsequent workspace creation can import the detached HEAD as a separate line of history.
-/// A genuinely detached checkout is preserved unless its commit exactly matches the default
-/// branch ref.
+/// is still exactly on a branch (the default branch, or the branch that was checked out
+/// before an operation like commit-and-push detached HEAD at its own tip). In that state the
+/// UI displays a commit hash and subsequent workspace creation can import the detached HEAD as
+/// a separate line of history. A genuinely detached checkout is preserved unless its commit
+/// unambiguously matches exactly one local branch, preferring the default branch when it
+/// matches.
 pub fn repair_detached_home_head_at_default_branch(
   repo_path: &str,
 ) -> Result<Option<String>, JjError> {
@@ -4965,16 +4996,24 @@ pub fn repair_detached_home_head_at_default_branch(
   let head_path = Path::new(repo_path).join(".git").join("HEAD");
   let detached_commit = fs::read_to_string(head_path)
     .map_err(|e| JjError::IoError(format!("Failed to read detached Git HEAD: {e}")))?;
+  let detached_commit = detached_commit.trim();
+
   let default_branch = get_default_branch(repo_path)?;
-  let Some(default_tip) = git_local_branch_commit_hex(repo_path, &default_branch) else {
+  let matches_default = git_local_branch_commit_hex(repo_path, &default_branch)
+    .is_some_and(|tip| tip == detached_commit);
+
+  let branch = if matches_default {
+    Some(default_branch)
+  } else {
+    find_unambiguous_local_branch_at_commit(repo_path, detached_commit)
+  };
+
+  let Some(branch) = branch else {
     return Ok(None);
   };
-  if detached_commit.trim() != default_tip {
-    return Ok(None);
-  }
 
-  set_git_head_branch_with_gix(repo_path, &default_branch).map_err(JjError::IoError)?;
-  Ok(Some(default_branch))
+  set_git_head_branch_with_gix(repo_path, &branch).map_err(JjError::IoError)?;
+  Ok(Some(branch))
 }
 
 fn reset_git_index_to_head_with_gix(repo_path: &str) -> Result<(), String> {
@@ -8703,6 +8742,48 @@ mod tests {
     assert_eq!(
       home_wc_parent_id(repo_path),
       git_output(&temp, &["rev-parse", "HEAD"])
+    );
+  }
+
+  #[test]
+  fn repair_detached_home_head_reattaches_to_non_default_branch() {
+    let temp = TempDir::new().expect("tempdir");
+    let status = Command::new("git")
+      .current_dir(temp.path())
+      .args(["init", "-b", "main"])
+      .status()
+      .expect("git init should run");
+    assert!(status.success(), "git init should succeed");
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    git(&temp, &["switch", "-c", "feature"]);
+    fs::write(temp.path().join("feature.txt"), "feature\n").expect("write feature");
+    git(&temp, &["add", "feature.txt"]);
+    git(&temp, &["commit", "-m", "feature work"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    let feature_tip = git_output(&temp, &["rev-parse", "feature"]);
+    git(&temp, &["checkout", "--detach", &feature_tip]);
+    assert_eq!(
+      read_git_head_branch(repo_path).expect("read HEAD"),
+      "HEAD",
+      "precondition: HEAD should be detached before repair"
+    );
+
+    let repaired =
+      repair_detached_home_head_at_default_branch(repo_path).expect("repair should not error");
+
+    assert_eq!(
+      repaired,
+      Some("feature".to_string()),
+      "repair should reattach HEAD to the branch matching its tip, not just the default branch"
+    );
+    assert_eq!(
+      read_git_head_branch(repo_path).expect("read HEAD"),
+      "feature"
     );
   }
 
