@@ -7,6 +7,7 @@ jest.mock('../supabaseClient', () => ({
 
 import { supabase } from '../supabaseClient';
 import {
+  deleteInstance,
   ensureInstance,
   exchangeToken,
   getInstanceStatus,
@@ -125,6 +126,18 @@ describe('instance lifecycle (remote-instance)', () => {
   it('throws when the edge function returns an error', async () => {
     (supabase.functions.invoke as jest.Mock).mockResolvedValue({ data: null, error: { message: 'no instance' } });
     await expect(getInstanceStatus()).rejects.toThrow('no instance');
+  });
+
+  // Phase 6 "resource cleanup and cost controls": mobile can tear down its
+  // managed instance the same way desktop's deleteInstance does, carrying
+  // the same idempotency key contract as ensure/wake.
+  it('deleteInstance passes its request through', async () => {
+    (supabase.functions.invoke as jest.Mock).mockResolvedValue({ data: { operation_id: 'op2', status: 'pending' }, error: null });
+
+    await deleteInstance({ instance_id: 'inst1', idempotency_key: 'idem3' });
+    expect(supabase.functions.invoke).toHaveBeenCalledWith('remote-instance', {
+      body: { action: 'delete', instance_id: 'inst1', idempotency_key: 'idem3' },
+    });
   });
 });
 

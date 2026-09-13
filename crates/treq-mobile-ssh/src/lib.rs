@@ -515,6 +515,63 @@ mod tests {
         assert!(matches!(result, Err(SshError::ConnectionFailed(_))));
     }
 
+    /// Phase 6 of prds/mobile.md ("host-key mismatch and rotation tests"):
+    /// a client that pinned a fingerprint from a previous connection must
+    /// reject a server now presenting a *different* key at the same
+    /// address - the same mismatch path as
+    /// `connect_rejects_mismatched_host_key_fingerprint`, but exercised
+    /// against a real rotated server rather than a fabricated fingerprint
+    /// string, and followed by a successful reconnect once the client
+    /// re-pins the new fingerprint (the real-world flow: rotation is
+    /// detected, the user re-verifies out of band, then trusts the new key).
+    #[test]
+    fn connect_rejects_a_rotated_host_key_then_succeeds_once_repinned() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (old_addr, old_host_key) = runtime.block_on(start_mock_server("127.0.0.1:0"));
+        let old_fingerprint = old_host_key.public_key().fingerprint(HashAlg::Sha256).to_string();
+
+        let client = SshClient::new();
+        let device_key = client.generate_device_key().unwrap();
+
+        // Simulate the server rotating its host key by standing up a fresh
+        // mock server (a new random key, per `test_host_key`) at a new
+        // address, and reusing the *old* pinned fingerprint against it.
+        let (new_addr, new_host_key) = runtime.block_on(start_mock_server("127.0.0.1:0"));
+        let new_fingerprint = new_host_key.public_key().fingerprint(HashAlg::Sha256).to_string();
+        assert_ne!(old_fingerprint, new_fingerprint, "test setup requires two distinct host keys");
+
+        let stale_pin_result = client.connect(
+            new_addr.ip().to_string(),
+            new_addr.port(),
+            "treq".to_string(),
+            device_key.private_key_pem.clone(),
+            old_fingerprint,
+        );
+        assert!(matches!(stale_pin_result, Err(SshError::ConnectionFailed(_))));
+
+        // The original server (unrotated) is still reachable under its own
+        // fingerprint - rotation of one endpoint doesn't invalidate others.
+        let old_still_works = client.connect(
+            old_addr.ip().to_string(),
+            old_addr.port(),
+            "treq".to_string(),
+            device_key.private_key_pem.clone(),
+            old_host_key.public_key().fingerprint(HashAlg::Sha256).to_string(),
+        );
+        assert!(old_still_works.is_ok());
+
+        // Re-pinning the new fingerprint lets the client trust the rotated
+        // server going forward.
+        let repinned_result = client.connect(
+            new_addr.ip().to_string(),
+            new_addr.port(),
+            "treq".to_string(),
+            device_key.private_key_pem,
+            new_fingerprint,
+        );
+        assert!(repinned_result.is_ok());
+    }
+
     #[test]
     fn connect_and_exec_round_trips_through_a_real_ssh_session() {
         let runtime = tokio::runtime::Runtime::new().unwrap();

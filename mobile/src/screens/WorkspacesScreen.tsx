@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import TreqSsh, { ExecResult } from '../native/TreqSsh';
 import { generateIdempotencyKey } from '../lib/controlPlane';
+import { runMutationWithRetry } from '../lib/mutationRetry';
 import { createWorkspaceArgv, listWorkspacesArgv, parseWorkspaces, Workspace } from '../lib/treqCli';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Workspaces'>;
@@ -45,10 +46,8 @@ export function WorkspacesScreen({ navigation, route }: Props): React.JSX.Elemen
     setCreateBusy(true);
     setCreateError(null);
     try {
-      const execResult = await TreqSsh.execCommand(
-        sessionId,
-        createWorkspaceArgv(repo, newBranchName.trim(), generateIdempotencyKey()),
-      );
+      const argv = createWorkspaceArgv(repo, newBranchName.trim(), generateIdempotencyKey());
+      const execResult = await runMutationWithRetry(sessionId, argv);
       if (execResult.exitStatus !== 0) {
         throw new Error(execResult.stderr || `treq exited with status ${execResult.exitStatus}`);
       }
