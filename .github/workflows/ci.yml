@@ -133,11 +133,6 @@ jobs:
 
     name: ${{ matrix.kind }} / ${{ matrix.task }} / ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
-    # Rust-only jobs (including the per-check verify-rust jobs) are skipped
-    # entirely when the diff doesn't touch src-tauri or its Cargo files.
-    if: >
-      (matrix.kind != 'rust' && matrix.kind != 'verify-rust') ||
-      needs.detect-rust-changes.outputs.rust_changed == 'true'
     steps:
       - uses: actions/checkout@v4
 
