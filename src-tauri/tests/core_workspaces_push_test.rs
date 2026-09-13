@@ -90,7 +90,7 @@ fn test_push_workspace_excludes_empty_merge_commit_from_remote() {
     ],
   )
   .expect("resolve remote workspace tip");
-  let local_commit = TestRepo::run_jj(
+  let local_commit = TestRepo::run_jj_cli(
     ws_dir_str,
     &[
       "log",
