@@ -27,13 +27,17 @@ gap none of them close: the bridge *wrapper* files themselves
 real React Native native modules, which needs a generated Xcode/Gradle
 project this repo does not have yet.
 
-Still open beyond that: control-plane auth, certificate issuance, and
-workspace/diff/commit screens (`prds/mobile.md` Phases 2-4 equivalents for
-this app). `ConnectScreen`/`WorkspacesScreen` currently take a raw
-`username@host:port#fingerprint` connection string and a free-text command
+Phase 3 (read-only review) is now in progress: `src/lib/treqCli.ts` mirrors
+desktop's `TreqCommandRequest` CLI argv/response contract
+(`workspace list`, `changes list`/`diff`, `commits list`, `conflicts list`,
+all `--format json`) and `WorkspacesScreen` -> `WorkspaceDetailScreen` ->
+`DiffScreen`/`CommitsScreen`/`ConflictsScreen` drive it over a real SSH
+exec channel. `ConnectScreen` still takes a raw
+`username@host:port#fingerprint` connection string
 (`src/lib/parseConnectionString.ts`) as a deliberately temporary stand-in
-for registered endpoints and structured `treq <command> --format=json`
-calls - see the comments on those two files.
+for registered endpoints - see prds/mobile.md's Phase 2/3 sections for
+what's still missing (control-plane auth, certificate issuance, parent-file
+context, commit-diff and per-commit conflict detail).
 
 ## What's tested
 
@@ -51,12 +55,16 @@ calls - see the comments on those two files.
   CI job `rn-real-ssh`): the **same screens**, driven the same way
   (`@testing-library/react-native`'s `render`/`fireEvent`/`waitFor` -
   typing a connection string, pressing "Parse connection string", "Generate
-  device key", "Connect", then "Run" with a real command), but with
-  `TreqSsh` backed by `src/native/TreqSsh.real.ts` - a thin JS shim over a
-  real N-API build of `treq-mobile-ssh` (feature `napi`,
-  `npm run build:native-test`) instead of a mock. This really opens a TCP
-  connection and runs a real SSH exec channel against a real
-  `mock_ssh_server` process; nothing about the SSH logic is mocked. It
+  device key", "Connect", then walking Workspaces -> WorkspaceDetail ->
+  Diff/Commits/Conflicts), but with `TreqSsh` backed by
+  `src/native/TreqSsh.real.ts` - a thin JS shim over a real N-API build of
+  `treq-mobile-ssh` (feature `napi`, `npm run build:native-test`) instead
+  of a mock. This really opens a TCP connection and runs real SSH exec
+  channels against a real `mock_ssh_server` process, which recognizes the
+  Phase 3 CLI argv shapes and returns realistic fixture JSON
+  (`mock_server::fixture_response` in `crates/treq-mobile-ssh/src/lib.rs`)
+  so the screens' real JSON parsing (`treqCli.ts`) is exercised too -
+  nothing about the SSH logic or response parsing is mocked. It
   substitutes a Node-hosted shim for the Swift/Kotlin marshalling layer,
   which Jest (a Node process) cannot execute - see the next two jobs for
   that layer.

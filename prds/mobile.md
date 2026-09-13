@@ -116,63 +116,49 @@ Any selected mobile SSH library must be evaluated for:
 
 ## Phased plan
 
-### Phase 1: Build system and mobile shell (done)
+**Architecture note:** Phases 1-2 below were originally delivered as a Tauri build compiled for Android/iOS (`MobileShell`, `tauri:android`/`tauri:ios` targets, `core::remote_device_key` using `tauri-plugin-keystore`/`tauri-plugin-biometric`). That path has been removed. Mobile is now a standalone React Native app under `mobile/`, backed by a dedicated Rust SSH crate (`crates/treq-mobile-ssh`, `russh` + UniFFI) called through a native module bridge (Swift/Kotlin), per the pattern in https://rust-dd.com/post/building-a-rust-native-module-for-react-native-on-ios-and-android. The phase numbering and scope below are unchanged; what changed is which files implement each phase. Statuses reflect the RN implementation, not the removed Tauri one.
 
-- Add Android and iOS as Tauri build targets (`tauri android init` / `tauri ios init`, npm scripts, mobile app icons).
-- Add a mobile-scoped Tauri capability file (`src-tauri/capabilities/mobile.json`).
-- Add `MobileShell`, a touch-first top-level layout, and switch to it on mobile viewports via `useIsMobile`.
-- Wire `MobileShell` to existing Tauri commands (e.g. `get_workspaces`) to prove the same IPC surface works unmodified on mobile.
+### Phase 1: Build system and mobile shell (superseded, redone)
 
-### Phase 2: Security and connectivity prototype (this delivery)
+Original scope (Tauri build targets, mobile capability file, `MobileShell` layout switching on viewport) no longer applies. Redone as:
 
-The desktop app already has a real control-plane client (`lib/remote-control-plane.ts`), the `remote-ssh-trust` and `remote-instance` edge functions, and a russh-based native SSH transport with pinned host-key verification (`core::remote_ssh_transport`) reachable through `dispatchOverSsh`. None of that is SSH-library-prototype work mobile needs to redo - `russh` is pure Rust and compiles into the same mobile binary. What mobile Phase 2 adds is the piece desktop doesn't need: a way for a device with no `~/.ssh` to get a keypair and use it.
+- `mobile/` - a standalone React Native + TypeScript app (`package.json`, `App.tsx`, `@react-navigation/native-stack` navigator).
+- `crates/treq-mobile-ssh` - a `cdylib`/`staticlib` Rust crate exposing SSH operations via a UniFFI interface (`treq_mobile_ssh.udl`), instead of Tauri IPC commands.
+- Two screens (`ConnectScreen`, `WorkspacesScreen`) rather than a single `MobileShell` - React Native has no equivalent of switching a shared desktop component tree by viewport, since it is not the same codebase as the desktop app.
 
-Done in this delivery:
+Done. No further work planned under this phase; see Phase 2 below for the connectivity layer this shell now calls into.
 
-- Authenticate to the control plane (reuses the existing Supabase auth session - no mobile-specific work needed).
-- Generate and persist a per-device ed25519 keypair (`core::remote_device_key`, `ensure_mobile_device_key` command, `ensureMobileDeviceKey()`), since mobile has no `~/.ssh` identities to pick from.
-- Store that private key in the OS-native keystore/keychain rather than app-local disk, via [`tauri-plugin-keystore`](https://github.com/impierce/tauri-plugin-keystore) (Android Keystore / iOS Keychain), gated on the device having biometrics enrolled via `tauri-plugin-biometric`. Both plugins are Rust-only integrations here (`core::remote_device_key::mobile_storage`) - the private key never crosses the Tauri IPC boundary to JS.
-- Register the device public key with the control plane (`registerClientKey`, wired to the previously-unused `register_client_key` edge function action).
-- Obtain a short-lived managed-instance certificate (`issueCertificate`, wired to `issue_certificate`).
-- Verify the pinned host key and connect with the native (russh) SSH library - reused as-is from the existing transport; the certificate response's `endpoint.host_keys` feeds the same `HostKeyVerifier` desktop uses.
-- Execute repository inspection (`ProbeRepo` over `dispatchOverSsh`) and display structured errors - `RemoteConnectPanel` in `MobileShell`.
+### Phase 2: Security and connectivity prototype (partially done; control-plane path not started)
 
-Open items before this can ship as more than a prototype:
+Unlike the original Tauri delivery, mobile does **not** currently share desktop's control-plane client, certificate issuance, or managed-VM flow (`lib/remote-control-plane.ts`, `remote-ssh-trust`/`remote-instance` edge functions) - none of that exists in the RN app yet. What's implemented instead is the user-managed-endpoint path only:
 
-- `tauri-plugin-keystore` is pre-1.0 (`2.1.0-alpha.1` on crates.io) and its own desktop fallback hardcodes an unrelated identity and `unwrap()`s every error - real reasons desktop intentionally does not use it (see `core::remote_device_key` module docs) and mobile's usage should be re-audited against newer releases before shipping.
-- Neither this plugin nor the biometric gate has been exercised on a real device or emulator - this sandbox has no Android SDK/NDK or Xcode, so the mobile-only code path (`#[cfg(mobile)]`) has been reviewed and its shared helpers unit-tested, but not built or run for an actual mobile target. First real verification should happen on-device via `npm run tauri:android:dev` / `tauri:ios:dev`.
-- No UI path yet for the "biometrics not set up" error `require_biometrics` returns - `RemoteConnectPanel` currently surfaces it as the same generic connection error as everything else in the flow.
+Done:
 
-### Phase 3: Read-only review (this delivery)
+- Generate a per-device ed25519 keypair and its OpenSSH public key/fingerprint, in real Rust (`SshClient::generate_device_key` in `crates/treq-mobile-ssh/src/lib.rs`).
+- Store that private key in OS-native secure storage rather than crossing to JS: iOS Keychain (`mobile/ios/TreqMobile/TreqSshBridge.swift`) and an Android Keystore-backed AES-sealed blob (`mobile/android/native/kotlin/TreqSshModule.kt`). Only an opaque `keyHandle` crosses the native-module boundary to JS - the private key itself never does.
+- Verify a pinned host-key fingerprint and connect with the native (russh) SSH library before any credentials are sent (`SshClient::connect`, `HostKeyVerifier`), rejecting a mismatched fingerprint.
+- Execute commands over a real SSH exec channel and read back stdout/stderr/exit status (`SshClient::exec_command`).
+- A connect UI (`ConnectScreen`): generate/regenerate the device key, and a temporary `username@host:port#fingerprint` connection-string field (`parseConnectionString.ts`) standing in for registered-endpoint selection.
 
-Done in this delivery, built on `remote_dispatch_over_ssh` / `TreqCommandRequest`, which already implemented every read variant needed here (`ListWorkspaces`, `InspectWorkspace`, `ListChanges`, `DiffFile`, `ReadFile`, `ListCommits`, `ListConflicts`, `WorkspaceChangeMarker`) but had no UI calling them:
+Open items before this is more than a prototype:
 
-- Instance and repository selection (`RemoteConnectPanel`, unchanged from Phase 2, now persists the last repository path so reconnecting doesn't require retyping it).
-- Workspace list and status (`RemoteRepoScreen`'s `WorkspaceListScreen`/`WorkspaceDetailScreen`).
-- Changed files and structured diffs (`DiffScreen`, via `DiffFile`).
-- Working-copy file context (`ReadFile` with `revision: "WorkingCopy"`, shown inline on the diff screen). Parent-revision context uses the same `ReadFile` request with `revision: "Parent"` and is wired the same way but not surfaced as a separate screen yet.
-- Commit and conflict views (`CommitsScreen`, `ConflictsScreen`).
-- Manual refresh per screen, plus a polled `WorkspaceChangeMarker` on the workspace detail screen so a stale op id is visible without a full data refetch.
+- No Supabase control-plane integration at all: no authentication, no managed-instance provisioning, no certificate issuance, no registered-endpoint list. Every connection today is a manually-entered user-managed endpoint.
+- The Swift/Kotlin bridge files that do the Keychain/Keystore sealing (`TreqSshBridge.swift`/`.m`, `TreqSshModule.kt`/`TreqSshPackage.kt`) have not been compiled or run inside a real RN app: no `ios/`/`android/` native project has been generated yet (no `npx react-native init` has been run in this repo), so there is no Xcode/Gradle project to drop them into. `.github/workflows/mobile.yml`'s `kotlin-ffi`/`swift-ffi` jobs verify the Rust<->Kotlin/Swift FFI those files depend on, not the bridge files themselves.
+- No UI for the "biometrics not set up" / secure-storage-unavailable case.
 
-Open items before this can ship as more than a prototype:
+### Phase 3: Read-only review (in progress)
 
-- No TypeScript types exist yet for the `TreqCommandRequest` JSON responses beyond what happens to match the existing local `api-types.ts` shapes (workspace/status/changes/diff/commit responses do line up with local desktop types today because both paths call the same Rust core functions - `ReadFile`'s `JjFileLines`, `ListCommits`' `JjLogCommit`, etc. - but that's convergence, not a contract; a future response shape change on either path could silently drift).
-- Not exercised against a real managed instance or device - this sandbox has no way to provision one, so the mobile-only screens have been reviewed and type/lint-checked but not run against live SSH-dispatched data. First real verification should happen the same way Phase 2 flagged: on-device via `npm run tauri:android:dev` / `tauri:ios:dev` against an actual instance.
-- No parent-file-context screen (only working-copy content is shown inline); no dedicated commit-diff or per-commit conflict detail view beyond the flat lists.
+Original scope described a `TreqCommandRequest` JSON protocol dispatched from desktop's `remote_dispatch_over_ssh`. Mobile does not call into that desktop command surface (it has no Tauri IPC); instead it runs the same underlying `treq <command> --format=json` CLI invocations directly over its own SSH exec channel (`SshClient::exec_command`), parsing the same JSON response shapes.
 
-### Phase 4: Agent control (this delivery)
+Status: see the implementation delivered alongside this PRD update for what's built. Tracking here as "in progress" rather than done until it has real workspace/diff/commit/conflict screens exercised against a live `treq` CLI (real or fixture), not just the free-text command runner `WorkspacesScreen` originally shipped with.
 
-Done in this delivery, using the existing `AgentStart`/`AgentStatus`/`AgentStop`/`AgentLogs` `TreqCommandRequest` variants and the VM-local `core::agent_supervisor` they already dispatch to:
+Not done regardless of the above: parent-revision file context as a separate screen, a dedicated commit-diff view, and per-commit conflict detail beyond a flat list - all deferred past this pass.
 
-- Start an agent in a selected workspace (`RemoteAgentScreen`, `AgentStart` routed through `dispatchMutationOverSsh` for verify-before-retry semantics).
-- Read status and bounded logs (`AgentStatus`/`AgentLogs`, polled every 4s while an agent is running).
-- Stop a running agent (`AgentStop`).
-- Reattach after app suspension: there is no distinct reattach request in the protocol - polling `AgentStatus`/`AgentLogs` again for the same `workspace` key after reconnecting is the reattach path, backed by `agent_supervisor`'s on-disk record surviving process/connection restarts.
+### Phase 4: Agent control (not started)
 
-Explicitly not done, and not silently stubbed:
+### Phase 4: Agent control (not started)
 
-- Sending input to a running agent. `core::agent_supervisor::send_agent_input` returns `not_implemented` today (the supervisor does not keep a child process's stdin open across separate CLI/exec invocations) - this is a real backend limitation, not missing UI, so the agent screen states this plainly instead of offering an input box that would always fail.
-- Structured permission-request handling. Neither `AgentStatusResult` nor the log output distinguishes "waiting on a permission prompt" from ordinary running/log state in the current protocol, so there is no permission-response UI yet; adding it needs a small protocol addition (a status field or event) before it can be built as more than a generic text box.
+Mobile has no agent screens, and no calls to `AgentStart`/`AgentStatus`/`AgentStop`/`AgentLogs`-equivalent CLI commands, yet. Desktop's `core::agent_supervisor` and its `not_implemented` stdin limitation apply here unchanged once this phase starts, since mobile would drive the same VM-local supervisor over its own SSH exec channel.
 
 ### Phase 5: Controlled mutations
 

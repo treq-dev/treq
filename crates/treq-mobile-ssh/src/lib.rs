@@ -302,12 +302,46 @@ pub mod mock_server {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             let command = String::from_utf8_lossy(data).to_string();
             session.channel_success(channel)?;
-            let response = format!("{{\"echo\":\"{command}\"}}");
+            let response = fixture_response(&command);
             session.data(channel, bytes::Bytes::from(response.into_bytes()))?;
             session.exit_status_request(channel, 0)?;
             session.close(channel)?;
             Ok(())
         }
+    }
+
+    /// Recognizes the Phase 3 `treq <command> <action> ... --format json`
+    /// invocations mobile's `src/lib/treqCli.ts` sends (see
+    /// `prds/mobile.md` Phase 3 and `src-tauri/src/core/remote.rs`'s
+    /// `cli_args()` for the desktop shapes this mirrors) and returns
+    /// realistic fixture JSON for each, so the rn-real-ssh Jest suite can
+    /// exercise the real screens' request/response parsing end to end.
+    /// Anything else falls back to the original echo behavior, which the
+    /// crate's own unit tests and the Kotlin/Swift FFI tests still rely on.
+    fn fixture_response(command: &str) -> String {
+        // `starts_with`, not `contains`: the crate's own unit tests and the
+        // Kotlin/Swift FFI tests send `["treq", "workspace", "list"]`
+        // (quoted as `'treq' 'workspace' 'list'`) and assert on the echoed
+        // command - `contains("'workspace' 'list'")` would wrongly match
+        // that too, since it's a substring of the `'treq' ...` command.
+        // treqCli.ts's argv never includes a leading `treq` token, so its
+        // commands start with the action pair directly.
+        if command.starts_with("'workspace' 'list'") {
+            return r#"[{"id":7,"workspace_name":"feature-x","branch_name":"feature-x","title":"Feature X","target_branch":"main","archived":false}]"#.to_string();
+        }
+        if command.starts_with("'changes' 'diff'") {
+            return r#"[{"id":"h1","header":"@@ -1,3 +1,4 @@","lines":["+added"],"patch":"+added\n","conflict_style":"Legacy","conflict_regions":[]}]"#.to_string();
+        }
+        if command.starts_with("'changes' 'list'") {
+            return r#"[{"path":"src/lib.rs","status":"modified","previous_path":null,"changed_line_count":4,"diff_deferred":false}]"#.to_string();
+        }
+        if command.starts_with("'commits' 'list'") {
+            return r#"{"commits":[{"commit_id":"abc123","short_id":"abc","change_id":"zzz","description":"Add feature","author_name":"Ada","timestamp":"2026-01-01T00:00:00Z","parent_ids":[],"is_working_copy":true,"bookmarks":["main"],"is_immutable":false,"insertions":3,"deletions":1,"has_conflicts":false}],"target_branch":"main","workspace_branch":"feature-x"}"#.to_string();
+        }
+        if command.starts_with("'conflicts' 'list'") {
+            return r#"["src/a.rs"]"#.to_string();
+        }
+        format!("{{\"echo\":\"{command}\"}}")
     }
 
     /// Binds on `bind_addr` (use `"127.0.0.1:0"` for an OS-assigned port)
