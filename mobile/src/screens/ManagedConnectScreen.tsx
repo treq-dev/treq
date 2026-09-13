@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Button, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Button, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import TreqSsh from '../native/TreqSsh';
 import {
+  deleteInstance,
   ensureInstance,
   generateIdempotencyKey,
   getInstanceStatus,
@@ -171,7 +172,7 @@ export function ManagedConnectScreen({ navigation }: Props): React.JSX.Element {
       // reconnect flow from, so later screens simply see a
       // SessionNotFound error the next time they call TreqSsh, the same
       // as any other disconnected session.
-      new CertificateRenewalManager({
+      const renewalManager = new CertificateRenewalManager({
         instanceId: status.instance.instance_id,
         keyId: clientKey.id,
         sessionId,
@@ -182,6 +183,17 @@ export function ManagedConnectScreen({ navigation }: Props): React.JSX.Element {
         onCutoff: () => TreqSsh.disconnect(sessionId),
       });
 
+      // A suspended app's setTimeout can fire very late (or the JS
+      // context can be recreated entirely) once resumed, so re-anchor the
+      // renewal schedule to the current clock on every foreground
+      // transition rather than trusting the timer set before suspension -
+      // see `CertificateRenewalManager.onAppForeground`'s doc comment.
+      AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active') {
+          renewalManager.onAppForeground();
+        }
+      });
+
       navigation.navigate('Workspaces', { sessionId });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -189,6 +201,38 @@ export function ManagedConnectScreen({ navigation }: Props): React.JSX.Element {
       setBusy(false);
       setProgress(null);
     }
+  };
+
+  const handleDelete = () => {
+    if (!status?.instance) {
+      return;
+    }
+    Alert.alert(
+      'Delete instance',
+      'This tears down the managed instance and any state on it. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await deleteInstance({
+                instance_id: status.instance!.instance_id,
+                idempotency_key: generateIdempotencyKey(),
+              });
+              await refreshStatus();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   if (busy && !status) {
@@ -253,6 +297,11 @@ export function ManagedConnectScreen({ navigation }: Props): React.JSX.Element {
               <Button title="Connect" onPress={handleConnect} />
             )
           ) : null}
+          {!busy ? (
+            <View style={styles.deleteButton}>
+              <Button title="Delete instance" color="crimson" onPress={handleDelete} />
+            </View>
+          ) : null}
         </>
       )}
     </ScrollView>
@@ -267,4 +316,5 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { borderWidth: 1, borderColor: '#ccc', borderRadius: 16, paddingVertical: 6, paddingHorizontal: 12 },
   chipSelected: { borderColor: '#007AFF', backgroundColor: '#e6f0ff' },
+  deleteButton: { marginTop: 24 },
 });
