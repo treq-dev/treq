@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import TreqSsh from '../native/TreqSsh';
 import { generateIdempotencyKey } from '../lib/controlPlane';
+import { runMutationWithRetry } from '../lib/mutationRetry';
 import { FileChange, gitPushArgv, listChangesArgv, parseFileChanges, rebaseWorkspaceArgv } from '../lib/treqCli';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'WorkspaceDetail'>;
@@ -53,10 +54,8 @@ export function WorkspaceDetailScreen({ navigation, route }: Props): React.JSX.E
 
   const handleRebase = () =>
     runMutation('Rebase', async () => {
-      const result = await TreqSsh.execCommand(
-        sessionId,
-        rebaseWorkspaceArgv(repo, workspaceId, rebaseTarget.trim(), generateIdempotencyKey()),
-      );
+      const argv = rebaseWorkspaceArgv(repo, workspaceId, rebaseTarget.trim(), generateIdempotencyKey());
+      const result = await runMutationWithRetry(sessionId, argv);
       if (result.exitStatus !== 0) {
         throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
       }
@@ -71,7 +70,8 @@ export function WorkspaceDetailScreen({ navigation, route }: Props): React.JSX.E
         text: 'Push',
         onPress: () =>
           runMutation('Push', async () => {
-            const result = await TreqSsh.execCommand(sessionId, gitPushArgv(repo, generateIdempotencyKey(), workspaceId));
+            const argv = gitPushArgv(repo, generateIdempotencyKey(), workspaceId);
+            const result = await runMutationWithRetry(sessionId, argv);
             if (result.exitStatus !== 0) {
               throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
             }

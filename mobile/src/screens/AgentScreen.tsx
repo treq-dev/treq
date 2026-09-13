@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import TreqSsh from '../native/TreqSsh';
 import { generateIdempotencyKey } from '../lib/controlPlane';
+import { runMutationWithRetry } from '../lib/mutationRetry';
 import {
   AgentStatus,
   agentInputArgv,
@@ -85,10 +86,8 @@ export function AgentScreen({ route }: Props): React.JSX.Element {
 
   const handleStart = () =>
     runAction('Start agent', async () => {
-      const result = await TreqSsh.execCommand(
-        sessionId,
-        agentStartArgv(repo, workspaceId, agentName, prompt, generateIdempotencyKey()),
-      );
+      const argv = agentStartArgv(repo, workspaceId, agentName, prompt, generateIdempotencyKey());
+      const result = await runMutationWithRetry(sessionId, argv);
       if (result.exitStatus !== 0) {
         throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
       }
@@ -97,10 +96,8 @@ export function AgentScreen({ route }: Props): React.JSX.Element {
 
   const handleSendInput = () =>
     runAction('Send input', async () => {
-      const result = await TreqSsh.execCommand(
-        sessionId,
-        agentInputArgv(repo, workspaceId, input, generateIdempotencyKey()),
-      );
+      const argv = agentInputArgv(repo, workspaceId, input, generateIdempotencyKey());
+      const result = await runMutationWithRetry(sessionId, argv);
       if (result.exitStatus !== 0) {
         throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
       }
@@ -115,7 +112,10 @@ export function AgentScreen({ route }: Props): React.JSX.Element {
         style: 'destructive',
         onPress: () =>
           runAction('Stop agent', async () => {
-            const result = await TreqSsh.execCommand(sessionId, agentStopArgv(repo, workspaceId));
+            // Naturally idempotent (core::agent_supervisor::stop_agent
+            // reports "not running" rather than erroring on a repeat call),
+            // so retrying after a dropped connection is always safe.
+            const result = await runMutationWithRetry(sessionId, agentStopArgv(repo, workspaceId));
             if (result.exitStatus !== 0) {
               throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
             }

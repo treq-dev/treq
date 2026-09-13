@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import TreqSsh from '../native/TreqSsh';
 import { generateIdempotencyKey } from '../lib/controlPlane';
+import { runMutationWithRetry } from '../lib/mutationRetry';
 import { Commit, createCommitArgv, listCommitsArgv, parseCommits, resolveConflictArgv } from '../lib/treqCli';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Commits'>;
@@ -45,10 +46,8 @@ export function CommitsScreen({ route }: Props): React.JSX.Element {
         onPress: async () => {
           setError(null);
           try {
-            const result = await TreqSsh.execCommand(
-              sessionId,
-              resolveConflictArgv(repo, commit.changeId, generateIdempotencyKey()),
-            );
+            const argv = resolveConflictArgv(repo, commit.changeId, generateIdempotencyKey());
+            const result = await runMutationWithRetry(sessionId, argv);
             if (result.exitStatus !== 0) {
               throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
             }
@@ -64,10 +63,8 @@ export function CommitsScreen({ route }: Props): React.JSX.Element {
     setCreateBusy(true);
     setError(null);
     try {
-      const result = await TreqSsh.execCommand(
-        sessionId,
-        createCommitArgv(repo, message.trim(), generateIdempotencyKey(), workspaceId),
-      );
+      const argv = createCommitArgv(repo, message.trim(), generateIdempotencyKey(), workspaceId);
+      const result = await runMutationWithRetry(sessionId, argv);
       if (result.exitStatus !== 0) {
         throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
       }

@@ -15,6 +15,7 @@
  */
 import type {
   ClientKeyResponse,
+  DeleteInstanceRequest,
   InstanceStatusResponse,
   IssueCertificateRequest,
   IssueCertificateResponse,
@@ -90,6 +91,17 @@ export async function ensureInstance(
 
 export async function wakeInstance(request: WakeInstanceRequest): Promise<OperationResponse> {
   return invokeRemoteInstance('wake', request);
+}
+
+/**
+ * Tears down the user's managed instance (Phase 6 "resource cleanup and
+ * cost controls" - see `handleDelete` in `supabase/functions/remote-instance`,
+ * which enforces the same per-user quota and ownership checks as `ensure`).
+ * Idempotent: a repeat call with the same key against an already-deleted
+ * instance is a no-op rather than an error.
+ */
+export async function deleteInstance(request: DeleteInstanceRequest): Promise<OperationResponse> {
+  return invokeRemoteInstance('delete', request);
 }
 
 /**
