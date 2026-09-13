@@ -9,6 +9,7 @@ import { DiffScreen } from '../screens/DiffScreen';
 import { CommitsScreen } from '../screens/CommitsScreen';
 import { ConflictsScreen } from '../screens/ConflictsScreen';
 import { AgentScreen } from '../screens/AgentScreen';
+import { TerminalScreen } from '../screens/TerminalScreen';
 
 export type RootStackParamList = {
   Connect: undefined;
@@ -20,6 +21,14 @@ export type RootStackParamList = {
   Commits: { sessionId: string; repo: string; workspaceId: number };
   Conflicts: { sessionId: string; repo: string; workspaceId: number };
   Agent: { sessionId: string; repo: string; workspaceId: number };
+  Terminal: {
+    sessionId: string;
+    repo: string;
+    workspaceId: number;
+    label: string;
+    remoteDir: string;
+    command: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -36,6 +45,7 @@ export function AppNavigator(): React.JSX.Element {
       <Stack.Screen name="Commits" component={CommitsScreen} options={{ title: 'Commits' }} />
       <Stack.Screen name="Conflicts" component={ConflictsScreen} options={{ title: 'Conflicts' }} />
       <Stack.Screen name="Agent" component={AgentScreen} options={{ title: 'Agent' }} />
+      <Stack.Screen name="Terminal" component={TerminalScreen} options={{ title: 'Terminal' }} />
     </Stack.Navigator>
   );
 }

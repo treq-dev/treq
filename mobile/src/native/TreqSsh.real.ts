@@ -114,6 +114,33 @@ const TreqSshReal: TreqSshModule = {
   async disconnect(sessionId: string): Promise<void> {
     client.disconnect(BigInt(sessionId));
   },
+
+  // Phase 7 PTY methods are not yet exposed through the napi bridge
+  // (`crates/treq-mobile-ssh/src/napi_bridge.rs` mirrors only the Phase 2/3
+  // connect/exec surface) - this Node test double throws rather than
+  // silently no-op'ing, so a test that exercises these paths fails loudly
+  // instead of passing against a fake success. Real behavior for these
+  // methods is exercised by the Rust crate's own tests
+  // (`open_pty_write_and_poll_round_trip_through_a_real_ssh_session`,
+  // `reattach_replays_backlog_from_a_prior_session`), not this file.
+  async openPty(): Promise<string> {
+    throw new Error('openPty is not implemented in the Node test double (see comment above)');
+  },
+  async ptyWrite(): Promise<void> {
+    throw new Error('ptyWrite is not implemented in the Node test double (see comment above)');
+  },
+  async ptyResize(): Promise<void> {
+    throw new Error('ptyResize is not implemented in the Node test double (see comment above)');
+  },
+  async closePty(): Promise<void> {
+    throw new Error('closePty is not implemented in the Node test double (see comment above)');
+  },
+  async startPtyEventStream(): Promise<void> {
+    throw new Error('startPtyEventStream is not implemented in the Node test double (see comment above)');
+  },
+  async stopPtyEventStream(): Promise<void> {
+    throw new Error('stopPtyEventStream is not implemented in the Node test double (see comment above)');
+  },
 };
 
 export default TreqSshReal;

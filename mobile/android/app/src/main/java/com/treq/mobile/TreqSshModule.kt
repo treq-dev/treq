@@ -7,7 +7,10 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.security.KeyStore
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -32,6 +35,24 @@ class TreqSshModule(reactContext: ReactApplicationContext) :
 
   private val client = SshClient()
   private val androidKeystoreAlias = "com.treq.mobile-device-key"
+
+  // Phase 7 ("Full PTY streaming and reattach"): a background executor
+  // polls `poll_pty_events` per active pty id and emits a `TreqSshPtyEvent`
+  // RN event for each drained event - the native-bridge half of
+  // `poll_pty_events`'s documented "no practical UniFFI async callback
+  // interface at this UDL-scaffolding version, so poll instead" decision
+  // (see crates/treq-mobile-ssh/src/lib.rs). NOT built/run on a device or
+  // emulator in this environment (no Android SDK/toolchain available here);
+  // written to the same generated-bindings shape as the methods above but
+  // unverified beyond compiling by eye against the UniFFI Kotlin codegen.
+  private val ptyStreamExecutor = Executors.newCachedThreadPool()
+  private val activePtyStreams = ConcurrentHashMap<String, Boolean>()
+
+  private fun emitPtyEvent(body: com.facebook.react.bridge.WritableMap) {
+    reactApplicationContext
+      .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+      .emit("TreqSshPtyEvent", body)
+  }
 
   @ReactMethod
   fun generateDeviceKey(promise: Promise) {
@@ -116,6 +137,111 @@ class TreqSshModule(reactContext: ReactApplicationContext) :
     } catch (e: Exception) {
       promise.reject("disconnect_failed", e.message, e)
     }
+  }
+
+  @ReactMethod
+  fun openPty(sessionId: String, term: String, cols: Int, rows: Int, command: String, promise: Promise) {
+    try {
+      val ptyId = client.openPty(sessionId.toULong(), term, cols.toUShort(), rows.toUShort(), command)
+      promise.resolve(ptyId.toString())
+    } catch (e: Exception) {
+      promise.reject("open_pty_failed", e.message, e)
+    }
+  }
+
+  @ReactMethod
+  fun ptyWrite(ptyId: String, dataBase64: String, promise: Promise) {
+    try {
+      val bytes = android.util.Base64.decode(dataBase64, android.util.Base64.NO_WRAP)
+      client.ptyWrite(ptyId.toULong(), bytes.map { it.toUByte() })
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("pty_write_failed", e.message, e)
+    }
+  }
+
+  @ReactMethod
+  fun ptyResize(ptyId: String, cols: Int, rows: Int, promise: Promise) {
+    try {
+      client.ptyResize(ptyId.toULong(), cols.toUShort(), rows.toUShort())
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("pty_resize_failed", e.message, e)
+    }
+  }
+
+  @ReactMethod
+  fun closePty(ptyId: String, promise: Promise) {
+    activePtyStreams[ptyId] = false
+    try {
+      client.closePty(ptyId.toULong())
+    } catch (_: Exception) {
+      // Idempotent: mirrors `RemotePtyManager::close`'s "already gone is
+      // success" convention.
+    }
+    promise.resolve(null)
+  }
+
+  @ReactMethod
+  fun startPtyEventStream(ptyId: String, promise: Promise) {
+    val id = ptyId.toULongOrNull()
+    if (id == null) {
+      promise.reject("invalid_pty_id", "ptyId is not a valid u64")
+      return
+    }
+    activePtyStreams[ptyId] = true
+    ptyStreamExecutor.submit {
+      while (activePtyStreams[ptyId] == true) {
+        val events = try {
+          client.pollPtyEvents(id, 1000u, 64u)
+        } catch (e: Exception) {
+          break
+        }
+        var shouldStop = false
+        for (event in events) {
+          when (event) {
+            is uniffi.treq_mobile_ssh.PtyEvent.Data -> emitPtyEvent(
+              Arguments.createMap().apply {
+                putString("ptyId", ptyId)
+                putString("type", "data")
+                putString(
+                  "dataBase64",
+                  android.util.Base64.encodeToString(
+                    event.bytes.map { it.toByte() }.toByteArray(),
+                    android.util.Base64.NO_WRAP,
+                  ),
+                )
+              },
+            )
+            is uniffi.treq_mobile_ssh.PtyEvent.ExitStatus -> emitPtyEvent(
+              Arguments.createMap().apply {
+                putString("ptyId", ptyId)
+                putString("type", "exit")
+                putInt("code", event.code.toInt())
+              },
+            )
+            is uniffi.treq_mobile_ssh.PtyEvent.Closed -> {
+              emitPtyEvent(
+                Arguments.createMap().apply {
+                  putString("ptyId", ptyId)
+                  putString("type", "closed")
+                },
+              )
+              shouldStop = true
+            }
+          }
+        }
+        if (shouldStop) break
+      }
+      activePtyStreams[ptyId] = false
+    }
+    promise.resolve(null)
+  }
+
+  @ReactMethod
+  fun stopPtyEventStream(ptyId: String, promise: Promise) {
+    activePtyStreams[ptyId] = false
+    promise.resolve(null)
   }
 
   // MARK: - Android Keystore-backed sealed storage

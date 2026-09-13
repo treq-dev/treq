@@ -6,6 +6,9 @@ import TreqSsh from '../native/TreqSsh';
 import { generateIdempotencyKey } from '../lib/controlPlane';
 import { runMutationWithRetry } from '../lib/mutationRetry';
 import { FileChange, gitPushArgv, listChangesArgv, parseFileChanges, rebaseWorkspaceArgv } from '../lib/treqCli';
+import { parsePtySessions, ptyListArgv } from '../lib/ptyRemoteCli';
+
+const DEFAULT_TERMINAL_LABEL = 'shell';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'WorkspaceDetail'>;
 
@@ -63,6 +66,38 @@ export function WorkspaceDetailScreen({ navigation, route }: Props): React.JSX.E
       setRebaseTarget('');
     });
 
+  const openTerminal = async () => {
+    // `remoteDir` here is a known simplification: it uses the repo root,
+    // not the workspace's own checkout directory (mobile has no
+    // `workspace inspect`-derived path lookup wired yet) - a shell opened
+    // this way lands in the repo root, not the workspace's worktree.
+    // Tracked as a follow-up in prds/mobile.md's Phase 7 write-up.
+    try {
+      const listResult = await TreqSsh.execCommand(sessionId, ptyListArgv(repo, workspaceId));
+      const sessions = listResult.exitStatus === 0 ? parsePtySessions(listResult.stdout) : [];
+      const running = sessions.find((s) => s.running);
+      const navigateWithLabel = (label: string) =>
+        navigation.navigate('Terminal', {
+          sessionId,
+          repo,
+          workspaceId,
+          label,
+          remoteDir: repo,
+          command: '"${SHELL:-/bin/bash}" -l',
+        });
+      if (running) {
+        Alert.alert('Terminal session running', `Reattach to "${running.label}"?`, [
+          { text: 'Start new', onPress: () => navigateWithLabel(`${DEFAULT_TERMINAL_LABEL}-${Date.now()}`) },
+          { text: 'Reattach', onPress: () => navigateWithLabel(running.label), style: 'default' },
+        ]);
+      } else {
+        navigateWithLabel(DEFAULT_TERMINAL_LABEL);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handlePush = () =>
     Alert.alert('Push bookmark', `Push this workspace's bookmark to the remote?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -87,6 +122,7 @@ export function WorkspaceDetailScreen({ navigation, route }: Props): React.JSX.E
         <Button title="Commits" onPress={() => navigation.navigate('Commits', { sessionId, repo, workspaceId })} />
         <Button title="Conflicts" onPress={() => navigation.navigate('Conflicts', { sessionId, repo, workspaceId })} />
         <Button title="Agent" onPress={() => navigation.navigate('Agent', { sessionId, repo, workspaceId })} />
+        <Button title="Terminal" onPress={openTerminal} />
       </View>
       <View style={styles.navRow}>
         <Button title="Rebase" onPress={() => setRebasePromptVisible(true)} disabled={mutationBusy} />
