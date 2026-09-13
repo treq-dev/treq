@@ -13,40 +13,28 @@ use treq_lib::jj;
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
 
-/// Return the full commit id of the workspace's current `@` commit.
+/// Return the short commit id of the workspace's current `@` commit.
 fn workspace_wc_commit(workspace_path: &str) -> String {
-  TestRepo::run_jj(
-    workspace_path,
-    &["log", "--no-graph", "-r", "@", "-T", "commit_id"],
-  )
-  .unwrap_or_default()
-  .trim()
-  .to_string()
+  jj::jj_get_commit_id(workspace_path, "@").unwrap_or_default()
 }
 
 /// Assert that the working copy at `workspace_path` has **no** changes (is not stale / clean).
-///
-/// Uses `jj diff --stat` via the JJ binary so the assertion is independent of treq logic.
 fn assert_working_copy_clean(workspace_path: &str) {
-  let status = TestRepo::run_jj(workspace_path, &["st"]).unwrap_or_default();
   assert!(
-    status.contains("The working copy has no changes."),
-    "Expected working copy at '{}' to be clean, but got:\n{}",
-    workspace_path,
-    status
+    TestRepo::jj_working_copy_is_clean(workspace_path),
+    "Expected working copy at '{}' to be clean",
+    workspace_path
   );
 }
 
 /// Assert that the working copy at `workspace_path` does NOT contain a diff hunk that
 /// removes `content` (i.e. does not undo a previously-committed addition).
 fn assert_no_revert_hunk(workspace_path: &str, content: &str) {
-  let diff = TestRepo::run_jj(workspace_path, &["diff", "--git"]).unwrap_or_default();
   assert!(
-    !diff.contains(&format!("-{}", content)),
-    "Working copy at '{}' contains a revert hunk for '{}'; diff:\n{}",
+    !TestRepo::jj_has_revert_hunk_for_line(workspace_path, content),
+    "Working copy at '{}' contains a revert hunk for '{}'",
     workspace_path,
-    content,
-    diff
+    content
   );
 }
 
@@ -120,22 +108,17 @@ fn assert_remote_feature_lineage_preserved(
       .expect("Failed to rebase recreated workspace");
   }
 
-  let branch_only_log = TestRepo::run_jj(
+  let branch_only_log = TestRepo::jj_log_descriptions(
     &repo.repo_path,
-    &[
-      "log",
-      "--no-graph",
-      "-r",
-      &format!("{}..{}", default_branch, workspace.branch_name),
-      "-T",
-      "description.first_line() ++ \"\\n\"",
-    ],
+    &format!("{}..{}", default_branch, workspace.branch_name),
+    None,
   )
   .expect("Failed to inspect rebased branch lineage");
   assert!(
-    branch_only_log.contains(expected_remote_commit),
-    "remote feature commit '{expected_remote_commit}' must remain in branch-only lineage; got:\n{}",
     branch_only_log
+      .iter()
+      .any(|(desc, _)| desc.contains(expected_remote_commit)),
+    "remote feature commit '{expected_remote_commit}' must remain in branch-only lineage; got:\n{branch_only_log:?}"
   );
   assert_eq!(
     std::fs::read_to_string(std::path::Path::new(&workspace_path).join("feature.txt"))
@@ -316,19 +299,8 @@ fn abandon_does_not_strand_sibling_working_copy() {
 
   // Abandon A's tip commit (the one that added abandon-a.txt)
   // We need the change id; get it from jj log
-  let log = TestRepo::run_jj(
-    &ws_a_path,
-    &[
-      "log",
-      "--no-graph",
-      "-r",
-      &ws_a.branch_name,
-      "--template",
-      "change_id",
-    ],
-  )
-  .expect("Failed to get log for ws_a");
-  let change_id = log.trim().to_string();
+  let change_id =
+    TestRepo::jj_change_id(&ws_a_path, &ws_a.branch_name).expect("Failed to get log for ws_a");
 
   jj::jj_abandon(&ws_a_path, &change_id).expect("Failed to abandon commit");
 
@@ -437,19 +409,8 @@ fn test_stacked_workspace_lineage_stays_linear_after_auto_rebase() {
     .expect("Failed to set target branch on ducks");
 
   // Print pre-rebase graph so the test output shows the starting topology.
-  let pre_graph = TestRepo::run_jj(
-    &repo.repo_path,
-    &[
-      "log",
-      "--no-graph",
-      "-r",
-      "all()",
-      "-T",
-      "commit_id.short() ++ \" | \" ++ bookmarks ++ \" | \" ++ description.first_line() ++ \"\\n\"",
-    ],
-  )
-  .unwrap_or_default();
-  println!("=== pre-rebase graph ===\n{pre_graph}");
+  let pre_graph = TestRepo::jj_log_descriptions(&repo.repo_path, "all()", None).unwrap_or_default();
+  println!("=== pre-rebase graph ===\n{pre_graph:?}");
 
   // Advance main.
   repo
@@ -466,19 +427,9 @@ fn test_stacked_workspace_lineage_stays_linear_after_auto_rebase() {
     .expect("rebase_after_commit should not error");
 
   // Print post-rebase graph for evidence.
-  let post_graph = TestRepo::run_jj(
-    &repo.repo_path,
-    &[
-      "log",
-      "--no-graph",
-      "-r",
-      "all()",
-      "-T",
-      "commit_id.short() ++ \" | \" ++ bookmarks ++ \" | \" ++ description.first_line() ++ \"\\n\"",
-    ],
-  )
-  .unwrap_or_default();
-  println!("=== post-rebase graph ===\n{post_graph}");
+  let post_graph =
+    TestRepo::jj_log_descriptions(&repo.repo_path, "all()", None).unwrap_or_default();
+  println!("=== post-rebase graph ===\n{post_graph:?}");
 
   let chicken_wc_after = workspace_wc_commit(&chicken_path);
   let chicken_bm = jj::jj_get_commit_id(&repo.repo_path, &chicken.branch_name)
@@ -492,47 +443,28 @@ fn test_stacked_workspace_lineage_stays_linear_after_auto_rebase() {
 
   // PRIMARY assertion: ducks bookmark must be a descendant of chicken's WC commit.
   // If they are siblings (the bug), ancestors(ducks_bm) does not contain chicken_wc.
-  let ancestors_check = TestRepo::run_jj(
+  let ancestors_check = TestRepo::jj_commit_ids_in_revset(
     &repo.repo_path,
-    &[
-      "log",
-      "--no-graph",
-      "-r",
-      &format!("{chicken_wc_after} & ancestors({ducks_bm})"),
-      "-T",
-      "commit_id",
-    ],
+    &format!("{chicken_wc_after} & ancestors({ducks_bm})"),
   )
   .unwrap_or_default();
   assert!(
-    !ancestors_check.trim().is_empty(),
+    !ancestors_check.is_empty(),
     "ducks bookmark ({ducks_bm}) must be a descendant of chicken's WC commit \
          ({chicken_wc_after}); got empty — they are siblings (fork bug)"
   );
 
   // CORROBORATING: chicken bookmark must have exactly one child (the chicken WC, not also
   // the ducks bookmark). Two children means the fork exists.
-  let children_of_chicken_bm = TestRepo::run_jj(
-    &repo.repo_path,
-    &[
-      "log",
-      "--no-graph",
-      "-r",
-      &format!("children({chicken_bm})"),
-      "-T",
-      "commit_id ++ \"\\n\"",
-    ],
-  )
-  .unwrap_or_default();
-  let child_count = children_of_chicken_bm
-    .lines()
-    .filter(|l| !l.trim().is_empty())
-    .count();
+  let children_of_chicken_bm =
+    TestRepo::jj_commit_ids_in_revset(&repo.repo_path, &format!("children({chicken_bm})"))
+      .unwrap_or_default();
+  let child_count = children_of_chicken_bm.len();
   assert_eq!(
     child_count, 1,
     "chicken bookmark ({chicken_bm}) must have exactly 1 child (its WC commit), \
          but has {child_count} — the ducks bookmark is forked as a sibling (fork bug)\n\
-         children:\n{children_of_chicken_bm}"
+         children:\n{children_of_chicken_bm:?}"
   );
 }
 
@@ -581,13 +513,8 @@ fn test_auto_rebase_does_not_leave_stale_working_copy_on_stacked_workspaces() {
     .expect("rebase_after_commit should not error");
 
   for (label, path) in [("ws_duck", &ws_duck_path), ("ws_rule", &ws_rule_path)] {
-    let st = TestRepo::run_jj(path, &["st"]).unwrap_or_default();
-    println!("[{label}] jj st:\n{st}");
-    assert!(
-      st.contains("The working copy has no changes."),
-      "[{label}] Expected clean WC at '{path}', got:\n{st}"
-    );
-    let diff = TestRepo::run_jj(path, &["diff", "--git"]).unwrap_or_default();
-    println!("[{label}] jj diff --git:\n{diff}");
+    let is_clean = TestRepo::jj_working_copy_is_clean(path);
+    println!("[{label}] jj working copy clean: {is_clean}");
+    assert!(is_clean, "[{label}] Expected clean WC at '{path}'");
   }
 }

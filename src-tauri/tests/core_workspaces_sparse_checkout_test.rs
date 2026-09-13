@@ -40,12 +40,9 @@ fn sparse_workspace_materializes_only_matching_paths() {
   assert!(ws.join(".jj").exists(), ".jj directory should exist");
 
   // Workspace must be a valid jj workspace with a clean working copy.
-  let status = TestRepo::run_jj(ws.to_str().unwrap(), &["status"])
-    .expect("Workspace should be a valid jj workspace");
   assert!(
-    !status.contains("Working copy changes:"),
-    "Sparse workspace should have a clean working copy, got: {}",
-    status
+    TestRepo::jj_working_copy_is_clean(ws.to_str().unwrap()),
+    "Sparse workspace should have a clean working copy"
   );
 }
 
@@ -349,20 +346,16 @@ fn files_outside_sparse_patterns_are_not_snapshotted() {
   // Committing must not sweep the out-of-pattern file into the commit tree.
   treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "sparse commit")
     .expect("Failed to commit workspace");
-  let tree_files = TestRepo::run_jj(ws_str, &["file", "list", "-r", "feat/sparse-snapshot"])
+  let tree_files = TestRepo::jj_files_at_revision(ws_str, "feat/sparse-snapshot")
     .expect("Failed to list files at branch");
   assert!(
-    tree_files
-      .lines()
-      .any(|l| l.trim().replace('\\', "/") == "src/new.rs"),
-    "committed tree should contain src/new.rs, got: {}",
+    tree_files.iter().any(|f| f == "src/new.rs"),
+    "committed tree should contain src/new.rs, got: {:?}",
     tree_files
   );
   assert!(
-    !tree_files
-      .lines()
-      .any(|l| l.trim().replace('\\', "/") == "docs/new.md"),
-    "committed tree should not contain docs/new.md, got: {}",
+    !tree_files.iter().any(|f| f == "docs/new.md"),
+    "committed tree should not contain docs/new.md, got: {:?}",
     tree_files
   );
 }
@@ -387,12 +380,11 @@ fn sparse_patterns_registered_in_jj() {
   .expect("Failed to create sparse workspace");
 
   let ws = repo.workspaces_dir().join(&workspace.workspace_path);
-  let output = TestRepo::run_jj(ws.to_str().unwrap(), &["sparse", "list"])
-    .expect("jj sparse list should succeed");
-  let patterns: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
+  let patterns =
+    TestRepo::jj_sparse_patterns(ws.to_str().unwrap()).expect("jj sparse list should succeed");
   assert_eq!(
     patterns,
-    vec!["src"],
+    vec!["src".to_string()],
     "jj sparse list should contain exactly 'src', got: {:?}",
     patterns
   );

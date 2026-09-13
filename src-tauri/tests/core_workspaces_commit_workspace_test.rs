@@ -2,42 +2,22 @@ mod e2e_test_helpers;
 use e2e_test_helpers::TestRepo;
 
 fn assert_raw_jj_log_has_working_copy_commit(workspace_path: &str, expected_message: &str) {
-  let raw_log = TestRepo::run_jj(
-    workspace_path,
-    &[
-      "log",
-      "--no-graph",
-      "-T",
-      "description.first_line() ++ \"|\" ++ commit_id.short(12) ++ \"\\n\"",
-      "-n",
-      "15",
-    ],
-  )
-  .expect("jj log failed");
+  let log = TestRepo::jj_log_descriptions(workspace_path, "::@", Some(15)).expect("jj log failed");
 
   assert!(
-    raw_log.contains(expected_message),
-    "expected '{expected_message}' in raw jj log, got:\n{raw_log}"
+    log.iter().any(|(desc, _)| desc == expected_message),
+    "expected '{expected_message}' in jj log, got:\n{log:?}"
   );
   assert!(
-    raw_log.lines().any(|line| line.starts_with('|')),
-    "expected raw jj log to include empty working copy commit, got:\n{raw_log}"
+    log.iter().any(|(desc, _)| desc.is_empty()),
+    "expected jj log to include empty working copy commit, got:\n{log:?}"
   );
 }
 
 fn assert_workspace_status_is_clean(workspace_path: &str) {
-  let status = TestRepo::run_jj(workspace_path, &["st"]).expect("jj st failed");
   assert!(
-    status.contains("The working copy has no changes."),
-    "expected clean workspace status after commit, got:\n{status}"
-  );
-  assert!(
-    status.contains("Working copy  (@)") && status.contains("(empty)"),
-    "expected status to show an empty working copy commit, got:\n{status}"
-  );
-  assert!(
-    status.contains("(no description set)"),
-    "expected status to show no-description working copy commit, got:\n{status}"
+    TestRepo::jj_working_copy_is_clean(workspace_path),
+    "expected clean workspace status after commit"
   );
 }
 
@@ -148,21 +128,10 @@ fn test_create_commit_empty_workspace() {
   // A commit with no file changes must not persist in history — only the live,
   // description-less working copy is exempt from the empty-commit policy.
   assert_workspace_status_is_clean(ws_dir_str);
-  let raw_log = TestRepo::run_jj(
-    ws_dir_str,
-    &[
-      "log",
-      "--no-graph",
-      "-T",
-      "description.first_line() ++ \"|\" ++ commit_id.short(12) ++ \"\\n\"",
-      "-n",
-      "15",
-    ],
-  )
-  .expect("jj log failed");
+  let log = TestRepo::jj_log_descriptions(ws_dir_str, "::@", Some(15)).expect("jj log failed");
   assert!(
-    !raw_log.contains("empty commit"),
-    "expected empty commit to be discarded from history, got:\n{raw_log}"
+    !log.iter().any(|(desc, _)| desc == "empty commit"),
+    "expected empty commit to be discarded from history, got:\n{log:?}"
   );
   assert_workspace_list_commits_hides_working_copy(&repo.repo_path, workspace.id, None);
 }
@@ -324,27 +293,16 @@ fn test_create_commit_no_divergence_with_stacked_descendant() {
     .expect("commit parent workspace v2");
 
   // --- Assert: no divergent changes anywhere in the repo ---
-  // Divergent changes appear as `??` in jj log output (same change ID on multiple commits).
-  let all_log = TestRepo::run_jj(
-    ws_a_dir_str,
-    &[
-      "log",
-      "--no-graph",
-      "-r",
-      "all()",
-      "-T",
-      "change_id.short() ++ \"\\n\"",
-    ],
-  )
-  .expect("jj log all() failed");
-  // jj appends ?? to change IDs of divergent commits in log output
-  let full_log =
-    TestRepo::run_jj(ws_a_dir_str, &["log", "-r", "all()"]).expect("jj log all() graph failed");
+  // A change id repeated across two commits means those commits diverged (jj
+  // CLI's log output marks this with a trailing `??`).
+  let change_ids =
+    TestRepo::jj_change_ids_in_revset(ws_a_dir_str, "all()").expect("jj log all() failed");
+  let mut seen = std::collections::HashSet::new();
+  let duplicates: Vec<&String> = change_ids.iter().filter(|id| !seen.insert(*id)).collect();
   assert!(
-    !full_log.contains("??"),
-    "expected no divergent changes (??) after committing in parent, got:\n{full_log}"
+    duplicates.is_empty(),
+    "expected no divergent changes after committing in parent, but change ids repeated: {duplicates:?} (all: {change_ids:?})"
   );
-  drop(all_log);
 
   // --- Assert: B's working copy is clean (no phantom inverse-diff changes) ---
   assert_workspace_status_is_clean(ws_b_dir_str);
@@ -413,9 +371,9 @@ fn test_commit_workspace_abandons_stray_empty_commit_in_history() {
   // Simulate an empty commit left behind in history (e.g. by a squash/rebase that
   // absorbed its content elsewhere) by describing an unchanged commit directly via jj,
   // bypassing commit_workspace.
-  TestRepo::run_jj(ws_dir_str, &["new"]).expect("jj new failed");
-  TestRepo::run_jj(ws_dir_str, &["describe", "-m", "stray empty"]).expect("jj describe failed");
-  TestRepo::run_jj(ws_dir_str, &["new"]).expect("jj new failed");
+  TestRepo::jj_new(ws_dir_str, &["@"]).expect("jj new failed");
+  TestRepo::jj_describe(ws_dir_str, "@", "stray empty").expect("jj describe failed");
+  TestRepo::jj_new(ws_dir_str, &["@"]).expect("jj new failed");
 
   TestRepo::write_workspace_file(ws_dir_str, "second.txt", "world\n")
     .expect("failed to write file");
@@ -423,26 +381,15 @@ fn test_commit_workspace_abandons_stray_empty_commit_in_history() {
   treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "add second")
     .expect("commit_workspace should succeed");
 
-  let raw_log = TestRepo::run_jj(
-    ws_dir_str,
-    &[
-      "log",
-      "--no-graph",
-      "-T",
-      "description.first_line() ++ \"\\n\"",
-      "-n",
-      "20",
-    ],
-  )
-  .expect("jj log failed");
+  let log = TestRepo::jj_log_descriptions(ws_dir_str, "::@", Some(20)).expect("jj log failed");
 
   assert!(
-    !raw_log.contains("stray empty"),
-    "expected stray empty commit to be abandoned from history, got:\n{raw_log}"
+    !log.iter().any(|(desc, _)| desc == "stray empty"),
+    "expected stray empty commit to be abandoned from history, got:\n{log:?}"
   );
   assert!(
-    raw_log.contains("add second"),
-    "expected new commit to be present, got:\n{raw_log}"
+    log.iter().any(|(desc, _)| desc == "add second"),
+    "expected new commit to be present, got:\n{log:?}"
   );
 }
 

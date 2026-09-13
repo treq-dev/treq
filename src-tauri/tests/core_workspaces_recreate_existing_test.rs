@@ -81,11 +81,9 @@ fn test_create_workspace_rejects_fully_tracked_workspace() {
   assert!(jj_dir.exists(), ".jj must exist after first creation");
   let marker = jj_dir.parent().unwrap().join("keep-me.txt");
   std::fs::write(&marker, "existing work").expect("write marker");
-  let before = TestRepo::run_jj(
-    &repo.repo_path,
-    &["log", "-r", branch, "--no-graph", "-T", "commit_id"],
-  )
-  .expect("read bookmark target");
+  let before = e2e_test_helpers::JjVerifier::get_commit_id_for_rev(&repo.repo_path, branch)
+    .expect("read bookmark target")
+    .expect("bookmark should resolve");
 
   let err = treq_lib::core::create_workspace(
     &repo.repo_path,
@@ -107,11 +105,9 @@ fn test_create_workspace_rejects_fully_tracked_workspace() {
     std::fs::read_to_string(marker).expect("marker retained"),
     "existing work"
   );
-  let after = TestRepo::run_jj(
-    &repo.repo_path,
-    &["log", "-r", branch, "--no-graph", "-T", "commit_id"],
-  )
-  .expect("read bookmark target");
+  let after = e2e_test_helpers::JjVerifier::get_commit_id_for_rev(&repo.repo_path, branch)
+    .expect("read bookmark target")
+    .expect("bookmark should resolve");
   assert_eq!(after, before, "bookmark must not move on retry");
 
   // Exactly one db record for this branch (no duplicate).

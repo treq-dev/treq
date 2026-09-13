@@ -5,7 +5,7 @@ use tempfile::TempDir;
 
 fn setup_jj_repo(temp_dir: &TempDir) -> String {
   let path = temp_dir.path().to_str().unwrap().to_string();
-  TestRepo::run_jj(&path, &["git", "init"]).expect("Failed to init jj repo");
+  TestRepo::jj_git_init(&path).expect("Failed to init jj repo");
   path
 }
 
@@ -19,7 +19,7 @@ fn test_get_jj_tracked_files_returns_all_files() {
   TestRepo::write_workspace_file(repo_path_str, "file2.txt", "content2").unwrap();
   TestRepo::write_workspace_file(repo_path_str, "subdir/file3.txt", "content3").unwrap();
 
-  TestRepo::run_jj(&repo_path, &["status"]).expect("Failed to run jj status");
+  TestRepo::jj_snapshot(&repo_path).expect("Failed to snapshot working copy");
 
   let files = treq_lib::file_indexer::get_jj_tracked_files(&repo_path).expect("Should get files");
 
@@ -35,7 +35,12 @@ fn test_get_jj_tracked_files_includes_unchanged_committed_files() {
   let repo_path_str = repo_path.as_str();
 
   TestRepo::write_workspace_file(repo_path_str, "committed.txt", "committed").unwrap();
-  TestRepo::run_jj(&repo_path, &["commit", "-m", "initial"]).expect("Failed to commit");
+  // This fixture is a bare (non-colocated) jj repo with no .git directory, so it can't
+  // use TestRepo::jj_commit (which resolves a git branch as part of treq's normal,
+  // colocated-repo commit flow). Describe-then-new is what `jj commit -m` does under
+  // the hood, without needing any git-branch concept.
+  TestRepo::jj_describe(&repo_path, "@", "initial").expect("Failed to describe");
+  TestRepo::jj_new(&repo_path, &["@"]).expect("Failed to commit");
 
   TestRepo::write_workspace_file(repo_path_str, "changed.txt", "changed").unwrap();
 

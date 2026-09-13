@@ -3,7 +3,6 @@ mod e2e_test_helpers;
 use e2e_test_helpers::{JjVerifier, TestRepo};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use treq_lib::local_db::Workspace;
 
@@ -63,7 +62,7 @@ fn test_can_create_workspace() {
   );
 
   // verify workspace is valid jj workspace
-  TestRepo::run_jj(workspace_path.to_str().unwrap(), &["status"])
+  TestRepo::jj_snapshot(workspace_path.to_str().unwrap())
     .expect("Workspace should be valid jj workspace");
 
   // JJ VERIFICATION: Verify workspace via jj workspace list (primary source of truth)
@@ -107,11 +106,9 @@ fn workspace_creation_creates_empty_wc_but_bookmark_targets_parent() {
     .to_str()
     .expect("Workspace path should be valid UTF-8");
 
-  let status = TestRepo::run_jj(workspace_path_str, &["st"]).expect("jj st failed");
   assert!(
-    status.contains("The working copy has no changes."),
-    "Expected newly created workspace to report an empty working copy, got:\n{}",
-    status
+    TestRepo::jj_working_copy_is_clean(workspace_path_str),
+    "Expected newly created workspace to report an empty working copy"
   );
 
   let at_commit = JjVerifier::get_commit_id_for_rev(workspace_path_str, "@")
@@ -137,20 +134,18 @@ fn workspace_creation_creates_empty_wc_but_bookmark_targets_parent() {
     "Workspace bookmark should not point to @- (parent commit)"
   );
 
-  let raw_log = TestRepo::run_jj(
-    workspace_path_str,
-    &["log", "-n", "8", "--no-graph", "-T", "commit_id ++ \"\\n\""],
-  )
-  .expect("Failed to get jj log");
+  let recent_ids = TestRepo::jj_commit_ids_in_revset(workspace_path_str, "::@")
+    .expect("Failed to get jj log")
+    .into_iter()
+    .take(8)
+    .collect::<Vec<_>>();
   assert!(
-    raw_log.contains(&at_commit),
-    "Raw jj log should include @ commit id (empty working copy): {}",
-    at_commit
+    recent_ids.iter().any(|id| id == &at_commit),
+    "jj log should include @ commit id (empty working copy): {at_commit}, got: {recent_ids:?}"
   );
   assert!(
-    raw_log.contains(&parent_commit),
-    "Raw jj log should include @- commit id: {}",
-    parent_commit
+    recent_ids.iter().any(|id| id == &parent_commit),
+    "jj log should include @- commit id: {parent_commit}, got: {recent_ids:?}"
   );
 }
 
@@ -174,11 +169,9 @@ fn workspace_creation_list_commits_excludes_all_working_copy_commits() {
     .to_str()
     .expect("Workspace path should be valid UTF-8");
 
-  let status = TestRepo::run_jj(workspace_path_str, &["st"]).expect("jj st failed");
   assert!(
-    status.contains("The working copy has no changes."),
-    "Expected newly created workspace to report an empty working copy, got:\n{}",
-    status
+    TestRepo::jj_working_copy_is_clean(workspace_path_str),
+    "Expected newly created workspace to report an empty working copy"
   );
 
   let at_commit = JjVerifier::get_commit_id_for_rev(workspace_path_str, "@")
@@ -331,23 +324,21 @@ fn test_can_create_workspace_from_remote_branch() {
     "File from remote branch should exist in workspace"
   );
 
-  // Verify workspace has correctly checked out the remote branch by checking the jj status
+  // Verify workspace has correctly checked out the remote branch: its bookmarks
+  // (what `jj status` displays for @ and @-) should include feature-remote.
   let workspace_path_str = workspace_path.to_str().unwrap();
 
-  // Execute jj status to verify workspace state
-  let status_output = Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args(["status"])
-    .output()
-    .expect("Failed to execute jj status");
+  let mut bookmarks = TestRepo::jj_bookmarks_on_revision(workspace_path_str, "@")
+    .expect("Failed to resolve bookmarks on @");
+  bookmarks.extend(
+    TestRepo::jj_bookmarks_on_revision(workspace_path_str, "@-")
+      .expect("Failed to resolve bookmarks on @-"),
+  );
 
-  let status_str = String::from_utf8_lossy(&status_output.stdout);
-
-  // Verify the status output contains the feature-remote branch name
   assert!(
-    status_str.contains("feature-remote"),
-    "JJ status should show 'feature-remote' bookmark, got: {}",
-    status_str
+    bookmarks.iter().any(|b| b == "feature-remote"),
+    "Workspace should show 'feature-remote' bookmark, got: {:?}",
+    bookmarks
   );
 }
 
@@ -607,44 +598,41 @@ fn test_create_workspace_from_ahead_source_stacks_history_and_working_copy_and_d
     .expect("Failed to commit in A");
 
   for (workspace_label, workspace_path) in [("A", a_path_str), ("B", b_path_str)] {
-    let status = TestRepo::run_jj(workspace_path, &["st"]).expect("jj st failed");
     assert!(
-      status.contains("The working copy has no changes."),
-      "{} working copy should be clean, got:\n{}",
-      workspace_label,
-      status
+      TestRepo::jj_working_copy_is_clean(workspace_path),
+      "{} working copy should be clean",
+      workspace_label
     );
   }
 
-  let b_raw_log = TestRepo::run_jj(b_path_str, &["log", "-n", "12", "--no-graph"])
-    .expect("Failed to collect B raw jj log");
+  let b_log = TestRepo::jj_log_entries(b_path_str, "::@", 12).expect("Failed to collect B jj log");
   assert!(
-    b_raw_log.contains("B committed change"),
-    "B raw jj log should include B committed change, got:\n{}",
-    b_raw_log
+    b_log
+      .iter()
+      .any(|e| e.description.contains("B committed change")),
+    "B jj log should include B committed change, got:\n{b_log:?}"
   );
   assert!(
-    b_raw_log.contains("(empty)"),
-    "B raw jj log should include working-copy lineage, got:\n{}",
-    b_raw_log
+    b_log.iter().any(|e| e.is_empty),
+    "B jj log should include working-copy lineage, got:\n{b_log:?}"
   );
 
-  let a_raw_log = TestRepo::run_jj(a_path_str, &["log", "-n", "16", "--no-graph"])
-    .expect("Failed to collect A raw jj log");
+  let a_log = TestRepo::jj_log_entries(a_path_str, "::@", 16).expect("Failed to collect A jj log");
   assert!(
-    a_raw_log.contains("B committed change"),
-    "A raw jj log should include B committed change, got:\n{}",
-    a_raw_log
+    a_log
+      .iter()
+      .any(|e| e.description.contains("B committed change")),
+    "A jj log should include B committed change, got:\n{a_log:?}"
   );
   assert!(
-    a_raw_log.contains("A committed change"),
-    "A raw jj log should include A committed change, got:\n{}",
-    a_raw_log
+    a_log
+      .iter()
+      .any(|e| e.description.contains("A committed change")),
+    "A jj log should include A committed change, got:\n{a_log:?}"
   );
   assert!(
-    a_raw_log.contains("(empty)"),
-    "A raw jj log should include working-copy lineage, got:\n{}",
-    a_raw_log
+    a_log.iter().any(|e| e.is_empty),
+    "A jj log should include working-copy lineage, got:\n{a_log:?}"
   );
 
   let b_commits =
@@ -760,16 +748,9 @@ fn test_list_workspaces_removes_db_workspace_missing_from_jj_state() {
   )
   .expect("Failed to checkout workspace branch in home repo");
 
-  let forget_output = Command::new("jj")
-    .current_dir(&repo.repo_path)
-    .args(["workspace", "forget", workspace.workspace_name.as_str()])
-    .output()
-    .expect("Failed to execute jj workspace forget");
-  assert!(
-    forget_output.status.success(),
-    "jj workspace forget should succeed: {}",
-    String::from_utf8_lossy(&forget_output.stderr)
-  );
+  let workspace_dir = repo.workspaces_dir().join(&workspace.workspace_path);
+  treq_lib::jj::forget_workspace(&repo.repo_path, workspace_dir.to_str().unwrap())
+    .expect("jj workspace forget should succeed");
 
   treq_lib::core::init(&repo.repo_path).expect("Failed to re-run repo init");
 

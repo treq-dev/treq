@@ -16,26 +16,10 @@ fn workspace_path(repo_path: &str, workspace_name: &str) -> String {
 }
 
 fn resolve_bookmark_tip_ids(cwd: &str, branch: &str) -> Vec<String> {
-  let _ = TestRepo::run_jj(cwd, &["workspace", "update-stale"]);
+  let _ = TestRepo::jj_update_stale(cwd);
   let revset = format!("bookmarks(exact:{})", branch);
-  let output = TestRepo::run_jj(
-    cwd,
-    &[
-      "log",
-      "-r",
-      &revset,
-      "--no-graph",
-      "-T",
-      "commit_id ++ \"\\n\"",
-    ],
-  )
-  .unwrap_or_else(|e| panic!("Failed to resolve bookmark tips for '{branch}' in '{cwd}': {e}"));
-  let mut ids: Vec<String> = output
-    .lines()
-    .map(|line| line.trim())
-    .filter(|line| !line.is_empty())
-    .map(|line| line.to_string())
-    .collect();
+  let mut ids = TestRepo::jj_commit_ids_in_revset(cwd, &revset)
+    .unwrap_or_else(|e| panic!("Failed to resolve bookmark tips for '{branch}' in '{cwd}': {e}"));
   ids.sort();
   ids
 }
@@ -485,13 +469,11 @@ fn home_pull_syncs_workspace_working_copy_to_new_tip() {
 
   // The workspace working copy (@) should now equal the branch bookmark tip.
   // Resolve both via jj log so the test stays at the command level.
-  let wc_id = TestRepo::run_jj(
-    &branch_workspace_root,
-    &["log", "-r", "@", "--no-graph", "-T", "commit_id ++ \"\\n\""],
-  )
-  .expect("Failed to resolve workspace @ commit id")
-  .trim()
-  .to_string();
+  let wc_id = TestRepo::jj_commit_ids_in_revset(&branch_workspace_root, "@")
+    .expect("Failed to resolve workspace @ commit id")
+    .into_iter()
+    .next()
+    .expect("@ should resolve to exactly one commit");
   let bookmark_ids = resolve_bookmark_tip_ids(&branch_workspace_root, PROP_BRANCH);
   assert_eq!(
     bookmark_ids,

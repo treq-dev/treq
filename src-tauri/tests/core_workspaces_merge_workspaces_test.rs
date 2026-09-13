@@ -216,8 +216,10 @@ fn test_can_merge_workspace_into_home_repo_with_merge_commit_strategy() {
   // Verify jj picks up the merge commit
   let log = JjVerifier::get_log(&repo.repo_path, 5).expect("Failed to get jj log");
   assert!(
-    log.contains("Merge feature-merge into main") || log.contains("merge"),
-    "JJ log should contain merge commit, got: {}",
+    log
+      .iter()
+      .any(|(desc, _)| desc.contains("Merge feature-merge into main") || desc.contains("merge")),
+    "JJ log should contain merge commit, got: {:?}",
     log
   );
 
