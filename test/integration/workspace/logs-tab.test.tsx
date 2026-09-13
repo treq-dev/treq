@@ -192,7 +192,7 @@ describe("Home repo Logs tab", () => {
     await screen.findByText("hello-from-logs");
 
     const lines = await screen.findAllByTestId("repo-log-line");
-    expect(screen.getByTestId("send-to-agent")).toBeDisabled();
+    expect(screen.queryByTestId("send-to-agent")).toBeNull();
 
     await user.pointer([
       { target: lines[0], keys: "[MouseLeft>]" },
@@ -203,7 +203,7 @@ describe("Home repo Logs tab", () => {
     await waitFor(() => {
       expect(screen.getByTestId("selection-count").textContent).toMatch(/2 /);
     });
-    expect(screen.getByTestId("send-to-agent")).toBeEnabled();
+    expect(screen.queryByTestId("send-to-agent")).toBeNull();
   });
 
   it("toggles individual lines in multi-select mode", async () => {
@@ -322,8 +322,9 @@ describe("Home repo Logs tab", () => {
     );
 
     await openLogsTab();
-    await user.click(
-      await screen.findByRole("button", { name: /Agent chats/i }),
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: /Log source/i }),
+      "agent-chats",
     );
     await screen.findByText("please review the diff");
     await screen.findByText(/Looking at the stacked changes now/i);
@@ -346,8 +347,9 @@ describe("Home repo Logs tab", () => {
     openRepo(repoPath);
 
     await openLogsTab();
-    await user.click(
-      await screen.findByRole("button", { name: /Agent chats/i }),
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: /Log source/i }),
+      "agent-chats",
     );
     await screen.findByText(/No agent chat logs yet/i);
 

@@ -342,26 +342,45 @@ fn update_last_agent_message(chat: &mut AgentChat, screen: &str, timestamp: &str
     .last()
     .map(|m| m.role == ChatRole::User)
     .unwrap_or(true);
-  if chat
+  let previous_agent = chat
     .messages
     .iter()
     .rev()
-    .find(|m| m.role == ChatRole::Agent)
-    .is_some_and(|m| m.message == agent_message)
-  {
+    .take_while(|m| m.role == ChatRole::Agent)
+    .map(|m| m.message.as_str())
+    .collect::<Vec<_>>()
+    .into_iter()
+    .rev()
+    .collect::<String>();
+  if previous_agent == agent_message || agent_message.is_empty() {
     return;
   }
+  // Terminal snapshots are cumulative. Persist only the newly arrived portion
+  // so every screen update remains an individually timestamped log event.
+  let event_message = if !last_is_user {
+    agent_message
+      .strip_prefix(&previous_agent)
+      .map(trim_whitespace)
+      .filter(|message| !message.is_empty())
+      .unwrap_or_else(|| agent_message.clone())
+  } else {
+    agent_message
+  };
   let conversation_message = ChatMessage {
     id: 0,
     role: ChatRole::Agent,
-    message: agent_message,
+    message: event_message,
     time: timestamp.to_string(),
   };
-  if last_is_user || chat.messages.is_empty() {
-    chat.messages.push(conversation_message);
-  } else {
+  if chat
+    .messages
+    .last()
+    .is_some_and(|message| message.role == ChatRole::Agent && message.message.is_empty())
+  {
     let last = chat.messages.len() - 1;
     chat.messages[last] = conversation_message;
+  } else {
+    chat.messages.push(conversation_message);
   }
   reindex(&mut chat.messages);
 }
@@ -579,7 +598,7 @@ mod tests {
   }
 
   #[test]
-  fn later_screen_updates_replace_current_agent_message() {
+  fn later_screen_updates_create_separate_timestamped_messages() {
     let mut chat = sample_chat();
     let before = "hi";
     note_user_message(&mut chat, before, "hello", "t1");
@@ -590,14 +609,15 @@ mod tests {
       .iter()
       .filter(|m| m.role == ChatRole::Agent)
       .collect();
-    assert_eq!(agents.last().unwrap().message, "partial reply done");
+    assert_eq!(agents[agents.len() - 2].message, "partial");
+    assert_eq!(agents.last().unwrap().message, "reply done");
     assert_eq!(
       chat
         .messages
         .iter()
         .filter(|m| m.role == ChatRole::Agent)
         .count(),
-      2
+      3
     );
   }
 
