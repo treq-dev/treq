@@ -110,9 +110,9 @@ export function LogFeed({
     if (!matches.length) return;
     const next = (activeMatch + delta + matches.length) % matches.length;
     setActiveMatch(next);
-    feedRef.current
-      ?.querySelectorAll<HTMLElement>("[data-find-match]")
-      [next]?.scrollIntoView({ block: "center" });
+    const matchEls =
+      feedRef.current?.querySelectorAll<HTMLElement>("[data-find-match]");
+    matchEls?.[next]?.scrollIntoView({ block: "center" });
   }
   function highlightedBody(body: string) {
     if (!findQuery.trim()) return body;
