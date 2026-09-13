@@ -776,6 +776,17 @@ fn get_connection(repo_path: &str) -> Result<Connection, String> {
   conn
     .pragma_update(None, "foreign_keys", true)
     .map_err(|e| format!("Failed to enable foreign key enforcement: {}", e))?;
+  // Multiple treq instances/windows can share this db file (see
+  // `upsert_instance_registry`). WAL lets readers and a writer proceed
+  // concurrently instead of blocking, and busy_timeout makes a genuine
+  // writer-writer conflict retry for a bit instead of immediately failing
+  // with "database is locked".
+  conn
+    .pragma_update(None, "journal_mode", "WAL")
+    .map_err(|e| format!("Failed to enable WAL mode: {}", e))?;
+  conn
+    .busy_timeout(std::time::Duration::from_secs(5))
+    .map_err(|e| format!("Failed to set busy timeout: {}", e))?;
   Ok(conn)
 }
 

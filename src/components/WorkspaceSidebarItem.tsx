@@ -1,6 +1,5 @@
 import { Draggable } from "@hello-pangea/dnd";
 import {
-  AlertTriangle,
   Archive,
   Bot,
   CalendarClock,
@@ -18,6 +17,11 @@ import type { PrInfo } from "../lib/api-types";
 import { useRemoteCapabilities } from "../lib/active-repository-context";
 import { cn, getFullWorkspacePath } from "../lib/utils";
 import type { FlattenedWorkspaceNode } from "../lib/workspace-tree";
+import {
+  getWorkspaceStatusIndicator,
+  WORKSPACE_STATUS_DOT_BG_CLASS,
+  WORKSPACE_STATUS_DOT_TEXT_CLASS,
+} from "../lib/workspace-status-indicator";
 import {
   getWorkspaceTitle as getWorkspaceTitleFromUtils,
   isWorkspaceHidden,
@@ -68,6 +72,10 @@ interface WorkspaceSidebarItemProps {
   /** Whether the repo has a GitHub remote (gates PR icon coloring). */
   hasRemote?: boolean;
   onDropChangeFiles?: (request: ChangeFilesMoveRequest) => void;
+  /** Whether at least one agent terminal session is currently open on this workspace. */
+  hasActiveAgentSession?: boolean;
+  /** Whether any open agent session on this workspace is actively streaming. */
+  isAgentSessionStreaming?: boolean;
 }
 
 function prIconStyle(prInfo: PrInfo): { color: string; label: string } {
@@ -136,6 +144,8 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
   prInfo = null,
   hasRemote = false,
   onDropChangeFiles,
+  hasActiveAgentSession = false,
+  isAgentSessionStreaming = false,
 }) => {
   const caps = useRemoteCapabilities();
   const workspace = node.status.current;
@@ -148,6 +158,11 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
     paddingLeft: `${16 + (node.depth - 1) * 6}px`,
   };
   const isConflicted = node.status.has_conflicts;
+  const statusIndicator = getWorkspaceStatusIndicator({
+    isConflicted,
+    hasChanges: node.status.has_changes ?? false,
+    isAgentSessionStreaming: hasActiveAgentSession && isAgentSessionStreaming,
+  });
   const isHidden = isWorkspaceHidden(workspace);
   const workspaceTitle = getWorkspaceTitleFromUtils(workspace);
   const prStatus = hasRemote && prInfo ? prIconStyle(prInfo) : null;
@@ -258,7 +273,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                       )}
                       <span
                         className={`flex-1 min-w-0 truncate font-mono ${
-                          isConflicted ? "pr-7" : ""
+                          statusIndicator ? "pr-7" : ""
                         } ${
                           isSelected
                             ? "text-primary font-medium"
@@ -273,13 +288,36 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                           aria-label="Scheduled hidden"
                         />
                       )}
-                      {isConflicted && (
-                        <AlertTriangle
-                          data-testid={`workspace-conflict-indicator-${workspace.id}`}
-                          className="w-3.5 h-3.5 text-destructive shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden"
-                          aria-label="Conflicted workspace"
-                        />
-                      )}
+                      {statusIndicator &&
+                        (() => {
+                          const testId =
+                            statusIndicator.color === "red"
+                              ? `workspace-conflict-indicator-${workspace.id}`
+                              : `workspace-status-indicator-${workspace.id}`;
+                          return statusIndicator.spin ? (
+                            <Loader2
+                              data-testid={testId}
+                              className={cn(
+                                "w-3.5 h-3.5 shrink-0 animate-spin absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
+                                WORKSPACE_STATUS_DOT_TEXT_CLASS[
+                                  statusIndicator.color
+                                ],
+                              )}
+                              aria-label={statusIndicator.label}
+                            />
+                          ) : (
+                            <span
+                              data-testid={testId}
+                              className={cn(
+                                "w-2 h-2 rounded-full shrink-0 absolute right-3 top-1/2 -translate-y-1/2 group-hover/workspace:hidden group-focus-within/workspace:hidden",
+                                WORKSPACE_STATUS_DOT_BG_CLASS[
+                                  statusIndicator.color
+                                ],
+                              )}
+                              aria-label={statusIndicator.label}
+                            />
+                          );
+                        })()}
                       {queueStatus && (
                         <Tooltip>
                           <TooltipTrigger asChild>

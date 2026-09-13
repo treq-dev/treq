@@ -36,6 +36,9 @@ npm install --omit=dev --prefix supabase/functions
 cat > supabase/functions/.env <<'EOF'
 GITHUB_WEBHOOK_SECRET=service-qa-local-webhook-secret
 MERGE_QUEUE_GITHUB_STUB=1
+REMOTE_SPRITES_STUB=1
+REMOTE_SSH_CA_ED25519_SEED_BASE64=U7QP4DsQ6pPuNz9nyuniR6tEsHqTOvulJhpWElYm07Y=
+REMOTE_SSH_CA_ED25519_PUBLIC_KEY_BASE64=uL88vOSTAX5b7HkQyciJmsjAKWT4aJVnukznoRrgDic=
 EOF
 
 # Skip analytics/studio/storage — not required for Auth/RPC/Edge service-qa.

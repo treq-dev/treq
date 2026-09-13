@@ -1,5 +1,3 @@
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import { ArrowRight, Check, GitBranch } from "lucide-react";
 import { listRepoBranches, switchRepoBranch } from "../lib/api";
 import { useEffect, useState } from "react";
@@ -86,10 +84,10 @@ export const BranchSwitcher: React.FC<BranchSwitcherProps> = ({
       onOpenChange={onOpenChange}
       label="Switch Branch"
     >
-      <VisuallyHidden.Root>
-        <DialogPrimitive.Title>Switch Branch</DialogPrimitive.Title>
-        <DialogPrimitive.Description>Switch branch</DialogPrimitive.Description>
-      </VisuallyHidden.Root>
+      <span className="sr-only">
+        <h2>Switch Branch</h2>
+        <p>Switch branch</p>
+      </span>
       <div
         data-testid="modal"
         className="bg-popover text-popover-foreground rounded-xl border border-border/50 shadow-2xl w-[40vw] max-w-none overflow-hidden"

@@ -1,0 +1,4 @@
+app_identifier("com.treq.mobile")
+apple_id(ENV["TREQ_APPLE_ID"])
+itc_team_id(ENV["TREQ_ITC_TEAM_ID"])
+team_id(ENV["TREQ_APPLE_TEAM_ID"])
