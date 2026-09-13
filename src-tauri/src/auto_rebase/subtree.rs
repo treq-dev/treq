@@ -6,6 +6,17 @@ use crate::jj::{self, JjRebaseResult};
 use crate::local_db::{self, Workspace};
 use std::collections::{HashMap, HashSet};
 
+fn format_workspace_rebase_message(workspace_name: &str, message: &str) -> Option<String> {
+  let relevant_details = message
+    .lines()
+    .filter(|line| !line.starts_with("Skipped rebase of ") || !line.ends_with(" already in place"))
+    .collect::<Vec<_>>()
+    .join("\n");
+
+  (!relevant_details.is_empty())
+    .then(|| format!("Workspace '{}': {}", workspace_name, relevant_details))
+}
+
 fn resolve_rooted_subtree_ordered(
   workspaces: &[Workspace],
   start_workspace_id: i64,
@@ -126,10 +137,11 @@ pub fn rebase_root_subtree_from_workspace_force(
       Ok(result) => {
         workspace_branches.push(workspace.branch_name.clone());
         all_success = all_success && result.success;
-        combined_messages.push(format!(
-          "Workspace '{}': {} (wc refresh deferred)",
-          workspace.workspace_name, result.message
-        ));
+        if let Some(message) =
+          format_workspace_rebase_message(&workspace.workspace_name, &result.message)
+        {
+          combined_messages.push(message);
+        }
 
         if let Ok(current_target_commit) = jj::jj_get_commit_id(
           repo_path,
@@ -180,7 +192,7 @@ pub fn rebase_root_subtree_from_workspace_force(
 
 #[cfg(test)]
 mod tests {
-  use super::resolve_rooted_subtree_ordered;
+  use super::{format_workspace_rebase_message, resolve_rooted_subtree_ordered};
   use crate::local_db::Workspace;
 
   fn ws(id: i64, branch: &str, target: Option<&str>) -> Workspace {
@@ -219,5 +231,28 @@ mod tests {
     let branches_from_c: Vec<String> = from_c.into_iter().map(|w| w.branch_name).collect();
     assert_eq!(branches_from_b, vec!["A", "B", "C", "D"]);
     assert_eq!(branches_from_c, vec!["A", "B", "C", "D"]);
+  }
+
+  #[test]
+  fn omits_noop_rebase_and_deferred_refresh_details() {
+    let message = format_workspace_rebase_message(
+      "fix-agent-terminal-escaping",
+      "Skipped rebase of 1 commits already in place",
+    );
+
+    assert_eq!(message, None);
+  }
+
+  #[test]
+  fn preserves_actual_rebase_details_without_deferred_refresh_note() {
+    let message = format_workspace_rebase_message(
+      "fix-agent-terminal-escaping",
+      "Rebased 1 commits to destination\nSkipped rebase of 2 commits already in place",
+    );
+
+    assert_eq!(
+      message,
+      Some("Workspace 'fix-agent-terminal-escaping': Rebased 1 commits to destination".to_string())
+    );
   }
 }
