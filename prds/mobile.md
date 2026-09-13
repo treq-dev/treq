@@ -41,6 +41,7 @@ Later phases that add remote-VM review and control depend on the requirements in
 - Start, inspect, attach to, and stop remote coding agents.
 - Perform a deliberately limited set of safe, confirmed mutations.
 - Recover cleanly from app suspension and network changes.
+- Open a full, interactive PTY over the SSH connection - not only the structured `agent-remote` polling loop - with real-time bidirectional streaming, resize, and the ability to detach and later reattach to the same running remote session (see Phase 7).
 
 ## Non-goals for initial mobile work
 
@@ -94,7 +95,7 @@ One authenticated SSH connection should multiplex repository commands and PTY ch
 
 ### Terminal UX
 
-Terminal access is secondary to structured review and agent control. It requires mobile keyboard handling, resize behavior, binary-safe streaming, explicit connection state, and a clear statement when a session cannot be resumed.
+Structured review and agent control (Phases 3-4) ship first and remain the primary way most mutations and agent lifecycle actions happen, but a full interactive PTY - not only `agent-remote`'s poll-and-command loop - is a required capability, not a nice-to-have: some agent TUIs and ad hoc shell use have no structured equivalent. It requires mobile keyboard handling, resize behavior, binary-safe streaming, explicit connection state, and detach/reattach so a session survives an app suspension, a dropped connection, or an app relaunch without losing the running remote process (see Phase 7 for the mobile-first implementation and Phase 8 for desktop parity).
 
 ## Candidate capability requirements
 
@@ -193,6 +194,52 @@ Not done: patch application. `patchFileArgv` (`treqCli.ts`) plumbs the CLI call 
 - Idempotent mutation retry tests - done: `mobile/src/lib/mutationRetry.ts`'s `runMutationWithRetry` retries a transport-level failure (a thrown exec error, e.g. a dropped SSH session) with the *same* argv - and therefore the same idempotency key - rather than generating a new one, so a mutation that landed on the VM just before the drop is not double-applied when the retry lands too (`with_idempotency_key` in `core::remote` de-dupes by key regardless of how many times it arrives). Does not retry a completed exec with a non-zero exit status (a structured CLI error, not a dropped connection). Wired into every idempotency-keyed mutation call site (`WorkspacesScreen`, `WorkspaceDetailScreen`, `CommitsScreen`, `AgentScreen`) and covered by `mutationRetry.test.ts`. This is deliberately simpler than desktop's `retry_after_reconnect` (`core::remote`), which does a post-reconnect state-verification read before deciding to retry at all - mobile always retries transport failures rather than first checking whether the mutation already landed, since it has no typed read-and-compare recipe per mutation kind yet.
 - Resource cleanup and cost controls - done: `controlPlane.ts`'s `deleteInstance` mirrors desktop's tear-down call against `remote-instance`'s `delete` action, which enforces the same per-user quota (`BASE_ALLOCATION`, `QuotaExceededError`) and ownership checks as `ensure`; covered in `controlPlane.test.ts`. `ManagedConnectScreen` now has a confirmed "Delete instance" entry point wired to it.
 
+### Phase 7: Full PTY streaming and reattach - mobile client (planned, prioritized first)
+
+Scope: give mobile a real interactive terminal over the SSH connection - live bidirectional byte streaming, resize, and the ability to detach (leave the remote process running) and later reattach to that same session - superseding polling for anything that needs true interactivity (raw agent TUIs, ad hoc shell use). `AgentScreen`'s `agent-remote status`/`logs` polling loop (Phase 4) stays as the lighter-weight structured path for agents that don't need a live terminal; this phase adds the PTY path alongside it, it does not replace it.
+
+This is mobile-first per product priority, but reattach is impossible without a backing store on the VM that outlives any single SSH channel, so item 1 below is genuinely shared infrastructure, not mobile-only work smuggled into this phase.
+
+**1. VM-local persistent PTY supervisor (shared control-plane change - blocks Phases 7 and 8 alike)**
+
+A new CLI surface, `pty-remote`, alongside the existing `agent-remote` (both eventually backed by process supervision on the VM, per `core::agent_supervisor`'s existing pattern, but tracking a raw PTY session rather than a structured agent process):
+
+- `pty-remote start --repo --workspace --target <shell|agent-id> [--args ...] --cols --rows --idempotency-key --format json` - starts a detached PTY-backed process and returns a `sessionId` that survives the SSH channel (and connection) closing.
+- `pty-remote attach --session <id>` - this is not a JSON-in/JSON-out CLI call like the rest of `treqCli.ts`'s argv builders; it is the *command line an SSH PTY channel execs*, analogous to desktop's `build_launch_command` in `core::remote_pty`. The supervisor multiplexes this ephemeral channel onto the persistent backing process (the same shape as `tmux attach`/`screen -x`), replaying a bounded backlog of recent output so a reattaching client isn't dropped into a blank screen. Attaching twice concurrently (two channels on one session) is allowed and mirrors the same terminal on both, matching `tmux`'s behavior - the PRD does not require exclusive single-attach.
+- `pty-remote resize --session <id> --cols --rows --format json` - out-of-band resize for a session even when nothing is currently attached (e.g. before reattaching), in addition to the attached channel's own window-change signal.
+- `pty-remote stop --session <id> --format json` - kills the underlying process, distinct from detaching.
+- `pty-remote list --repo --workspace --format json` - the piece Phase 4's `agent-remote status` doesn't give: enumerate already-running PTY sessions for a workspace, so a client can offer "reattach" instead of only ever "start new" after a relaunch or reconnect.
+- Implementation approach is an open question below: back it with `tmux`/`screen` if present on the VM (a proven persistent-PTY-with-reattach primitive, minimal new code), falling back to a Treq-owned supervisor process (fork + setsid + pty allocation + output ring buffer) when neither is installed. This decides how much new server-side surface area this phase actually needs.
+
+**2. Rust SSH crate (`crates/treq-mobile-ssh`) - PTY channel primitives**
+
+Mirrors desktop's existing `RemotePtyChannel`/`RemotePtyManager` (`core::remote_ssh_transport.rs`, `core::remote_pty.rs`) rather than inventing a new shape - that code already has open/write/resize/close and bounded-buffer/exit-status handling worth reusing as a reference, even though it can't be imported directly (Tauri-only today, same reason `certRenewal.ts` was ported rather than imported in Phase 2):
+
+- `SshClient::open_pty(term, cols, rows, command) -> ptyHandle`, `pty_write(ptyHandle, bytes)`, `pty_resize(ptyHandle, cols, rows)`, `close_pty(ptyHandle)`.
+- An event stream per open PTY (`Data(bytes) | ExitStatus(u32) | Closed`) crossing the UniFFI boundary - needs a spike into whether UniFFI's async callback interfaces can push events efficiently into Kotlin/Swift, or whether mobile instead polls a bounded read buffer (see open questions; this is the mobile equivalent of desktop's `on_output`/`on_exit` closures, which don't have a direct UniFFI analog).
+- `mock_ssh_server` gains `pty_request`/`window_change_request` handling and an echo-style test PTY (mirroring `core::remote_pty`'s existing `EchoServer` test harness) plus a scenario that exercises reattach-replays-backlog, so this is tested in Rust the same way certificate issuance already is (`connect_with_certificate_round_trips_through_a_real_ssh_session`-style, not mocked).
+
+**3. Native module bridge + mobile UI**
+
+- `TreqSsh` (iOS Swift / Android Kotlin) gains `openPty`/`writePty`/`resizePty`/`closePty`, plus a streaming event channel (`NativeEventEmitter` on both platforms) for output chunks and exit events - `execCommand`'s request/response shape doesn't fit a live stream, so this is new bridge surface, not an extension of the existing one.
+- `mobile/src/lib/treqCli.ts` (or a new sibling module, since this isn't a `--format json` request/response CLI call like everything else there) gains the `pty-remote start`/`list`/`stop` argv builders; attach/write/resize/read are channel-level operations through the new `TreqSsh` PTY methods above, not `execCommand`.
+- New `TerminalScreen`: renders the output stream, forwards keystrokes/paste to `writePty`, calls `resizePty` on rotation/keyboard-open size changes, and exposes "Detach" (closes only the local channel; remote process keeps running) as a distinct action from "Stop" (kills the remote process via `pty-remote stop`). Needs real ANSI/control-sequence terminal emulation, which React Native has no built-in equivalent of - candidates (a WebView hosting `xterm.js`, vs. a from-scratch minimal renderer) are an open question below, not a decided implementation.
+- `WorkspaceDetailScreen`/`AgentScreen` calls `pty-remote list` for the workspace on load; when a session is already running, it offers "Reattach" rather than only ever "New terminal" - covering both an app relaunch and a reconnect after a network drop.
+- Reattach reuses the idempotent-retry shape from `mutationRetry.ts`: attaching is safe to call again on a dropped-then-reconnected channel because the CLI's `attach` command joins the existing session rather than erroring "already attached" (mirroring `tmux attach`).
+- App-suspension handling reuses the `AppState` "active" listener pattern added for certificate renewal (Phase 6, `CertificateRenewalManager.onAppForeground`): on foreground, if a terminal screen is mounted and its channel reports `Closed`, attempt reattach automatically rather than requiring the user to notice and retry manually.
+
+Not done in this phase, tracked as Phase 8: the desktop-side UI/IPC work. Desktop's `core::remote_pty`/`RemotePtyManager` already has the single-session open/write/resize/close shape items 2-3 above mirror, but desktop has no reattach-across-relaunch concept either - `prds/remote-ssh.md`'s "terminal reconnect may be explicitly unsupported after the client exits" carve-out for the initial desktop scope is still in effect until Phase 8 lands. Item 1's VM-local supervisor is shared infrastructure both platforms consume, but building it is scoped to this phase since mobile needs it first.
+
+### Phase 8: Full PTY streaming and reattach - desktop client (planned, follows Phase 7)
+
+Brings desktop to parity with the mobile PTY/reattach experience Phase 7 builds, once the shared `pty-remote` VM-local supervisor (Phase 7, item 1) exists. Desktop already has a working single-session remote PTY (`core::remote_pty`, `commands/remote_pty_commands.rs`) and a terminal renderer for local PTYs (`src-tauri/src/pty.rs` and its frontend counterpart) to extend, so this phase is narrower than Phase 7's from-scratch mobile build:
+
+- Extend `commands/remote_pty_commands.rs` with `list`/attach-by-session-id Tauri commands wrapping the new `pty-remote list`/`attach` CLI surface, alongside the existing single-session `create`/`write`/`resize`/`close` commands.
+- Surface reattach in the desktop remote-review UI: on reconnecting to an endpoint (or reopening a window), list running sessions for the current workspace and offer reattach instead of only "new terminal".
+- Retire the `remote-ssh.md` "terminal reconnect may be explicitly unsupported" carve-out for the initial desktop scope once this lands, and update that PRD accordingly.
+
+Not done: anything already covered by Phase 7's shared supervisor work (item 1) - this phase only adds the desktop-side commands and UI on top of it.
+
 ## Acceptance criteria for a future mobile MVP
 
 1. A mobile client can authenticate, select an authorized instance, and retrieve trusted endpoint metadata.
@@ -203,6 +250,7 @@ Not done: patch application. `patchFileArgv` (`treqCli.ts`) plumbs the CLI call 
 6. A structured mutation can be retried without duplicate effects.
 7. An agent started on the VM remains observable after the mobile app reconnects.
 8. Losing or revoking one device does not revoke other registered devices.
+9. A user can open a full interactive PTY on the VM, type into it, see live output, resize it, detach without killing the remote process, and reattach later (after backgrounding the app, losing connectivity, or relaunching) and pick up where they left off.
 
 ## Open questions
 
@@ -211,3 +259,8 @@ Not done: patch application. `patchFileArgv` (`treqCli.ts`) plumbs the CLI call 
 - Which agent interactions require push notifications?
 - Which mutations are safe and ergonomic enough for the first mobile release?
 - What terminal functionality is necessary beyond structured agent control?
+- `tmux`/`screen`-backed persistent PTY vs. a custom Treq-owned supervisor process for reattach (Phase 7, item 1) - which does the VM provisioning path (managed instances) guarantee is installed, and is depending on it acceptable for user-managed endpoints that may not have it?
+- Can UniFFI's async callback interfaces push PTY output events efficiently across the Rust/Kotlin/Swift boundary, or does mobile need to poll a bounded read buffer instead (Phase 7, item 2)?
+- What terminal-emulation approach renders ANSI control sequences acceptably inside React Native - a WebView hosting `xterm.js`, a native terminal-emulator library, or a from-scratch minimal renderer - and does the answer change for the initial cut vs. a later polish pass?
+- How much output backlog should a reattach replay by default, and should that be configurable per session or fixed?
+- Should concurrent multi-attach (two clients, e.g. mobile and desktop, attached to the same remote PTY at once) be supported from the start, or restricted to one attacher at a time initially even though the underlying `tmux`/`screen` primitive allows more?
