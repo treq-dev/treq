@@ -46,7 +46,7 @@ pub fn init(log_dir: &Path) -> Result<TelemetryGuards, Box<dyn std::error::Error
   let appender = rolling::daily(log_dir, "treq");
   let (writer, file_guard) = tracing_appender::non_blocking(appender);
 
-  let json_layer = JsonLogLayer { writer };
+  let json_layer = JsonLogLayer::new(writer);
 
   let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
   let subscriber = Registry::default().with(filter).with(json_layer);
@@ -96,8 +96,14 @@ pub fn cleanup_old_logs(dir: &Path, max_age: Duration) {
 /// tracing -> JSON path; nothing else parses this file back, so there is no
 /// need to keep the OTLP field shape here (unlike `core/checks_logs.rs`,
 /// which builds its own OTel-shaped records independently of this crate).
-struct JsonLogLayer {
+pub struct JsonLogLayer {
   writer: tracing_appender::non_blocking::NonBlocking,
+}
+
+impl JsonLogLayer {
+  pub fn new(writer: tracing_appender::non_blocking::NonBlocking) -> Self {
+    Self { writer }
+  }
 }
 
 impl<S> Layer<S> for JsonLogLayer

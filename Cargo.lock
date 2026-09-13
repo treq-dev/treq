@@ -8200,7 +8200,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "rand_core 0.10.1",
+ "rand_core",
  "russh",
  "thiserror 1.0.69",
  "tokio",
