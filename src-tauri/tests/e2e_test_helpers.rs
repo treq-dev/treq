@@ -37,6 +37,12 @@ jobs:
         run: echo skipped
 ";
 
+fn unique_remote_clone_path(parent: &Path, label: &str) -> PathBuf {
+  static CLONE_COUNTER: AtomicU64 = AtomicU64::new(0);
+  let seq = CLONE_COUNTER.fetch_add(1, Ordering::Relaxed);
+  parent.join(format!("{label}_{seq}"))
+}
+
 fn random_default_branch_name() -> String {
   static COUNTER: AtomicU64 = AtomicU64::new(0);
   let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -987,6 +993,50 @@ impl TestRepo {
       content,
       message,
     )
+  }
+
+  /// Merge a target branch into another branch in a clone of the bare remote,
+  /// create the merge without a description, and push it back to the remote.
+  /// Returns the merge commit ID. The local repo is never modified.
+  pub fn remote_undescribed_merge(
+    &self,
+    branch_name: &str,
+    target_branch: &str,
+  ) -> Result<String, String> {
+    let remote_fixture_dir = self.remote_fixture_dir();
+    let remote_path = self.remote_path();
+    let clone_path = unique_remote_clone_path(&remote_fixture_dir, "remote_clone_merge");
+    let clone_path_str = clone_path.to_string_lossy().to_string();
+
+    Self::run_git(
+      &remote_fixture_dir.to_string_lossy(),
+      &[
+        "clone",
+        remote_path.to_str().unwrap(),
+        clone_path.to_str().unwrap(),
+      ],
+    )?;
+    Self::run_git(
+      &clone_path_str,
+      &["config", "user.email", "test@example.com"],
+    )?;
+    Self::run_git(&clone_path_str, &["config", "user.name", "Test User"])?;
+    Self::run_git(&clone_path_str, &["checkout", branch_name])?;
+    Self::run_git(
+      &clone_path_str,
+      &[
+        "merge",
+        "--no-ff",
+        "--no-commit",
+        &format!("origin/{target_branch}"),
+      ],
+    )?;
+    Self::run_git(
+      &clone_path_str,
+      &["commit", "--allow-empty-message", "-m", ""],
+    )?;
+    Self::run_git(&clone_path_str, &["push", "origin", branch_name])?;
+    Self::run_git(&clone_path_str, &["rev-parse", "HEAD"])
   }
 
   /// Get the path to the .treq directory.

@@ -543,7 +543,7 @@ fn test_list_commits_target_branch_history_limits_to_10() {
         &format!("content {}\n", i),
         &format!("Main commit {}", i),
       )
-      .expect(&format!("Failed to create commit {}", i));
+      .unwrap_or_else(|e| panic!("Failed to create commit {i}: {e}"));
   }
 
   let workspace = treq_lib::core::create_workspace(

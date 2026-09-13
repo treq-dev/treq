@@ -111,7 +111,7 @@ export const WorkspaceStackPanel = ({
       <div className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-4">
         <Layers2 className="w-4 h-4" />
         <span>Stack</span>
-        <TooltipProvider delayDuration={200}>
+        <TooltipProvider delay={200} closeDelay={150}>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -248,7 +248,7 @@ function StackItem({
             {title}
           </p>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <TooltipProvider delayDuration={300}>
+            <TooltipProvider delay={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="text-xs text-muted-foreground">

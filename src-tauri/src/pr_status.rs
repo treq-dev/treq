@@ -9,6 +9,7 @@
 //! reads are cache-only and never shell out to `gh`.
 
 use crate::github::{PrCiStatus, PrInfo};
+use crate::lock_ext::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -132,7 +133,7 @@ impl PrStatusManager {
     let fetch = Arc::clone(&self.inner.fetch);
     let ci_fetch = Arc::clone(&self.inner.ci_fetch);
     let list_branches = Arc::clone(&self.inner.list_branches);
-    let on_update = self.inner.on_update.lock().unwrap().clone();
+    let on_update = self.inner.on_update.lock_or_recover().clone();
     let mgr = Self::new_with_intervals(
       fetch,
       ci_fetch,
@@ -147,7 +148,7 @@ impl PrStatusManager {
   }
 
   pub fn set_on_update(&self, cb: OnUpdateFn) {
-    *self.inner.on_update.lock().unwrap() = Some(cb);
+    *self.inner.on_update.lock_or_recover() = Some(cb);
   }
 
   /// Ensure the background poll loop is running (idempotent).
@@ -170,7 +171,7 @@ impl PrStatusManager {
   /// Start watching a repo. Triggers an immediate background refresh.
   pub fn watch_repo(&self, repo_path: &str) {
     {
-      let mut watched = self.inner.watched.lock().unwrap();
+      let mut watched = self.inner.watched.lock_or_recover();
       watched.insert(repo_path.to_string());
     }
     self.ensure_started();
@@ -179,7 +180,7 @@ impl PrStatusManager {
 
   /// Stop watching a repo. Cached entries are retained until overwritten.
   pub fn unwatch_repo(&self, repo_path: &str) {
-    let mut watched = self.inner.watched.lock().unwrap();
+    let mut watched = self.inner.watched.lock_or_recover();
     watched.remove(repo_path);
   }
 
@@ -211,7 +212,7 @@ impl PrStatusManager {
     self.ensure_started();
     let key = format!("{repo_path}\0{branch_name}");
     {
-      let mut inflight = self.inner.branch_refresh_inflight.lock().unwrap();
+      let mut inflight = self.inner.branch_refresh_inflight.lock_or_recover();
       if !inflight.insert(key.clone()) {
         return;
       }
@@ -221,14 +222,14 @@ impl PrStatusManager {
       .name("pr-status-branch-refresh".into())
       .spawn(move || {
         poll_one_branch(&inner, &repo_path, &branch_name);
-        inner.branch_refresh_inflight.lock().unwrap().remove(&key);
+        inner.branch_refresh_inflight.lock_or_recover().remove(&key);
       })
       .expect("failed to spawn pr-status-branch-refresh thread");
   }
 
   /// Overwrite a single branch entry (e.g. after an on-demand `gh pr view`).
   pub fn put_cached(&self, repo_path: &str, branch_name: &str, info: Option<PrInfo>) {
-    let mut cache = self.inner.cache.lock().unwrap();
+    let mut cache = self.inner.cache.lock_or_recover();
     cache
       .entry(repo_path.to_string())
       .or_default()
@@ -237,7 +238,7 @@ impl PrStatusManager {
 
   /// Overwrite a single branch CI entry (e.g. after an on-demand `gh pr checks`).
   pub fn put_cached_ci(&self, repo_path: &str, branch_name: &str, status: Option<PrCiStatus>) {
-    let mut cache = self.inner.ci_cache.lock().unwrap();
+    let mut cache = self.inner.ci_cache.lock_or_recover();
     cache
       .entry(repo_path.to_string())
       .or_default()
@@ -302,7 +303,7 @@ impl PrStatusManager {
   /// Test helper: whether the given repo is currently watched.
   #[cfg(test)]
   pub fn is_watching(&self, repo_path: &str) -> bool {
-    self.inner.watched.lock().unwrap().contains(repo_path)
+    self.inner.watched.lock_or_recover().contains(repo_path)
   }
 
   /// Stop the background loop (tests). Production keeps it for process life.
@@ -336,7 +337,7 @@ fn background_loop(inner: Arc<Inner>) {
         .unwrap_or(true);
 
     if pr_due || ci_due {
-      let repos: Vec<String> = inner.watched.lock().unwrap().iter().cloned().collect();
+      let repos: Vec<String> = inner.watched.lock_or_recover().iter().cloned().collect();
       for repo in &repos {
         if inner.shutdown.load(Ordering::SeqCst) {
           break;
@@ -372,7 +373,7 @@ fn background_loop(inner: Arc<Inner>) {
     let wait = until_pr.min(until_ci).max(Duration::from_millis(5));
 
     let (lock, cvar) = &inner.wake;
-    let guard = lock.lock().unwrap();
+    let guard = lock.lock_or_recover();
     let (_guard, _timeout) = cvar
       .wait_timeout_while(guard, wait, |_| {
         !inner.pending_wake.load(Ordering::SeqCst) && !inner.shutdown.load(Ordering::SeqCst)
@@ -421,15 +422,15 @@ fn poll_one_repo(inner: &Inner, repo_path: &str) {
   }
 
   {
-    let mut cache = inner.cache.lock().unwrap();
+    let mut cache = inner.cache.lock_or_recover();
     cache.insert(repo_path.to_string(), next.clone());
   }
   {
-    let mut ci_cache = inner.ci_cache.lock().unwrap();
+    let mut ci_cache = inner.ci_cache.lock_or_recover();
     ci_cache.insert(repo_path.to_string(), next_ci.clone());
   }
 
-  if let Some(cb) = inner.on_update.lock().unwrap().as_ref() {
+  if let Some(cb) = inner.on_update.lock_or_recover().as_ref() {
     cb(repo_path, &next, &next_ci);
   }
 }
@@ -456,11 +457,11 @@ fn poll_ci_only(inner: &Inner, repo_path: &str) {
   }
 
   {
-    let mut ci_cache = inner.ci_cache.lock().unwrap();
+    let mut ci_cache = inner.ci_cache.lock_or_recover();
     ci_cache.insert(repo_path.to_string(), next_ci.clone());
   }
 
-  if let Some(cb) = inner.on_update.lock().unwrap().as_ref() {
+  if let Some(cb) = inner.on_update.lock_or_recover().as_ref() {
     cb(repo_path, &pr_cache, &next_ci);
   }
 }
@@ -489,7 +490,7 @@ fn poll_one_branch(inner: &Inner, repo_path: &str, branch_name: &str) {
   };
 
   {
-    let mut cache = inner.cache.lock().unwrap();
+    let mut cache = inner.cache.lock_or_recover();
     cache
       .entry(repo_path.to_string())
       .or_default()
@@ -515,7 +516,7 @@ fn poll_one_branch(inner: &Inner, repo_path: &str, branch_name: &str) {
   }
 
   if wrote_ci {
-    let mut ci_cache = inner.ci_cache.lock().unwrap();
+    let mut ci_cache = inner.ci_cache.lock_or_recover();
     ci_cache
       .entry(repo_path.to_string())
       .or_default()
@@ -537,7 +538,7 @@ fn poll_one_branch(inner: &Inner, repo_path: &str, branch_name: &str) {
     .cloned()
     .unwrap_or_default();
 
-  if let Some(cb) = inner.on_update.lock().unwrap().as_ref() {
+  if let Some(cb) = inner.on_update.lock_or_recover().as_ref() {
     cb(repo_path, &statuses, &ci_statuses);
   }
 }
@@ -759,7 +760,7 @@ mod tests {
 
     mgr.refresh_branch_now("/tmp/repo", "feat");
     assert_eq!(
-      seen.lock().unwrap().clone(),
+      seen.lock_or_recover().clone(),
       vec!["/tmp/repo:pr=1ci=1".to_string()]
     );
   }
@@ -847,7 +848,7 @@ mod tests {
     let ci_state_clone = Arc::clone(&ci_state);
     let ci_fetch: CiFetchFn = Arc::new(move |_, _| {
       ci_count_clone.fetch_add(1, Ordering::SeqCst);
-      Ok(Some(sample_ci(&ci_state_clone.lock().unwrap())))
+      Ok(Some(sample_ci(&ci_state_clone.lock_or_recover())))
     });
     let list: BranchListFn = Arc::new(|_| Ok(vec!["feat".into()]));
     let mgr = PrStatusManager::new_with_ci(fetch, ci_fetch, list)
@@ -865,7 +866,7 @@ mod tests {
       "pending"
     );
 
-    *ci_state.lock().unwrap() = "success".into();
+    *ci_state.lock_or_recover() = "success".into();
     mgr.refresh_ci_now("/tmp/repo");
     assert_eq!(
       pr_count.load(Ordering::SeqCst),
@@ -1107,7 +1108,7 @@ mod tests {
     }));
 
     mgr.refresh_repo_now("/tmp/repo");
-    let events = seen.lock().unwrap().clone();
+    let events = seen.lock_or_recover().clone();
     assert_eq!(events, vec!["/tmp/repo:1".to_string()]);
   }
 

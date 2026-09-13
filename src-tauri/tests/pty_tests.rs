@@ -80,6 +80,7 @@ fn test_create_session_with_initial_command() {
 
   let result = manager.create_session(
     "test-initial-cmd".to_string(),
+    None,
     Some(repo.repo_path.clone()),
     None,
     Vec::new(),
@@ -135,6 +136,7 @@ fn test_session_lifecycle_and_io() {
 
   let result = manager.create_session(
     session_id.to_string(),
+    None,
     Some(repo.repo_path.clone()),
     None,
     Vec::new(),
@@ -248,6 +250,7 @@ fn test_multiple_concurrent_sessions() {
   manager
     .create_session(
       "multi-a".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -260,6 +263,7 @@ fn test_multiple_concurrent_sessions() {
   manager
     .create_session(
       "multi-b".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -272,6 +276,7 @@ fn test_multiple_concurrent_sessions() {
   manager
     .create_session(
       "multi-c".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -333,6 +338,7 @@ fn test_session_isolation() {
   manager
     .create_session(
       "iso-a".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -345,6 +351,7 @@ fn test_session_isolation() {
   manager
     .create_session(
       "iso-b".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -474,6 +481,7 @@ fn test_echo_suppression_filtering() {
   manager
     .create_session(
       session_id.to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),
@@ -553,6 +561,7 @@ fn test_suppress_echo_at_creation_filters_initial_prompt() {
   manager
     .create_session(
       "test-creation-filter".to_string(),
+      None,
       Some(repo.repo_path.clone()),
       None,
       Vec::new(),

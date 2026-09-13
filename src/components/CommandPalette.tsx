@@ -1,6 +1,4 @@
 import { Command } from "cmdk";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BranchSwitcher } from "./BranchSwitcher";
 import { WorkspaceDeletion } from "./WorkspaceDeletion";
@@ -356,12 +354,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         label="Command Menu"
         className="[&_[cmdk-root]]:bg-background [&_[cmdk-root]]:text-foreground"
       >
-        <VisuallyHidden.Root>
-          <DialogPrimitive.Title>Command Menu</DialogPrimitive.Title>
-          <DialogPrimitive.Description>
+        <span className="sr-only">
+          <h2>Command Menu</h2>
+          <p>
             Command menu
-          </DialogPrimitive.Description>
-        </VisuallyHidden.Root>
+          </p>
+        </span>
         <div
           data-testid="modal"
           className="bg-background text-foreground rounded-xl border border-border shadow-2xl w-[40vw] max-w-none overflow-hidden"

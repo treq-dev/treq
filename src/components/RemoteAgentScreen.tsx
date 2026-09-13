@@ -15,7 +15,7 @@ interface AgentStatusResult {
   should_refresh: boolean;
 }
 
-const AGENTS = ["claude", "codex", "cursor-agent"];
+const AGENTS = ["claude", "codex", "cursor-agent", "copilot"];
 
 /**
  * Phase 4 (agent control): start/status/logs/stop against the VM-local

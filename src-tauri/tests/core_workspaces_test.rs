@@ -327,7 +327,7 @@ fn test_update_workspace_target_branch_perform_rebase() {
   );
 
   // verify jj that Develop commit is in jj log
-  let log = JjVerifier::get_log_previous_commit(&workspace_path.to_str().unwrap())
+  let log = JjVerifier::get_log_previous_commit(workspace_path.to_str().unwrap())
     .expect("Failed to get jj log");
   assert!(
     log.contains("Develop commit"),

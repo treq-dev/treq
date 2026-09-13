@@ -253,7 +253,7 @@ fn any_value_to_otlp(v: &AnyValue) -> Value {
     AnyValue::Double(f) => json!({ "doubleValue": *f }),
     AnyValue::String(s) => json!({ "stringValue": s.as_str() }),
     AnyValue::Boolean(b) => json!({ "boolValue": *b }),
-    AnyValue::Bytes(b) => json!({ "bytesValue": b.iter().copied().collect::<Vec<u8>>() }),
+    AnyValue::Bytes(b) => json!({ "bytesValue": b.to_vec() }),
     AnyValue::ListAny(list) => json!({
         "arrayValue": {
             "values": list.iter().map(any_value_to_otlp).collect::<Vec<_>>()

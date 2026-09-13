@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Test artifacts built from crates/treq-mobile-ssh for jest.config.real.js
+# (see scripts/build-native-test-addon.sh) - always rebuilt, never checked in.
+native-test/*.node
+native-test/mock_ssh_server
+
+# React Native / Metro
+.metro-health-check*
+*.jsbundle
+
+# Xcode / CocoaPods (once `npx react-native init`/`pod install` generate ios/)
+ios/build/
+ios/Pods/
+ios/*.xcworkspace
+ios/*.xcuserstate
+ios/*.xcuserdatad/
+ios/DerivedData/
+ios/.xcode.env.local
+
+# Android / Gradle
+android/build/
+android/app/build/
+android/app/.cxx/
+android/.gradle/
+android/local.properties
+android/*.iml
+android/.idea/
+android/app/release/
+*.keystore
+!debug.keystore
+
+# UniFFI-generated bindings (regenerated from source - see
+# mobile/android/app/build.gradle's generateTreqMobileSshBindings task and
+# mobile/README.md "Building the Rust side" - never vendored)
+**/bindings/swift/
+**/bindings/kotlin/
+android/app/src/main/java/uniffi/
+android/app/src/main/jniLibs/
+ios/TreqMobile/TreqMobileSsh.swift
+ios/TreqMobileSsh.xcframework/
+
+# Fastlane
+android/fastlane/report.xml
+ios/fastlane/report.xml
+**/fastlane/*.p8
+**/fastlane/*.p12
+**/fastlane/*.mobileprovision
+release.keystore
+
+# Logs, coverage, editor/OS cruft
+*.log
+coverage/
+.vscode/
+.DS_Store
+
+# Bundler (CocoaPods is often installed via Bundler in RN projects);
+# Podfile.lock itself is intentionally NOT ignored - it should be committed
+# for reproducible `pod install` runs, same as package-lock.json.
+vendor/bundle/

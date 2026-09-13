@@ -280,3 +280,18 @@ export async function findSidebarBranchElement(
   });
   return within(sidebarRoot).getAllByText(branchName)[0];
 }
+
+/** Point the repo's `origin` remote at `remoteUrl`, adding the remote if absent. */
+export function setOriginUrl(repoPath: string, remoteUrl: string) {
+  const configPath = path.join(repoPath, ".git", "config");
+  let config = fs.readFileSync(configPath, "utf-8");
+  if (/\[remote "origin"\][\s\S]*?url\s*=/.test(config)) {
+    config = config.replace(
+      /(\[remote "origin"\][\s\S]*?url\s*=\s*).*/m,
+      `$1${remoteUrl}`,
+    );
+  } else {
+    config += `\n[remote "origin"]\n\turl = ${remoteUrl}\n`;
+  }
+  fs.writeFileSync(configPath, config);
+}

@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -177,15 +178,9 @@ impl Default for LinearStateData {
   }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct LinearLabelsConnection {
   nodes: Vec<LinearLabelNode>,
-}
-
-impl Default for LinearLabelsConnection {
-  fn default() -> Self {
-    Self { nodes: vec![] }
-  }
 }
 
 #[derive(Deserialize)]
@@ -198,15 +193,9 @@ struct LinearParent {
   id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct LinearSubIssuesConnection {
   nodes: Vec<LinearSubIssueNode>,
-}
-
-impl Default for LinearSubIssuesConnection {
-  fn default() -> Self {
-    Self { nodes: vec![] }
-  }
 }
 
 #[derive(Deserialize)]
@@ -830,6 +819,7 @@ pub struct LinearAutoKickoffPoller {
 }
 
 impl LinearAutoKickoffPoller {
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     Self {
       inner: Arc::new(LinearAutoKickoffInner {
@@ -859,7 +849,7 @@ impl LinearAutoKickoffPoller {
 
   pub fn watch_repo(&self, repo_path: &str) {
     {
-      let mut watched = self.inner.watched.lock().unwrap();
+      let mut watched = self.inner.watched.lock_or_recover();
       watched.insert(repo_path.to_string());
     }
     self.ensure_started();
@@ -886,7 +876,7 @@ fn kickoff_background_loop(inner: Arc<LinearAutoKickoffInner>) {
       .unwrap_or(true);
 
     if poll_due {
-      let repos: Vec<String> = inner.watched.lock().unwrap().iter().cloned().collect();
+      let repos: Vec<String> = inner.watched.lock_or_recover().iter().cloned().collect();
       for repo_path in repos {
         if inner.shutdown.load(Ordering::SeqCst) {
           break;
@@ -911,7 +901,7 @@ fn kickoff_background_loop(inner: Arc<LinearAutoKickoffInner>) {
       .max(Duration::from_millis(5));
 
     let (lock, cvar) = &inner.wake;
-    let guard = lock.lock().unwrap();
+    let guard = lock.lock_or_recover();
     let _ = cvar
       .wait_timeout_while(guard, wait, |_| !inner.shutdown.load(Ordering::SeqCst))
       .unwrap();

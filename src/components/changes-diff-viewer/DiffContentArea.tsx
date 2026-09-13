@@ -1,5 +1,6 @@
 import React, { useLayoutEffect } from "react";
-import { CheckCircle2, FileText, Loader2 } from "lucide-react";
+import { CheckCircle2, FileText } from "lucide-react";
+import { Skeleton } from "../ui/skeleton";
 import type {
   ConflictRegion,
   GhReviewThread,
@@ -257,9 +258,17 @@ export function DiffContentArea({
         focusTrigger={searchFocusTrigger}
       />
       {initialLoading ? (
-        <div className="h-full flex items-center justify-center text-muted-foreground">
-          <Loader2 className="w-6 h-6 animate-spin" />
-          <span className="ml-2">Loading diffs...</span>
+        <div
+          className="h-full px-4 py-4 flex flex-col gap-4"
+          data-testid="changes-loading-skeleton"
+        >
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex flex-col gap-2 rounded-md border p-3">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-5/6" />
+            </div>
+          ))}
         </div>
       ) : files.length === 0 && visibleCommittedFiles.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
