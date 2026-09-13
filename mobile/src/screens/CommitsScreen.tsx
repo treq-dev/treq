@@ -38,25 +38,27 @@ export function CommitsScreen({ route }: Props): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, repo, workspaceId]);
 
+  const resolveWith = async (commit: Commit, sides: string[]) => {
+    setError(null);
+    try {
+      const argv = resolveConflictArgv(repo, commit.changeId, generateIdempotencyKey(), sides);
+      const result = await runMutationWithRetry(sessionId, argv);
+      if (result.exitStatus !== 0) {
+        throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
+      }
+      await loadCommits();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleResolve = (commit: Commit) =>
-    Alert.alert('Resolve conflict', `Resolve conflicts in ${commit.shortId} using the CLI's default resolution?`, [
+    Alert.alert('Resolve conflict', `Choose how to resolve conflicts in ${commit.shortId}.`, [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Resolve',
-        onPress: async () => {
-          setError(null);
-          try {
-            const argv = resolveConflictArgv(repo, commit.changeId, generateIdempotencyKey());
-            const result = await runMutationWithRetry(sessionId, argv);
-            if (result.exitStatus !== 0) {
-              throw new Error(result.stderr || `treq exited with status ${result.exitStatus}`);
-            }
-            await loadCommits();
-          } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
-          }
-        },
-      },
+      { text: 'Take left', onPress: () => resolveWith(commit, ['left']) },
+      { text: 'Take right', onPress: () => resolveWith(commit, ['right']) },
+      { text: 'Take base', onPress: () => resolveWith(commit, ['base']) },
+      { text: "CLI default", onPress: () => resolveWith(commit, []) },
     ]);
 
   const handleCreateCommit = async () => {

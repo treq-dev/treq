@@ -237,4 +237,59 @@ describe('CertificateRenewalManager', () => {
 
     jest.useRealTimers();
   });
+
+  it('onAppForeground() fires an overdue renewal immediately instead of waiting out the original timer', async () => {
+    jest.useFakeTimers();
+    const now = { value: 0 };
+    const onRenewed = jest.fn();
+    const issue = jest.fn().mockResolvedValue({ expires_at: new Date(2000).toISOString(), serial: 'serial-2' });
+
+    const manager = new CertificateRenewalManager({
+      instanceId: 'instance-1',
+      keyId: 'key-1',
+      sessionId: 'session-1',
+      // renewAt = 800 (1000 * (1 - 0.2)), so the original timer is a 800ms delay.
+      initialLease: { issuedAt: 0, expiresAt: 1000 },
+      isSessionValid: () => true,
+      issue,
+      onRenewed: (lease) => onRenewed(lease),
+      onCutoff: () => {},
+      now: () => now.value,
+    });
+
+    // Simulate the app being suspended well past the original renewAt, then
+    // resuming - the stale setTimeout hasn't fired yet in real device time,
+    // but onAppForeground should re-anchor to `now` and renew right away.
+    now.value = 5000;
+    manager.onAppForeground();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(issue).toHaveBeenCalledWith('instance-1', 'key-1');
+    expect(onRenewed).toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
+
+  it('onAppForeground() is a no-op after stop()', async () => {
+    jest.useFakeTimers();
+    const issue = jest.fn();
+    const manager = new CertificateRenewalManager({
+      instanceId: 'instance-1',
+      keyId: 'key-1',
+      sessionId: 'session-1',
+      initialLease: { issuedAt: 0, expiresAt: 1000 },
+      isSessionValid: () => true,
+      issue,
+      onRenewed: () => {},
+      onCutoff: () => {},
+      now: () => 900,
+    });
+    manager.stop();
+
+    manager.onAppForeground();
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(issue).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
 });

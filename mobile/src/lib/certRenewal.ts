@@ -169,6 +169,23 @@ export class CertificateRenewalManager {
     }
   }
 
+  /**
+   * Re-anchors the renewal timer to the current clock. Mobile `setTimeout`
+   * delays are unreliable across an OS-driven suspend (the JS timer can
+   * fire very late once the app resumes, or - if the process itself was
+   * killed and relaunched - not exist at all). Call this from an
+   * `AppState` "active" listener so a long suspend can't leave a stale
+   * timer scheduled against a delay computed before the app was
+   * backgrounded: `scheduleRenewal` recomputes the remaining delay against
+   * `now()`, so an overdue renewal fires immediately instead of waiting
+   * out the original (now-irrelevant) delay, and an already-expired
+   * certificate surfaces as the usual `classifyRenewalError` cutoff on the
+   * next `issue()` call rather than silently.
+   */
+  onAppForeground(): void {
+    this.scheduleRenewal();
+  }
+
   /** Stops scheduling further renewals without triggering a cutoff. */
   stop(): void {
     this.stopped = true;
