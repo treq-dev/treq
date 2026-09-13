@@ -1249,6 +1249,20 @@ fn init_jj_for_git_repo(repo_path: &str) -> Result<(), JjError> {
   Ok(())
 }
 
+/// Initialize a fresh jj repo with its own internal (non-colocated) Git backend
+/// at `.jj/repo/store/git`, equivalent to `jj git init` (no `--colocate`) on an
+/// empty directory. Unlike [`ensure_jj_initialized`], this does not require an
+/// existing `.git` directory and does not touch the treq database.
+pub fn jj_git_init_bare(repo_path: &str) -> Result<(), JjError> {
+  let settings = create_user_settings(repo_path)?;
+  block_on(Workspace::init_internal_git(
+    &settings,
+    Path::new(repo_path),
+  ))
+  .map_err(|e| JjError::InitFailed(e.to_string()))?;
+  Ok(())
+}
+
 /// Ensure jj is initialized for a repository
 /// This is idempotent - safe to call multiple times
 /// Returns true on success, false only if initialization failed
@@ -1302,6 +1316,23 @@ pub fn sanitize_workspace_name(name: &str) -> String {
     .trim_matches('.')
     .trim()
     .to_string()
+}
+
+/// Read the working copy's current sparse checkout patterns (equivalent to
+/// `jj sparse list`), as internal repo-path strings.
+pub fn jj_get_sparse_patterns(workspace_path: &str) -> Result<Vec<String>, JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let patterns = loaded
+    .workspace
+    .working_copy()
+    .sparse_patterns()
+    .map_err(|e| JjError::IoError(format!("Failed to read sparse patterns: {}", e)))?;
+  Ok(
+    patterns
+      .iter()
+      .map(|p| p.as_internal_file_string().to_string())
+      .collect(),
+  )
 }
 
 /// Create a colocated jj workspace
@@ -2227,6 +2258,21 @@ fn list_registered_workspaces(repo_path: &str) -> Result<Vec<RegisteredWorkspace
 
   workspaces.sort_by(|a, b| a.branch_name.cmp(&b.branch_name));
   Ok(workspaces)
+}
+
+/// List every workspace name in the repo's view, including `default` (the home
+/// repo's own working copy) — equivalent to `jj workspace list`. Unlike
+/// [`list_jj_workspaces`], nothing is filtered out for product purposes.
+pub fn list_all_workspace_names(repo_path: &str) -> Result<Vec<String>, JjError> {
+  let (_home_workspace, repo, _workspace_store) = load_home_repo(repo_path)?;
+  let mut names: Vec<String> = repo
+    .view()
+    .wc_commit_ids()
+    .iter()
+    .map(|(name, _)| name.as_str().to_string())
+    .collect();
+  names.sort();
+  Ok(names)
 }
 
 /// List workspace names registered in JJ without shelling out.
@@ -5593,6 +5639,27 @@ pub fn jj_get_change_id(workspace_path: &str, revision: &str) -> Result<String, 
   Ok(HexPrefix::from_id(commit.change_id()).reverse_hex()[..12].to_string())
 }
 
+/// List every file path tracked in `revision`'s tree (equivalent to
+/// `jj file list -r <revision>`), as internal repo-path strings.
+pub fn jj_list_files_at_revision(
+  workspace_path: &str,
+  revision: &str,
+) -> Result<Vec<String>, JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let commit = resolve_commit_by_revision(&loaded, revision)?;
+  let tree = commit.tree();
+  let mut files: Vec<String> = tree
+    .entries()
+    .filter_map(|(path, value): (RepoPathBuf, _)| {
+      value
+        .ok()
+        .map(|_| path.as_internal_file_string().to_string())
+    })
+    .collect();
+  files.sort();
+  Ok(files)
+}
+
 /// Get commit IDs matching a revset expression.
 /// Returns short (12-char) commit IDs, one per matching commit.
 /// Returns empty vec if the revset matches nothing (not an error).
@@ -5627,6 +5694,102 @@ pub fn jj_log_revset_commit_ids(
     .collect();
 
   Ok(ids)
+}
+
+/// Get change IDs matching a revset expression, one per matching commit, in the
+/// revset's own order. A change id repeated across two entries means those
+/// commits diverged (jj CLI's log output marks this with a trailing `??`).
+pub fn jj_log_revset_change_ids(
+  workspace_path: &str,
+  revset: &str,
+) -> Result<Vec<String>, JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let revset_expr = evaluate_revset(&loaded, revset)
+    .map_err(|e| JjError::IoError(format!("Failed to log revset '{}': {}", revset, e)))?;
+  let ids: Vec<String> = revset_expr
+    .iter()
+    .commits(loaded.repo.store())
+    .map(|c| {
+      c.map(|commit| HexPrefix::from_id(commit.change_id()).reverse_hex()[..12].to_string())
+        .map_err(|e| JjError::IoError(format!("Failed to log revset '{}': {}", revset, e)))
+    })
+    .collect::<Result<Vec<_>, _>>()?;
+  Ok(ids)
+}
+
+/// Get (description first line, short commit id) pairs for commits matching a
+/// revset expression, in the revset's own order, capped at `limit` if given.
+pub fn jj_log_descriptions(
+  workspace_path: &str,
+  revset: &str,
+  limit: Option<usize>,
+) -> Result<Vec<(String, String)>, JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let revset_expr = evaluate_revset(&loaded, revset)
+    .map_err(|e| JjError::IoError(format!("Failed to log revset '{}': {}", revset, e)))?;
+  let entries: Vec<(String, String)> = revset_expr
+    .iter()
+    .commits(loaded.repo.store())
+    .take(limit.unwrap_or(usize::MAX))
+    .map(|c| {
+      c.map(|commit| {
+        let first_line = commit
+          .description()
+          .lines()
+          .next()
+          .unwrap_or("")
+          .to_string();
+        (first_line, short_commit_id(&commit))
+      })
+      .map_err(|e| JjError::IoError(format!("Failed to log revset '{}': {}", revset, e)))
+    })
+    .collect::<Result<Vec<_>, _>>()?;
+  Ok(entries)
+}
+
+/// A commit in a jj log, richer than [`jj_log_descriptions`]'s pairs: carries the
+/// full description and whether the commit is empty (its tree equals its parents'
+/// merged tree) — jj CLI's default log template marks this with `(empty)`.
+#[derive(Debug, Clone)]
+pub struct JjLogEntry {
+  pub description: String,
+  pub commit_id: String,
+  pub is_empty: bool,
+}
+
+/// Get full log entries (description, short commit id, emptiness) for commits
+/// matching a revset expression, in the revset's own order, capped at `limit`.
+pub fn jj_log_entries(
+  workspace_path: &str,
+  revset: &str,
+  limit: Option<usize>,
+) -> Result<Vec<JjLogEntry>, JjError> {
+  use futures::StreamExt as _;
+
+  let loaded = load_workspace_repo(workspace_path)?;
+  let revset_expr = evaluate_revset(&loaded, revset)
+    .map_err(|e| JjError::IoError(format!("Failed to log revset '{}': {}", revset, e)))?;
+  let matcher = repo_root_matcher();
+  let entries: Vec<JjLogEntry> = revset_expr
+    .iter()
+    .commits(loaded.repo.store())
+    .take(limit.unwrap_or(usize::MAX))
+    .map(|c| {
+      c.map_err(|e| JjError::IoError(format!("Failed to log revset '{}': {}", revset, e)))
+        .and_then(|commit| {
+          let parent_tree = block_on(commit.parent_tree(loaded.repo.as_ref()))
+            .map_err(|e| JjError::IoError(format!("Failed to read parent tree: {}", e)))?;
+          let tree = commit.tree();
+          let is_empty = block_on(parent_tree.diff_stream(&tree, &matcher).next()).is_none();
+          Ok(JjLogEntry {
+            description: commit.description().to_string(),
+            commit_id: short_commit_id(&commit),
+            is_empty,
+          })
+        })
+    })
+    .collect::<Result<Vec<_>, _>>()?;
+  Ok(entries)
 }
 
 /// Rebase using a revset expression
@@ -8412,6 +8575,15 @@ pub fn jj_util_import_git_refs(repo_path: &str) -> Result<(), JjError> {
   reconcile_colocated_home_repo(repo_path)
 }
 
+/// Import git branch refs into jj bookmarks (e.g. a branch set purely via git
+/// config, never touched by jj) without the git-HEAD/working-copy reconciliation
+/// [`jj_util_import_git_refs`] also does — safe to call before resolving a
+/// revision that might be a bookmark name, without risking a working-copy reset.
+pub fn jj_import_remaining_git_refs(repo_path: &str) -> Result<(), JjError> {
+  let mut loaded = load_workspace_repo(repo_path)?;
+  import_remaining_git_refs(&mut loaded)
+}
+
 fn import_remaining_git_refs(loaded: &mut LoadedWorkspaceRepo) -> Result<(), JjError> {
   let import_options = git::GitImportOptions {
     auto_local_bookmark: false,
@@ -9362,5 +9534,160 @@ mod tests {
     assert_eq!(lines.lines, vec!["two".to_string(), "three".to_string()]);
     assert_eq!(lines.start_line, 2);
     assert_eq!(lines.end_line, 3);
+  }
+
+  #[test]
+  fn jj_git_init_bare_creates_working_repo_without_git_dir() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    jj_git_init_bare(repo_path).expect("jj_git_init_bare should succeed");
+
+    assert!(temp.path().join(".jj").exists(), ".jj should exist");
+    assert!(
+      !temp.path().join(".git").exists(),
+      "non-colocated init should not create .git"
+    );
+    assert!(
+      jj_snapshot_working_copy(repo_path).is_ok(),
+      "the resulting repo should be usable"
+    );
+  }
+
+  #[test]
+  fn jj_get_sparse_patterns_defaults_to_root_full_checkout() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    // Full checkout isn't an empty pattern list — it's a single pattern for the
+    // repo root, whose internal-path representation is the empty string.
+    let patterns = jj_get_sparse_patterns(repo_path).expect("read sparse patterns");
+    assert_eq!(
+      patterns,
+      vec!["".to_string()],
+      "no sparse patterns set means a single root (full checkout) pattern, got: {:?}",
+      patterns
+    );
+  }
+
+  #[test]
+  fn list_all_workspace_names_includes_default() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let names = list_all_workspace_names(repo_path).expect("list workspace names");
+    assert_eq!(names, vec!["default".to_string()]);
+  }
+
+  #[test]
+  fn jj_list_files_at_revision_lists_tree_contents() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    fs::create_dir_all(temp.path().join("dir")).expect("mkdir");
+    fs::write(temp.path().join("dir/nested.txt"), "nested\n").expect("write nested");
+    git(&temp, &["add", "base.txt", "dir/nested.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let files = jj_list_files_at_revision(repo_path, "@-").expect("list files at @-");
+    assert_eq!(
+      files,
+      vec!["base.txt".to_string(), "dir/nested.txt".to_string()]
+    );
+  }
+
+  #[test]
+  fn jj_log_revset_change_ids_returns_one_id_for_at_symbol() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    let ids = jj_log_revset_change_ids(repo_path, "@").expect("log revset change ids");
+    assert_eq!(ids.len(), 1);
+    assert_eq!(
+      ids[0].len(),
+      12,
+      "change id should be the 12-char short form"
+    );
+  }
+
+  #[test]
+  fn jj_log_entries_reports_description_and_emptiness() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    jj_describe(repo_path, "@", "described wc").expect("describe wc");
+
+    let entries = jj_log_entries(repo_path, "@", Some(1)).expect("log entries");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].description, "described wc");
+    assert!(
+      entries[0].is_empty,
+      "wc has no file changes relative to its parent"
+    );
+  }
+
+  #[test]
+  fn jj_import_remaining_git_refs_makes_git_only_branch_resolvable() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    // A branch created purely via git, never touched by jj, isn't yet a jj bookmark.
+    git(&temp, &["branch", "git-only-branch"]);
+    assert!(
+      jj_get_commit_id(repo_path, "git-only-branch").is_err(),
+      "branch should not resolve as a jj revision before import"
+    );
+
+    jj_import_remaining_git_refs(repo_path).expect("import remaining git refs");
+
+    // `git branch` with no explicit target points at git HEAD, which is still the
+    // "base" commit here — `jj git init --colocate` doesn't move git HEAD to jj's
+    // new (empty) @ until something reconciles them, so compare against the git
+    // commit the branch actually points at, not jj's own working-copy commit.
+    let imported = jj_get_commit_id(repo_path, "git-only-branch")
+      .expect("branch should resolve as a jj revision after import");
+    assert_eq!(
+      imported,
+      jj_get_commit_id(repo_path, "master").expect("master id")
+    );
   }
 }

@@ -3,8 +3,7 @@ mod e2e_test_helpers;
 use e2e_test_helpers::TestRepo;
 
 fn get_change_id(cwd: &str, rev: &str) -> Result<String, String> {
-  let output = TestRepo::run_jj(cwd, &["log", "-r", rev, "--no-graph", "-T", "change_id\n"])?;
-  Ok(output.trim().to_string())
+  TestRepo::jj_change_id(cwd, rev)
 }
 
 #[test]
@@ -80,7 +79,7 @@ fn test_list_conflicted_files_with_conflicts() {
   // In workspace: create a merge commit with both changes as parents.
   // Since ws_change and main_change both add conflict.txt with different content
   // from a common ancestor that doesn't have it, jj creates a conflict in @.
-  TestRepo::run_jj(workspace_path_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_path_str, &[&ws_change_id, &main_change_id])
     .expect("Failed to create merge commit in workspace");
 
   // get_conflicted_files should now return conflict.txt
@@ -179,7 +178,7 @@ fn test_workspace_status_invariant_unresolved_conflicts_require_conflicted_files
   treq_lib::jj::jj_commit(&repo.repo_path, "main commit").expect("Failed to commit in main");
   let main_change_id = get_change_id(&repo.repo_path, "@-").expect("Failed to get main change_id");
 
-  TestRepo::run_jj(workspace_path_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_path_str, &[&ws_change_id, &main_change_id])
     .expect("Failed to create unresolved conflict");
 
   let status = treq_lib::core::workspace_status(&repo.repo_path, Some(workspace.id))
@@ -238,7 +237,7 @@ fn test_list_conflicted_files_preserves_deleted_side_conflict_path() {
   treq_lib::jj::jj_commit(&repo.repo_path, "main modify").expect("Failed to commit main");
   let main_change_id = get_change_id(&repo.repo_path, "@-").expect("Failed to get main change_id");
 
-  TestRepo::run_jj(workspace_path_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_path_str, &[&ws_change_id, &main_change_id])
     .expect("Failed to create merge commit with deleted-side content conflict");
 
   let conflicted_files = treq_lib::jj::get_conflicted_files(workspace_path_str, None)
@@ -285,7 +284,7 @@ fn test_list_conflicted_files_is_deterministic_and_deduped() {
   treq_lib::jj::jj_commit(&repo.repo_path, "main commit").expect("Failed to commit in main");
   let main_change_id = get_change_id(&repo.repo_path, "@-").expect("Failed to get main change_id");
 
-  TestRepo::run_jj(workspace_path_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_path_str, &[&ws_change_id, &main_change_id])
     .expect("Failed to create merge commit with conflicts");
 
   let conflicted_files = treq_lib::jj::get_conflicted_files(workspace_path_str, None)
@@ -373,25 +372,15 @@ fn test_detects_conflicts_in_committed_tip_when_tree_diff_is_empty() {
   let main_change_id = get_change_id(&repo.repo_path, "@-").expect("Failed to get main change_id");
 
   // Conflicted merge becomes the working-copy commit.
-  TestRepo::run_jj(workspace_path_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_path_str, &[&ws_change_id, &main_change_id])
     .expect("Failed to create conflicted merge");
 
   // Point the workspace bookmark at the conflicted tip, then create an empty
   // working-copy child so the conflict lives only in "committed" history while
   // the WC itself has no dirty files.
-  TestRepo::run_jj(
-    workspace_path_str,
-    &[
-      "bookmark",
-      "set",
-      "feat/committed-conflict",
-      "-r",
-      "@",
-      "--allow-backwards",
-    ],
-  )
-  .expect("Failed to point bookmark at conflicted tip");
-  TestRepo::run_jj(workspace_path_str, &["new", "@"])
+  TestRepo::jj_set_bookmark(workspace_path_str, "feat/committed-conflict", "@")
+    .expect("Failed to point bookmark at conflicted tip");
+  TestRepo::jj_new(workspace_path_str, &["@"])
     .expect("Failed to create empty WC on conflicted tip");
 
   let changed = treq_lib::jj::jj_get_changed_files(workspace_path_str)
@@ -461,7 +450,7 @@ fn test_resolving_markers_in_wc_clears_conflict_status_before_commit() {
   treq_lib::jj::jj_commit(&repo.repo_path, "main commit").expect("Failed to commit main");
   let main_change_id = get_change_id(&repo.repo_path, "@-").expect("Failed to get main change_id");
 
-  TestRepo::run_jj(workspace_path_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_path_str, &[&ws_change_id, &main_change_id])
     .expect("Failed to create unresolved merge conflict");
 
   let before = treq_lib::core::workspace_status(&repo.repo_path, Some(workspace.id))
@@ -544,7 +533,7 @@ fn test_resolve_and_commit_clears_merge_conflict_from_status() {
   treq_lib::jj::jj_commit(&repo.repo_path, "main commit").expect("Failed to commit main");
   let main_change_id = get_change_id(&repo.repo_path, "@-").expect("Failed to get main change_id");
 
-  TestRepo::run_jj(workspace_path_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_path_str, &[&ws_change_id, &main_change_id])
     .expect("Failed to create unresolved merge conflict");
 
   let before = treq_lib::core::workspace_status(&repo.repo_path, Some(workspace.id))
@@ -707,21 +696,11 @@ fn test_resolve_and_commit_clears_committed_tip_conflict_from_status() {
   treq_lib::jj::jj_commit(&repo.repo_path, "main commit").expect("Failed to commit main");
   let main_change_id = get_change_id(&repo.repo_path, "@-").expect("Failed to get main change_id");
 
-  TestRepo::run_jj(workspace_path_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_path_str, &[&ws_change_id, &main_change_id])
     .expect("Failed to create conflicted merge");
-  TestRepo::run_jj(
-    workspace_path_str,
-    &[
-      "bookmark",
-      "set",
-      "feat/resolve-committed-tip",
-      "-r",
-      "@",
-      "--allow-backwards",
-    ],
-  )
-  .expect("Failed to point bookmark at conflicted tip");
-  TestRepo::run_jj(workspace_path_str, &["new", "@"])
+  TestRepo::jj_set_bookmark(workspace_path_str, "feat/resolve-committed-tip", "@")
+    .expect("Failed to point bookmark at conflicted tip");
+  TestRepo::jj_new(workspace_path_str, &["@"])
     .expect("Failed to create empty WC on conflicted tip");
 
   let before = treq_lib::core::workspace_status(&repo.repo_path, Some(workspace.id))

@@ -197,35 +197,25 @@ fn test_workspace_diff_when_wc_is_merge_commit() {
   .unwrap();
   workspace_write_file(&repo, &ws, "shared.txt", "workspace");
   treq_lib::core::commit_workspace(&repo.repo_path, ws.id, "workspace shared change").unwrap();
-  let ws_change_id = TestRepo::run_jj(
+  let ws_change_id = TestRepo::jj_change_id(
     repo
       .workspaces_dir()
       .join(&ws.workspace_path)
       .to_str()
       .unwrap(),
-    &["log", "-r", "@-", "--no-graph", "-T", "change_id\n"],
+    "@-",
   )
-  .expect("workspace change_id should resolve")
-  .trim()
-  .to_string();
+  .expect("workspace change_id should resolve");
 
   TestRepo::remove_file_path(repo.temp_dir.path().join("shared.txt"))
     .expect("failed to delete shared.txt on main");
   treq_lib::jj::jj_commit(&repo.repo_path, "main delete").unwrap();
-  let main_change_id = TestRepo::run_jj(
-    &repo.repo_path,
-    &["log", "-r", "@-", "--no-graph", "-T", "change_id\n"],
-  )
-  .expect("main change_id should resolve")
-  .trim()
-  .to_string();
+  let main_change_id =
+    TestRepo::jj_change_id(&repo.repo_path, "@-").expect("main change_id should resolve");
 
   let ws_dir = repo.workspaces_dir().join(&ws.workspace_path);
-  TestRepo::run_jj(
-    ws_dir.to_str().unwrap(),
-    &["new", &ws_change_id, &main_change_id],
-  )
-  .expect("jj new should create unresolved conflict merge commit");
+  TestRepo::jj_new(ws_dir.to_str().unwrap(), &[&ws_change_id, &main_change_id])
+    .expect("jj new should create unresolved conflict merge commit");
 
   init_test_app_db(&repo, Some("git"));
   let result = treq_lib::core::workspace_diff(&repo.repo_path, ws.id);
@@ -438,25 +428,15 @@ fn test_workspace_diff_reports_delete_modify_conflicts_from_jj_lib() {
 
   TestRepo::write_workspace_file(workspace_dir_str, "shared.txt", "workspace side\n").unwrap();
   treq_lib::core::commit_workspace(&repo.repo_path, ws.id, "workspace modify").unwrap();
-  let ws_change_id = TestRepo::run_jj(
-    workspace_dir_str,
-    &["log", "-r", "@-", "--no-graph", "-T", "change_id\n"],
-  )
-  .expect("workspace change_id should resolve")
-  .trim()
-  .to_string();
+  let ws_change_id =
+    TestRepo::jj_change_id(workspace_dir_str, "@-").expect("workspace change_id should resolve");
 
   TestRepo::remove_file_path(repo.temp_dir.path().join("shared.txt")).unwrap();
   treq_lib::jj::jj_commit(&repo.repo_path, "main delete").unwrap();
-  let main_change_id = TestRepo::run_jj(
-    &repo.repo_path,
-    &["log", "-r", "@-", "--no-graph", "-T", "change_id\n"],
-  )
-  .expect("main change_id should resolve")
-  .trim()
-  .to_string();
+  let main_change_id =
+    TestRepo::jj_change_id(&repo.repo_path, "@-").expect("main change_id should resolve");
 
-  TestRepo::run_jj(workspace_dir_str, &["new", &ws_change_id, &main_change_id])
+  TestRepo::jj_new(workspace_dir_str, &[&ws_change_id, &main_change_id])
     .expect("jj new should create unresolved delete/modify conflict");
 
   let conflicted_files = workspace_diff_fixture_conflicted_files(&repo, &ws);
@@ -536,11 +516,9 @@ fn test_workspace_diff_does_not_leak_sibling_workspace_commits() {
     .unwrap();
 
   let main_dir = repo.workspaces_dir().join(&main_workspace.workspace_path);
-  let main_status = TestRepo::run_jj(main_dir.to_str().unwrap(), &["st"]).unwrap();
   assert!(
-    main_status.contains("The working copy has no changes."),
-    "main workspace should remain clean, got:\n{}",
-    main_status
+    TestRepo::jj_working_copy_is_clean(main_dir.to_str().unwrap()),
+    "main workspace should remain clean"
   );
 
   init_test_app_db(&repo, Some("git"));

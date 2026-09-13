@@ -1,7 +1,6 @@
 mod e2e_test_helpers;
 
 use e2e_test_helpers::TestRepo;
-use std::process::Command;
 use treq_lib::core::{workspace_status, RemoteSyncStatus};
 use treq_lib::jj;
 
@@ -221,23 +220,12 @@ fn test_workspace_status_behind_remote() {
   // Move the local bookmark back to simulate being behind remote.
   // After fetch, both local and remote point to the same commit.
   // Setting the bookmark to its parent puts local one commit behind remote.
-  let set_output = Command::new("jj")
-    .current_dir(workspace_path_str)
-    .args([
-      "bookmark",
-      "set",
-      &workspace.branch_name,
-      "-r",
-      &format!("{}@origin-", workspace.branch_name),
-      "--allow-backwards",
-    ])
-    .output()
-    .expect("Failed to set bookmark");
-  assert!(
-    set_output.status.success(),
-    "Failed to set bookmark back: {}",
-    String::from_utf8_lossy(&set_output.stderr)
-  );
+  TestRepo::jj_set_bookmark(
+    workspace_path_str,
+    &workspace.branch_name,
+    &format!("{}@origin-", workspace.branch_name),
+  )
+  .expect("Failed to set bookmark back");
 
   let status =
     workspace_status(&repo.repo_path, Some(workspace.id)).expect("workspace_status should succeed");

@@ -234,6 +234,15 @@ impl TestRepo {
     let remote_path = remote_dir.to_string_lossy().to_string();
     gix::init_bare(&remote_dir).map_err(|e| format!("Failed to init bare remote: {}", e))?;
 
+    // A bare repo has no `.git/config` of its own to inherit user identity from, and
+    // `remote_commit_file`/`remote_commit_on_branch` below commit straight into it via
+    // gix (which reads user.name/user.email from config, same as `repo.commit()`
+    // elsewhere in this file).
+    Self::append_config_at(
+      &remote_dir.join("config"),
+      "[user]\n\tname = Test User\n\temail = test@example.com\n",
+    )?;
+
     // Add remote to main repo (a plain config write; gix has no high-level "remote add").
     // Git config values treat `\` as an escape character, so on Windows a raw path
     // (`C:\Users\...`) corrupts the file; forward slashes parse fine everywhere.
@@ -249,9 +258,12 @@ impl TestRepo {
     // still shells out to git, same as the other genuinely network-bound operations below.
     let default_branch = repo.default_branch();
     Self::run_git(&repo.repo_path, &["push", "-u", "origin", default_branch])?;
-    Self::run_git(
+    // `git remote set-head` only ever writes a local symbolic ref; no network call
+    // involved, so this doesn't need the subprocess either.
+    Self::set_symbolic_ref(
       &repo.repo_path,
-      &["remote", "set-head", "origin", default_branch],
+      "refs/remotes/origin/HEAD",
+      &format!("refs/remotes/origin/{}", default_branch),
     )?;
     // Create a remote branch with a commit for testing
     // The test expects a "feature.txt" file in the remote branch
@@ -296,8 +308,13 @@ impl TestRepo {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
   }
 
-  /// Run a jj command in the specified directory.
-  pub fn run_jj(cwd: &str, args: &[&str]) -> Result<String, String> {
+  /// Run a jj command via the real `jj` CLI binary. Only used by the `#[cfg(unix)]`
+  /// differential tests in jj_lib_vs_cli_test.rs, which check the jj-lib-backed
+  /// helpers below against the actual CLI on platforms where it's reliably
+  /// available (see that file for why Windows is excluded). Test bodies
+  /// themselves should use the jj-lib wrappers, not this.
+  #[allow(dead_code)]
+  pub fn run_jj_cli(cwd: &str, args: &[&str]) -> Result<String, String> {
     let jj_binary = treq_lib::binary_paths::detect_binary("jj").unwrap_or_else(|| "jj".to_string());
     let output = Command::new(jj_binary)
       .current_dir(cwd)
@@ -316,44 +333,226 @@ impl TestRepo {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
   }
 
-  /// Append raw INI text to a repo's local `.git/config`. Used instead of `git config`
-  /// because gix has no high-level "set config and persist to disk" call in its facade API.
-  fn append_git_config(repo_path: &str, content: &str) -> Result<(), String> {
+  /// Import git branches into jj bookmarks before resolving a bookmark/branch name.
+  /// The real `jj` CLI does this automatically on every invocation; raw jj-lib calls
+  /// don't, so a bookmark set purely via git config (e.g. TestRepo's default branch)
+  /// isn't resolvable as a jj revision until something imports it. Best-effort: a
+  /// bare `@`/`@-` lookup has nothing to import, so failures here are ignored and
+  /// left for the real resolve call to report.
+  fn import_git_refs_best_effort(repo_path: &str) {
+    let _ = treq_lib::jj::jj_import_remaining_git_refs(repo_path);
+  }
+
+  /// Create a new working-copy commit on top of `parent_revisions` (equivalent to
+  /// `jj new <revisions...>`), via jj-lib directly (treq_lib::jj::jj_new_with_parents).
+  /// Returns the new commit's short id.
+  pub fn jj_new(workspace_path: &str, parent_revisions: &[&str]) -> Result<String, String> {
+    treq_lib::jj::jj_new_with_parents(
+      workspace_path,
+      &parent_revisions
+        .iter()
+        .map(|r| r.to_string())
+        .collect::<Vec<_>>(),
+    )
+    .map_err(|e| e.to_string())
+  }
+
+  /// Set a commit's description (equivalent to `jj describe -m <message> -r <change_id>`).
+  pub fn jj_describe(workspace_path: &str, change_id: &str, message: &str) -> Result<(), String> {
+    treq_lib::jj::jj_describe(workspace_path, change_id, message).map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// Finalize the working copy with `message` and start a new empty commit on top
+  /// (equivalent to `jj commit -m <message>`).
+  pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, String> {
+    treq_lib::jj::jj_commit(workspace_path, message).map_err(|e| e.to_string())
+  }
+
+  /// Resolve `revision` to its 12-char change id (equivalent to
+  /// `jj log -r <revision> --no-graph -T change_id`).
+  pub fn jj_change_id(workspace_path: &str, revision: &str) -> Result<String, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_get_change_id(workspace_path, revision).map_err(|e| e.to_string())
+  }
+
+  /// Update a stale workspace's working copy (equivalent to `jj workspace update-stale`).
+  pub fn jj_update_stale(workspace_path: &str) -> Result<(), String> {
+    treq_lib::jj::jj_workspace_update_stale(workspace_path).map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// Whether the working copy has no changes relative to its parent (equivalent to
+  /// checking `jj status`/`jj st` for "The working copy has no changes.").
+  pub fn jj_working_copy_is_clean(workspace_path: &str) -> bool {
+    treq_lib::jj::jj_is_working_copy_empty(workspace_path).unwrap_or(false)
+  }
+
+  /// Snapshot the working copy and return its commit id, failing if `workspace_path`
+  /// isn't a valid jj workspace. Used where a test only needs to confirm the
+  /// workspace is valid (what `jj status`/`jj st` was previously used for, ignoring
+  /// its text output).
+  pub fn jj_snapshot(workspace_path: &str) -> Result<String, String> {
+    treq_lib::jj::jj_snapshot_working_copy(workspace_path).map_err(|e| e.to_string())
+  }
+
+  /// List the working copy's current sparse checkout patterns (equivalent to
+  /// `jj sparse list`).
+  pub fn jj_sparse_patterns(workspace_path: &str) -> Result<Vec<String>, String> {
+    treq_lib::jj::jj_get_sparse_patterns(workspace_path).map_err(|e| e.to_string())
+  }
+
+  /// List every file tracked in `revision`'s tree (equivalent to
+  /// `jj file list -r <revision>`).
+  pub fn jj_files_at_revision(workspace_path: &str, revision: &str) -> Result<Vec<String>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_list_files_at_revision(workspace_path, revision).map_err(|e| e.to_string())
+  }
+
+  /// Initialize a fresh jj repo with its own internal (non-colocated) Git backend
+  /// in an empty directory (equivalent to `jj git init`, no `--colocate`).
+  pub fn jj_git_init(repo_path: &str) -> Result<(), String> {
+    treq_lib::jj::jj_git_init_bare(repo_path).map_err(|e| e.to_string())
+  }
+
+  /// Point a bookmark at `revision`, moving it even backwards (equivalent to
+  /// `jj bookmark set <name> -r <revision> --allow-backwards`).
+  pub fn jj_set_bookmark(
+    workspace_path: &str,
+    bookmark_name: &str,
+    revision: &str,
+  ) -> Result<(), String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_set_bookmark(workspace_path, bookmark_name, revision)
+      .map_err(|e| e.to_string())
+  }
+
+  /// Change ids for commits matching `revset`, in the revset's own order
+  /// (equivalent to `jj log --no-graph -r <revset> -T 'change_id.short() ++ "\n"'`).
+  /// A repeated change id across two entries means those commits diverged (jj
+  /// CLI marks this with a trailing `??` in its default log output).
+  pub fn jj_change_ids_in_revset(
+    workspace_path: &str,
+    revset: &str,
+  ) -> Result<Vec<String>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_log_revset_change_ids(workspace_path, revset).map_err(|e| e.to_string())
+  }
+
+  /// Short commit ids for commits matching `revset`, in the revset's own order
+  /// (equivalent to `jj log --no-graph -r <revset> -T 'commit_id.short(12) ++ "\n"'`).
+  /// Same short-id format as `JjVerifier::get_commit_id_for_rev`/`get_bookmark_commit_id`.
+  pub fn jj_commit_ids_in_revset(
+    workspace_path: &str,
+    revset: &str,
+  ) -> Result<Vec<String>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_log_revset_commit_ids(workspace_path, revset).map_err(|e| e.to_string())
+  }
+
+  /// Local bookmarks pointing at `revision` (equivalent to `jj bookmark list` filtered
+  /// to the ones jj status would show for that revision).
+  pub fn jj_bookmarks_on_revision(
+    workspace_path: &str,
+    revision: &str,
+  ) -> Result<Vec<String>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::get_bookmarks_on_revision(workspace_path, revision).map_err(|e| e.to_string())
+  }
+
+  /// Full log entries (description, short commit id, emptiness) for commits matching
+  /// `revset`, capped at `limit` (equivalent to `jj log -r <revset> -n <limit> --no-graph`,
+  /// minus jj's bookmark/graph decorations — `is_empty` mirrors its `(empty)` marker).
+  pub fn jj_log_entries(
+    workspace_path: &str,
+    revset: &str,
+    limit: usize,
+  ) -> Result<Vec<treq_lib::jj::JjLogEntry>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_log_entries(workspace_path, revset, Some(limit)).map_err(|e| e.to_string())
+  }
+
+  /// (description first line, short commit id) pairs for commits matching `revset`,
+  /// capped at `limit` (equivalent to
+  /// `jj log --no-graph -r <revset> -T 'description.first_line() ++ "|" ++ commit_id.short(12) ++ "\n"' -n <limit>`).
+  pub fn jj_log_descriptions(
+    workspace_path: &str,
+    revset: &str,
+    limit: Option<usize>,
+  ) -> Result<Vec<(String, String)>, String> {
+    Self::import_git_refs_best_effort(workspace_path);
+    treq_lib::jj::jj_log_descriptions(workspace_path, revset, limit).map_err(|e| e.to_string())
+  }
+
+  /// Whether the working copy's uncommitted changes contain a diff hunk removing a
+  /// line equal to `content` in any changed file (equivalent to grepping
+  /// `jj diff --git` for a `-<content>` line, but checked per-file via jj-lib
+  /// instead of string-matching CLI diff text).
+  pub fn jj_has_revert_hunk_for_line(workspace_path: &str, content: &str) -> bool {
+    let Ok(changed_files) = treq_lib::jj::jj_get_changed_files(workspace_path) else {
+      return false;
+    };
+    changed_files.iter().any(|file| {
+      let Ok(hunks) = treq_lib::jj::jj_get_file_hunks(workspace_path, &file.path, "git") else {
+        return false;
+      };
+      hunks
+        .iter()
+        .any(|hunk| hunk.lines.iter().any(|line| line == &format!("-{content}")))
+    })
+  }
+
+  /// Append raw INI text to a git config file at `config_path`. Used instead of
+  /// `git config` because gix has no high-level "set config and persist to disk"
+  /// call in its facade API.
+  fn append_config_at(config_path: &Path, content: &str) -> Result<(), String> {
     use std::io::Write;
-    let config_path = Path::new(repo_path).join(".git").join("config");
     let mut file = fs::OpenOptions::new()
       .create(true)
       .append(true)
-      .open(&config_path)
+      .open(config_path)
       .map_err(|e| format!("Failed to open git config: {}", e))?;
     file
       .write_all(content.as_bytes())
       .map_err(|e| format!("Failed to write git config: {}", e))
   }
 
-  /// Point HEAD at `refs/heads/{branch}` via a gix ref-transaction (works both on an
-  /// unborn HEAD, i.e. before any commit exists, and to switch branches afterward).
-  fn set_head_branch(repo_path: &str, branch: &str) -> Result<(), String> {
+  /// Append raw INI text to a non-bare repo's `.git/config`.
+  fn append_git_config(repo_path: &str, content: &str) -> Result<(), String> {
+    Self::append_config_at(&Path::new(repo_path).join(".git").join("config"), content)
+  }
+
+  /// Point ref `name` (e.g. `HEAD` or `refs/remotes/origin/HEAD`) at symbolic
+  /// target `target` (e.g. `refs/heads/main`) via a gix ref-transaction. Works
+  /// both on an unborn ref (before any commit exists) and to repoint an existing
+  /// one. Equivalent to `git symbolic-ref name target`.
+  fn set_symbolic_ref(repo_path: &str, name: &str, target: &str) -> Result<(), String> {
     let repo = gix::open(repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
-    let target: gix::refs::FullName = format!("refs/heads/{}", branch)
+    let target_name: gix::refs::FullName = target
       .try_into()
-      .map_err(|e| format!("Invalid branch ref name: {}", e))?;
-    let head_name: gix::refs::FullName = "HEAD"
+      .map_err(|e| format!("Invalid target ref name '{}': {}", target, e))?;
+    let ref_name: gix::refs::FullName = name
       .try_into()
-      .map_err(|e| format!("Invalid HEAD ref name: {}", e))?;
+      .map_err(|e| format!("Invalid ref name '{}': {}", name, e))?;
 
     repo
       .edit_reference(RefEdit {
         change: Change::Update {
           log: Default::default(),
           expected: PreviousValue::Any,
-          new: Target::Symbolic(target),
+          new: Target::Symbolic(target_name),
         },
-        name: head_name,
+        name: ref_name,
         deref: false,
       })
-      .map_err(|e| format!("Failed to update HEAD ref: {}", e))?;
+      .map_err(|e| format!("Failed to update ref '{}': {}", name, e))?;
     Ok(())
+  }
+
+  /// Point HEAD at `refs/heads/{branch}` (works both on an unborn HEAD, i.e.
+  /// before any commit exists, and to switch branches afterward).
+  fn set_head_branch(repo_path: &str, branch: &str) -> Result<(), String> {
+    Self::set_symbolic_ref(repo_path, "HEAD", &format!("refs/heads/{}", branch))
   }
 
   /// Create `refs/heads/{branch}` pointing at the current HEAD commit (equivalent to
@@ -488,6 +687,125 @@ impl TestRepo {
     index
       .write(gix::index::write::Options::default())
       .map_err(|e| format!("Failed to write git index: {}", e))?;
+    Ok(())
+  }
+
+  /// Return `base_tree`'s entries (or an empty tree if `base_tree` is `None`) with
+  /// `components` resolving to a blob containing `content`, creating any
+  /// intermediate subtree entries needed and leaving everything else untouched.
+  /// Mirrors `git add <path>` at the tree level, without needing an index or a
+  /// checked-out working copy.
+  fn set_path_in_tree(
+    repo: &gix::Repository,
+    base_tree: Option<gix::ObjectId>,
+    components: &[&str],
+    content: &[u8],
+  ) -> Result<gix::ObjectId, String> {
+    let mut entries: Vec<gix::objs::tree::Entry> = match base_tree {
+      Some(id) => {
+        let tree = repo
+          .find_object(id)
+          .map_err(|e| format!("Failed to find tree {}: {}", id, e))?
+          .try_into_tree()
+          .map_err(|e| format!("Object {} is not a tree: {}", id, e))?;
+        let decoded = tree
+          .decode()
+          .map_err(|e| format!("Failed to decode tree {}: {}", id, e))?;
+        decoded
+          .entries
+          .iter()
+          .map(|e| gix::objs::tree::Entry {
+            mode: e.mode,
+            filename: e.filename.to_owned(),
+            oid: e.oid.to_owned(),
+          })
+          .collect()
+      }
+      None => Vec::new(),
+    };
+
+    let (name, rest) = components
+      .split_first()
+      .ok_or_else(|| "set_path_in_tree: empty path".to_string())?;
+    let name: gix::bstr::BString = (*name).into();
+
+    let new_entry = if rest.is_empty() {
+      let blob_id = repo
+        .write_blob(content)
+        .map_err(|e| format!("Failed to write blob for '{}': {}", name, e))?
+        .detach();
+      gix::objs::tree::Entry {
+        mode: gix::objs::tree::EntryKind::Blob.into(),
+        filename: name.clone(),
+        oid: blob_id,
+      }
+    } else {
+      let existing_subtree = entries
+        .iter()
+        .find(|e| e.filename == name && e.mode.is_tree())
+        .map(|e| e.oid);
+      let subtree_id = Self::set_path_in_tree(repo, existing_subtree, rest, content)?;
+      gix::objs::tree::Entry {
+        mode: gix::objs::tree::EntryKind::Tree.into(),
+        filename: name.clone(),
+        oid: subtree_id,
+      }
+    };
+
+    entries.retain(|e| e.filename != name);
+    entries.push(new_entry);
+    entries.sort();
+
+    repo
+      .write_object(&gix::objs::Tree { entries })
+      .map_err(|e| format!("Failed to write tree: {}", e))
+      .map(|id| id.detach())
+  }
+
+  /// Create a commit setting `relative_path` to `content` on `refs/heads/{branch}`
+  /// in the repo at `repo_path`, based on the branch's current tip if it already
+  /// exists there (or as a root commit otherwise).
+  ///
+  /// The "remote" repos in these tests are always local bare repos on the same
+  /// filesystem, so writing straight into their object database and refs via gix
+  /// is equivalent to — and far cheaper than — cloning, checking out, editing,
+  /// and pushing through real git subprocesses.
+  fn gix_commit_file_on_ref(
+    repo_path: &str,
+    branch: &str,
+    relative_path: &str,
+    content: &str,
+    message: &str,
+  ) -> Result<(), String> {
+    let repo = gix::open(repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
+    let ref_name: gix::refs::FullName = format!("refs/heads/{}", branch)
+      .try_into()
+      .map_err(|e| format!("Invalid branch ref name: {}", e))?;
+
+    let (base_tree, parents) = match repo.find_reference(&ref_name) {
+      Ok(r) => {
+        let commit = r
+          .id()
+          .object()
+          .map_err(|e| format!("Failed to resolve '{}': {}", branch, e))?
+          .try_into_commit()
+          .map_err(|e| format!("'{}' does not point at a commit: {}", branch, e))?;
+        let tree_id = commit
+          .tree_id()
+          .map_err(|e| format!("Failed to read tree for '{}': {}", branch, e))?
+          .detach();
+        (Some(tree_id), vec![commit.id])
+      }
+      Err(_) => (None, Vec::new()),
+    };
+
+    let components: Vec<&str> = relative_path.split('/').collect();
+    let tree_id = Self::set_path_in_tree(&repo, base_tree, &components, content.as_bytes())?;
+
+    repo
+      .commit(ref_name, message, tree_id, parents)
+      .map_err(|e| format!("Failed to commit to '{}': {}", branch, e))?;
+
     Ok(())
   }
 
@@ -632,68 +950,22 @@ impl TestRepo {
     Ok(())
   }
 
-  /// Create a commit in the bare remote (requires with_remote()).
-  /// Uses a temporary git clone of the remote to make the commit and push,
-  /// so the local repo is never modified.
+  /// Create a commit in the bare remote (requires with_remote()). Commits directly
+  /// into the bare remote's object database via gix (see gix_commit_file_on_ref);
+  /// the local repo is never touched.
   pub fn remote_commit_file(
     &self,
     relative_path: &str,
     content: &str,
     message: &str,
   ) -> Result<(), String> {
-    let remote_fixture_dir = self.remote_fixture_dir();
-    let remote_path = self.remote_path();
-    // Use a unique path per call and let TestRepo's TempDir clean up at drop.
-    // Eager `remove_dir_all` after `git push` races git's pack/index locks (ENOTEMPTY).
-    let clone_path = unique_remote_clone_path(&remote_fixture_dir, "remote_clone");
-
-    // Clone the bare remote into a temporary working copy
-    Self::run_git(
-      &remote_fixture_dir.to_string_lossy(),
-      &[
-        "clone",
-        remote_path.to_str().unwrap(),
-        clone_path.to_str().unwrap(),
-      ],
-    )?;
-
-    let clone_path_str = clone_path.to_string_lossy().to_string();
-
-    // Configure git user in the clone
-    Self::run_git(
-      &clone_path_str,
-      &["config", "user.email", "test@example.com"],
-    )?;
-    Self::run_git(&clone_path_str, &["config", "user.name", "Test User"])?;
-
-    let default_branch = self.default_branch();
-    if let Err(local_checkout_err) = Self::run_git(&clone_path_str, &["checkout", default_branch]) {
-      let remote_ref = format!("origin/{default_branch}");
-      Self::run_git(
-                &clone_path_str,
-                &["checkout", "-b", default_branch, &remote_ref],
-            )
-            .map_err(|remote_checkout_err| {
-                format!(
-                    "Failed to checkout default branch '{}' in remote clone. Local checkout error: {} Fallback checkout from '{}' error: {}",
-                    default_branch, local_checkout_err, remote_ref, remote_checkout_err
-                )
-            })?;
-    }
-
-    // Write file, commit, and push from the clone
-    let file_path = clone_path.join(relative_path);
-    if let Some(parent) = file_path.parent() {
-      fs::create_dir_all(parent).map_err(|e| format!("Failed to create parent dirs: {}", e))?;
-    }
-    fs::write(&file_path, content)
-      .map_err(|e| format!("Failed to write file in remote clone: {}", e))?;
-
-    Self::run_git(&clone_path_str, &["add", relative_path])?;
-    Self::run_git(&clone_path_str, &["commit", "-m", message])?;
-    Self::run_git(&clone_path_str, &["push", "origin", self.default_branch()])?;
-
-    Ok(())
+    Self::gix_commit_file_on_ref(
+      &self.remote_path().to_string_lossy(),
+      self.default_branch(),
+      relative_path,
+      content,
+      message,
+    )
   }
 
   /// Push a branch to remote (requires with_remote()).
@@ -703,8 +975,10 @@ impl TestRepo {
   }
 
   /// Create a commit on a specific branch in the bare remote (requires with_remote()).
-  /// Clones the remote to a temp dir, checks out the given branch, commits, and pushes back.
-  /// The local repo is never modified — use jj_git_fetch after this to see the new remote commit.
+  /// Commits directly into the bare remote's object database via gix, based on the
+  /// branch's current tip if it exists there already (or as a root commit otherwise).
+  /// The local repo is never modified — use jj_git_fetch after this to see the new
+  /// remote commit.
   pub fn remote_commit_on_branch(
     &self,
     branch_name: &str,
@@ -712,63 +986,13 @@ impl TestRepo {
     content: &str,
     message: &str,
   ) -> Result<(), String> {
-    let remote_fixture_dir = self.remote_fixture_dir();
-    let remote_path = self.remote_path();
-    // Use a unique path per call and let TestRepo's TempDir clean up at drop.
-    // Eager `remove_dir_all` after `git push` races git's pack/index locks (ENOTEMPTY).
-    let clone_path = unique_remote_clone_path(&remote_fixture_dir, "remote_clone_branch");
-
-    // Clone the bare remote into a temporary working copy
-    Self::run_git(
-      &remote_fixture_dir.to_string_lossy(),
-      &[
-        "clone",
-        remote_path.to_str().unwrap(),
-        clone_path.to_str().unwrap(),
-      ],
+    Self::gix_commit_file_on_ref(
+      &self.remote_path().to_string_lossy(),
+      branch_name,
+      relative_path,
+      content,
+      message,
     )
-    .expect("Failed to clone remote");
-
-    let clone_path_str = clone_path.to_string_lossy().to_string();
-
-    // Configure git user in the clone
-    Self::run_git(
-      &clone_path_str,
-      &["config", "user.email", "test@example.com"],
-    )
-    .expect("Failed to configure git user email");
-    Self::run_git(&clone_path_str, &["config", "user.name", "Test User"])
-      .expect("Failed to configure git user name");
-
-    // Checkout the target branch. In a fresh clone the branch may exist only as
-    // origin/<branch>, so fall back to creating a local branch from that ref.
-    if let Err(local_checkout_err) = Self::run_git(&clone_path_str, &["checkout", branch_name]) {
-      let remote_ref = format!("origin/{}", branch_name);
-      if let Err(remote_checkout_err) = Self::run_git(
-        &clone_path_str,
-        &["checkout", "-b", branch_name, &remote_ref],
-      ) {
-        return Err(format!(
-                    "Failed to checkout branch '{}' in remote clone. Local checkout error: {} Fallback checkout from '{}' error: {}",
-                    branch_name, local_checkout_err, remote_ref, remote_checkout_err
-                ));
-      }
-    }
-
-    // Write file, commit, and push from the clone
-    let file_path = clone_path.join(relative_path);
-    if let Some(parent) = file_path.parent() {
-      fs::create_dir_all(parent).map_err(|e| format!("Failed to create parent dirs: {}", e))?;
-    }
-    fs::write(&file_path, content)
-      .map_err(|e| format!("Failed to write file in remote clone: {}", e))
-      .expect("Failed to write file");
-
-    Self::run_git(&clone_path_str, &["add", relative_path]).expect("Failed to add file");
-    Self::run_git(&clone_path_str, &["commit", "-m", message]).expect("Failed to commit");
-    Self::run_git(&clone_path_str, &["push", "origin", branch_name]).expect("Failed to push");
-
-    Ok(())
   }
 
   /// Merge a target branch into another branch in a clone of the bare remote,
@@ -893,299 +1117,64 @@ pub struct JjVerifier;
 
 #[allow(dead_code)]
 impl JjVerifier {
-  /// Get the jj binary path, using treq's binary detection (same as jj.rs internals).
-  fn jj_binary() -> String {
-    treq_lib::binary_paths::detect_binary("jj").unwrap_or_else(|| "jj".to_string())
-  }
-
-  /// Get list of jj workspaces via `jj workspace list`
+  /// Get list of jj workspaces, including `default` (equivalent to `jj workspace list`,
+  /// name column only). Not `list_jj_workspaces`, which filters `default` out for
+  /// product purposes — tests here check the raw jj-level workspace count/membership.
   pub fn list_workspaces(repo_path: &str) -> Result<Vec<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(repo_path)
-      .args(["workspace", "list"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj workspace list: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj workspace list failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let workspaces: Vec<String> = stdout
-      .lines()
-      .filter_map(|line| {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-          return None;
-        }
-        // Format: "workspace_name: commit_id description"
-        trimmed.split(':').next().map(|s| s.trim().to_string())
-      })
-      .collect();
-
-    Ok(workspaces)
+    treq_lib::jj::list_all_workspace_names(repo_path).map_err(|e| e.to_string())
   }
 
-  /// Get jj log output for a workspace
-  pub fn get_log(workspace_path: &str, limit: usize) -> Result<String, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["log", "-n", &limit.to_string(), "--no-graph"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj log failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+  /// Get (description, commit id) pairs for the last `limit` commits in `@`'s
+  /// ancestry (equivalent to `jj log -n <limit> --no-graph`, minus jj's own
+  /// graph/bookmark/`(empty)` decorations — see jj_log_entries for those).
+  pub fn get_log(workspace_path: &str, limit: usize) -> Result<Vec<(String, String)>, String> {
+    TestRepo::jj_log_descriptions(workspace_path, "::@", Some(limit))
   }
 
-  /// Resolve a revset to a single commit id.
+  /// Resolve a revset to a single commit id, or `None` if it doesn't resolve.
   pub fn get_commit_id_for_rev(workspace_path: &str, rev: &str) -> Result<Option<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["log", "-r", rev, "-n", "1", "--no-graph", "-T", "commit_id"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Ok(None);
-    }
-
-    let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if id.is_empty() {
-      Ok(None)
-    } else {
-      Ok(Some(id))
-    }
+    TestRepo::import_git_refs_best_effort(workspace_path);
+    Ok(treq_lib::jj::jj_get_commit_id(workspace_path, rev).ok())
   }
 
-  /// Get jj log output for a workspace
+  /// Get the description of `@-` (equivalent to
+  /// `jj log -n 1 --no-graph -r @- -T description`).
   pub fn get_log_previous_commit(workspace_path: &str) -> Result<String, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["log", "-n", "1", "--no-graph", "-r", "@-"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj log failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-  }
-  /// Get current bookmark (branch) for a workspace
-  pub fn get_current_bookmark(workspace_path: &str) -> Result<Option<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["bookmark", "list", "--all"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj bookmark list: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj bookmark list failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // Find bookmark pointing to @ (current working copy)
-    for line in stdout.lines() {
-      if line.contains("@") && !line.contains("@origin") {
-        // Extract bookmark name (first word before colon)
-        if let Some(name) = line.split(':').next() {
-          let name = name.trim().trim_start_matches('*').trim();
-          if !name.is_empty() {
-            return Ok(Some(name.to_string()));
-          }
-        }
-      }
-    }
-
-    Ok(None)
+    treq_lib::jj::jj_get_commit_description(workspace_path, "@-").map_err(|e| e.to_string())
   }
 
-  /// Get list of all bookmarks in workspace
+  /// Get list of all local bookmarks in the repo (equivalent to
+  /// `jj bookmark list --all`, local names only).
   pub fn list_bookmarks(repo_path: &str) -> Result<Vec<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(repo_path)
-      .args(["bookmark", "list", "--all"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj bookmark list: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj bookmark list failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let bookmarks: Vec<String> = stdout
-      .lines()
-      .filter_map(|line| {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-          return None;
-        }
-        // Extract bookmark name (before colon, strip leading *)
-        trimmed
-          .split(':')
-          .next()
-          .map(|s| s.trim().trim_start_matches('*').trim().to_string())
-      })
-      .filter(|s| !s.is_empty() && !s.contains('@'))
-      .collect();
-
-    Ok(bookmarks)
+    TestRepo::import_git_refs_best_effort(repo_path);
+    Ok(
+      treq_lib::jj::get_branches(repo_path)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|b| b.name)
+        .collect(),
+    )
   }
 
   /// Return the commit id the bookmark currently points to, or None if the bookmark doesn't resolve.
   pub fn get_bookmark_commit_id(repo_path: &str, bookmark: &str) -> Result<Option<String>, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(repo_path)
-      .args([
-        "log",
-        "-r",
-        bookmark,
-        "-n",
-        "1",
-        "--no-graph",
-        "-T",
-        "commit_id",
-      ])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Ok(None);
-    }
-
-    let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if id.is_empty() {
-      Ok(None)
-    } else {
-      Ok(Some(id))
-    }
+    TestRepo::import_git_refs_best_effort(repo_path);
+    Ok(treq_lib::jj::jj_get_commit_id(repo_path, bookmark).ok())
   }
 
-  /// Check if jj working copy has changes (is dirty)
+  /// Check if jj working copy has changes (is dirty).
   pub fn has_changes(workspace_path: &str) -> Result<bool, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["diff", "--stat"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj diff: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj diff failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(!stdout.trim().is_empty())
+    Ok(!treq_lib::jj::jj_is_working_copy_empty(workspace_path).map_err(|e| e.to_string())?)
   }
 
-  /// Get jj status output
+  /// Snapshot the working copy and confirm it produced a commit (equivalent to
+  /// checking `jj status` returned non-empty output).
   pub fn get_status(workspace_path: &str) -> Result<String, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["status"])
-      .output()
-      .map_err(|e| format!("Failed to execute jj status: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj status failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    TestRepo::jj_snapshot(workspace_path)
   }
 
   /// Check if a file exists in the jj working copy
   pub fn file_exists_in_workspace(workspace_path: &str, file_path: &str) -> bool {
     Path::new(workspace_path).join(file_path).exists()
-  }
-
-  /// Get the parent commit of the current working copy
-  pub fn get_parent_info(workspace_path: &str) -> Result<String, String> {
-    let output = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args([
-        "log",
-        "-r",
-        "@-",
-        "-n",
-        "1",
-        "--no-graph",
-        "-T",
-        "description",
-      ])
-      .output()
-      .map_err(|e| format!("Failed to execute jj log: {}", e))?;
-
-    if !output.status.success() {
-      return Err(format!(
-        "jj log failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-      ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-  }
-
-  /// Verify workspace is properly initialized
-  /// jj workspaces may have different structure than git worktrees
-  pub fn verify_workspace_structure(workspace_path: &str) -> Result<(), String> {
-    let path = Path::new(workspace_path);
-
-    // Check workspace directory exists
-    if !path.exists() {
-      return Err(format!("Workspace directory not found: {}", workspace_path));
-    }
-
-    if !path.is_dir() {
-      return Err(format!(
-        "Workspace path is not a directory: {}",
-        workspace_path
-      ));
-    }
-
-    // jj workspaces might have .git file/dir or be jj-native
-    // Check for either .git or verify jj recognizes this as a workspace
-    let git_path = path.join(".git");
-    let has_git = git_path.exists();
-
-    // Try running jj status to verify it's a valid jj workspace
-    let jj_works = Command::new(Self::jj_binary())
-      .current_dir(workspace_path)
-      .args(["status"])
-      .output()
-      .map(|o| o.status.success())
-      .unwrap_or(false);
-
-    if !has_git && !jj_works {
-      return Err(format!(
-        "Workspace is not a valid git/jj workspace: {}",
-        workspace_path
-      ));
-    }
-
-    Ok(())
   }
 }
