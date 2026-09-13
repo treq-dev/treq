@@ -292,13 +292,6 @@ pub fn run() {
       .plugin(tauri_plugin_opener::init())
       .plugin(tauri_plugin_dialog::init())
       .plugin(tauri_plugin_deep_link::init());
-    // Device-key storage for the mobile connectivity flow (mobile PRD,
-    // Phase 2) - both plugins are `#[cfg(mobile)]`-gated upstream and have
-    // no desktop implementation worth shipping, see `core::remote_device_key`.
-    #[cfg(mobile)]
-    let builder = builder
-      .plugin(tauri_plugin_keystore::init())
-      .plugin(tauri_plugin_biometric::init());
     builder
   };
   builder
@@ -886,7 +879,6 @@ pub fn run() {
             commands::read_local_ssh_public_key,
             commands::resolve_ssh_config_alias,
             commands::build_explicit_alias_ssh_endpoint,
-            commands::ensure_mobile_device_key,
             commands::remote_dispatch_local,
             commands::remote_dispatch_over_ssh,
             commands::remote_probe_repo_over_ssh,

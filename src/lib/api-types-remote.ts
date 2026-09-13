@@ -23,16 +23,6 @@ export interface ResolvedSshAlias {
   identity_file: string | null;
 }
 
-/**
- * A device-generated ed25519 keypair used to register this mobile device
- * with the control plane (see `core::remote_device_key`). Only public
- * material ever crosses the Tauri IPC boundary.
- */
-export interface DeviceKeyInfo {
-  public_key: string;
-  fingerprint_sha256: string;
-}
-
 export interface RemoteReadinessCheck {
   name: string;
   available: boolean;
