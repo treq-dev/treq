@@ -118,14 +118,35 @@ opposed to managed-instance) path.
   expected gap, not a bug in this app's own code). Building the actual
   per-ABI `libtreq_mobile_ssh.so` files (via `cargo ndk`) for a real device
   to load at runtime is also not done.
-- The control-plane client (`controlPlane.ts`, `authStore.ts`,
-  `certRenewal.ts`) against a live Supabase stack: still mocked-client-only
-  in this sandbox, since bringing up the local Supabase CLI stack needs a
-  reachable Docker daemon, and this sandbox's Docker socket isn't
-  reachable (`docker info` fails). Not a design gap, an environment one -
-  see `scripts/service-qa/up.sh` for what a real attempt looks like
-  elsewhere.
 - Real device/simulator execution of anything above.
+
+## Control-plane client against a live Supabase stack
+
+`controlPlane.ts`'s request/response contract (`list_regions`, `list_sizes`,
+`ensure`, `status`, `wake`, `register_client_key`, `issue_certificate`,
+including silent renewal via `renewal: true`) is now exercised against a
+real local Supabase CLI stack, not just the mocked client Jest uses -
+`scripts/service-qa/specs/mobile-control-plane.spec.ts`
+(`npm run service-qa:up && npm run service-qa`), following the same
+pattern as `desktop-token-exchange.spec.ts`. `scripts/service-qa/up.sh`
+now sets `REMOTE_SPRITES_STUB=1` (exercises `remote-instance` without a
+real Fly account) and a throwaway local `REMOTE_SSH_CA_ED25519_*` keypair
+(exercises `remote-ssh-trust` certificate issuance without the production
+CA key).
+
+Running this for the first time surfaced a real, pre-existing contract bug
+that no mocked test had caught: `remote-instance`'s `status`/`ensure`/
+`wake`/`reprovision` responses serialized the raw `remote_instances` DB row
+(primary key column `id`) directly, but both clients' types
+(`ManagedInstanceRecord` in `src-tauri/src/core/remote_provider.rs` and in
+`src/lib/api-types-remote.ts`) declare that field as `instance_id` - so
+`getInstanceStatus()`/`ensureInstance()` would read an empty/undefined
+instance id on both desktop and mobile the moment either stopped hand-
+constructing fixtures and hit the real function. Fixed in
+`supabase/functions/remote-instance/index.ts` via a `serializeInstance`
+helper that renames `id` -> `instance_id` on every instance-bearing
+response, verified by the new spec's assertions on `ensure`'s and
+`status`'s actual field names (not just their presence).
 
 ## Building the Rust side
 
