@@ -1,7 +1,7 @@
 /* eslint-disable max-lines */
 
 import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
+import { Slot } from "./slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeft } from "lucide-react";
 
@@ -122,7 +122,7 @@ const SidebarProvider = ({
 
   return (
     <SidebarContext.Provider value={contextValue}>
-      <TooltipProvider delayDuration={0}>
+      <TooltipProvider delay={0}>
         <div
           style={
             {

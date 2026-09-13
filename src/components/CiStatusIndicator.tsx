@@ -32,7 +32,7 @@ export function CiStatusButton({ ciStatus }: { ciStatus: PrCiStatus }) {
 
   return (
     <Popover>
-      <TooltipProvider delayDuration={200}>
+      <TooltipProvider delay={200}>
         <Tooltip>
           <PopoverTrigger asChild>
             <TooltipTrigger asChild>

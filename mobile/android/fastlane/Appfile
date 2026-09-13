@@ -1,0 +1,2 @@
+json_key_file(ENV["TREQ_PLAY_STORE_JSON_KEY_PATH"])
+package_name("com.treq.mobile")

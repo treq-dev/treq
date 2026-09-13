@@ -31,7 +31,7 @@ pub fn get_extended_path() -> String {
   }
 
   // Common binary locations to add
-  let additional_paths = vec![
+  let additional_paths = [
     "/opt/homebrew/bin", // macOS ARM Homebrew
     "/usr/local/bin",    // macOS Intel Homebrew, common
     "~/.cargo/bin",      // Rust tools

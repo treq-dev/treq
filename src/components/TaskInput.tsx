@@ -92,7 +92,8 @@ export const TaskInput: React.FC<TaskInputProps> = ({
       if (
         repoAgent === "claude" ||
         repoAgent === "codex" ||
-        repoAgent === "cursor"
+        repoAgent === "cursor" ||
+        repoAgent === "copilot"
       ) {
         return { agent: repoAgent, fromRepo: true as const };
       }
@@ -100,14 +101,15 @@ export const TaskInput: React.FC<TaskInputProps> = ({
       const agent =
         globalAgent === "claude" ||
         globalAgent === "codex" ||
-        globalAgent === "cursor"
+        globalAgent === "cursor" ||
+        globalAgent === "copilot"
           ? globalAgent
           : ("claude" as const);
       return { agent, fromRepo: false as const };
     },
   );
   const [agentOverride, setAgentOverride] = useState<
-    "claude" | "codex" | "cursor" | null
+    "claude" | "codex" | "cursor" | "copilot" | null
   >(null);
   const selectedAgent: AgentType =
     agentOverride ?? agentSettings?.agent ?? "claude";

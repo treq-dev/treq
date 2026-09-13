@@ -3,6 +3,7 @@ use crate::core::skills::{
   persist_app_index_setting, read_bytes_from_locator, InstalledSkill, SkillCatalogEntry,
   SkillCatalogView, SkillInstallScope,
 };
+use crate::lock_ext::LockExt;
 use crate::AppState;
 use tauri::State;
 
@@ -98,7 +99,7 @@ pub async fn install_skill(
     .ok_or_else(|| format!("Skill '{skill_id}' was not found in the catalog"))?;
   let files = download_skill_files(&entry).await?;
   let installed = install_skill_files(&entry, &files, scope, repo_path.as_deref())?;
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   persist_app_index_setting(&db)?;
   Ok(installed)
 }
@@ -114,7 +115,7 @@ pub fn uninstall_skill(
     crate::core::feature_preview::PreviewFeature::SkillsInstallation,
   )?;
   crate::core::skills::uninstall_skill(&skill_id, repo_path.as_deref())?;
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   persist_app_index_setting(&db)?;
   Ok(())
 }
@@ -132,7 +133,7 @@ pub fn set_skill_install_scope(
   )?;
   let installed =
     crate::core::skills::set_skill_install_scope(&skill_id, scope, repo_path.as_deref())?;
-  let db = state.db.lock().unwrap();
+  let db = state.db.lock_or_recover();
   persist_app_index_setting(&db)?;
   Ok(installed)
 }

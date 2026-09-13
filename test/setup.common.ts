@@ -233,10 +233,6 @@ vi.mock(
   async () => await import("./mocks/popover"),
 );
 vi.mock("cmdk", async () => await import("./mocks/cmdk"));
-vi.mock(
-  "@radix-ui/react-dialog",
-  async () => await import("./mocks/radix-dialog"),
-);
 
 vi.mock("react-virtuoso", async () => {
   const React = await import("react");

@@ -13,6 +13,7 @@ pub mod github;
 pub mod jj;
 pub mod linear;
 pub mod local_db;
+pub mod lock_ext;
 mod open_new_window;
 pub mod pr_status;
 pub mod pty;
@@ -291,17 +292,29 @@ pub fn run() {
       .plugin(tauri_plugin_opener::init())
       .plugin(tauri_plugin_dialog::init())
       .plugin(tauri_plugin_deep_link::init());
-    // Device-key storage for the mobile connectivity flow (mobile PRD,
-    // Phase 2) - both plugins are `#[cfg(mobile)]`-gated upstream and have
-    // no desktop implementation worth shipping, see `core::remote_device_key`.
-    #[cfg(mobile)]
-    let builder = builder
-      .plugin(tauri_plugin_keystore::init())
-      .plugin(tauri_plugin_biometric::init());
     builder
   };
   builder
         .plugin(tauri_plugin_cli::init())
+        .on_window_event(|window, event| {
+            // Fires once, after the window is actually gone (not on a
+            // cancellable close request), for every window this app opens —
+            // "main" and any later "Open in New Window" targets alike — so
+            // this is the one place that reliably closes a window's own
+            // terminals without touching another window's, regardless of
+            // which UI path (dashboard unmount, native "Close Window", the
+            // OS window-close button) tore it down.
+            if let tauri::WindowEvent::Destroyed = event {
+                let label = window.label().to_string();
+                let app_handle = window.app_handle().clone();
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.pty_manager.close_all_for_window(&label);
+                }
+                if let Some(state) = app_handle.try_state::<commands::remote_pty_commands::RemotePtyState>() {
+                    tauri::async_runtime::block_on(state.0.close_all_for_window(&label));
+                }
+            }
+        })
         .setup(move |app| {
             // CLI commands must not touch the GUI app's log directory: agent sandboxes may
             // intentionally deny access to it. GUI processes retain the existing telemetry.
@@ -866,7 +879,6 @@ pub fn run() {
             commands::read_local_ssh_public_key,
             commands::resolve_ssh_config_alias,
             commands::build_explicit_alias_ssh_endpoint,
-            commands::ensure_mobile_device_key,
             commands::remote_dispatch_local,
             commands::remote_dispatch_over_ssh,
             commands::remote_probe_repo_over_ssh,
@@ -937,8 +949,27 @@ pub fn run() {
             commands::list_agent_chats,
             commands::get_agent_chat,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Local and remote PTY children (and their reader threads) are
+            // otherwise only closed by an explicit `pty_close`/`remote_pty_close`
+            // call from the frontend. Neither happens when a window is closed
+            // via dashboard teardown or the native "Close Window" menu, so
+            // without this the PTY processes and reader threads outlive the
+            // window (and, on platforms that keep the app running with no
+            // windows open, outlive it indefinitely). `Exit` fires once, after
+            // every window has closed or `app.exit()` was called, so this is
+            // the one place that's safe to tear every session down at once.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.pty_manager.close_all();
+                }
+                if let Some(state) = app_handle.try_state::<commands::remote_pty_commands::RemotePtyState>() {
+                    tauri::async_runtime::block_on(state.0.close_all());
+                }
+            }
+        });
 }
 
 #[cfg(test)]

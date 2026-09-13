@@ -29,7 +29,12 @@ interface RemoteCutoffState {
   /** endpoint id -> why it was cut off. Absence means not cut off. */
   cutoffs: Record<string, CutoffReason>;
   unlisten: UnlistenFn | null;
-  /** Starts listening for `remote://cutoff` events. Idempotent. */
+  /** In-flight `listen()` call, if any, so concurrent `startListening`
+   * callers await the same registration instead of each registering their
+   * own listener. */
+  starting: Promise<void> | null;
+  /** Starts listening for `remote://cutoff` events. Idempotent, including
+   * against concurrent callers. */
   startListening: () => Promise<void>;
   stopListening: () => void;
   /** Records a cutoff without waiting for the event (e.g. right after
@@ -41,39 +46,53 @@ interface RemoteCutoffState {
   clearCutoff: (endpointId: string) => Promise<void>;
 }
 
-export const useRemoteCutoffStore = create<RemoteCutoffState>((set, get) => ({
-  cutoffs: {},
-  unlisten: null,
-  startListening: async () => {
-    if (get().unlisten) return;
+export const useRemoteCutoffStore = create<RemoteCutoffState>((set, get) => {
+  const handleCutoffEvent = (event: { payload: RemoteCutoffEventPayload }) => {
+    set((state) => ({
+      cutoffs: {
+        ...state.cutoffs,
+        [event.payload.endpoint_id]: event.payload.reason,
+      },
+    }));
+  };
+
+  const registerListener = async () => {
     const unlisten = await listen<RemoteCutoffEventPayload>(
       REMOTE_CUTOFF_EVENT,
-      (event) => {
-        set((state) => ({
-          cutoffs: {
-            ...state.cutoffs,
-            [event.payload.endpoint_id]: event.payload.reason,
-          },
-        }));
-      },
+      handleCutoffEvent,
     );
-    set({ unlisten });
-  },
-  stopListening: () => {
-    get().unlisten?.();
-    set({ unlisten: null });
-  },
-  recordCutoff: (endpointId, reason) => {
-    set((state) => ({
-      cutoffs: { ...state.cutoffs, [endpointId]: reason },
-    }));
-  },
-  clearCutoff: async (endpointId) => {
-    await remoteClearCutoff(endpointId);
-    set((state) => {
-      const next = { ...state.cutoffs };
-      delete next[endpointId];
-      return { cutoffs: next };
-    });
-  },
-}));
+    set({ unlisten, starting: null });
+  };
+
+  return {
+    cutoffs: {},
+    unlisten: null,
+    starting: null,
+    startListening: async () => {
+      if (get().unlisten) return;
+      const inFlight = get().starting;
+      if (inFlight) return inFlight;
+
+      const registration = registerListener();
+      set({ starting: registration });
+      return registration;
+    },
+    stopListening: () => {
+      get().unlisten?.();
+      set({ unlisten: null, starting: null });
+    },
+    recordCutoff: (endpointId, reason) => {
+      set((state) => ({
+        cutoffs: { ...state.cutoffs, [endpointId]: reason },
+      }));
+    },
+    clearCutoff: async (endpointId) => {
+      await remoteClearCutoff(endpointId);
+      set((state) => {
+        const next = { ...state.cutoffs };
+        delete next[endpointId];
+        return { cutoffs: next };
+      });
+    },
+  };
+});

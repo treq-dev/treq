@@ -33,10 +33,26 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
   }
 }
 
-fn with_working_copy_lock<T>(f: impl FnOnce() -> T) -> T {
-  static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-  let _guard = LOCK
-    .get_or_init(|| std::sync::Mutex::new(()))
+/// Serializes working-copy mutations for a single workspace, keyed by
+/// `workspace_path`, without blocking unrelated workspaces on each other.
+fn with_working_copy_lock<T>(workspace_path: &str, f: impl FnOnce() -> T) -> T {
+  use std::collections::HashMap;
+  use std::sync::{Arc, Mutex, OnceLock};
+
+  static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+  let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+
+  let workspace_lock = {
+    let mut map = locks
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map
+      .entry(workspace_path.to_string())
+      .or_insert_with(|| Arc::new(Mutex::new(())))
+      .clone()
+  };
+
+  let _guard = workspace_lock
     .lock()
     .unwrap_or_else(|poisoned| poisoned.into_inner());
   f()
@@ -339,7 +355,9 @@ fn snapshot_loaded_working_copy(
   loaded: &mut LoadedWorkspaceRepo,
   workspace_path: &str,
 ) -> Result<(), JjError> {
-  with_working_copy_lock(|| snapshot_loaded_working_copy_inner(loaded, workspace_path))
+  with_working_copy_lock(workspace_path, || {
+    snapshot_loaded_working_copy_inner(loaded, workspace_path)
+  })
 }
 
 fn snapshot_loaded_working_copy_inner(
@@ -700,9 +718,8 @@ fn build_log_commit(
   let bookmarks: Vec<String> = repo
     .view()
     .local_bookmarks_for_commit(commit.id())
-    .filter_map(|(name, target)| {
-      (target.as_normal() == Some(commit.id())).then(|| name.as_str().to_string())
-    })
+    .filter(|&(_, target)| target.as_normal() == Some(commit.id()))
+    .map(|(name, _)| name.as_str().to_string())
     .collect();
   let is_immutable_val = is_immutable(commit.id()).unwrap_or(false);
   let has_conflicts = tree_override
@@ -1280,8 +1297,7 @@ pub fn ensure_jj_initialized(db: &crate::db::Database, repo_path: &str) -> Resul
 /// Sanitize workspace name for filesystem use
 pub fn sanitize_workspace_name(name: &str) -> String {
   name
-    .replace('/', "-")
-    .replace('\\', "-")
+    .replace(['/', '\\'], "-")
     .replace(['*', '?', '<', '>', '|', '"', ':'], "_")
     .trim_matches('.')
     .trim()
@@ -1599,8 +1615,11 @@ pub fn create_workspace(
 
   let mut tx = new_repo.start_transaction();
 
-  let parent_tree = block_on(merge_commit_trees(tx.repo(), &[source_commit.clone()]))
-    .map_err(|e| JjError::GitWorkspaceError(format!("Failed to merge trees: {}", e)))?;
+  let parent_tree = block_on(merge_commit_trees(
+    tx.repo(),
+    std::slice::from_ref(&source_commit),
+  ))
+  .map_err(|e| JjError::GitWorkspaceError(format!("Failed to merge trees: {}", e)))?;
 
   // Create new wc commit on top of source_commit (empty, inherits source tree)
   let new_wc = block_on(
@@ -2241,9 +2260,8 @@ fn branch_name_for_workspace_commit(
   let exact_bookmarks: Vec<String> = repo
     .view()
     .local_bookmarks_for_commit(wc_commit.id())
-    .filter_map(|(name, target)| {
-      (target.as_normal() == Some(wc_commit.id())).then(|| name.as_str().to_string())
-    })
+    .filter(|&(_, target)| target.as_normal() == Some(wc_commit.id()))
+    .map(|(name, _)| name.as_str().to_string())
     .collect();
   if let Some(name) = exact_bookmarks
     .iter()
@@ -2271,9 +2289,8 @@ fn branch_name_for_workspace_commit(
       repo
         .view()
         .local_bookmarks_for_commit(parent_id)
-        .filter_map(move |(name, target)| {
-          (target.as_normal() == Some(parent_id)).then(|| name.as_str().to_string())
-        })
+        .filter(move |&(_, target)| target.as_normal() == Some(parent_id))
+        .map(|(name, _)| name.as_str().to_string())
     })
     .collect();
   if let Some(name) = parent_bookmarks
@@ -3325,7 +3342,7 @@ pub fn reconcile_all_workspaces_after_rewrite(
     .to_string_lossy()
     .into_owned();
 
-  for (workspace_name, _wc_commit_id) in repo.view().wc_commit_ids() {
+  for workspace_name in repo.view().wc_commit_ids().keys() {
     let ws_name_str = workspace_name.as_str();
 
     // Skip the workspace whose checkout was already handled by the caller.
@@ -3465,7 +3482,7 @@ pub fn jj_get_changed_files(workspace_path: &str) -> Result<Vec<JjFileChange>, J
     Ok(s) => s,
     Err(_) => return Ok(Vec::new()),
   };
-  with_working_copy_lock(|| {
+  with_working_copy_lock(workspace_path, || {
     let mut workspace = match Workspace::load(
       &settings,
       path,
@@ -4684,7 +4701,7 @@ pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError>
         .as_normal()
         .cloned();
       let wc_only_parent_root =
-        wc_pre.parent_ids().len() == 1 && wc_pre.parent_ids().first() == Some(&root_id);
+        wc_pre.parent_ids().len() == 1 && wc_pre.parent_ids().first() == Some(root_id);
       if wc_only_parent_root {
         if let Some(branch_tip_id) = branch_bookmark_target {
           if branch_tip_id != *wc_pre.id() {
@@ -4753,9 +4770,8 @@ pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError>
     .repo()
     .view()
     .local_bookmarks_for_commit(wc_commit.id())
-    .filter_map(|(name, target)| {
-      (target.as_normal() == Some(wc_commit.id())).then(|| name.to_owned())
-    })
+    .filter(|&(_, target)| target.as_normal() == Some(wc_commit.id()))
+    .map(|(name, _)| name.to_owned())
     .collect::<Vec<_>>();
 
   if repo_path_opt.is_none()
@@ -4932,13 +4948,44 @@ fn set_git_head_branch_with_gix(repo_path: &str, branch: &str) -> Result<(), Str
   Ok(())
 }
 
-/// Reattach a detached colocated Git HEAD when it still points at the default branch tip.
+/// Finds the single local branch (refs/heads/*) whose tip commit matches `commit_hex`.
+///
+/// Returns `None` when no local branch matches, or when more than one does (an ambiguous
+/// match is left alone rather than guessed at).
+fn find_unambiguous_local_branch_at_commit(repo_path: &str, commit_hex: &str) -> Option<String> {
+  let repo = gix::open(repo_path).ok()?;
+  let platform = repo.references().ok()?;
+  let mut matches = platform
+    .prefixed("refs/heads/")
+    .ok()?
+    .filter_map(Result::ok)
+    .filter_map(|mut r| {
+      let id = r.peel_to_id().ok()?;
+      if id.to_hex().to_string() != commit_hex {
+        return None;
+      }
+      r.name()
+        .as_bstr()
+        .to_string()
+        .strip_prefix("refs/heads/")
+        .map(|s| s.to_string())
+    });
+  let first = matches.next()?;
+  if matches.next().is_some() {
+    return None;
+  }
+  Some(first)
+}
+
+/// Reattach a detached colocated Git HEAD when it still points at a local branch tip.
 ///
 /// jj history rewrites and ref export can leave Git's HEAD direct even though the checkout
-/// is still exactly on the default branch. In that state the UI displays a commit hash and
-/// subsequent workspace creation can import the detached HEAD as a separate line of history.
-/// A genuinely detached checkout is preserved unless its commit exactly matches the default
-/// branch ref.
+/// is still exactly on a branch (the default branch, or the branch that was checked out
+/// before an operation like commit-and-push detached HEAD at its own tip). In that state the
+/// UI displays a commit hash and subsequent workspace creation can import the detached HEAD as
+/// a separate line of history. A genuinely detached checkout is preserved unless its commit
+/// unambiguously matches exactly one local branch, preferring the default branch when it
+/// matches.
 pub fn repair_detached_home_head_at_default_branch(
   repo_path: &str,
 ) -> Result<Option<String>, JjError> {
@@ -4949,16 +4996,24 @@ pub fn repair_detached_home_head_at_default_branch(
   let head_path = Path::new(repo_path).join(".git").join("HEAD");
   let detached_commit = fs::read_to_string(head_path)
     .map_err(|e| JjError::IoError(format!("Failed to read detached Git HEAD: {e}")))?;
+  let detached_commit = detached_commit.trim();
+
   let default_branch = get_default_branch(repo_path)?;
-  let Some(default_tip) = git_local_branch_commit_hex(repo_path, &default_branch) else {
+  let matches_default = git_local_branch_commit_hex(repo_path, &default_branch)
+    .is_some_and(|tip| tip == detached_commit);
+
+  let branch = if matches_default {
+    Some(default_branch)
+  } else {
+    find_unambiguous_local_branch_at_commit(repo_path, detached_commit)
+  };
+
+  let Some(branch) = branch else {
     return Ok(None);
   };
-  if detached_commit.trim() != default_tip {
-    return Ok(None);
-  }
 
-  set_git_head_branch_with_gix(repo_path, &default_branch).map_err(JjError::IoError)?;
-  Ok(Some(default_branch))
+  set_git_head_branch_with_gix(repo_path, &branch).map_err(JjError::IoError)?;
+  Ok(Some(branch))
 }
 
 fn reset_git_index_to_head_with_gix(repo_path: &str) -> Result<(), String> {
@@ -4980,7 +5035,7 @@ fn reset_git_index_to_head_with_gix(repo_path: &str) -> Result<(), String> {
 pub fn resolve_home_repo_branch(repo_path: &str) -> Result<String, JjError> {
   let git_branch = read_git_head_branch(repo_path)
     .map_err(|e| JjError::IoError(format!("Failed to determine branch: {}", e)))?;
-  return Ok(git_branch);
+  Ok(git_branch)
 }
 
 /// Split selected files from working copy into a new parent commit
@@ -5866,7 +5921,7 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
   let remote_ref = tx.repo().view().get_remote_bookmark(remote_symbol);
   let update = match classify_ref_push_action(LocalAndRemoteRef {
     local_target: &local_target,
-    remote_ref: &remote_ref,
+    remote_ref,
   }) {
     RefPushAction::Update(update) => Some(update),
     RefPushAction::AlreadyMatches => None,
@@ -5893,7 +5948,7 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
     let _ = git::push_refs(
       tx.repo_mut(),
       git_settings.to_subprocess_options(),
-      &RemoteName::new("origin"),
+      RemoteName::new("origin"),
       &targets,
       &mut callback,
       &git::GitPushOptions::default(),
@@ -6634,9 +6689,7 @@ pub fn jj_get_log(
       .map(|(commit_id, tree)| (commit_id, tree)),
     &is_immutable,
   );
-  let tentative_working_copy = if is_home {
-    None
-  } else if jj_is_working_copy_empty(workspace_path)? {
+  let tentative_working_copy = if is_home || jj_is_working_copy_empty(workspace_path)? {
     None
   } else {
     get_workspace_wc_commit(&loaded).map(|wc_commit| {
@@ -6714,8 +6767,8 @@ pub fn jj_get_target_branch_log(
   let mut commits: Vec<_> = commits
     .into_iter()
     .filter(|commit| {
-      !wc_commit_ids.contains(commit.id())
-        && !(commit_description_first_line(commit) == "(no description)"
+      !(wc_commit_ids.contains(commit.id())
+        || commit_description_first_line(commit) == "(no description)"
           && loaded
             .repo
             .view()
@@ -6839,7 +6892,7 @@ pub fn jj_get_home_repo_diverged_log(
     .cloned()
     .collect();
 
-  let immutable_revset_expr = format!("::{}", &target_sym);
+  let immutable_revset_expr = format!("::{target_sym}");
   let immutable_revset = evaluate_revset(&loaded, &immutable_revset_expr)?;
   let is_immutable = immutable_revset.containing_fn();
 
@@ -7101,6 +7154,37 @@ pub fn jj_abandon_empty_commits(
     format_revset_symbol(&selected_target_ref)
   );
   abandon_commits_matching_revset(workspace_path, &revset_expr)
+}
+
+/// Collapse an undescribed merge at the workspace bookmark when its tree is
+/// identical to one of its parents.
+///
+/// `jj abandon` preserves every parent of a merge commit. If the bookmark points
+/// at that commit, abandoning it therefore leaves a conflicted bookmark, which
+/// cannot be pushed. Sync-created ancestry-only merges need to move the bookmark
+/// to the tree-equivalent (normally first) parent before the generic empty-commit
+/// cleanup runs.
+pub fn jj_collapse_empty_merge_tip(
+  workspace_path: &str,
+  branch_name: &str,
+) -> Result<bool, JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let tip = resolve_commit_by_revision(&loaded, branch_name)?;
+  if !tip.description().trim().is_empty() || tip.parent_ids().len() < 2 {
+    return Ok(false);
+  }
+
+  let tip_tree = tip.tree_ids();
+  let equivalent_parent = block_on(tip.parents())
+    .map_err(|e| JjError::IoError(format!("Failed to load merge parents: {e}")))?
+    .into_iter()
+    .find(|parent| parent.tree_ids() == tip_tree);
+  let Some(parent) = equivalent_parent else {
+    return Ok(false);
+  };
+
+  jj_set_bookmark(workspace_path, branch_name, &parent.id().hex())?;
+  Ok(true)
 }
 
 /// After a manual commit, drop consecutive autosave ancestors of `@-`.
@@ -8044,6 +8128,7 @@ pub fn jj_new_with_parents(
 /// 1. Resolve workspace and target branch tips and create a two-parent merge commit
 /// 2. Check out a fresh working-copy commit on top
 /// 3. jj bookmark set target_branch -r @- - move target_branch to merge commit
+///
 /// This is executed in the context of the workspace directory, @ refers to workspace HEAD
 pub fn jj_create_merge_commit(
   workspace_path: &str,
@@ -8359,7 +8444,7 @@ mod tests {
   use tempfile::TempDir;
 
   #[test]
-  fn working_copy_lock_serializes_threads() {
+  fn working_copy_lock_serializes_threads_for_the_same_workspace() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
     static CONCURRENT: AtomicUsize = AtomicUsize::new(0);
@@ -8367,7 +8452,7 @@ mod tests {
     let threads: Vec<_> = (0..4)
       .map(|_| {
         thread::spawn(|| {
-          with_working_copy_lock(|| {
+          with_working_copy_lock("/tmp/shared-workspace", || {
             let now = CONCURRENT.fetch_add(1, Ordering::SeqCst) + 1;
             MAX.fetch_max(now, Ordering::SeqCst);
             thread::sleep(std::time::Duration::from_millis(15));
@@ -8380,6 +8465,30 @@ mod tests {
       t.join().unwrap();
     }
     assert_eq!(MAX.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn working_copy_lock_does_not_serialize_different_workspaces() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread;
+    static CONCURRENT: AtomicUsize = AtomicUsize::new(0);
+    static MAX: AtomicUsize = AtomicUsize::new(0);
+    let threads: Vec<_> = (0..4)
+      .map(|i| {
+        thread::spawn(move || {
+          with_working_copy_lock(&format!("/tmp/distinct-workspace-{i}"), || {
+            let now = CONCURRENT.fetch_add(1, Ordering::SeqCst) + 1;
+            MAX.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(std::time::Duration::from_millis(15));
+            CONCURRENT.fetch_sub(1, Ordering::SeqCst);
+          })
+        })
+      })
+      .collect();
+    for t in threads {
+      t.join().unwrap();
+    }
+    assert!(MAX.load(Ordering::SeqCst) > 1);
   }
 
   #[test]
@@ -8633,6 +8742,48 @@ mod tests {
     assert_eq!(
       home_wc_parent_id(repo_path),
       git_output(&temp, &["rev-parse", "HEAD"])
+    );
+  }
+
+  #[test]
+  fn repair_detached_home_head_reattaches_to_non_default_branch() {
+    let temp = TempDir::new().expect("tempdir");
+    let status = Command::new("git")
+      .current_dir(temp.path())
+      .args(["init", "-b", "main"])
+      .status()
+      .expect("git init should run");
+    assert!(status.success(), "git init should succeed");
+    git(&temp, &["config", "user.name", "Test User"]);
+    git(&temp, &["config", "user.email", "test@example.com"]);
+    fs::write(temp.path().join("base.txt"), "base\n").expect("write base");
+    git(&temp, &["add", "base.txt"]);
+    git(&temp, &["commit", "-m", "base"]);
+    git(&temp, &["switch", "-c", "feature"]);
+    fs::write(temp.path().join("feature.txt"), "feature\n").expect("write feature");
+    git(&temp, &["add", "feature.txt"]);
+    git(&temp, &["commit", "-m", "feature work"]);
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    let feature_tip = git_output(&temp, &["rev-parse", "feature"]);
+    git(&temp, &["checkout", "--detach", &feature_tip]);
+    assert_eq!(
+      read_git_head_branch(repo_path).expect("read HEAD"),
+      "HEAD",
+      "precondition: HEAD should be detached before repair"
+    );
+
+    let repaired =
+      repair_detached_home_head_at_default_branch(repo_path).expect("repair should not error");
+
+    assert_eq!(
+      repaired,
+      Some("feature".to_string()),
+      "repair should reattach HEAD to the branch matching its tip, not just the default branch"
+    );
+    assert_eq!(
+      read_git_head_branch(repo_path).expect("read HEAD"),
+      "feature"
     );
   }
 

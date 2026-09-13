@@ -195,7 +195,7 @@ fn resolve_agent_binary(agent: &str) -> Option<String> {
   // Allow-listed agent names only — never trust a caller-supplied binary
   // path, so an idempotency-key replay or a compromised UI cannot exec
   // arbitrary programs on the VM.
-  const ALLOWED: &[&str] = &["claude", "codex", "cursor-agent"];
+  const ALLOWED: &[&str] = &["claude", "codex", "cursor-agent", "copilot"];
   ALLOWED
     .iter()
     .find(|name| **name == agent)

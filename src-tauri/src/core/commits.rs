@@ -525,6 +525,7 @@ pub fn shift_mutable_commits_to_now(repo_path: &str, workspace_id: i64) -> Resul
 /// * `repo_path`              - Path to the repository root
 /// * `workspace_id`           - Optional workspace ID that owns the commit
 /// * `commit_change_id`       - The short change-id of the commit to diff
+///
 /// Conflict marker style is resolved from app settings, defaulting to "git".
 ///
 /// # Returns

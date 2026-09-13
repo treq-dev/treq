@@ -1,0 +1,343 @@
+name: Mobile
+
+# Verifies the mobile/ React Native app and crates/treq-mobile-ssh, the
+# russh + UniFFI crate it calls into (see mobile/README.md and
+# prds/mobile.md). Every job here exercises real, compiled code:
+#
+# - `rust`: the crate's own unit tests, including a real in-process SSH
+#   server round trip (see crates/treq-mobile-ssh/src/lib.rs's `mod tests`).
+# - `rn-checks`: typecheck and Jest for the RN app itself (the native
+#   module boundary is mocked here deliberately - it is component-level
+#   coverage for screens/navigation, not FFI coverage).
+# - `rn-real-ssh`: the same screens (ConnectScreen, WorkspacesScreen),
+#   driven by @testing-library/react-native's render/fireEvent/waitFor,
+#   but with the native module boundary backed by a real N-API build of
+#   treq-mobile-ssh (feature `napi`, see src/native/TreqSsh.real.ts and
+#   jest.config.real.js) instead of a mock - typing a connection string,
+#   pressing Connect, and pressing Run really opens a TCP connection and
+#   runs an exec channel against a real `mock_ssh_server` process. This is
+#   a Node-hosted stand-in for the native bridge layer, not iOS/Android -
+#   see "What this does not prove" below for that boundary.
+# - `kotlin-ffi` / `swift-ffi`: FFI coverage for the two platforms
+#   `rn-real-ssh` cannot reach (it runs under Node, not a JVM or Swift
+#   runtime). Each builds the crate for the host, generates real
+#   UniFFI Kotlin/Swift bindings, starts a real SSH server (the
+#   `mock_ssh_server` example, gated behind the `ffi-tests` feature so it
+#   never ships in a normal build) on a real socket, and runs a real
+#   Kotlin/Swift program against it - no JS/TS mock anywhere in this path,
+#   including certificate auth (`connectWithCertificate`): the test
+#   program shells out to `mock_ssh_server sign-cert <public_key>` for a
+#   real signed OpenSSH certificate (neither language has its own
+#   certificate-building library) and presents it over a real session.
+#   `kotlin-ffi` runs on the JVM with JNA (proves the JVM/JNA loading path
+#   any Kotlin consumer of these bindings uses); `swift-ffi` runs on
+#   macOS with the system Swift toolchain (the same one Xcode uses for an
+#   iOS build, modulo iOS-only frameworks like UIKit).
+# - `android-build`: builds a real, fully linked debug APK against the
+#   real generated Gradle project (`mobile/android/`) - not just Kotlin/Java
+#   compilation. `app/build.gradle`'s `generateTreqMobileSshBindings` task
+#   produces the real UniFFI Kotlin bindings from source
+#   (`mobile/android/app/src/main/java/com/treq/mobile/TreqSshModule.kt`/
+#   `TreqSshPackage.kt` compile against them for real, not JNA-loaded from a
+#   test harness - the actual `ReactContextBaseJavaModule` this app ships),
+#   and `buildTreqMobileSshNativeLibs` (via `cargo ndk`, needs the Android
+#   NDK + `aarch64/armv7/x86_64/i686-linux-android` Rust targets) builds the
+#   real per-ABI `libtreq_mobile_ssh.so` files and links them into
+#   `assembleDebug`'s APK alongside React Native's own native libraries.
+# - `ios-build`: the iOS analog - `pod install` against the real
+#   `ios/Podfile` (React-Core and friends) and `xcodebuild build` the real
+#   generated Xcode project, including `TreqSshBridge.swift`/`.m`. Runs on
+#   `macos-14`, which ships a real Xcode.
+#
+# ## What this does not prove
+#
+# - Anything about running on an actual Android/iOS device or emulator, or
+#   installing/launching the built APK.
+# - A full linked iOS IPA: `ios-build` still stops at `xcodebuild build`
+#   against the generated Xcode project, since `TreqSshBridge.swift` links
+#   against the UniFFI Swift bindings' XCFramework, which this repo does not
+#   yet script building from `crates/treq-mobile-ssh` for real iOS targets
+#   (`aarch64-apple-ios`, etc. via `cargo build --target` + `uniffi-bindgen`
+#   `--language swift`, then packaging as an `.xcframework`) the way
+#   `android-build` now does for Android's per-ABI `.so` files.
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  JNA_VERSION: "5.14.0"
+  SWIFT_VERSION: "6.0.3"
+
+on:
+  pull_request:
+    paths:
+      - "crates/treq-mobile-ssh/**"
+      - "mobile/**"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+
+jobs:
+  rust:
+    name: rust (treq-mobile-ssh unit tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - name: cargo test
+        run: cargo test -p treq-mobile-ssh
+
+  rn-checks:
+    name: rn-checks (typecheck + jest)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test -- --ci
+
+  rn-real-ssh:
+    name: rn-real-ssh (UI-driven, real Rust, no mocks)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Build the native-test addon (treq-mobile-ssh with --features napi)
+        run: npm run build:native-test
+      - name: Drive ConnectScreen/WorkspacesScreen with @testing-library/react-native
+        run: npx jest --config jest.config.real.js --ci
+
+  kotlin-ffi:
+    name: kotlin-ffi (JVM + JNA against real Rust)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build treq-mobile-ssh (lib + uniffi-bindgen + mock server)
+        run: |
+          cargo build -p treq-mobile-ssh --lib
+          cargo build -p treq-mobile-ssh --bin uniffi-bindgen
+          cargo build -p treq-mobile-ssh --example mock_ssh_server --features ffi-tests
+
+      - name: Generate Kotlin bindings
+        working-directory: crates/treq-mobile-ssh
+        run: |
+          cargo run --bin uniffi-bindgen -- generate \
+            --library ../../target/debug/libtreq_mobile_ssh.so \
+            --language kotlin --out-dir "$RUNNER_TEMP/kt-bindings"
+
+      - name: Download Kotlin compiler and JNA
+        run: |
+          set -euo pipefail
+          curl -sSL -o "$RUNNER_TEMP/kotlinc.zip" \
+            "https://github.com/JetBrains/kotlin/releases/download/v1.9.24/kotlin-compiler-1.9.24.zip"
+          unzip -q "$RUNNER_TEMP/kotlinc.zip" -d "$RUNNER_TEMP"
+          curl -sSL -o "$RUNNER_TEMP/jna.jar" \
+            "https://repo1.maven.org/maven2/net/java/dev/jna/jna/${JNA_VERSION}/jna-${JNA_VERSION}.jar"
+
+      - name: Compile the Kotlin FFI test
+        run: |
+          "$RUNNER_TEMP/kotlinc/bin/kotlinc" \
+            -cp "$RUNNER_TEMP/jna.jar" \
+            "$RUNNER_TEMP/kt-bindings/uniffi/treq_mobile_ssh/treq_mobile_ssh.kt" \
+            crates/treq-mobile-ssh/ffi-tests/kotlin/SshClientFfiTest.kt \
+            -include-runtime -d "$RUNNER_TEMP/ffitest.jar"
+
+      - name: Start the real mock SSH server
+        run: |
+          ./target/debug/examples/mock_ssh_server 127.0.0.1:0 > "$RUNNER_TEMP/mock_server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/mock_server.pid"
+          for _ in $(seq 1 20); do
+            grep -q LISTENING "$RUNNER_TEMP/mock_server.log" 2>/dev/null && break
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/mock_server.log"
+
+      - name: Run the Kotlin FFI test against the real server
+        run: |
+          set -euo pipefail
+          read -r _ _ port fingerprint < "$RUNNER_TEMP/mock_server.log"
+          java -Djna.library.path="$PWD/target/debug" \
+            -cp "$RUNNER_TEMP/ffitest.jar:$RUNNER_TEMP/jna.jar" \
+            SshClientFfiTestKt "$port" "$fingerprint" "$PWD/target/debug/examples/mock_ssh_server"
+
+      - name: Stop the mock server
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/mock_server.pid")" 2>/dev/null || true
+
+  android-build:
+    name: android-build (real Gradle project, real linked APK)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - run: cargo install cargo-ndk --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Android SDK platform/build-tools/NDK
+        run: |
+          set -euo pipefail
+          curl -sSL -o "$RUNNER_TEMP/cmdline-tools.zip" \
+            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125"
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+      - run: npm ci
+      - name: assembleDebug (real per-ABI cargo-ndk build, real UniFFI bindings, real linked APK)
+        working-directory: mobile/android
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew :app:assembleDebug
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.1.10909125
+      - name: Verify libtreq_mobile_ssh.so linked into every ABI
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            unzip -l "$apk" "lib/$abi/libtreq_mobile_ssh.so" | grep -q libtreq_mobile_ssh.so
+          done
+
+  ios-build:
+    name: ios-build (real Xcode project, real TreqSshBridge.swift)
+    runs-on: macos-14
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: pod install
+        working-directory: mobile/ios
+        run: pod install
+      - name: xcodebuild build (simulator, no code signing)
+        working-directory: mobile/ios
+        run: |
+          xcodebuild build \
+            -workspace TreqMobile.xcworkspace \
+            -scheme TreqMobile \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO
+    name: swift-ffi (native Swift against real Rust)
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build treq-mobile-ssh (lib + uniffi-bindgen + mock server)
+        run: |
+          cargo build -p treq-mobile-ssh --lib
+          cargo build -p treq-mobile-ssh --bin uniffi-bindgen
+          cargo build -p treq-mobile-ssh --example mock_ssh_server --features ffi-tests
+
+      - name: Generate Swift bindings
+        working-directory: crates/treq-mobile-ssh
+        run: |
+          cargo run --bin uniffi-bindgen -- generate \
+            --library ../../target/debug/libtreq_mobile_ssh.dylib \
+            --language swift --out-dir "$RUNNER_TEMP/swift-bindings"
+
+      - name: Compile the Swift FFI test
+        run: |
+          xcrun swiftc \
+            -I "$RUNNER_TEMP/swift-bindings" \
+            -Xcc -fmodule-map-file="$RUNNER_TEMP/swift-bindings/treq_mobile_sshFFI.modulemap" \
+            -L target/debug -ltreq_mobile_ssh \
+            "$RUNNER_TEMP/swift-bindings/treq_mobile_ssh.swift" \
+            crates/treq-mobile-ssh/ffi-tests/swift/main.swift \
+            -o "$RUNNER_TEMP/ffitest"
+
+      - name: Start the real mock SSH server
+        run: |
+          ./target/debug/examples/mock_ssh_server 127.0.0.1:0 > "$RUNNER_TEMP/mock_server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/mock_server.pid"
+          for _ in $(seq 1 20); do
+            grep -q LISTENING "$RUNNER_TEMP/mock_server.log" 2>/dev/null && break
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/mock_server.log"
+
+      - name: Run the Swift FFI test against the real server
+        run: |
+          set -euo pipefail
+          read -r _ _ port fingerprint < "$RUNNER_TEMP/mock_server.log"
+          DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/ffitest" "$port" "$fingerprint" "$PWD/target/debug/examples/mock_ssh_server"
+
+      - name: Stop the mock server
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/mock_server.pid")" 2>/dev/null || true

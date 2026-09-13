@@ -240,6 +240,9 @@ export const ShowWorkspace = ({
   const { addToast } = useToast();
   const workspaceScheduling = usePreviewFeature("workspaceScheduling");
   const linearIntegration = usePreviewFeature("linearIntegration");
+  const logsEnabled = usePreviewFeature("logs");
+  const checksEnabled = usePreviewFeature("checks");
+  const browserEnabled = usePreviewFeature("browser");
   const { fontSize } = useTerminalSettingsStore();
 
   const { data: remoteInfo } = useGitRemoteInfo(effectiveRepoPath || undefined);
@@ -325,6 +328,21 @@ export const ShowWorkspace = ({
     useState<HTMLDivElement | null>(null);
   const [scrollToCommitId, setScrollToCommitId] = useState<string | null>(null);
   const [showFileBrowserInCode, setShowFileBrowserInCode] = useState(false);
+
+  useEffect(() => {
+    if (
+      (!logsEnabled && activeTab === "logs") ||
+      (!checksEnabled && activeTab === "checks")
+    ) {
+      setActiveTab("overview");
+    }
+  }, [activeTab, checksEnabled, logsEnabled]);
+
+  useEffect(() => {
+    if (!browserEnabled && reviewSubView === "browser") {
+      setReviewSubView("diff");
+    }
+  }, [browserEnabled, reviewSubView]);
 
   // `treq send --browser <url-or-file>` opens the Browser view directly,
   // instead of showing an attachment preview like image/text sends do.
@@ -1135,7 +1153,7 @@ export const ShowWorkspace = ({
     try {
       // Resolve the default agent from repo-level then app-level settings,
       // so "send review to terminal" honours the configured default agent.
-      let resolvedAgent: "claude" | "codex" | "cursor" | undefined;
+      let resolvedAgent: "claude" | "codex" | "cursor" | "copilot" | undefined;
       const repoPathForSettings = effectiveRepoPath || workingDirectory;
       try {
         let repoDefault: string | null = null;
@@ -1157,6 +1175,7 @@ export const ShowWorkspace = ({
         if (
           defaultAgent === "codex" ||
           defaultAgent === "cursor" ||
+          defaultAgent === "copilot" ||
           defaultAgent === "claude"
         ) {
           resolvedAgent = defaultAgent;
@@ -1293,14 +1312,16 @@ export const ShowWorkspace = ({
                   </span>
                 )}
               </TabsTrigger>
-              <TabsTrigger
-                value="checks"
-                className="inline-flex items-center gap-1.5"
-              >
-                <Workflow className="w-4 h-4" />
-                <span>Checks</span>
-              </TabsTrigger>
-              {!workspace && (
+              {checksEnabled && (
+                <TabsTrigger
+                  value="checks"
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <Workflow className="w-4 h-4" />
+                  <span>Checks</span>
+                </TabsTrigger>
+              )}
+              {!workspace && logsEnabled && (
                 <TabsTrigger
                   value="logs"
                   className="inline-flex items-center gap-1.5"
@@ -1311,7 +1332,7 @@ export const ShowWorkspace = ({
               )}
             </TabsList>
           </Tabs>
-          {activeTab === "changes" && (
+          {activeTab === "changes" && browserEnabled && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1775,7 +1796,7 @@ export const ShowWorkspace = ({
                 </>
               )}
               {workspace && workspaceScheduling && (
-                <TooltipProvider delayDuration={200}>
+                <TooltipProvider delay={200}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1824,7 +1845,7 @@ export const ShowWorkspace = ({
                       {homeRepoTargetAheadCount > 0 && (
                         <>
                           {homeRebaseDryRun?.would_conflict && (
-                            <TooltipProvider delayDuration={200}>
+                            <TooltipProvider delay={200}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <span className="flex items-center text-yellow-600 dark:text-yellow-400">
@@ -1851,7 +1872,7 @@ export const ShowWorkspace = ({
                               </Tooltip>
                             </TooltipProvider>
                           )}
-                          <TooltipProvider delayDuration={200}>
+                          <TooltipProvider delay={200}>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
@@ -1884,7 +1905,7 @@ export const ShowWorkspace = ({
                   )}
                   {/* Stack button for home repo */}
                   {onCreateStackedWorkspace && (
-                    <TooltipProvider delayDuration={200}>
+                    <TooltipProvider delay={200}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -1914,7 +1935,7 @@ export const ShowWorkspace = ({
               {workspace &&
                 workspace.not_on_remote &&
                 (!remoteInfo || workspace.branch_name === defaultBranch) && (
-                  <TooltipProvider delayDuration={200}>
+                  <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -1983,7 +2004,7 @@ export const ShowWorkspace = ({
               {(!workspace || !workspace.not_on_remote) &&
                 syncStatus &&
                 (isHomeRepo || hasSyncChanges) && (
-                  <TooltipProvider delayDuration={200}>
+                  <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -2032,7 +2053,7 @@ export const ShowWorkspace = ({
                 workspace &&
                 workspace.branch_name !== defaultBranch &&
                 !workspace.not_on_remote && (
-                  <TooltipProvider delayDuration={200}>
+                  <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -2096,7 +2117,7 @@ export const ShowWorkspace = ({
                 )}
               {/* Merge button moved here */}
               {workspace && workspace.branch_name !== defaultBranch && (
-                <TooltipProvider delayDuration={200}>
+                <TooltipProvider delay={200}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="inline-flex">

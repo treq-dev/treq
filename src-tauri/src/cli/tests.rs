@@ -414,12 +414,11 @@ fn commit_subcommand_defines_workspace_message_and_push_args() {
     .find(|arg| arg.get("name").and_then(Value::as_str) == Some("push"))
     .expect("commit must define push arg");
   assert_eq!(push.get("index"), None, "push must not be positional");
-  assert_eq!(
-    push
+  assert!(
+    !push
       .get("takesValue")
       .and_then(Value::as_bool)
       .unwrap_or(false),
-    false,
     "push must be a boolean flag"
   );
 }

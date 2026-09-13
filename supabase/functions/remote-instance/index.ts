@@ -75,6 +75,18 @@ function json(body: unknown, status = 200, correlationId?: string): Response {
   });
 }
 
+// Clients (desktop's ManagedInstanceRecord in remote_provider.rs, mobile's
+// ManagedInstanceRecord in api-types-remote.ts) deserialize this instance
+// under an `instance_id` field, but the DB row's primary key column is
+// `id` - serialize it under the wire contract's name rather than the raw
+// row, or every instance-bearing response silently fails to round-trip
+// `instance_id` on both clients.
+function serializeInstance(row: InstanceRow | null): (Omit<InstanceRow, "id"> & { instance_id: string }) | null {
+  if (!row) return null;
+  const { id, ...rest } = row;
+  return { instance_id: id, ...rest };
+}
+
 function getProvider(): ManagedComputeProvider {
   if (isSpritesStubEnabled()) return new StubSpritesProvider();
   return new SpritesProvider(spritesConfigFromEnv());
@@ -179,7 +191,7 @@ async function handleStatus(supabase: SupabaseClient, ownerUserId: string, corre
       .maybeSingle();
     endpoint = data ?? null;
   }
-  return json({ instance, endpoint }, 200, correlationId);
+  return json({ instance: serializeInstance(instance), endpoint }, 200, correlationId);
 }
 
 // Closes the Phase 2 "host key fingerprint not yet available" gap with a
@@ -314,7 +326,7 @@ async function handleEnsure(
   if (existingOp) {
     // Repeated request with the same key: never create a second instance.
     const instance = await getInstanceForOwner(supabase, ownerUserId);
-    return json({ operation_id: existingOp.id, status: existingOp.status, instance }, 200, correlationId);
+    return json({ operation_id: existingOp.id, status: existingOp.status, instance: serializeInstance(instance) }, 200, correlationId);
   }
 
   const existingInstance = await getInstanceForOwner(supabase, ownerUserId);
@@ -329,7 +341,7 @@ async function handleEnsure(
       idempotencyKey,
     });
     await completeOperation(supabase, op.id, { status: "succeeded" });
-    return json({ operation_id: op.id, status: "succeeded", instance: existingInstance }, 200, correlationId);
+    return json({ operation_id: op.id, status: "succeeded", instance: serializeInstance(existingInstance) }, 200, correlationId);
   }
 
   const instance = await createProvisioningInstance(supabase, {
@@ -417,7 +429,7 @@ async function handleEnsure(
     });
 
     const refreshed = await getInstanceForOwner(supabase, ownerUserId);
-    return json({ operation_id: op.id, status: "succeeded", instance: refreshed }, 200, correlationId);
+    return json({ operation_id: op.id, status: "succeeded", instance: serializeInstance(refreshed) }, 200, correlationId);
   } catch (err) {
     await updateInstance(supabase, instance.id, { status: "failed" });
     await completeOperation(supabase, op.id, { status: "failed", errorMessage: (err as Error).message });
@@ -625,7 +637,7 @@ async function handleReprovision(
     });
 
     const refreshed = await getInstanceForOwner(supabase, ownerUserId);
-    return json({ operation_id: op.id, status: "succeeded", instance: refreshed }, 200, correlationId);
+    return json({ operation_id: op.id, status: "succeeded", instance: serializeInstance(refreshed) }, 200, correlationId);
   } catch (err) {
     await completeOperation(supabase, op.id, { status: "failed", errorMessage: (err as Error).message });
     await recordAuditEvent(supabase, {

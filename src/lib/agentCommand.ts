@@ -10,7 +10,7 @@ interface AgentPathContext {
   repoPath: string;
 }
 
-export type AgentKind = "claude" | "codex" | "cursor";
+export type AgentKind = "claude" | "codex" | "cursor" | "copilot";
 
 export interface AgentCliFiles {
   promptPath: string;
@@ -141,6 +141,11 @@ export const buildAgentAutoCommand = ({
   } else if (agent === "cursor") {
     const planFlag = permissionMode === "plan" ? " --plan" : "";
     autoCommand = `cursor-agent${planFlag} -- "${shellCat(files.promptPath)}"`;
+  } else if (agent === "copilot") {
+    autoCommand = `copilot --allow-all-tools -- "${shellCat(files.promptPath)}"`;
+    if (pendingPrompt) {
+      autoCommand = appendAgentPrompt(autoCommand, pendingPrompt);
+    }
   } else {
     const permissionModeArg =
       permissionMode === "plan"

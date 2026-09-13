@@ -1,3 +1,4 @@
+use crate::lock_ext::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -541,6 +542,7 @@ pub fn open_or_create_workspace_from_linear_issue(
 /// `symlinked_dirs` are paths relative to the repo root (e.g. `node_modules`). Each
 /// existing path is linked into the new workspace instead of being copied, so large
 /// dependency trees are shared with the home working copy.
+#[allow(clippy::too_many_arguments)]
 pub fn create_workspace_with_symlinked_dirs(
   repo_path: &str,
   branch_name: &str,
@@ -558,7 +560,7 @@ pub fn create_workspace_with_symlinked_dirs(
   // auto-rebases. Keep the guard through JJ creation and DB registration so
   // an in-process retry cannot observe a half-registered workspace.
   let repo_mutation_lock = commit_lock_for_repo(repo_path);
-  let _repo_mutation_guard = repo_mutation_lock.lock().unwrap();
+  let _repo_mutation_guard = repo_mutation_lock.lock_or_recover();
 
   if local_db::get_workspace_by_branch(repo_path, branch_name)
     .map_err(|e| format!("Failed to check existing workspace: {e}"))?
@@ -914,7 +916,7 @@ pub fn push_workspace_to_remote(
   workspace_id: Option<i64>,
 ) -> Result<String, String> {
   // Determine the push path and target branch based on workspace_id
-  let (push_path, target_branch) = if let Some(id) = workspace_id {
+  let (push_path, branch_name, target_branch) = if let Some(id) = workspace_id {
     // For workspace, look up the path from database
     let workspace = local_db::get_workspace_by_id(repo_path, id)
       .map_err(|e| format!("Failed to get workspace: {}", e))?
@@ -931,13 +933,18 @@ pub fn push_workspace_to_remote(
       .target_branch
       .clone()
       .unwrap_or_else(|| "main".to_string());
-    (push_path, target_branch)
+    (push_path, workspace.branch_name, target_branch)
   } else {
     // For home repo, use repo_path directly
+    let branch_name = jj::resolve_home_repo_branch(repo_path)
+      .map_err(|e| format!("Failed to resolve home repo branch: {}", e))?;
     let target_branch = jj::get_default_branch(repo_path).unwrap_or_else(|_| "main".to_string());
-    (repo_path.to_string(), target_branch)
+    (repo_path.to_string(), branch_name, target_branch)
   };
 
+  // An ancestry-only merge cannot be abandoned cleanly while its bookmark still
+  // points at it: jj preserves both parents and turns the bookmark into a conflict.
+  let _ = jj::jj_collapse_empty_merge_tip(&push_path, &branch_name);
   // Ensure no empty commits reach the remote; best-effort, never blocks the push.
   let _ = jj::jj_abandon_empty_commits(&push_path, &target_branch);
 
@@ -1226,7 +1233,7 @@ pub fn workspace_status(
 
   // Find direct children (workspaces where target_branch matches current.branch_name)
   let children: Vec<local_db::Workspace> =
-    local_db::get_workspaces_by_target_branch(&repo_path, &current_workspace.branch_name)
+    local_db::get_workspaces_by_target_branch(repo_path, &current_workspace.branch_name)
       .unwrap_or_default();
 
   let dag_nodes = Vec::new();
@@ -1335,8 +1342,9 @@ mod tests {
     parse_workspace_metadata, plan_workspace_target_move,
     resolve_workspace_diff_base_revision_from_last_rebased,
     resolve_workspace_diff_conflict_marker_style,
-    resolve_workspace_diff_tip_revision_from_workspace_state, schedule_workspaces, HunkSpec,
-    WorkspaceMetadata, WorkspaceMoveRequest, WorkspaceTargetMoveStep,
+    resolve_workspace_diff_tip_revision_from_workspace_state,
+    resolve_workspace_diff_workspace_revision, schedule_workspaces, HunkSpec, WorkspaceMetadata,
+    WorkspaceMoveRequest, WorkspaceTargetMoveStep,
   };
   use crate::jj;
   use crate::local_db::Workspace;
@@ -1731,6 +1739,18 @@ mod tests {
   fn resolve_workspace_diff_tip_revision_uses_parent_pointer_only_for_empty_target_workspace() {
     let tip = resolve_workspace_diff_tip_revision_from_workspace_state("main", "main", 0);
     assert_eq!(tip, "@-");
+  }
+
+  #[test]
+  fn resolve_workspace_diff_uses_working_copy_for_conflicted_bookmark() {
+    assert_eq!(
+      resolve_workspace_diff_workspace_revision("feature", true),
+      "@"
+    );
+    assert_eq!(
+      resolve_workspace_diff_workspace_revision("feature", false),
+      "feature"
+    );
   }
 
   #[test]
@@ -3063,7 +3083,11 @@ fn resolve_workspace_diff_base_revision(
     target_branch,
   );
   if base_revision != target_branch {
-    let current_tip = jj::jj_get_commit_id(workspace_dir_str, &workspace.branch_name)
+    let workspace_revision = resolve_workspace_diff_workspace_revision(
+      &workspace.branch_name,
+      jj::jj_is_bookmark_conflicted(workspace_dir_str, &workspace.branch_name),
+    );
+    let current_tip = jj::jj_get_commit_id(workspace_dir_str, &workspace_revision)
       .map_err(|e| format!("Failed to resolve workspace tip: {}", e))?;
     if current_tip != base_revision {
       return Ok(base_revision);
@@ -3088,11 +3112,29 @@ fn resolve_workspace_diff_tip_revision(
   let target_branch = workspace.target_branch.as_deref().unwrap_or("main");
   let committed_ahead = jj::jj_get_commits_ahead(workspace_dir_str, &workspace.branch_name)
     .map_err(|e| format!("Failed to get workspace commits ahead: {}", e))?;
-  Ok(resolve_workspace_diff_tip_revision_from_workspace_state(
+  let tip_revision = resolve_workspace_diff_tip_revision_from_workspace_state(
     &workspace.branch_name,
     target_branch,
     committed_ahead.total_count,
-  ))
+  );
+  if tip_revision == workspace.branch_name {
+    Ok(resolve_workspace_diff_workspace_revision(
+      &workspace.branch_name,
+      jj::jj_is_bookmark_conflicted(workspace_dir_str, &workspace.branch_name),
+    ))
+  } else {
+    Ok(tip_revision)
+  }
+}
+
+/// A conflicted bookmark names multiple revisions, but `@` always identifies
+/// the concrete working-copy side whose changes the workspace view should show.
+fn resolve_workspace_diff_workspace_revision(branch_name: &str, is_conflicted: bool) -> String {
+  if is_conflicted {
+    "@".to_string()
+  } else {
+    branch_name.to_string()
+  }
 }
 
 fn resolve_workspace_diff_tip_revision_from_workspace_state(
@@ -3163,7 +3205,7 @@ pub fn check_and_rebase_workspaces(
   // share one operation store across all workspaces, so serialize these history rewrites with
   // commits to prevent stale operations, competing checkouts, and conflicted bookmarks.
   let repo_commit_lock = commit_lock_for_repo(repo_path);
-  let _repo_commit_guard = repo_commit_lock.lock().unwrap();
+  let _repo_commit_guard = repo_commit_lock.lock_or_recover();
 
   if let Some(id) = workspace_id {
     let default_branch = default_branch.unwrap_or_else(|| "main".to_string());
@@ -3285,7 +3327,7 @@ where
 {
   let workspace_id = workspace_id.into();
   let repo_commit_lock = commit_lock_for_repo(repo_path);
-  let _repo_commit_guard = repo_commit_lock.lock().unwrap();
+  let _repo_commit_guard = repo_commit_lock.lock_or_recover();
   let workspace_root = resolve_workspace_root(repo_path, workspace_id)?;
   let (committed_branch, target_branch) = if let Some(id) = workspace_id {
     let workspace = local_db::get_workspace_by_id(repo_path, id)

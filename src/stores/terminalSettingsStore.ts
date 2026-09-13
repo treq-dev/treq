@@ -32,7 +32,6 @@ export const useTerminalSettingsStore = create<TerminalSettingsState>(
     setFontSize: async (size) => {
       assertTerminalFontSize(size);
       set({ fontSize: size });
-      document.documentElement.style.fontSize = `${size}px`;
       await setSetting("terminal_font_size", size.toString());
     },
   }),
