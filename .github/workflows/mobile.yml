@@ -33,15 +33,17 @@ name: Mobile
 #   any Kotlin consumer of these bindings uses); `swift-ffi` runs on
 #   macOS with the system Swift toolchain (the same one Xcode uses for an
 #   iOS build, modulo iOS-only frameworks like UIKit).
-# - `android-build`: compiles the *actual* native module wrapper,
-#   `mobile/android/app/src/main/java/com/treq/mobile/TreqSshModule.kt`/
-#   `TreqSshPackage.kt`, against the real React Native Android artifact in
-#   a real generated Gradle project (`mobile/android/`), with
-#   `app/build.gradle`'s `generateTreqMobileSshBindings` task producing the
-#   real UniFFI Kotlin bindings from source first - not JNA-loaded from a
-#   test harness, the actual `ReactContextBaseJavaModule` this app ships.
-#   Does not link or run an APK (no Android NDK here to build RN's own
-#   native libs for jniLibs) - compilation only.
+# - `android-build`: builds a real, fully linked debug APK against the
+#   real generated Gradle project (`mobile/android/`) - not just Kotlin/Java
+#   compilation. `app/build.gradle`'s `generateTreqMobileSshBindings` task
+#   produces the real UniFFI Kotlin bindings from source
+#   (`mobile/android/app/src/main/java/com/treq/mobile/TreqSshModule.kt`/
+#   `TreqSshPackage.kt` compile against them for real, not JNA-loaded from a
+#   test harness - the actual `ReactContextBaseJavaModule` this app ships),
+#   and `buildTreqMobileSshNativeLibs` (via `cargo ndk`, needs the Android
+#   NDK + `aarch64/armv7/x86_64/i686-linux-android` Rust targets) builds the
+#   real per-ABI `libtreq_mobile_ssh.so` files and links them into
+#   `assembleDebug`'s APK alongside React Native's own native libraries.
 # - `ios-build`: the iOS analog - `pod install` against the real
 #   `ios/Podfile` (React-Core and friends) and `xcodebuild build` the real
 #   generated Xcode project, including `TreqSshBridge.swift`/`.m`. Runs on
@@ -49,10 +51,15 @@ name: Mobile
 #
 # ## What this does not prove
 #
-# - Anything about running on an actual Android/iOS device or emulator,
-#   or a full linked APK/IPA (Android would additionally need the NDK and
-#   per-ABI `.so` files built via `cargo ndk`; neither build job attempts
-#   that).
+# - Anything about running on an actual Android/iOS device or emulator, or
+#   installing/launching the built APK.
+# - A full linked iOS IPA: `ios-build` still stops at `xcodebuild build`
+#   against the generated Xcode project, since `TreqSshBridge.swift` links
+#   against the UniFFI Swift bindings' XCFramework, which this repo does not
+#   yet script building from `crates/treq-mobile-ssh` for real iOS targets
+#   (`aarch64-apple-ios`, etc. via `cargo build --target` + `uniffi-bindgen`
+#   `--language swift`, then packaging as an `.xcframework`) the way
+#   `android-build` now does for Android's per-ABI `.so` files.
 
 defaults:
   run:
@@ -196,18 +203,21 @@ jobs:
         run: kill "$(cat "$RUNNER_TEMP/mock_server.pid")" 2>/dev/null || true
 
   android-build:
-    name: android-build (real Gradle project, real TreqSshModule.kt)
+    name: android-build (real Gradle project, real linked APK)
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+      - run: cargo install cargo-ndk --locked
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -217,7 +227,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install Android SDK platform/build-tools
+      - name: Install Android SDK platform/build-tools/NDK
         run: |
           set -euo pipefail
           curl -sSL -o "$RUNNER_TEMP/cmdline-tools.zip" \
@@ -226,17 +236,26 @@ jobs:
           unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
           mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
-            "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+            "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125"
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
       - run: npm ci
-      - name: compileDebugKotlin (generates UniFFI bindings from source, then compiles TreqSshModule.kt for real)
+      - name: assembleDebug (real per-ABI cargo-ndk build, real UniFFI bindings, real linked APK)
         working-directory: mobile/android
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          ./gradlew :app:compileDebugKotlin
+          ./gradlew :app:assembleDebug
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.1.10909125
+      - name: Verify libtreq_mobile_ssh.so linked into every ABI
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            unzip -l "$apk" "lib/$abi/libtreq_mobile_ssh.so" | grep -q libtreq_mobile_ssh.so
+          done
 
   ios-build:
     name: ios-build (real Xcode project, real TreqSshBridge.swift)

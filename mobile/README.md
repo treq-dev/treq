@@ -89,13 +89,23 @@ opposed to managed-instance) path.
   `connectWithCertificate`, using a real certificate obtained by shelling
   out to `mock_ssh_server sign-cert <public_key>` (neither language has
   its own certificate-building library).
-- `android-build` (CI job): the *real* `TreqSshModule.kt`/`TreqSshPackage.kt`
-  compiled by `./gradlew :app:compileDebugKotlin` against the real React
-  Native Android artifact in the real generated Gradle project, with
-  UniFFI Kotlin bindings generated from source first. Verified locally in
-  this sandbox by installing an Android SDK (`cmdline-tools`,
-  `platforms;android-35`, `build-tools;35.0.0`) and running the same
-  command - `BUILD SUCCESSFUL`, zero errors.
+- `android-build` (CI job): `./gradlew :app:assembleDebug` against the real
+  React Native Android artifact in the real generated Gradle project - a
+  full, real, linked debug APK, not just Kotlin/Java compilation. Verified
+  locally in this sandbox by installing an Android SDK (`cmdline-tools`,
+  `platforms;android-35`, `build-tools;35.0.0`), the Android NDK
+  (`ndk;26.1.10909125`), `cargo-ndk`, and the four
+  `*-linux-android*`/`*-linux-androideabi` Rust targets, then running the
+  same command - `BUILD SUCCESSFUL`, zero errors, `app-debug.apk` (129MB)
+  produced with `lib/<abi>/libtreq_mobile_ssh.so` (a real, unstripped,
+  correctly-architected ELF `.so` per `file`/`nm -D`) present in the APK for
+  all four ABIs alongside React Native's own `libreactnative.so`,
+  `libhermes.so`, etc. `TreqSshModule.kt`/`TreqSshPackage.kt` compile
+  against the real UniFFI Kotlin bindings (generated from source by
+  `generateTreqMobileSshBindings`) as before; the new
+  `buildTreqMobileSshNativeLibs` Gradle task (`cargo ndk build --release`
+  across `arm64-v8a`/`armeabi-v7a`/`x86_64`/`x86`, wired into `preBuild`)
+  is what makes the per-ABI `.so` files exist for `assembleDebug` to link.
 - `ios-build` (CI job, `macos-14`): `pod install` + `xcodebuild build`
   against the real generated Xcode project, including
   `TreqSshBridge.swift`/`.m` (added to the project's Sources build phase
@@ -109,16 +119,18 @@ opposed to managed-instance) path.
 - The `ios-build` CI job itself has never actually run (no macOS available
   in this development sandbox to dry-run it) - only locally checkable
   proxies (pbxproj structural validity, Info.plist XML validity) were
-  verified. `android-build`'s equivalent, `compileDebugKotlin`, *was* run
-  locally and passed.
-- A full linked APK/IPA: `android-build` stops at Kotlin/Java compilation
-  (no Android NDK here to build React Native's own native C++ libraries
-  via CMake for `jniLibs`, confirmed by a `configureCMakeDebug[arm64-v8a]`
-  failure when a full `assembleDebug` was attempted locally - a real,
-  expected gap, not a bug in this app's own code). Building the actual
-  per-ABI `libtreq_mobile_ssh.so` files (via `cargo ndk`) for a real device
-  to load at runtime is also not done.
-- Real device/simulator execution of anything above.
+  verified. `android-build`'s equivalent (full `assembleDebug`) *was* run
+  locally and passed, producing a real linked APK.
+- A full linked iOS IPA: `TreqSshBridge.swift` needs the UniFFI Swift
+  bindings built as a real iOS XCFramework
+  (`cargo build --target aarch64-apple-ios` etc. +
+  `uniffi-bindgen generate --language swift`, then packaged via
+  `xcodebuild -create-xcframework`), which this repo does not yet script
+  the way `android/app/build.gradle`'s `buildTreqMobileSshNativeLibs` now
+  does for Android. `ios-build` still stops at `xcodebuild build` against
+  the generated Xcode project.
+- Real device/simulator execution of anything above (installing/launching
+  the built APK, or any iOS build).
 
 ## Control-plane client against a live Supabase stack
 
@@ -158,11 +170,31 @@ cargo run --bin uniffi-bindgen generate --library target/debug/libtreq_mobile_ss
 cargo run --bin uniffi-bindgen generate --library target/debug/libtreq_mobile_ssh.so --language kotlin --out-dir bindings/kotlin
 ```
 
-`android/app/build.gradle` does the Kotlin half of this automatically
-(`generateTreqMobileSshBindings`, run before every Kotlin compile) using
-the host-target `.so` - real per-ABI Android `.so` files for a device
-still need the `cargo build --target aarch64-linux-android` step above via
-`cargo ndk`, which this repo does not yet script.
+`android/app/build.gradle` does both Android halves of this automatically:
+`generateTreqMobileSshBindings` (Kotlin bindings, run before every Kotlin
+compile, using the host-target `.so`) and `buildTreqMobileSshNativeLibs`
+(the real per-ABI `.so` files via `cargo ndk`, run before `preBuild` so
+`assembleDebug`/`assembleRelease` link them into `jniLibs`). Building these
+locally needs: the Android NDK (`sdkmanager "ndk;26.1.10909125"`,
+matching `android/build.gradle`'s `ndkVersion`), `cargo install cargo-ndk`,
+and `rustup target add aarch64-linux-android armv7-linux-androideabi
+x86_64-linux-android i686-linux-android`. iOS's XCFramework equivalent is
+not yet scripted (see "What's still not verified").
+
+Getting a real linked Android APK required two fixes beyond installing the
+NDK:
+
+- **New Architecture disabled** (`newArchEnabled=false` in
+  `android/gradle.properties`): `TreqSshModule`/`TreqSshPackage` are plain
+  bridge modules, not TurboModules/Fabric components, so New Architecture's
+  CMake codegen path bought nothing here.
+- **AGP pinned to 8.7.2** (`android/build.gradle`, previously unversioned
+  and resolving to 8.6.0 via the React Native Gradle plugin): AGP 8.6.0's
+  prefab-package handling has a real bug that fails `configureCMakeDebug`
+  for any autolinked library with its own native code (`react-native-screens`
+  here) with `[CXX1210] ... : No compatible library found`, even though the
+  underlying `prefab` CLI invocation succeeds when run by hand with the
+  exact same arguments AGP logs. 8.7.2 does not have this bug.
 
 ## Running the app
 
