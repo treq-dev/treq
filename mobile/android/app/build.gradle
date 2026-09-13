@@ -82,8 +82,8 @@ android {
         applicationId "com.treq.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode Integer.parseInt(System.getenv("TREQ_VERSION_CODE") ?: "1")
+        versionName System.getenv("TREQ_VERSION_NAME") ?: "1.0"
     }
     signingConfigs {
         debug {
@@ -92,15 +92,24 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // Populated from env vars in CI (see .github/workflows/mobile-release.yml
+            // and mobile/android/fastlane/Fastfile); falls back to the debug keystore
+            // for local `assembleDebug`/unsigned dev builds so this block never breaks
+            // a build that isn't trying to produce a release artifact.
+            def storePath = System.getenv("TREQ_ANDROID_KEYSTORE_PATH")
+            storeFile storePath ? file(storePath) : file('debug.keystore')
+            storePassword System.getenv("TREQ_ANDROID_KEYSTORE_PASSWORD") ?: 'android'
+            keyAlias System.getenv("TREQ_ANDROID_KEY_ALIAS") ?: 'androiddebugkey'
+            keyPassword System.getenv("TREQ_ANDROID_KEY_PASSWORD") ?: 'android'
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

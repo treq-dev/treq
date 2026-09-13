@@ -38,6 +38,16 @@ android/app/release/
 **/bindings/kotlin/
 android/app/src/main/java/uniffi/
 android/app/src/main/jniLibs/
+ios/TreqMobile/TreqMobileSsh.swift
+ios/TreqMobileSsh.xcframework/
+
+# Fastlane
+android/fastlane/report.xml
+ios/fastlane/report.xml
+**/fastlane/*.p8
+**/fastlane/*.p12
+**/fastlane/*.mobileprovision
+release.keystore
 
 # Logs, coverage, editor/OS cruft
 *.log

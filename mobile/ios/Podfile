@@ -17,6 +17,11 @@ end
 target 'TreqMobile' do
   config = use_native_modules!
 
+  # Vendors TreqMobileSsh.xcframework (built by
+  # mobile/scripts/build-ios-xcframework.sh from crates/treq-mobile-ssh)
+  # so TreqSshBridge.swift links against the real on-device library.
+  pod 'TreqMobileSsh', :path => '.'
+
   use_react_native!(
     :path => config[:reactNativePath],
     # An absolute path to your application root.
