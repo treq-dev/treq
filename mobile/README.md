@@ -8,46 +8,47 @@ https://rust-dd.com/post/building-a-rust-native-module-for-react-native-on-ios-a
 
 ## Status
 
-Scaffold milestone: navigation, a manual connect screen, the JS-side native
-module interface (`src/native/TreqSsh.ts`), and native bridge source files
-for both platforms exist:
+Real, generated native projects exist under `ios/` and `android/` (via
+`npx @react-native-community/cli init`, then merged with this repo's own
+bridge source), so the native module wrappers are no longer floating
+source files with nothing to compile them:
 
 - `ios/TreqMobile/TreqSshBridge.swift` + `.m` — wraps the UniFFI Swift
-  bindings, seals the generated private key straight into iOS Keychain, and
-  exposes only an opaque `keyHandle` to JS.
-- `android/native/kotlin/TreqSshModule.kt` + `TreqSshPackage.kt` — wraps the
-  UniFFI Kotlin bindings, seals the key with an Android Keystore-backed AES
-  key before storing the ciphertext, same `keyHandle`-only contract.
+  bindings, seals the generated private key straight into iOS Keychain,
+  exposes only an opaque `keyHandle` to JS, and is registered in the real
+  Xcode project (`ios/TreqMobile.xcodeproj`)'s Sources build phase.
+- `android/app/src/main/java/com/treq/mobile/TreqSshModule.kt` +
+  `TreqSshPackage.kt` — wraps the UniFFI Kotlin bindings, seals the key
+  with an Android Keystore-backed AES key, registered in
+  `MainApplication.kt`'s package list. `android/app/build.gradle`'s
+  `generateTreqMobileSshBindings` task runs `cargo build` +
+  `uniffi-bindgen` from source before every Kotlin compile, so the bindings
+  it compiles against are never a vendored, driftable copy.
 
-All of the above is now verified in CI (`.github/workflows/mobile.yml`) at
-several different layers - see "What's tested" below for exactly which
-layer each job/test covers, and "What's still not verified" for the one
-gap none of them close: the bridge *wrapper* files themselves
-(`TreqSshBridge.swift`/`.m`, `TreqSshModule.kt`) compiling and running as
-real React Native native modules, which needs a generated Xcode/Gradle
-project this repo does not have yet.
+Phase 3 (read-only review): `src/lib/treqCli.ts` mirrors desktop's
+`TreqCommandRequest` CLI argv/response contract (`workspace list`,
+`changes list`/`diff`, `commits list`, `conflicts list`, `file read`, all
+`--format json`) and `WorkspacesScreen` -> `WorkspaceDetailScreen` ->
+`DiffScreen`/`CommitsScreen`/`ConflictsScreen` drive it over a real SSH
+exec channel, including parent/working-copy file context and
+conflict-region detail on `DiffScreen`.
 
-Phase 3 (read-only review) is in progress: `src/lib/treqCli.ts` mirrors
-desktop's `TreqCommandRequest` CLI argv/response contract
-(`workspace list`, `changes list`/`diff`, `commits list`, `conflicts list`,
-`file read`, all `--format json`) and `WorkspacesScreen` ->
-`WorkspaceDetailScreen` -> `DiffScreen`/`CommitsScreen`/`ConflictsScreen`
-drive it over a real SSH exec channel, including parent/working-copy file
-context and conflict-region detail on `DiffScreen`. `ConnectScreen` still
-takes a raw `username@host:port#fingerprint` connection string
-(`src/lib/parseConnectionString.ts`) as a deliberately temporary stand-in
-for registered endpoints on the user-managed path.
+Phase 2's control-plane path is wired: `SignInScreen` (web sign-in,
+completed automatically via the `treqmobile://sign-in?token=...` deep link
+registered in both native projects, with manual token paste as a fallback)
+and `ManagedConnectScreen` (find-or-provision the user's managed instance
+via `listRegions`/`listSizePresets`/`ensureInstance`/`wakeInstance`, then
+device-key generation -> `registerClientKey` -> `issueCertificate` ->
+`TreqSsh.connectWithCertificate`) implement the managed-instance path.
+Certificates renew silently ahead of expiry via `certRenewal.ts`
+(`CertificateRenewalManager`, ported from desktop's
+`remote-cert-lifecycle.ts` - see that file's module doc for why it's
+ported rather than imported).
 
-Phase 2's control-plane path is now wired: `SignInScreen` (web sign-in +
-pasted token, real Supabase session via `authStore.ts`) and
-`ManagedConnectScreen` (device-key generation -> `registerClientKey` ->
-`issueCertificate` -> `TreqSsh.connectWithCertificate`, all real calls
-against the `remote-ssh-trust` edge function and a real certificate-signed
-SSH session) implement the managed-instance path prds/mobile.md describes.
-See prds/mobile.md's Phase 2/3 sections for what's still missing (deep-link
-sign-in, instance provisioning/listing, silent certificate renewal,
-commit-diff and per-commit-conflict CLI commands that don't exist in the
-remote protocol yet).
+`ConnectScreen` still takes a raw `username@host:port#fingerprint`
+connection string (`src/lib/parseConnectionString.ts`) as a deliberately
+temporary stand-in for registered endpoints on the user-managed (as
+opposed to managed-instance) path.
 
 ## What's tested
 
@@ -55,74 +56,76 @@ remote protocol yet).
   CI job `rust`): device key generation produces a valid ed25519 key;
   `connect` rejects a mismatched host-key fingerprint; a full connect +
   exec round trip against a real (in-process, mock) SSH server, then a
-  rejected exec on a disconnected session; a full
-  `connect_with_certificate` round trip using a real, freshly-signed
-  OpenSSH user certificate (a throwaway in-test CA, not the control
-  plane's signing service, but a real certificate parsed and presented
-  over a real SSH session via `authenticate_openssh_cert`), plus a
-  malformed-certificate rejection case. Same in-process-mock-server
-  pattern `src-tauri/src/core/remote_ssh_transport.rs`'s own tests use.
-- `mobile/src/screens/__tests__/*.test.tsx` (`npm test`, CI job
-  `rn-checks`): all screens (`ConnectScreen`, `WorkspacesScreen`,
-  `WorkspaceDetailScreen`, `DiffScreen`, `CommitsScreen`,
-  `ConflictsScreen`, `SignInScreen`, `ManagedConnectScreen`) against a
-  mocked `TreqSsh` native module (`jest.setup.js`) and mocked
-  `controlPlane`/`authStore` calls - component-level coverage of
-  rendering, state, and navigation, independent of any native code or
-  network calls. `mobile/src/lib/__tests__/{controlPlane,authStore}.test.ts`
-  cover the control-plane client and auth store directly, against a
-  mocked Supabase client (not a live Supabase stack - see prds/mobile.md's
-  Phase 2 section).
+  rejected exec on a disconnected session; a full `connect_with_certificate`
+  round trip using a real, freshly-signed OpenSSH user certificate (a
+  throwaway in-test CA, not the control plane's signing service, but a
+  real certificate parsed and presented over a real SSH session via
+  `authenticate_openssh_cert`), plus a malformed-certificate rejection
+  case. Same in-process-mock-server pattern
+  `src-tauri/src/core/remote_ssh_transport.rs`'s own tests use.
+- `mobile/src/screens/__tests__/*.test.tsx` + `mobile/src/lib/__tests__/*.test.ts`
+  (`npm test`, CI job `rn-checks`): every screen and lib module against a
+  mocked `TreqSsh` native module (`jest.setup.js`) and a mocked Supabase
+  client - component/unit-level coverage of rendering, state, navigation,
+  the control-plane request/response contract, and the certificate-renewal
+  scheduling algorithm (13 ported test cases in `certRenewal.test.ts`,
+  covering transparent renewal, session-ended/key-revoked/
+  instance-inaccessible cutoffs, retry-then-renew, and lapse-past-expiry).
 - `mobile/src/screens/__tests__/*.real.test.tsx` (`npm run test:real`,
   CI job `rn-real-ssh`): the **same screens**, driven the same way
-  (`@testing-library/react-native`'s `render`/`fireEvent`/`waitFor` -
-  typing a connection string, pressing "Parse connection string", "Generate
-  device key", "Connect", then walking Workspaces -> WorkspaceDetail ->
-  Diff/Commits/Conflicts), but with `TreqSsh` backed by
-  `src/native/TreqSsh.real.ts` - a thin JS shim over a real N-API build of
-  `treq-mobile-ssh` (feature `napi`, `npm run build:native-test`) instead
-  of a mock. This really opens a TCP connection and runs real SSH exec
-  channels against a real `mock_ssh_server` process, which recognizes the
-  Phase 3 CLI argv shapes and returns realistic fixture JSON
-  (`mock_server::fixture_response` in `crates/treq-mobile-ssh/src/lib.rs`)
-  so the screens' real JSON parsing (`treqCli.ts`) is exercised too -
-  nothing about the SSH logic or response parsing is mocked. It
+  (`@testing-library/react-native`'s `render`/`fireEvent`/`waitFor`), but
+  with `TreqSsh` backed by `src/native/TreqSsh.real.ts` - a thin JS shim
+  over a real N-API build of `treq-mobile-ssh` (feature `napi`,
+  `npm run build:native-test`) instead of a mock. Opens real TCP
+  connections and runs real SSH exec channels against a real
+  `mock_ssh_server` process returning realistic Phase 3 fixture JSON, so
+  the screens' real JSON parsing (`treqCli.ts`) is exercised too. It
   substitutes a Node-hosted shim for the Swift/Kotlin marshalling layer,
-  which Jest (a Node process) cannot execute - see the next two jobs for
-  that layer.
+  which Jest (a Node process) cannot execute - see the next two jobs.
 - `crates/treq-mobile-ssh/ffi-tests/{kotlin,swift}` (CI jobs `kotlin-ffi`,
   `swift-ffi`): real Kotlin (JVM + JNA) and real Swift programs, calling
   the real UniFFI-generated bindings against a real `mock_ssh_server`
-  process, on each language's real toolchain - publickey auth only;
-  `connect_with_certificate` isn't exercised from these two yet (see
-  "What's still not verified").
+  process on each language's real toolchain - including
+  `connectWithCertificate`, using a real certificate obtained by shelling
+  out to `mock_ssh_server sign-cert <public_key>` (neither language has
+  its own certificate-building library).
+- `android-build` (CI job): the *real* `TreqSshModule.kt`/`TreqSshPackage.kt`
+  compiled by `./gradlew :app:compileDebugKotlin` against the real React
+  Native Android artifact in the real generated Gradle project, with
+  UniFFI Kotlin bindings generated from source first. Verified locally in
+  this sandbox by installing an Android SDK (`cmdline-tools`,
+  `platforms;android-35`, `build-tools;35.0.0`) and running the same
+  command - `BUILD SUCCESSFUL`, zero errors.
+- `ios-build` (CI job, `macos-14`): `pod install` + `xcodebuild build`
+  against the real generated Xcode project, including
+  `TreqSshBridge.swift`/`.m` (added to the project's Sources build phase
+  by hand-editing `project.pbxproj`, since the RN CLI scaffold has no
+  knowledge of them). **Not verified locally** - this sandbox has no
+  macOS/Xcode, only the pbxproj edit's brace-balance and the Info.plist's
+  XML validity were checked here; first real verification is that CI job.
 
 ## What's still not verified
 
-- `mobile/ios/TreqMobile/TreqSshBridge.swift`/`.m` and
-  `mobile/android/native/kotlin/TreqSshModule.kt`/`TreqSshPackage.kt` - the
-  actual `@objc`/`RCTBridgeModule` and `ReactMethod`/`NativeModule` wrapper
-  code React Native would call - are not compiled or run by any job above.
-  That requires a generated Xcode project (`pod install`/`xcodebuild`
-  against the React-Core CocoaPod) and a generated Android Gradle project
-  with the real React Native Android artifact, neither of which exists in
-  this repo yet (no `npx react-native init` has been run - see "Building
-  the Rust side" below). `kotlin-ffi`/`swift-ffi` prove the Rust<->Kotlin/
-  Swift FFI halves those files depend on; `rn-real-ssh` proves the screens
-  call the native module interface correctly; nothing yet proves the
-  wrapper files themselves link and run inside a real RN app on a device
-  or simulator.
-- `connect_with_certificate` from Kotlin/Swift specifically: the Rust unit
-  test proves the crate's certificate-auth logic works for real, but
-  `ffi-tests/kotlin`/`ffi-tests/swift` were not extended to sign and
-  present a certificate themselves (both languages would need their own
-  certificate-building code purely to construct a test fixture, which
-  didn't seem worth adding on top of the Rust-level proof).
-- The control-plane client (`controlPlane.ts`, `authStore.ts`) against a
-  live Supabase stack: `controlPlane.test.ts`/`authStore.test.ts` mock the
-  Supabase client entirely, so the real `remote-ssh-trust` edge function's
-  request/response shapes are exercised only by desktop's own tests
-  today, not by anything mobile-specific.
+- The `ios-build` CI job itself has never actually run (no macOS available
+  in this development sandbox to dry-run it) - only locally checkable
+  proxies (pbxproj structural validity, Info.plist XML validity) were
+  verified. `android-build`'s equivalent, `compileDebugKotlin`, *was* run
+  locally and passed.
+- A full linked APK/IPA: `android-build` stops at Kotlin/Java compilation
+  (no Android NDK here to build React Native's own native C++ libraries
+  via CMake for `jniLibs`, confirmed by a `configureCMakeDebug[arm64-v8a]`
+  failure when a full `assembleDebug` was attempted locally - a real,
+  expected gap, not a bug in this app's own code). Building the actual
+  per-ABI `libtreq_mobile_ssh.so` files (via `cargo ndk`) for a real device
+  to load at runtime is also not done.
+- The control-plane client (`controlPlane.ts`, `authStore.ts`,
+  `certRenewal.ts`) against a live Supabase stack: still mocked-client-only
+  in this sandbox, since bringing up the local Supabase CLI stack needs a
+  reachable Docker daemon, and this sandbox's Docker socket isn't
+  reachable (`docker info` fails). Not a design gap, an environment one -
+  see `scripts/service-qa/up.sh` for what a real attempt looks like
+  elsewhere.
+- Real device/simulator execution of anything above.
 
 ## Building the Rust side
 
@@ -134,9 +137,13 @@ cargo run --bin uniffi-bindgen generate --library target/debug/libtreq_mobile_ss
 cargo run --bin uniffi-bindgen generate --library target/debug/libtreq_mobile_ssh.so --language kotlin --out-dir bindings/kotlin
 ```
 
-## Running the app
+`android/app/build.gradle` does the Kotlin half of this automatically
+(`generateTreqMobileSshBindings`, run before every Kotlin compile) using
+the host-target `.so` - real per-ABI Android `.so` files for a device
+still need the `cargo build --target aarch64-linux-android` step above via
+`cargo ndk`, which this repo does not yet script.
 
-Once native projects exist:
+## Running the app
 
 ```sh
 npm install

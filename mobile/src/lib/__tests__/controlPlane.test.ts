@@ -6,7 +6,16 @@ jest.mock('../supabaseClient', () => ({
 }));
 
 import { supabase } from '../supabaseClient';
-import { exchangeToken, issueCertificate, registerClientKey } from '../controlPlane';
+import {
+  ensureInstance,
+  exchangeToken,
+  getInstanceStatus,
+  issueCertificate,
+  listRegions,
+  listSizePresets,
+  registerClientKey,
+  wakeInstance,
+} from '../controlPlane';
 
 const originalFetch = global.fetch;
 
@@ -74,6 +83,48 @@ describe('issueCertificate', () => {
     expect(supabase.functions.invoke).toHaveBeenCalledWith('remote-ssh-trust', {
       body: { action: 'issue_certificate', instance_id: 'inst1', key_id: 'k1' },
     });
+  });
+});
+
+describe('instance lifecycle (remote-instance)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('listRegions/listSizePresets unwrap their response envelopes', async () => {
+    (supabase.functions.invoke as jest.Mock)
+      .mockResolvedValueOnce({ data: { regions: ['us_east', 'eu_west'] }, error: null })
+      .mockResolvedValueOnce({ data: { presets: ['small', 'medium'] }, error: null });
+
+    expect(await listRegions()).toEqual(['us_east', 'eu_west']);
+    expect(await listSizePresets()).toEqual(['small', 'medium']);
+    expect(supabase.functions.invoke).toHaveBeenNthCalledWith(1, 'remote-instance', { body: { action: 'list_regions' } });
+    expect(supabase.functions.invoke).toHaveBeenNthCalledWith(2, 'remote-instance', { body: { action: 'list_sizes' } });
+  });
+
+  it('getInstanceStatus returns the status response as-is', async () => {
+    const response = { instance: null, endpoint: null };
+    (supabase.functions.invoke as jest.Mock).mockResolvedValue({ data: response, error: null });
+
+    expect(await getInstanceStatus()).toEqual(response);
+    expect(supabase.functions.invoke).toHaveBeenCalledWith('remote-instance', { body: { action: 'status' } });
+  });
+
+  it('ensureInstance and wakeInstance pass their request through', async () => {
+    (supabase.functions.invoke as jest.Mock).mockResolvedValue({ data: { operation_id: 'op1', status: 'pending' }, error: null });
+
+    await ensureInstance({ region: 'us_east', size_preset: 'small', idempotency_key: 'idem1' });
+    expect(supabase.functions.invoke).toHaveBeenCalledWith('remote-instance', {
+      body: { action: 'ensure', region: 'us_east', size_preset: 'small', idempotency_key: 'idem1' },
+    });
+
+    await wakeInstance({ instance_id: 'inst1', idempotency_key: 'idem2' });
+    expect(supabase.functions.invoke).toHaveBeenCalledWith('remote-instance', {
+      body: { action: 'wake', instance_id: 'inst1', idempotency_key: 'idem2' },
+    });
+  });
+
+  it('throws when the edge function returns an error', async () => {
+    (supabase.functions.invoke as jest.Mock).mockResolvedValue({ data: null, error: { message: 'no instance' } });
+    await expect(getInstanceStatus()).rejects.toThrow('no instance');
   });
 });
 

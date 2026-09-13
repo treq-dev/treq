@@ -6,17 +6,21 @@
 // the `mock_ssh_server` example binary (`treq_mobile_ssh::mock_server`,
 // gated behind the `ffi-tests` Cargo feature) started by the CI job.
 //
-// Run via `.github/workflows/mobile.yml`'s `kotlin-ffi` job. Expects two
+// Run via `.github/workflows/mobile.yml`'s `kotlin-ffi` job. Expects three
 // CLI args: the mock server's port and its SHA256 host-key fingerprint
-// (both printed by `mock_ssh_server` as `LISTENING <host> <port> <fp>`).
+// (both printed by `mock_ssh_server` as `LISTENING <host> <port> <fp>`),
+// and the path to the `mock_ssh_server` binary itself (used to sign a real
+// test certificate via its `sign-cert` subcommand - see
+// `mock_server::sign_test_certificate`).
 
 import uniffi.treq_mobile_ssh.SshClient
 import uniffi.treq_mobile_ssh.SshException
 
 fun main(args: Array<String>) {
-    require(args.size == 2) { "usage: SshClientFfiTest <port> <fingerprint_sha256>" }
+    require(args.size == 3) { "usage: SshClientFfiTest <port> <fingerprint_sha256> <mock_ssh_server_path>" }
     val port = args[0].toInt()
     val fingerprint = args[1]
+    val mockServerPath = args[2]
 
     val client = SshClient()
 
@@ -51,6 +55,26 @@ fun main(args: Array<String>) {
         "expected the mock server's echoed command in stdout, got: ${result.stdout}"
     }
     println("OK: connect + execCommand round-tripped over a real SSH session")
+
+    // 3b. connectWithCertificate: a real OpenSSH user certificate, signed
+    //     by shelling out to `mock_ssh_server sign-cert` (Kotlin has no
+    //     certificate-building library of its own), presented over a real
+    //     SSH session.
+    val certProcess = ProcessBuilder(mockServerPath, "sign-cert", deviceKey.publicKeyOpenssh)
+        .redirectErrorStream(false)
+        .start()
+    val certificate = certProcess.inputStream.bufferedReader().readText().trim()
+    check(certProcess.waitFor() == 0) { "mock_ssh_server sign-cert exited non-zero" }
+    check(certificate.startsWith("ssh-ed25519-cert-v01@openssh.com ")) {
+        "expected a real OpenSSH certificate, got: $certificate"
+    }
+    val certSessionId = client.connectWithCertificate(
+        "127.0.0.1", port.toUShort(), "treq", deviceKey.privateKeyPem, certificate, fingerprint,
+    )
+    val certResult = client.execCommand(certSessionId, listOf("treq", "workspace", "list"))
+    check(certResult.exitStatus == 0) { "expected exit status 0 for cert session, got ${certResult.exitStatus}" }
+    client.disconnect(certSessionId)
+    println("OK: connectWithCertificate authenticated with a real signed certificate")
 
     // 4. disconnect() really tears the session down.
     client.disconnect(sessionId)

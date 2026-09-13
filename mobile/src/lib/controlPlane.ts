@@ -15,10 +15,18 @@
  */
 import type {
   ClientKeyResponse,
+  InstanceStatusResponse,
   IssueCertificateRequest,
   IssueCertificateResponse,
+  ListRegionsResponse,
+  ListSizePresetsResponse,
+  OperationResponse,
+  ProvisionInstanceRequest,
+  RegionCode,
   RegisterClientKeyRequest,
   RegisterClientKeyResponse,
+  SizePreset,
+  WakeInstanceRequest,
 } from '../../../src/lib/api-types-remote';
 import { environment } from './env';
 import { supabase } from './supabaseClient';
@@ -41,6 +49,47 @@ async function invokeRemoteTrust<T>(action: string, body: object = {}): Promise<
     throw new Error(error.message);
   }
   return data as T;
+}
+
+async function invokeRemoteInstance<T>(action: string, body: object = {}): Promise<T> {
+  const { data, error } = await supabase.functions.invoke<T>('remote-instance', {
+    body: { action, ...body },
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data as T;
+}
+
+// -- Instance lifecycle (remote-instance), mirroring
+// src/lib/remote-control-plane.ts's same-named exports --------------------
+
+export async function listRegions(): Promise<RegionCode[]> {
+  return (await invokeRemoteInstance<ListRegionsResponse>('list_regions')).regions;
+}
+
+export async function listSizePresets(): Promise<SizePreset[]> {
+  return (await invokeRemoteInstance<ListSizePresetsResponse>('list_sizes')).presets;
+}
+
+/** The current user's single managed instance (per "one managed instance
+ * per user" in prds/remote-ssh.md), or `null` if none has been provisioned
+ * yet. */
+export async function getInstanceStatus(): Promise<InstanceStatusResponse> {
+  return invokeRemoteInstance<InstanceStatusResponse>('status');
+}
+
+/** Provisions the user's managed instance if it doesn't exist yet
+ * (idempotent - a repeat call with the same key returns the existing
+ * operation rather than provisioning a second instance). */
+export async function ensureInstance(
+  request: Omit<ProvisionInstanceRequest, 'idempotency_key'> & { idempotency_key: string },
+): Promise<OperationResponse> {
+  return invokeRemoteInstance('ensure', request);
+}
+
+export async function wakeInstance(request: WakeInstanceRequest): Promise<OperationResponse> {
+  return invokeRemoteInstance('wake', request);
 }
 
 /**

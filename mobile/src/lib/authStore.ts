@@ -6,15 +6,15 @@ import { exchangeToken as exchangeTokenWithControlPlane } from './controlPlane';
 import { supabase } from './supabaseClient';
 
 /**
- * Mirrors `src/stores/authStore.ts` (desktop). The one real difference:
- * desktop opens a browser window and gets a token back via its own
- * protocol handler; mobile has no generated native project yet to
- * register a URL scheme in (see mobile/README.md "Status"), so
- * `completeSignIn` takes a manually pasted token instead of a deep link -
- * the same kind of deliberate, documented temporary stand-in as
- * `parseConnectionString.ts`. Swapping in `Linking.addEventListener('url',
- * ...)` here later does not change anything below it (`exchangeToken`,
- * session state) once that native project exists.
+ * Mirrors `src/stores/authStore.ts` (desktop). Desktop opens a browser
+ * window and gets a token back via its own protocol handler; mobile does
+ * the same now via the `treqmobile://sign-in?token=...` deep link
+ * registered in `android/app/src/main/AndroidManifest.xml` (intent-filter)
+ * and `ios/TreqMobile/Info.plist` (`CFBundleURLTypes`) - see
+ * `listenForSignInDeepLink` below. `completeSignIn` (manual token paste)
+ * remains as a fallback for a device/simulator where the deep link isn't
+ * delivered (e.g. this repo's own automated tests, which have no real
+ * native runtime to fire a `Linking` `url` event through).
  */
 export interface AuthState {
   user: User | null;
@@ -60,3 +60,24 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ session: data.session, user: data.session?.user ?? null, loading: false });
   },
 }));
+
+/** Extracts a `token` query parameter from a `treqmobile://sign-in?...`
+ * deep link, without pulling in a URL-parsing dependency for one field. */
+export function extractSignInToken(url: string): string | null {
+  const match = /[?&]token=([^&]+)/.exec(url);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** Registers a `Linking` listener that completes sign-in automatically
+ * when the OS delivers the `treqmobile://sign-in?token=...` redirect from
+ * the web sign-in page. Call once, e.g. from `SignInScreen`'s mount
+ * effect; returns the unsubscribe function. */
+export function listenForSignInDeepLink(): () => void {
+  const subscription = Linking.addEventListener('url', ({ url }) => {
+    const token = extractSignInToken(url);
+    if (token) {
+      void useAuthStore.getState().completeSignIn(token);
+    }
+  });
+  return () => subscription.remove();
+}

@@ -24,29 +24,35 @@ name: Mobile
 #   UniFFI Kotlin/Swift bindings, starts a real SSH server (the
 #   `mock_ssh_server` example, gated behind the `ffi-tests` feature so it
 #   never ships in a normal build) on a real socket, and runs a real
-#   Kotlin/Swift program against it - no JS/TS mock anywhere in this path.
+#   Kotlin/Swift program against it - no JS/TS mock anywhere in this path,
+#   including certificate auth (`connectWithCertificate`): the test
+#   program shells out to `mock_ssh_server sign-cert <public_key>` for a
+#   real signed OpenSSH certificate (neither language has its own
+#   certificate-building library) and presents it over a real session.
 #   `kotlin-ffi` runs on the JVM with JNA (proves the JVM/JNA loading path
 #   any Kotlin consumer of these bindings uses); `swift-ffi` runs on
 #   macOS with the system Swift toolchain (the same one Xcode uses for an
-#   iOS build, modulo iOS-only frameworks like UIKit). Neither spins up an
-#   Android emulator or iOS simulator - see "What this does not prove"
-#   below.
+#   iOS build, modulo iOS-only frameworks like UIKit).
+# - `android-build`: compiles the *actual* native module wrapper,
+#   `mobile/android/app/src/main/java/com/treq/mobile/TreqSshModule.kt`/
+#   `TreqSshPackage.kt`, against the real React Native Android artifact in
+#   a real generated Gradle project (`mobile/android/`), with
+#   `app/build.gradle`'s `generateTreqMobileSshBindings` task producing the
+#   real UniFFI Kotlin bindings from source first - not JNA-loaded from a
+#   test harness, the actual `ReactContextBaseJavaModule` this app ships.
+#   Does not link or run an APK (no Android NDK here to build RN's own
+#   native libs for jniLibs) - compilation only.
+# - `ios-build`: the iOS analog - `pod install` against the real
+#   `ios/Podfile` (React-Core and friends) and `xcodebuild build` the real
+#   generated Xcode project, including `TreqSshBridge.swift`/`.m`. Runs on
+#   `macos-14`, which ships a real Xcode.
 #
 # ## What this does not prove
 #
-# - That `mobile/ios/TreqMobile/TreqSshBridge.swift` (the actual
-#   `@objc`/`RCTBridgeModule` wrapper React Native calls) compiles: that
-#   requires the React-Core CocoaPod and a generated Xcode project, which
-#   in turn requires `pod install`/`xcodebuild` against a real RN iOS
-#   project shell this repo does not have yet (see mobile/README.md
-#   "Status"). `swift-ffi` compiles and runs the generated UniFFI bindings
-#   plus a plain Swift caller instead, proving the Rust<->Swift half of
-#   that bridge.
-# - That `mobile/android/native/kotlin/TreqSshModule.kt` (the actual RN
-#   `NativeModule`) compiles against the real React Native Android
-#   artifact, for the same reason - no generated Android Gradle project
-#   exists yet. `kotlin-ffi` proves the Rust<->Kotlin half via JNA instead.
-# - Anything about running on an actual Android/iOS device or emulator.
+# - Anything about running on an actual Android/iOS device or emulator,
+#   or a full linked APK/IPA (Android would additionally need the NDK and
+#   per-ABI `.so` files built via `cargo ndk`; neither build job attempts
+#   that).
 
 defaults:
   run:
@@ -183,13 +189,87 @@ jobs:
           read -r _ _ port fingerprint < "$RUNNER_TEMP/mock_server.log"
           java -Djna.library.path="$PWD/target/debug" \
             -cp "$RUNNER_TEMP/ffitest.jar:$RUNNER_TEMP/jna.jar" \
-            SshClientFfiTestKt "$port" "$fingerprint"
+            SshClientFfiTestKt "$port" "$fingerprint" "$PWD/target/debug/examples/mock_ssh_server"
 
       - name: Stop the mock server
         if: always()
         run: kill "$(cat "$RUNNER_TEMP/mock_server.pid")" 2>/dev/null || true
 
-  swift-ffi:
+  android-build:
+    name: android-build (real Gradle project, real TreqSshModule.kt)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Android SDK platform/build-tools
+        run: |
+          set -euo pipefail
+          curl -sSL -o "$RUNNER_TEMP/cmdline-tools.zip" \
+            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+      - run: npm ci
+      - name: compileDebugKotlin (generates UniFFI bindings from source, then compiles TreqSshModule.kt for real)
+        working-directory: mobile/android
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew :app:compileDebugKotlin
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+
+  ios-build:
+    name: ios-build (real Xcode project, real TreqSshBridge.swift)
+    runs-on: macos-14
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: pod install
+        working-directory: mobile/ios
+        run: pod install
+      - name: xcodebuild build (simulator, no code signing)
+        working-directory: mobile/ios
+        run: |
+          xcodebuild build \
+            -workspace TreqMobile.xcworkspace \
+            -scheme TreqMobile \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO
     name: swift-ffi (native Swift against real Rust)
     runs-on: macos-14
     timeout-minutes: 20
@@ -237,7 +317,7 @@ jobs:
         run: |
           set -euo pipefail
           read -r _ _ port fingerprint < "$RUNNER_TEMP/mock_server.log"
-          DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/ffitest" "$port" "$fingerprint"
+          DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/ffitest" "$port" "$fingerprint" "$PWD/target/debug/examples/mock_ssh_server"
 
       - name: Stop the mock server
         if: always()

@@ -6,12 +6,14 @@ jest.mock('../supabaseClient', () => ({
 jest.mock('../controlPlane', () => ({
   exchangeToken: jest.fn(),
 }));
-jest.mock('react-native', () => ({ Linking: { openURL: jest.fn() } }));
+jest.mock('react-native', () => ({
+  Linking: { openURL: jest.fn(), addEventListener: jest.fn() },
+}));
 
 import { Linking } from 'react-native';
 import { supabase } from '../supabaseClient';
 import { exchangeToken } from '../controlPlane';
-import { useAuthStore } from '../authStore';
+import { extractSignInToken, listenForSignInDeepLink, useAuthStore } from '../authStore';
 
 describe('authStore', () => {
   beforeEach(() => {
@@ -55,5 +57,68 @@ describe('authStore', () => {
     expect(supabase.auth.signOut).toHaveBeenCalled();
     expect(useAuthStore.getState().session).toBeNull();
     expect(useAuthStore.getState().user).toBeNull();
+  });
+});
+
+describe('extractSignInToken', () => {
+  it('extracts a token query parameter from the deep link', () => {
+    expect(extractSignInToken('treqmobile://sign-in?token=abc123')).toBe('abc123');
+    expect(extractSignInToken('treqmobile://sign-in?foo=bar&token=abc123')).toBe('abc123');
+  });
+
+  it('URL-decodes the token', () => {
+    expect(extractSignInToken('treqmobile://sign-in?token=abc%2Bdef')).toBe('abc+def');
+  });
+
+  it('returns null when there is no token parameter', () => {
+    expect(extractSignInToken('treqmobile://sign-in')).toBeNull();
+  });
+});
+
+describe('listenForSignInDeepLink', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('completes sign-in when the deep link carries a token', () => {
+    const exchangeMock = exchangeToken as jest.Mock;
+    exchangeMock.mockResolvedValue(undefined);
+    (supabase.auth.getSession as jest.Mock).mockResolvedValue({ data: { session: null } });
+
+    let handler: ((event: { url: string }) => void) | undefined;
+    (Linking.addEventListener as jest.Mock).mockImplementation((_event, cb) => {
+      handler = cb;
+      return { remove: jest.fn() };
+    });
+
+    listenForSignInDeepLink();
+    expect(Linking.addEventListener).toHaveBeenCalledWith('url', expect.any(Function));
+
+    handler?.({ url: 'treqmobile://sign-in?token=deep-link-token' });
+
+    expect(exchangeToken).toHaveBeenCalledWith('deep-link-token');
+  });
+
+  it('ignores a deep link with no token', () => {
+    (Linking.addEventListener as jest.Mock).mockImplementation(() => ({ remove: jest.fn() }));
+
+    let handler: ((event: { url: string }) => void) | undefined;
+    (Linking.addEventListener as jest.Mock).mockImplementation((_event, cb) => {
+      handler = cb;
+      return { remove: jest.fn() };
+    });
+
+    listenForSignInDeepLink();
+    handler?.({ url: 'treqmobile://sign-in' });
+
+    expect(exchangeToken).not.toHaveBeenCalled();
+  });
+
+  it('returns an unsubscribe function that calls remove()', () => {
+    const remove = jest.fn();
+    (Linking.addEventListener as jest.Mock).mockReturnValue({ remove });
+
+    const unsubscribe = listenForSignInDeepLink();
+    unsubscribe();
+
+    expect(remove).toHaveBeenCalled();
   });
 });

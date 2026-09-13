@@ -301,6 +301,42 @@ pub mod mock_server {
         generate_ed25519_private_key().unwrap()
     }
 
+    /// Signs a throwaway OpenSSH user certificate for `public_key_openssh`,
+    /// the same way `connect_with_certificate_round_trips_through_a_real_ssh_session`
+    /// does - a real certificate, just signed by an in-test CA rather than
+    /// the control plane's signing service. Lets the Kotlin/Swift FFI test
+    /// programs (which have no OpenSSH-certificate-building library of
+    /// their own) exercise `connect_with_certificate` with a real
+    /// certificate by shelling out to `mock_ssh_server sign-cert
+    /// <public_key_openssh>` for one, rather than only the Rust unit test
+    /// covering that code path.
+    pub fn sign_test_certificate(public_key_openssh: &str) -> Result<String, String> {
+        use russh::keys::ssh_key::certificate::{Builder, CertType};
+        use russh::keys::ssh_key::PublicKey;
+
+        let subject_key = PublicKey::from_openssh(public_key_openssh)
+            .map_err(|e| format!("invalid public key: {e}"))?;
+        let ca_key = generate_ed25519_private_key()?;
+
+        let mut builder = Builder::new(
+            [0u8; 32],
+            subject_key.key_data().clone(),
+            0,
+            u64::MAX,
+        )
+        .map_err(|e| format!("failed to build certificate: {e}"))?;
+        builder
+            .cert_type(CertType::User)
+            .map_err(|e| format!("failed to set cert type: {e}"))?;
+        builder
+            .valid_principal("treq")
+            .map_err(|e| format!("failed to set valid principal: {e}"))?;
+        let cert = builder
+            .sign(&ca_key)
+            .map_err(|e| format!("failed to sign certificate: {e}"))?;
+        cert.to_openssh().map_err(|e| format!("failed to encode certificate: {e}"))
+    }
+
     #[derive(Clone)]
     struct MockServer {
         call_count: Arc<AtomicUsize>,

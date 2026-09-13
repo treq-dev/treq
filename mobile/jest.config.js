@@ -5,7 +5,7 @@ module.exports = {
     'node_modules/(?!(react-native|@react-native|@react-navigation|react-native-screens|react-native-safe-area-context|react-native-keychain|@react-native-async-storage)/)',
   ],
   moduleNameMapper: {
-    '^@react-native-async-storage/async-storage$': '@react-native-async-storage/async-storage/jest',
+    '^@react-native-async-storage/async-storage$': '@react-native-async-storage/async-storage/jest/async-storage-mock',
   },
   // `*.real.test.tsx` files run against the real compiled Rust addon (see
   // jest.config.real.js / `npm run test:real`), not the mocked TreqSsh this

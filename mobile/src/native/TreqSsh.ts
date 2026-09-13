@@ -4,7 +4,7 @@ import { NativeModules } from 'react-native';
  * JS-facing surface for the native `TreqSsh` module, backed by
  * `crates/treq-mobile-ssh` (russh + UniFFI) via a thin Swift (iOS) /
  * Kotlin (Android) bridge — see mobile/ios/TreqMobile/TreqSshBridge.swift
- * and mobile/android/native/kotlin/TreqSshModule.kt.
+ * and mobile/android/app/src/main/java/com/treq/mobile/TreqSshModule.kt.
  *
  * The device private key never crosses this bridge: `generateDeviceKey`
  * returns only the public key and fingerprint, the native side moves the

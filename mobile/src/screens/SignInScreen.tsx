@@ -1,20 +1,23 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
-import { useAuthStore } from '../lib/authStore';
+import { listenForSignInDeepLink, useAuthStore } from '../lib/authStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SignIn'>;
 
 // Managed-instance path (prds/mobile.md Phase 2). Real Supabase auth: opens
-// the same web sign-in page desktop does, but takes the resulting one-time
-// token via manual paste rather than a deep link, since no native iOS/
-// Android project has been generated yet to register a URL scheme in - see
-// src/lib/authStore.ts's module doc for why this is temporary, not a
-// design choice.
+// the same web sign-in page desktop does. The web page's success redirect
+// (treqmobile://sign-in?token=...) completes sign-in automatically via
+// `listenForSignInDeepLink` (see src/lib/authStore.ts) - the manual paste
+// field below is a fallback for a device/simulator where that deep link
+// isn't delivered, kept rather than removed since this repo's own tests
+// have no real native runtime to fire the event through.
 export function SignInScreen({ navigation }: Props): React.JSX.Element {
   const { session, loading, error, beginSignIn, completeSignIn } = useAuthStore();
   const [token, setToken] = useState('');
+
+  useEffect(() => listenForSignInDeepLink(), []);
 
   if (session) {
     return (
@@ -30,7 +33,7 @@ export function SignInScreen({ navigation }: Props): React.JSX.Element {
       <Text style={styles.label}>1. Sign in in your browser</Text>
       <Button title="Open sign-in page" onPress={() => beginSignIn()} />
 
-      <Text style={styles.label}>2. Paste the token shown after sign-in</Text>
+      <Text style={styles.label}>2. Return to this app automatically, or paste the token shown after sign-in</Text>
       <TextInput
         style={styles.input}
         value={token}

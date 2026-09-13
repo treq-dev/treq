@@ -5,17 +5,21 @@
 // socket to the `mock_ssh_server` example binary (`treq_mobile_ssh::mock_server`,
 // gated behind the `ffi-tests` Cargo feature) started by the CI job.
 //
-// Run via `.github/workflows/mobile.yml`'s `swift-ffi` job. Expects two
+// Run via `.github/workflows/mobile.yml`'s `swift-ffi` job. Expects three
 // CLI args: the mock server's port and its SHA256 host-key fingerprint
-// (both printed by `mock_ssh_server` as `LISTENING <host> <port> <fp>`).
+// (both printed by `mock_ssh_server` as `LISTENING <host> <port> <fp>`),
+// and the path to the `mock_ssh_server` binary itself (used to sign a real
+// test certificate via its `sign-cert` subcommand - see
+// `mock_server::sign_test_certificate`).
 
 import Foundation
 
 let args = CommandLine.arguments
-guard args.count == 3, let port = UInt16(args[1]) else {
-  fatalError("usage: SshClientFfiTest <port> <fingerprint_sha256>")
+guard args.count == 4, let port = UInt16(args[1]) else {
+  fatalError("usage: SshClientFfiTest <port> <fingerprint_sha256> <mock_ssh_server_path>")
 }
 let fingerprint = args[2]
+let mockServerPath = args[3]
 
 let client = SshClient()
 
@@ -58,6 +62,37 @@ guard result.stdout.contains("'treq' 'workspace' 'list'") else {
   fatalError("expected the mock server's echoed command in stdout, got: \(result.stdout)")
 }
 print("OK: connect + execCommand round-tripped over a real SSH session")
+
+// 3b. connectWithCertificate: a real OpenSSH user certificate, signed by
+//     shelling out to `mock_ssh_server sign-cert` (Swift has no
+//     certificate-building library of its own), presented over a real SSH
+//     session.
+let certProcess = Process()
+certProcess.executableURL = URL(fileURLWithPath: mockServerPath)
+certProcess.arguments = ["sign-cert", deviceKey.publicKeyOpenssh]
+let certPipe = Pipe()
+certProcess.standardOutput = certPipe
+try! certProcess.run()
+certProcess.waitUntilExit()
+guard certProcess.terminationStatus == 0 else {
+  fatalError("mock_ssh_server sign-cert exited non-zero")
+}
+let certData = certPipe.fileHandleForReading.readDataToEndOfFile()
+let certificate = String(data: certData, encoding: .utf8)!.trimmingCharacters(in: .whitespacesAndNewlines)
+guard certificate.hasPrefix("ssh-ed25519-cert-v01@openssh.com ") else {
+  fatalError("expected a real OpenSSH certificate, got: \(certificate)")
+}
+let certSessionId = try! client.connectWithCertificate(
+  host: "127.0.0.1", port: port, username: "treq",
+  privateKeyPem: deviceKey.privateKeyPem,
+  certificateOpenssh: certificate,
+  expectedFingerprintSha256: fingerprint)
+let certResult = try! client.execCommand(sessionId: certSessionId, argv: ["treq", "workspace", "list"])
+guard certResult.exitStatus == 0 else {
+  fatalError("expected exit status 0 for cert session, got \(certResult.exitStatus)")
+}
+client.disconnect(sessionId: certSessionId)
+print("OK: connectWithCertificate authenticated with a real signed certificate")
 
 // 4. disconnect() really tears the session down.
 client.disconnect(sessionId: sessionId)
