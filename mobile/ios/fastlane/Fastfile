@@ -18,6 +18,10 @@ platform :ios do
       storage_mode: "git"
     )
 
+    increment_version_number(
+      xcodeproj: "TreqMobile.xcodeproj",
+      version_number: ENV["TREQ_VERSION_NAME"]
+    )
     increment_build_number(
       xcodeproj: "TreqMobile.xcodeproj",
       build_number: ENV["TREQ_BUILD_NUMBER"]

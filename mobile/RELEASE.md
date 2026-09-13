@@ -2,9 +2,19 @@
 
 `.github/workflows/mobile-release.yml` builds `mobile/` for Android and iOS,
 signs both, and uploads to the Play Store **internal testing** track and
-TestFlight **internal testing** group. It runs on `workflow_dispatch` or a
-`mobile-v*` tag push - never on every push, since it uploads to real store
-listings.
+TestFlight **internal testing** group. It runs on `workflow_dispatch` only,
+same as desktop's `.github/workflows/release.yml` - never on every push,
+since it uploads to real store listings.
+
+Mobile ships in lockstep with desktop: the marketing version
+(`versionName` on Android, `CFBundleShortVersionString` on iOS) is always
+read from `src-tauri/tauri.conf.json`'s `version` field - the same file
+desktop's release workflow reads its own version/tag from - so a mobile
+release always carries the same version number as the desktop release it
+accompanies. Bump that one field to cut a new version on both platforms.
+Only the store-required monotonic build number (Android `versionCode`, iOS
+`CFBundleVersion`) is generated per CI run, since neither store accepts a
+marketing version as a build number.
 
 Both platforms build the real `crates/treq-mobile-ssh` native library for
 release (see `mobile/android/app/build.gradle`'s `buildTreqMobileSshNativeLibs`

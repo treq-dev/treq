@@ -3,7 +3,15 @@ name: Mobile Release
 # Builds mobile/ (React Native) for Android and iOS, signs both, and pushes
 # them to the Play Store internal testing track and TestFlight (internal
 # testing group). See mobile/RELEASE.md for the secrets this needs and how
-# to set them up. Manual/tag-triggered only - never runs on every push.
+# to set them up. Manual only, same as .github/workflows/release.yml
+# (desktop) - never runs on every push.
+#
+# Mobile ships in lockstep with desktop: the marketing version (versionName
+# / CFBundleShortVersionString) always comes from src-tauri/tauri.conf.json,
+# the same file desktop's release.yml reads its own version/tag from, so a
+# mobile release always carries the same version number as the desktop
+# release it accompanies. Only the store-required monotonic build number
+# (Android versionCode, iOS CFBundleVersion) is generated per-run.
 
 defaults:
   run:
@@ -11,13 +19,21 @@ defaults:
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "mobile-v*"
 
 jobs:
+  version:
+    name: resolve shared version (from src-tauri/tauri.conf.json)
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: echo "version=$(jq -r '.version' src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+
   android:
     name: android (signed AAB -> Play Store internal track)
+    needs: version
     runs-on: ubuntu-22.04
     timeout-minutes: 40
     defaults:
@@ -89,11 +105,12 @@ jobs:
           TREQ_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.TREQ_ANDROID_KEYSTORE_PASSWORD }}
           TREQ_ANDROID_KEY_ALIAS: ${{ secrets.TREQ_ANDROID_KEY_ALIAS }}
           TREQ_ANDROID_KEY_PASSWORD: ${{ secrets.TREQ_ANDROID_KEY_PASSWORD }}
-          TREQ_VERSION_NAME: ${{ github.ref_name }}
+          TREQ_VERSION_NAME: ${{ needs.version.outputs.version }}
           TREQ_VERSION_CODE: ${{ github.run_number }}
 
   ios:
     name: ios (signed IPA -> TestFlight internal testing)
+    needs: version
     runs-on: macos-14
     timeout-minutes: 45
     defaults:
@@ -137,4 +154,5 @@ jobs:
           TREQ_ASC_KEY_CONTENT: ${{ secrets.TREQ_ASC_KEY_CONTENT }}
           TREQ_MATCH_GIT_URL: ${{ secrets.TREQ_MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.TREQ_MATCH_PASSWORD }}
+          TREQ_VERSION_NAME: ${{ needs.version.outputs.version }}
           TREQ_BUILD_NUMBER: ${{ github.run_number }}
