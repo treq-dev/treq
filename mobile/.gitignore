@@ -37,6 +37,7 @@ android/app/release/
 **/bindings/swift/
 **/bindings/kotlin/
 android/app/src/main/java/uniffi/
+android/app/src/main/jniLibs/
 
 # Logs, coverage, editor/OS cruft
 *.log

@@ -161,3 +161,28 @@ tasks.register("generateTreqMobileSshBindings", Exec) {
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     dependsOn("generateTreqMobileSshBindings")
 }
+
+// Builds the real per-ABI libtreq_mobile_ssh.so files (via `cargo ndk`,
+// https://github.com/bbqsrc/cargo-ndk) that TreqSshModule.kt's JNA-backed
+// UniFFI bindings load at runtime, and copies them into jniLibs/ so a full
+// `assembleDebug`/`assembleRelease` links them into the APK - the gap
+// generateTreqMobileSshBindings above deliberately leaves open (it only
+// makes the Kotlin API surface compile, not link). Needs `cargo install
+// cargo-ndk` and `rustup target add aarch64-linux-android
+// armv7-linux-androideabi x86_64-linux-android i686-linux-android`, and
+// ANDROID_NDK_HOME set - see mobile/README.md "Building the Rust side".
+def treqMobileSshJniLibsDir = file("${projectDir}/src/main/jniLibs")
+
+tasks.register("buildTreqMobileSshNativeLibs", Exec) {
+    inputs.dir(fileTree(treqMobileSshCrateDir) { exclude "target" })
+    outputs.dir(treqMobileSshJniLibsDir)
+    workingDir = treqMobileSshCrateDir
+    commandLine "cargo", "ndk",
+        "-t", "arm64-v8a", "-t", "armeabi-v7a", "-t", "x86_64", "-t", "x86",
+        "-o", treqMobileSshJniLibsDir.path,
+        "build", "--release"
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("buildTreqMobileSshNativeLibs")
+}
