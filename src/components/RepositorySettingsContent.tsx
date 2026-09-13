@@ -32,6 +32,7 @@ export const RepositorySettingsContent = ({
     defaultModel: string;
     defaultAgent: string;
     autoPush: boolean;
+    ignoreGeneratedAgentFiles: boolean;
   } | null>(null);
 
   const {
@@ -39,20 +40,28 @@ export const RepositorySettingsContent = ({
     error: loadError,
     isLoading: loading,
   } = useSWR(repoPath ? ["repo-settings", repoPath] : null, async () => {
-    const [branchPattern, includedPatterns, model, agent, autoPushSetting] =
-      await Promise.all([
-        getRepoSetting(repoPath, "branch_name_pattern"),
-        getRepoSetting(repoPath, "included_copy_files"),
-        getRepoSetting(repoPath, "default_model"),
-        getRepoSetting(repoPath, "default_agent"),
-        getRepoSetting(repoPath, "auto_push"),
-      ]);
+    const [
+      branchPattern,
+      includedPatterns,
+      model,
+      agent,
+      autoPushSetting,
+      ignoreGeneratedSetting,
+    ] = await Promise.all([
+      getRepoSetting(repoPath, "branch_name_pattern"),
+      getRepoSetting(repoPath, "included_copy_files"),
+      getRepoSetting(repoPath, "default_model"),
+      getRepoSetting(repoPath, "default_agent"),
+      getRepoSetting(repoPath, "auto_push"),
+      getRepoSetting(repoPath, "ignore_generated_treq_paths"),
+    ]);
     return {
       branchNamePattern: branchPattern || "treq/{name}",
       includedFiles: includedPatterns || "",
       defaultModel: model || "",
       defaultAgent: agent || "",
       autoPush: autoPushSetting === "true",
+      ignoreGeneratedAgentFiles: ignoreGeneratedSetting === "true",
     };
   });
 
@@ -65,6 +74,7 @@ export const RepositorySettingsContent = ({
           defaultModel: "",
           defaultAgent: "",
           autoPush: false,
+          ignoreGeneratedAgentFiles: false,
         });
   const {
     branchNamePattern,
@@ -72,6 +82,7 @@ export const RepositorySettingsContent = ({
     defaultModel,
     defaultAgent,
     autoPush,
+    ignoreGeneratedAgentFiles,
   } = settings;
 
   // .treq/config.yaml, when it sets a field, is synced into these same repo
@@ -94,6 +105,7 @@ export const RepositorySettingsContent = ({
       defaultModel: string;
       defaultAgent: string;
       autoPush: boolean;
+      ignoreGeneratedAgentFiles: boolean;
     }>,
   ) => {
     setDraft({
@@ -103,6 +115,7 @@ export const RepositorySettingsContent = ({
       defaultModel,
       defaultAgent,
       autoPush,
+      ignoreGeneratedAgentFiles,
       ...patch,
     });
   };
@@ -113,6 +126,8 @@ export const RepositorySettingsContent = ({
   const setDefaultModel = (v: string) => updateDraft({ defaultModel: v });
   const setDefaultAgent = (v: string) => updateDraft({ defaultAgent: v });
   const setAutoPush = (v: boolean) => updateDraft({ autoPush: v });
+  const setIgnoreGeneratedAgentFiles = (v: boolean) =>
+    updateDraft({ ignoreGeneratedAgentFiles: v });
 
   const handleSave = async () => {
     onSavingChange?.(true);
@@ -124,6 +139,11 @@ export const RepositorySettingsContent = ({
         setRepoSetting(repoPath, "default_model", defaultModel),
         setRepoSetting(repoPath, "default_agent", defaultAgent),
         setRepoSetting(repoPath, "auto_push", autoPush ? "true" : "false"),
+        setRepoSetting(
+          repoPath,
+          "ignore_generated_treq_paths",
+          ignoreGeneratedAgentFiles ? "true" : "false",
+        ),
       ]);
       addToast({
         title: "Settings saved",
@@ -242,6 +262,23 @@ export const RepositorySettingsContent = ({
           id="auto-push"
           checked={autoPush}
           onCheckedChange={setAutoPush}
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <Label htmlFor="ignore-generated-agent-files">
+            Ignore generated Treq paths
+          </Label>
+          <p className="text-sm text-muted-foreground mt-1">
+            Add .jj*/ and Treq-generated agent skill paths to this repository's
+            .gitignore
+          </p>
+        </div>
+        <Switch
+          id="ignore-generated-agent-files"
+          checked={ignoreGeneratedAgentFiles}
+          onCheckedChange={setIgnoreGeneratedAgentFiles}
         />
       </div>
 

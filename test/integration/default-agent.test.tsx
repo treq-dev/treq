@@ -11,6 +11,8 @@ import {
 import { render, screen, waitFor, within } from "../test-utils";
 import { Dashboard } from "../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
+import fs from "node:fs";
+import path from "node:path";
 
 describe("default agent configuration", () => {
   let user: ReturnType<typeof userEvent.setup>;
@@ -79,6 +81,27 @@ describe("default agent configuration", () => {
 
     const agentPicker = await screen.findByLabelText("Agent");
     await waitFor(() => expect(agentPicker).toHaveValue("claude"));
+  });
+
+  it("only adds optional Treq gitignore entries after repository opt-in", async () => {
+    render(<Dashboard />);
+    await user.click(await screen.findByLabelText("Settings"));
+
+    const gitignorePath = path.join(repoPath, ".gitignore");
+    expect(fs.readFileSync(gitignorePath, "utf8")).not.toContain(".jj*/");
+
+    await user.click(
+      await screen.findByLabelText(/ignore generated Treq paths/i),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /save settings/i }),
+    );
+    await screen.findByText("Settings saved");
+
+    const gitignore = fs.readFileSync(gitignorePath, "utf8");
+    expect(gitignore).toContain(".jj*/");
+    expect(gitignore).toContain(".agents/skills/treq*/");
+    expect(gitignore).toContain(".claude/skills/treq*/");
   });
 
   it("creates sessions with the selected agent and switching the dropdown changes the agent used", async () => {
