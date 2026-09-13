@@ -232,3 +232,44 @@ required one fix beyond installing the NDK:
 npm install
 npm run ios       # or: npm run android
 ```
+
+## Store screenshots
+
+`fastlane screenshots` lanes capture the App Store / Play Store listing
+screenshots. Each drives an on-device UI test that calls out to fastlane's
+screenshot tooling per screen; add a `snapshot(...)` / `Screengrab.screenshot(...)`
+call to `ScreenshotTests`/`ScreenshotTest` below for each new screen to capture.
+
+### iOS (`fastlane snapshot`)
+
+One-time setup (the UI test target isn't checked in as an Xcode project
+change, since editing `project.pbxproj` by hand is fragile):
+
+1. In Xcode, add a UI Testing Bundle target named `TreqMobileUITests` to
+   `TreqMobile.xcodeproj`, targeting `TreqMobile`.
+2. Add `ios/TreqMobileUITests/SnapshotHelper.swift` and `ScreenshotTests.swift`
+   (already in the repo) to that target.
+3. `bundle exec fastlane snapshot init` is not needed - `fastlane/Snapfile`
+   is already configured (devices, languages, output dir).
+
+Then, from `mobile/ios`:
+
+```sh
+bundle exec fastlane ios screenshots
+```
+
+Screenshots land in `mobile/ios/fastlane/screenshots/`.
+
+### Android (`fastlane screengrab`)
+
+No manual setup needed - the instrumented test lives at
+`app/src/androidTest/java/com/treq/mobile/screenshots/ScreenshotTest.kt` and
+`fastlane/Screengrabfile` is already configured.
+
+From `mobile/android`:
+
+```sh
+bundle exec fastlane android screenshots
+```
+
+Screenshots land in `mobile/android/fastlane/metadata/android/`.

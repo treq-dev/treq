@@ -1,0 +1,22 @@
+# Snapfile - configuration for `fastlane snapshot` (screenshots lane)
+# https://docs.fastlane.tools/actions/snapshot/
+
+devices([
+  "iPhone 16 Pro Max",
+  "iPhone 16",
+  "iPhone SE (3rd generation)",
+  "iPad Pro 13-inch (M4)"
+])
+
+languages([
+  "en-US"
+])
+
+scheme("TreqMobileUITests")
+output_directory("./fastlane/screenshots")
+
+clear_previous_screenshots(true)
+override_status_bar(true)
+
+# stop_after_first_error(true)
+# concurrent_simulators(false)
