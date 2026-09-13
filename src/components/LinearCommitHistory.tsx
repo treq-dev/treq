@@ -438,7 +438,7 @@ function CommitItem({
               Immutable
             </span>
           )}
-          <TooltipProvider delayDuration={300}>
+          <TooltipProvider delay={300}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="text-xs text-muted-foreground">

@@ -11,6 +11,7 @@
 //! Function equivalents, or a future control-plane binary) construct
 //! [`SpritesConfig`] from environment/secret storage.
 
+use crate::lock_ext::LockExt;
 use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
@@ -107,7 +108,7 @@ impl SpritesProvider {
   /// call to the Fly Machines API, if any. `None` before any call has been
   /// made, or if the vendor response carried no request-id header.
   pub fn last_request_id(&self) -> Option<String> {
-    self.last_request_id.lock().unwrap().clone()
+    self.last_request_id.lock_or_recover().clone()
   }
 
   /// Reads and records the vendor request id from a response's headers.
@@ -122,7 +123,7 @@ impl SpritesProvider {
       .and_then(|value| value.to_str().ok())
       .map(str::to_string);
     if let Some(id) = id {
-      *self.last_request_id.lock().unwrap() = Some(id);
+      *self.last_request_id.lock_or_recover() = Some(id);
     }
   }
 

@@ -27,6 +27,6 @@ export default defineConfig({
       "test/integration/workspace/**/*.test.{ts,tsx}",
     ],
     fileParallelism: true,
-    maxWorkers: 3,
+    maxWorkers: 2,
   },
 });

@@ -23,6 +23,9 @@ function defaultFlags(): PreviewFlags {
     workspaceScheduling: previewFeatureDefault("workspaceScheduling"),
     remoteSsh: previewFeatureDefault("remoteSsh"),
     linearIntegration: previewFeatureDefault("linearIntegration"),
+    logs: previewFeatureDefault("logs"),
+    checks: previewFeatureDefault("checks"),
+    browser: previewFeatureDefault("browser"),
   };
 }
 
