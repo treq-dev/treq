@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import useSWR from "swr";
-import { Bot, Database, Loader2, Table2 } from "lucide-react";
+import { Database, Loader2, Table2 } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   getAgentChat,
@@ -24,10 +24,7 @@ interface Props {
 type View = "browse" | "explorer";
 type SourceGroup = "checks" | "agent-chats";
 
-/**
- * Repo-level logs: checks (OpenTelemetry JSONL) and agent chats (TUI-split
- * conversations from agent terminals, never shell terminals).
- */
+/** Repo-level check and agent logs. */
 export function LogsTab({ repoPath, onSendToAgent }: Props) {
   const [source, setSource] = useState<SourceGroup>("checks");
   const [view, setView] = useState<View>("browse");
@@ -59,45 +56,18 @@ export function LogsTab({ repoPath, onSendToAgent }: Props) {
   return (
     <div data-testid="logs-tab" className="flex flex-col h-full">
       <div className="flex items-center justify-between gap-2 px-4 py-3 border-b">
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="flex items-center gap-1"
-            role="group"
-            aria-label="Log source"
-          >
-            <Button
-              size="sm"
-              variant={checksSelected ? "secondary" : "ghost"}
-              aria-pressed={checksSelected}
-              onClick={() => {
-                setSource("checks");
-                setView("browse");
-              }}
-            >
-              <Database className="h-3 w-3 mr-1" />
-              Checks logs
-            </Button>
-            <Button
-              size="sm"
-              variant={checksSelected ? "ghost" : "secondary"}
-              aria-pressed={!checksSelected}
-              onClick={() => {
-                setSource("agent-chats");
-                setView("browse");
-              }}
-            >
-              <Bot className="h-3 w-3 mr-1" />
-              Agent chats
-            </Button>
-          </div>
-          <div className="min-w-0 hidden sm:block">
-            <div className="text-xs text-muted-foreground font-mono truncate">
-              {checksSelected
-                ? "OpenTelemetry records · .treq/telemetry-*.db"
-                : "TUI-split conversations · .treq/agent-chats/*.json"}
-            </div>
-          </div>
-        </div>
+        <select
+          aria-label="Log source"
+          className="h-8 rounded-md border bg-background px-2 text-sm"
+          value={source}
+          onChange={(event) => {
+            setSource(event.target.value as SourceGroup);
+            setView("browse");
+          }}
+        >
+          <option value="checks">Checks</option>
+          <option value="agent-chats">Agent</option>
+        </select>
         {checksSelected && (
           <div className="flex items-center gap-1">
             <Button
@@ -129,7 +99,7 @@ export function LogsTab({ repoPath, onSendToAgent }: Props) {
             <input
               aria-label="Search logs"
               placeholder="Search all runs…"
-              className="h-8 flex-1 min-w-[160px] rounded-md border bg-background px-2 text-sm"
+              className="ml-auto h-8 w-full max-w-sm min-w-[160px] rounded-md border bg-background px-2 text-sm"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -234,7 +204,7 @@ function AgentChatsSource({
         <input
           aria-label="Search agent chat"
           placeholder="Search this conversation…"
-          className="h-8 flex-1 min-w-[160px] rounded-md border bg-background px-2 text-sm"
+          className="ml-auto h-8 w-full max-w-sm min-w-[160px] rounded-md border bg-background px-2 text-sm"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
