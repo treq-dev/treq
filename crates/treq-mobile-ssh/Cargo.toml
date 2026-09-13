@@ -1,0 +1,49 @@
+[package]
+name = "treq-mobile-ssh"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib", "lib"]
+name = "treq_mobile_ssh"
+
+[features]
+# Exposes `mock_server` (an in-process SSH server) as a public module so the
+# `mock_ssh_server` example binary can serve it for the Kotlin/Swift FFI CI
+# jobs. Never enabled in a normal build.
+ffi-tests = []
+# Builds an N-API addon (src/napi_bridge.rs) exposing the same SshClient
+# operations to Node, so Jest can call the real Rust code in
+# mobile/src/native/__tests__ instead of a hand-written JS mock - the same
+# role tauri-test/napi plays for src-tauri's own vitest suite. This is a
+# Node-only stand-in for the Swift/Kotlin marshalling layer those bridge
+# files provide on-device; it is not, and does not attempt to be, a real
+# iOS/Android native module.
+napi = ["dep:napi", "dep:napi-derive"]
+
+[[example]]
+name = "mock_ssh_server"
+required-features = ["ffi-tests"]
+
+[dependencies]
+russh = "0.63.1"
+bytes = "1"
+getrandom = "0.4"
+rand_core = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "io-util"] }
+thiserror = "1"
+uniffi = { version = "0.28", features = ["cli"] }
+napi = { version = "2", default-features = false, features = ["napi8", "async"], optional = true }
+napi-derive = { version = "2", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "net"] }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+napi-build = "2"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"

@@ -93,8 +93,6 @@ export const revokeClientKey = (
  * Registers a device's public key with the control plane, normalizing the
  * edge function's two response shapes (a freshly registered `key`, or a
  * `keys` list on an idempotent replay) down to the single matching key.
- * Used by the mobile connectivity flow (mobile PRD, Phase 2) to register the
- * key `ensureMobileDeviceKey` generates.
  */
 export const registerClientKey = async (
   request: RegisterClientKeyRequest,

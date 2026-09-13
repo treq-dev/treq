@@ -235,7 +235,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         max={MAX_ZOOM}
                         step={ZOOM_STEP}
                         value={[localZoom]}
-                        onValueChange={([value]) => setLocalZoom(value)}
+                        onValueChange={(value) =>
+                          setLocalZoom(Array.isArray(value) ? value[0] : value)
+                        }
                         className="mt-3"
                       />
                       <p className="text-sm text-muted-foreground mt-2">

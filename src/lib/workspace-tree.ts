@@ -1,10 +1,19 @@
 import type { Workspace, WorkspaceNode, WorkspaceSidebarStatus } from "./api";
 
 /**
+ * WorkspaceSidebarStatus plus git detail only populated for workspaces with
+ * an active agent session (see WorkspaceSidebar's agent-session spinner).
+ */
+export type WorkspaceSidebarStatusWithAgentDetail = WorkspaceSidebarStatus & {
+  has_changes?: boolean;
+  commits_ahead_of_target_count?: number;
+};
+
+/**
  * Represents a node in the workspace tree
  */
 export interface WorkspaceTreeNode {
-  status: WorkspaceSidebarStatus;
+  status: WorkspaceSidebarStatusWithAgentDetail;
   branchName: string;
   children: WorkspaceTreeNode[];
   depth: number;
@@ -14,7 +23,7 @@ export interface WorkspaceTreeNode {
  * Flattened node for rendering
  */
 export interface FlattenedWorkspaceNode {
-  status: WorkspaceSidebarStatus;
+  status: WorkspaceSidebarStatusWithAgentDetail;
   branchName: string;
   depth: number;
   hasChildren: boolean;

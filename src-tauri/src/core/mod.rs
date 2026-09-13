@@ -14,7 +14,6 @@ pub mod idempotency_store;
 pub mod remote;
 pub mod remote_bootstrap;
 pub mod remote_control_plane;
-pub mod remote_device_key;
 pub mod remote_local_keys;
 pub mod remote_provider;
 pub mod remote_provider_sprites;
