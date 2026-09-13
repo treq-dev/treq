@@ -92,6 +92,9 @@ export function ConnectScreen({ navigation }: Props): React.JSX.Element {
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {busy ? <ActivityIndicator /> : <Button title="Connect" onPress={handleConnect} />}
+
+      <Text style={styles.label}>Or connect to a Treq-managed instance</Text>
+      <Button title="Sign in" onPress={() => navigation.navigate('SignIn')} />
     </View>
   );
 }

@@ -128,23 +128,27 @@ Original scope (Tauri build targets, mobile capability file, `MobileShell` layou
 
 Done. No further work planned under this phase; see Phase 2 below for the connectivity layer this shell now calls into.
 
-### Phase 2: Security and connectivity prototype (partially done; control-plane path not started)
-
-Unlike the original Tauri delivery, mobile does **not** currently share desktop's control-plane client, certificate issuance, or managed-VM flow (`lib/remote-control-plane.ts`, `remote-ssh-trust`/`remote-instance` edge functions) - none of that exists in the RN app yet. What's implemented instead is the user-managed-endpoint path only:
+### Phase 2: Security and connectivity prototype (control-plane path now wired)
 
 Done:
 
 - Generate a per-device ed25519 keypair and its OpenSSH public key/fingerprint, in real Rust (`SshClient::generate_device_key` in `crates/treq-mobile-ssh/src/lib.rs`).
 - Store that private key in OS-native secure storage rather than crossing to JS: iOS Keychain (`mobile/ios/TreqMobile/TreqSshBridge.swift`) and an Android Keystore-backed AES-sealed blob (`mobile/android/native/kotlin/TreqSshModule.kt`). Only an opaque `keyHandle` crosses the native-module boundary to JS - the private key itself never does.
 - Verify a pinned host-key fingerprint and connect with the native (russh) SSH library before any credentials are sent (`SshClient::connect`, `HostKeyVerifier`), rejecting a mismatched fingerprint.
+- Authenticate with a short-lived OpenSSH user certificate instead of direct public-key auth (`SshClient::connect_with_certificate`, mirroring desktop's `authenticate_openssh_cert`), for the managed-instance path - verified with a real self-signed test certificate against a real SSH session (`connect_with_certificate_round_trips_through_a_real_ssh_session` in `crates/treq-mobile-ssh/src/lib.rs`).
 - Execute commands over a real SSH exec channel and read back stdout/stderr/exit status (`SshClient::exec_command`).
-- A connect UI (`ConnectScreen`): generate/regenerate the device key, and a temporary `username@host:port#fingerprint` connection-string field (`parseConnectionString.ts`) standing in for registered-endpoint selection.
+- Supabase auth: sign in via the same web sign-in page desktop uses, exchanged for a session via the same `exchange-desktop-token` edge function (`mobile/src/lib/authStore.ts`, `controlPlane.ts`).
+- Device-key registration and certificate issuance against the real `remote-ssh-trust` edge function (`registerClientKey`/`issueCertificate` in `controlPlane.ts`, request/response types imported directly from `src/lib/api-types-remote.ts` rather than duplicated) - `ManagedConnectScreen` drives generate-key -> register -> issue-certificate -> `connectWithCertificate` end to end, using the certificate response's own trusted host-key fingerprint rather than a manually pinned one.
+- A connect UI (`ConnectScreen`): generate/regenerate the device key, and a temporary `username@host:port#fingerprint` connection-string field (`parseConnectionString.ts`) standing in for registered-endpoint selection on the user-managed path; `SignInScreen` + `ManagedConnectScreen` for the managed path.
 
 Open items before this is more than a prototype:
 
-- No Supabase control-plane integration at all: no authentication, no managed-instance provisioning, no certificate issuance, no registered-endpoint list. Every connection today is a manually-entered user-managed endpoint.
-- The Swift/Kotlin bridge files that do the Keychain/Keystore sealing (`TreqSshBridge.swift`/`.m`, `TreqSshModule.kt`/`TreqSshPackage.kt`) have not been compiled or run inside a real RN app: no `ios/`/`android/` native project has been generated yet (no `npx react-native init` has been run in this repo), so there is no Xcode/Gradle project to drop them into. `.github/workflows/mobile.yml`'s `kotlin-ffi`/`swift-ffi` jobs verify the Rust<->Kotlin/Swift FFI those files depend on, not the bridge files themselves.
+- Sign-in takes a manually pasted token rather than a deep link: no `ios`/`android` native project has been generated yet (see below) to register a URL scheme in, so there is nowhere to catch a real redirect. `authStore.ts`'s module doc calls this out as temporary, same as the connection-string field.
+- No managed-instance provisioning, listing, wake/reprovision, or the `remote-instance` edge function's other actions - `ManagedConnectScreen` requires the user to already know an `instance_id`.
+- No silent certificate renewal (the PRD's "Silent renewal while the session is active" requirement in `remote-ssh.md`) - a certificate is requested once, at connect time.
+- The Swift/Kotlin bridge files that do the Keychain/Keystore sealing (`TreqSshBridge.swift`/`.m`, `TreqSshModule.kt`/`TreqSshPackage.kt`) have not been compiled or run inside a real RN app: no `ios/`/`android/` native project has been generated yet (no `npx react-native init` has been run in this repo), so there is no Xcode/Gradle project to drop them into. `.github/workflows/mobile.yml`'s `kotlin-ffi`/`swift-ffi` jobs verify the Rust<->Kotlin/Swift FFI those files depend on (publickey auth only, not yet certificate auth - see "What's tested" in `mobile/README.md`), not the bridge files themselves.
 - No UI for the "biometrics not set up" / secure-storage-unavailable case.
+- The control-plane client (`controlPlane.ts`, `authStore.ts`) is unit-tested against a mocked Supabase client only - not exercised against a real local Supabase stack (the `service-qa` skill's stack is scoped to the desktop/web app's own auth flow, not this mobile client).
 
 ### Phase 3: Read-only review (in progress)
 

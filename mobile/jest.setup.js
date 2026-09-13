@@ -5,6 +5,7 @@ jest.mock('./src/native/TreqSsh', () => ({
   default: {
     generateDeviceKey: jest.fn(),
     connect: jest.fn(),
+    connectWithCertificate: jest.fn(),
     execCommand: jest.fn(),
     disconnect: jest.fn(),
   },

@@ -130,15 +130,8 @@ impl SshClient {
         let key = PrivateKey::from_openssh(&private_key_pem)
             .map_err(|e| SshError::KeyMaterialUnavailable(e.to_string()))?;
 
-        let config = Arc::new(client::Config::default());
-        let handler = HostKeyVerifier {
-            expected_fingerprint_sha256,
-        };
-
         let handle = self.runtime.block_on(async move {
-            let mut handle = client::connect(config, (host.as_str(), port), handler)
-                .await
-                .map_err(|e| SshError::ConnectionFailed(e.to_string()))?;
+            let mut handle = open_verified_connection(host, port, expected_fingerprint_sha256).await?;
 
             let key = Arc::new(key);
             let hash_alg = handle
@@ -152,24 +145,53 @@ impl SshClient {
                 .await
                 .map_err(|e| SshError::AuthenticationFailed(e.to_string()))?;
 
-            match auth_result {
-                AuthResult::Success => {}
-                AuthResult::Failure { .. } => {
-                    return Err(SshError::AuthenticationFailed(
-                        "server rejected public key".into(),
-                    ));
-                }
-            }
-
+            require_auth_success(auth_result, "server rejected public key")?;
             Ok(handle)
         })?;
 
+        Ok(self.store_session(handle))
+    }
+
+    /// Same as `connect`, but authenticates with a short-lived OpenSSH user
+    /// certificate plus its matching private key, per the managed-instance
+    /// path in `prds/mobile.md`'s Phase 2 (mirrors desktop's
+    /// `authenticate_openssh_cert` in `remote_ssh_transport.rs`).
+    pub fn connect_with_certificate(
+        &self,
+        host: String,
+        port: u16,
+        username: String,
+        private_key_pem: String,
+        certificate_openssh: String,
+        expected_fingerprint_sha256: String,
+    ) -> Result<u64, SshError> {
+        let key = PrivateKey::from_openssh(&private_key_pem)
+            .map_err(|e| SshError::KeyMaterialUnavailable(e.to_string()))?;
+        let cert = russh::keys::Certificate::from_openssh(&certificate_openssh)
+            .map_err(|e| SshError::KeyMaterialUnavailable(format!("invalid certificate: {e}")))?;
+
+        let handle = self.runtime.block_on(async move {
+            let mut handle = open_verified_connection(host, port, expected_fingerprint_sha256).await?;
+
+            let auth_result = handle
+                .authenticate_openssh_cert(username, Arc::new(key), cert)
+                .await
+                .map_err(|e| SshError::AuthenticationFailed(e.to_string()))?;
+
+            require_auth_success(auth_result, "server rejected certificate")?;
+            Ok(handle)
+        })?;
+
+        Ok(self.store_session(handle))
+    }
+
+    fn store_session(&self, handle: Handle<HostKeyVerifier>) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         self.sessions
             .lock()
             .expect("session map poisoned")
             .insert(id, Session { handle });
-        Ok(id)
+        id
     }
 
     pub fn exec_command(&self, session_id: u64, argv: Vec<String>) -> Result<ExecResult, SshError> {
@@ -218,6 +240,31 @@ impl SshClient {
 
     pub fn disconnect(&self, session_id: u64) {
         self.sessions.lock().expect("session map poisoned").remove(&session_id);
+    }
+}
+
+/// Opens a TCP+SSH connection and verifies the server's host key against
+/// `expected_fingerprint_sha256` (via `HostKeyVerifier`) before any
+/// credentials are sent, shared by both `connect` and
+/// `connect_with_certificate`.
+async fn open_verified_connection(
+    host: String,
+    port: u16,
+    expected_fingerprint_sha256: String,
+) -> Result<Handle<HostKeyVerifier>, SshError> {
+    let config = Arc::new(client::Config::default());
+    let handler = HostKeyVerifier {
+        expected_fingerprint_sha256,
+    };
+    client::connect(config, (host.as_str(), port), handler)
+        .await
+        .map_err(|e| SshError::ConnectionFailed(e.to_string()))
+}
+
+fn require_auth_success(result: AuthResult, rejection_message: &str) -> Result<(), SshError> {
+    match result {
+        AuthResult::Success => Ok(()),
+        AuthResult::Failure { .. } => Err(SshError::AuthenticationFailed(rejection_message.to_string())),
     }
 }
 
@@ -279,6 +326,14 @@ pub mod mock_server {
             &mut self,
             _user: &str,
             _key: &russh::keys::ssh_key::PublicKey,
+        ) -> Result<server::Auth, Self::Error> {
+            Ok(server::Auth::Accept)
+        }
+
+        async fn auth_openssh_certificate(
+            &mut self,
+            _user: &str,
+            _certificate: &russh::keys::Certificate,
         ) -> Result<server::Auth, Self::Error> {
             Ok(server::Auth::Accept)
         }
@@ -453,5 +508,72 @@ mod tests {
         client.disconnect(session_id);
         let second_attempt = client.exec_command(session_id, vec!["treq".to_string()]);
         assert!(matches!(second_attempt, Err(SshError::SessionNotFound)));
+    }
+
+    #[test]
+    fn connect_with_certificate_round_trips_through_a_real_ssh_session() {
+        use russh::keys::ssh_key::certificate::{Builder, CertType};
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (addr, host_key) = runtime.block_on(start_mock_server("127.0.0.1:0"));
+        let expected_fingerprint = host_key.public_key().fingerprint(HashAlg::Sha256).to_string();
+
+        let client = SshClient::new();
+        let device_key = client.generate_device_key().unwrap();
+        let subject_key = PrivateKey::from_openssh(&device_key.private_key_pem).unwrap();
+
+        // A real, freshly-signed OpenSSH user certificate - built the same
+        // way Supabase's `issue_certificate` edge function would, just with
+        // an in-test throwaway CA instead of the control plane's signing
+        // service. Proves `connect_with_certificate` parses and presents a
+        // real certificate over a real SSH session, not just that it
+        // compiles.
+        let ca_key = generate_ed25519_private_key().unwrap();
+        let mut builder = Builder::new(
+            [0u8; 32],
+            subject_key.public_key().key_data().clone(),
+            0,
+            u64::MAX,
+        )
+        .unwrap();
+        builder.cert_type(CertType::User).unwrap();
+        builder.valid_principal("treq").unwrap();
+        let cert = builder.sign(&ca_key).unwrap();
+        let cert_openssh = cert.to_openssh().unwrap();
+
+        let session_id = client
+            .connect_with_certificate(
+                addr.ip().to_string(),
+                addr.port(),
+                "treq".to_string(),
+                device_key.private_key_pem,
+                cert_openssh,
+                expected_fingerprint,
+            )
+            .expect("certificate connect should succeed against the mock server");
+
+        let result = client
+            .exec_command(session_id, vec!["treq".to_string(), "workspace".to_string(), "list".to_string()])
+            .expect("exec should succeed on the certificate-authenticated session");
+        assert_eq!(result.exit_status, 0);
+
+        client.disconnect(session_id);
+    }
+
+    #[test]
+    fn connect_with_certificate_rejects_a_malformed_certificate() {
+        let client = SshClient::new();
+        let device_key = client.generate_device_key().unwrap();
+
+        let result = client.connect_with_certificate(
+            "127.0.0.1".to_string(),
+            2222,
+            "treq".to_string(),
+            device_key.private_key_pem,
+            "not-a-real-certificate".to_string(),
+            "SHA256:whatever".to_string(),
+        );
+
+        assert!(matches!(result, Err(SshError::KeyMaterialUnavailable(_))));
     }
 }

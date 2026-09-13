@@ -39,6 +39,14 @@ interface SshClient {
   [Throws=SshError]
   u64 connect(string host, u16 port, string username, string private_key_pem, string expected_fingerprint_sha256);
 
+  // Same as `connect`, but authenticates with a short-lived OpenSSH user
+  // certificate (`certificate_openssh`, as issued by the control plane's
+  // `issue_certificate` action) plus its matching private key, instead of
+  // direct public-key auth - the managed-instance path (prds/mobile.md
+  // Phase 2), mirroring desktop's `authenticate_openssh_cert`.
+  [Throws=SshError]
+  u64 connect_with_certificate(string host, u16 port, string username, string private_key_pem, string certificate_openssh, string expected_fingerprint_sha256);
+
   // Runs a single allow-listed Treq CLI command over a non-interactive
   // exec channel on an already-open session.
   [Throws=SshError]

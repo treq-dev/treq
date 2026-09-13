@@ -60,6 +60,33 @@ class TreqSshBridge: NSObject {
     }
   }
 
+  @objc(connectWithCertificate:port:username:keyHandle:certificateOpenSsh:expectedFingerprintSha256:resolver:rejecter:)
+  func connectWithCertificate(
+    host: String,
+    port: NSNumber,
+    username: String,
+    keyHandle: String,
+    certificateOpenSsh: String,
+    expectedFingerprintSha256: String,
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    do {
+      let privateKeyPem = try loadFromKeychain(account: keyHandle)
+      let sessionId = try client.connectWithCertificate(
+        host: host,
+        port: UInt16(truncating: port),
+        username: username,
+        privateKeyPem: privateKeyPem,
+        certificateOpenssh: certificateOpenSsh,
+        expectedFingerprintSha256: expectedFingerprintSha256
+      )
+      resolve(String(sessionId))
+    } catch {
+      reject("connect_with_certificate_failed", error.localizedDescription, error)
+    }
+  }
+
   @objc(execCommand:argv:resolver:rejecter:)
   func execCommand(
     sessionId: String,

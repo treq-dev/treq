@@ -69,6 +69,27 @@ class TreqSshModule(reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun connectWithCertificate(
+    host: String,
+    port: Int,
+    username: String,
+    keyHandle: String,
+    certificateOpenSsh: String,
+    expectedFingerprintSha256: String,
+    promise: Promise,
+  ) {
+    try {
+      val privateKeyPem = unsealFromStore(keyHandle)
+      val sessionId = client.connectWithCertificate(
+        host, port.toUShort(), username, privateKeyPem, certificateOpenSsh, expectedFingerprintSha256,
+      )
+      promise.resolve(sessionId.toString())
+    } catch (e: Exception) {
+      promise.reject("connect_with_certificate_failed", e.message, e)
+    }
+  }
+
+  @ReactMethod
   fun execCommand(sessionId: String, argv: com.facebook.react.bridge.ReadableArray, promise: Promise) {
     try {
       val id = sessionId.toULong()

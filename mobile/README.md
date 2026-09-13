@@ -27,17 +27,27 @@ gap none of them close: the bridge *wrapper* files themselves
 real React Native native modules, which needs a generated Xcode/Gradle
 project this repo does not have yet.
 
-Phase 3 (read-only review) is now in progress: `src/lib/treqCli.ts` mirrors
+Phase 3 (read-only review) is in progress: `src/lib/treqCli.ts` mirrors
 desktop's `TreqCommandRequest` CLI argv/response contract
 (`workspace list`, `changes list`/`diff`, `commits list`, `conflicts list`,
-all `--format json`) and `WorkspacesScreen` -> `WorkspaceDetailScreen` ->
-`DiffScreen`/`CommitsScreen`/`ConflictsScreen` drive it over a real SSH
-exec channel. `ConnectScreen` still takes a raw
-`username@host:port#fingerprint` connection string
+`file read`, all `--format json`) and `WorkspacesScreen` ->
+`WorkspaceDetailScreen` -> `DiffScreen`/`CommitsScreen`/`ConflictsScreen`
+drive it over a real SSH exec channel, including parent/working-copy file
+context and conflict-region detail on `DiffScreen`. `ConnectScreen` still
+takes a raw `username@host:port#fingerprint` connection string
 (`src/lib/parseConnectionString.ts`) as a deliberately temporary stand-in
-for registered endpoints - see prds/mobile.md's Phase 2/3 sections for
-what's still missing (control-plane auth, certificate issuance, parent-file
-context, commit-diff and per-commit conflict detail).
+for registered endpoints on the user-managed path.
+
+Phase 2's control-plane path is now wired: `SignInScreen` (web sign-in +
+pasted token, real Supabase session via `authStore.ts`) and
+`ManagedConnectScreen` (device-key generation -> `registerClientKey` ->
+`issueCertificate` -> `TreqSsh.connectWithCertificate`, all real calls
+against the `remote-ssh-trust` edge function and a real certificate-signed
+SSH session) implement the managed-instance path prds/mobile.md describes.
+See prds/mobile.md's Phase 2/3 sections for what's still missing (deep-link
+sign-in, instance provisioning/listing, silent certificate renewal,
+commit-diff and per-commit-conflict CLI commands that don't exist in the
+remote protocol yet).
 
 ## What's tested
 
@@ -45,12 +55,24 @@ context, commit-diff and per-commit conflict detail).
   CI job `rust`): device key generation produces a valid ed25519 key;
   `connect` rejects a mismatched host-key fingerprint; a full connect +
   exec round trip against a real (in-process, mock) SSH server, then a
-  rejected exec on a disconnected session. Same in-process-mock-server
+  rejected exec on a disconnected session; a full
+  `connect_with_certificate` round trip using a real, freshly-signed
+  OpenSSH user certificate (a throwaway in-test CA, not the control
+  plane's signing service, but a real certificate parsed and presented
+  over a real SSH session via `authenticate_openssh_cert`), plus a
+  malformed-certificate rejection case. Same in-process-mock-server
   pattern `src-tauri/src/core/remote_ssh_transport.rs`'s own tests use.
 - `mobile/src/screens/__tests__/*.test.tsx` (`npm test`, CI job
-  `rn-checks`): `ConnectScreen` and `WorkspacesScreen` against a mocked
-  `TreqSsh` native module (`jest.setup.js`) - component-level coverage of
-  rendering, state, and navigation, independent of any native code.
+  `rn-checks`): all screens (`ConnectScreen`, `WorkspacesScreen`,
+  `WorkspaceDetailScreen`, `DiffScreen`, `CommitsScreen`,
+  `ConflictsScreen`, `SignInScreen`, `ManagedConnectScreen`) against a
+  mocked `TreqSsh` native module (`jest.setup.js`) and mocked
+  `controlPlane`/`authStore` calls - component-level coverage of
+  rendering, state, and navigation, independent of any native code or
+  network calls. `mobile/src/lib/__tests__/{controlPlane,authStore}.test.ts`
+  cover the control-plane client and auth store directly, against a
+  mocked Supabase client (not a live Supabase stack - see prds/mobile.md's
+  Phase 2 section).
 - `mobile/src/screens/__tests__/*.real.test.tsx` (`npm run test:real`,
   CI job `rn-real-ssh`): the **same screens**, driven the same way
   (`@testing-library/react-native`'s `render`/`fireEvent`/`waitFor` -
@@ -71,22 +93,36 @@ context, commit-diff and per-commit conflict detail).
 - `crates/treq-mobile-ssh/ffi-tests/{kotlin,swift}` (CI jobs `kotlin-ffi`,
   `swift-ffi`): real Kotlin (JVM + JNA) and real Swift programs, calling
   the real UniFFI-generated bindings against a real `mock_ssh_server`
-  process, on each language's real toolchain.
+  process, on each language's real toolchain - publickey auth only;
+  `connect_with_certificate` isn't exercised from these two yet (see
+  "What's still not verified").
 
 ## What's still not verified
 
-`mobile/ios/TreqMobile/TreqSshBridge.swift`/`.m` and
-`mobile/android/native/kotlin/TreqSshModule.kt`/`TreqSshPackage.kt` - the
-actual `@objc`/`RCTBridgeModule` and `ReactMethod`/`NativeModule` wrapper
-code React Native would call - are not compiled or run by any job above.
-That requires a generated Xcode project (`pod install`/`xcodebuild` against
-the React-Core CocoaPod) and a generated Android Gradle project with the
-real React Native Android artifact, neither of which exists in this repo
-yet (no `npx react-native init` has been run - see "Building the Rust side"
-below). `kotlin-ffi`/`swift-ffi` prove the Rust<->Kotlin/Swift FFI halves
-those files depend on; `rn-real-ssh` proves the screens call the native
-module interface correctly; nothing yet proves the wrapper files
-themselves link and run inside a real RN app on a device or simulator.
+- `mobile/ios/TreqMobile/TreqSshBridge.swift`/`.m` and
+  `mobile/android/native/kotlin/TreqSshModule.kt`/`TreqSshPackage.kt` - the
+  actual `@objc`/`RCTBridgeModule` and `ReactMethod`/`NativeModule` wrapper
+  code React Native would call - are not compiled or run by any job above.
+  That requires a generated Xcode project (`pod install`/`xcodebuild`
+  against the React-Core CocoaPod) and a generated Android Gradle project
+  with the real React Native Android artifact, neither of which exists in
+  this repo yet (no `npx react-native init` has been run - see "Building
+  the Rust side" below). `kotlin-ffi`/`swift-ffi` prove the Rust<->Kotlin/
+  Swift FFI halves those files depend on; `rn-real-ssh` proves the screens
+  call the native module interface correctly; nothing yet proves the
+  wrapper files themselves link and run inside a real RN app on a device
+  or simulator.
+- `connect_with_certificate` from Kotlin/Swift specifically: the Rust unit
+  test proves the crate's certificate-auth logic works for real, but
+  `ffi-tests/kotlin`/`ffi-tests/swift` were not extended to sign and
+  present a certificate themselves (both languages would need their own
+  certificate-building code purely to construct a test fixture, which
+  didn't seem worth adding on top of the Rust-level proof).
+- The control-plane client (`controlPlane.ts`, `authStore.ts`) against a
+  live Supabase stack: `controlPlane.test.ts`/`authStore.test.ts` mock the
+  Supabase client entirely, so the real `remote-ssh-trust` edge function's
+  request/response shapes are exercised only by desktop's own tests
+  today, not by anything mobile-specific.
 
 ## Building the Rust side
 

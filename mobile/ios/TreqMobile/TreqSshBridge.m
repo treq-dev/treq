@@ -15,6 +15,15 @@ RCT_EXTERN_METHOD(connect:(NSString *)host
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(connectWithCertificate:(NSString *)host
+                  port:(nonnull NSNumber *)port
+                  username:(NSString *)username
+                  keyHandle:(NSString *)keyHandle
+                  certificateOpenSsh:(NSString *)certificateOpenSsh
+                  expectedFingerprintSha256:(NSString *)expectedFingerprintSha256
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(execCommand:(NSString *)sessionId
                   argv:(NSArray<NSString *> *)argv
                   resolver:(RCTPromiseResolveBlock)resolve

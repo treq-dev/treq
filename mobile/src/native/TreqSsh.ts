@@ -32,6 +32,17 @@ export type TreqSshModule = {
     keyHandle: string,
     expectedFingerprintSha256: string,
   ): Promise<string>;
+  // Managed-instance path (prds/mobile.md Phase 2): authenticates with a
+  // short-lived OpenSSH certificate (from controlPlane.issueCertificate)
+  // plus the device's own key, instead of direct public-key auth.
+  connectWithCertificate(
+    host: string,
+    port: number,
+    username: string,
+    keyHandle: string,
+    certificateOpenSsh: string,
+    expectedFingerprintSha256: string,
+  ): Promise<string>;
   execCommand(sessionId: string, argv: string[]): Promise<ExecResult>;
   disconnect(sessionId: string): Promise<void>;
 };

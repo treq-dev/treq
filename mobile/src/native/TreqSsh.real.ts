@@ -42,6 +42,14 @@ type NativeSshClient = {
     privateKeyPem: string,
     expectedFingerprintSha256: string,
   ): bigint;
+  connectWithCertificate(
+    host: string,
+    port: number,
+    username: string,
+    privateKeyPem: string,
+    certificateOpenssh: string,
+    expectedFingerprintSha256: string,
+  ): bigint;
   execCommand(sessionId: bigint, argv: string[]): NativeExecResult;
   disconnect(sessionId: bigint): void;
 };
@@ -77,6 +85,24 @@ const TreqSshReal: TreqSshModule = {
       throw new Error(`device key not found for handle ${keyHandle}`);
     }
     const sessionId = client.connect(host, port, username, privateKeyPem, expectedFingerprintSha256);
+    return sessionId.toString();
+  },
+
+  async connectWithCertificate(
+    host: string,
+    port: number,
+    username: string,
+    keyHandle: string,
+    certificateOpenSsh: string,
+    expectedFingerprintSha256: string,
+  ): Promise<string> {
+    const privateKeyPem = privateKeysByHandle.get(keyHandle);
+    if (!privateKeyPem) {
+      throw new Error(`device key not found for handle ${keyHandle}`);
+    }
+    const sessionId = client.connectWithCertificate(
+      host, port, username, privateKeyPem, certificateOpenSsh, expectedFingerprintSha256,
+    );
     return sessionId.toString();
   },
 

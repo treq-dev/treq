@@ -92,6 +92,30 @@ impl SshClient {
     }
 
     #[napi]
+    pub fn connect_with_certificate(
+        &self,
+        host: String,
+        port: u16,
+        username: String,
+        private_key_pem: String,
+        certificate_openssh: String,
+        expected_fingerprint_sha256: String,
+    ) -> Result<BigInt> {
+        let session_id = self
+            .inner
+            .connect_with_certificate(
+                host,
+                port,
+                username,
+                private_key_pem,
+                certificate_openssh,
+                expected_fingerprint_sha256,
+            )
+            .map_err(map_error)?;
+        Ok(BigInt::from(session_id))
+    }
+
+    #[napi]
     pub fn exec_command(&self, session_id: BigInt, argv: Vec<String>) -> Result<NapiExecResult> {
         let (_, id, _) = session_id.get_u64();
         self.inner
