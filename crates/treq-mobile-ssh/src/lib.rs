@@ -330,6 +330,13 @@ pub mod mock_server {
             return r#"[{"id":7,"workspace_name":"feature-x","branch_name":"feature-x","title":"Feature X","target_branch":"main","archived":false}]"#.to_string();
         }
         if command.starts_with("'changes' 'diff'") {
+            // The `src/a.rs` fixture path (also the one `conflicts list`
+            // reports below) carries a conflict region, so a real UI test
+            // can follow Conflicts -> Diff and see real conflict-marker
+            // content, not just an empty list.
+            if command.contains("'src/a.rs'") {
+                return r#"[{"id":"h1","header":"@@ -1,3 +1,4 @@","lines":["<<<<<<<"],"patch":"<<<<<<<\n","conflict_style":"Legacy","conflict_regions":[{"id":"c1","file_path":"src/a.rs","conflict_number":1,"total_conflicts":1,"start_line":1,"end_line":5,"marker_style":"Legacy","content":"<<<<<<< left\n=======\nright\n>>>>>>>","lines":[],"line_map":[],"comparison":{}}]}]"#.to_string();
+            }
             return r#"[{"id":"h1","header":"@@ -1,3 +1,4 @@","lines":["+added"],"patch":"+added\n","conflict_style":"Legacy","conflict_regions":[]}]"#.to_string();
         }
         if command.starts_with("'changes' 'list'") {
@@ -340,6 +347,12 @@ pub mod mock_server {
         }
         if command.starts_with("'conflicts' 'list'") {
             return r#"["src/a.rs"]"#.to_string();
+        }
+        if command.starts_with("'file' 'read'") {
+            let revision = if command.contains("'parent'") { "parent" } else { "working-copy" };
+            return format!(
+                r#"{{"lines":["fn main() {{","    // {revision} revision","}}"],"start_line":1,"end_line":3}}"#
+            );
         }
         format!("{{\"echo\":\"{command}\"}}")
     }

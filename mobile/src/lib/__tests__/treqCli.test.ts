@@ -9,7 +9,9 @@ import {
   parseConflicts,
   parseDiffHunks,
   parseFileChanges,
+  parseFileLines,
   parseWorkspaces,
+  readFileArgv,
 } from '../treqCli';
 
 describe('treqCli argv builders', () => {
@@ -35,6 +37,18 @@ describe('treqCli argv builders', () => {
       'commits', 'list', '--repo', '/repo', '--workspace', '1', '--format', 'json',
     ]);
     expect(listConflictsArgv('/repo')).toEqual(['conflicts', 'list', '--repo', '/repo', '--format', 'json']);
+  });
+
+  it('builds file read argv for working-copy and parent revisions', () => {
+    expect(readFileArgv('/repo', 'src/lib.rs', 'workingCopy', 3)).toEqual([
+      'file', 'read', '--repo', '/repo', '--workspace', '3',
+      '--path', 'src/lib.rs', '--revision', 'working-copy', '--format', 'json',
+    ]);
+    expect(readFileArgv('/repo', 'src/lib.rs', 'parent', 3, 10, 50)).toEqual([
+      'file', 'read', '--repo', '/repo', '--workspace', '3',
+      '--path', 'src/lib.rs', '--revision', 'parent',
+      '--start-line', '10', '--end-line', '50', '--format', 'json',
+    ]);
   });
 });
 
@@ -72,13 +86,37 @@ describe('response parsers', () => {
     ]);
   });
 
-  it('parses diff hunks', () => {
+  it('parses diff hunks without conflict regions', () => {
     const stdout = JSON.stringify([
       { id: 'h1', header: '@@ -1,3 +1,4 @@', lines: ['+added'], patch: '+added\n' },
     ]);
     expect(parseDiffHunks(stdout)).toEqual([
-      { id: 'h1', header: '@@ -1,3 +1,4 @@', lines: ['+added'], patch: '+added\n' },
+      { id: 'h1', header: '@@ -1,3 +1,4 @@', lines: ['+added'], patch: '+added\n', conflictRegions: [] },
     ]);
+  });
+
+  it('parses diff hunks with conflict regions', () => {
+    const stdout = JSON.stringify([
+      {
+        id: 'h1', header: '@@ -1,3 +1,4 @@', lines: ['<<<<<<<'], patch: '<<<<<<<\n',
+        conflict_regions: [
+          { id: 'c1', conflict_number: 1, total_conflicts: 1, content: '<<<<<<< left\n=======\nright\n>>>>>>>' },
+        ],
+      },
+    ]);
+    expect(parseDiffHunks(stdout)).toEqual([
+      {
+        id: 'h1', header: '@@ -1,3 +1,4 @@', lines: ['<<<<<<<'], patch: '<<<<<<<\n',
+        conflictRegions: [
+          { id: 'c1', conflictNumber: 1, totalConflicts: 1, content: '<<<<<<< left\n=======\nright\n>>>>>>>' },
+        ],
+      },
+    ]);
+  });
+
+  it('parses file lines', () => {
+    const stdout = JSON.stringify({ lines: ['a', 'b'], start_line: 1, end_line: 2 });
+    expect(parseFileLines(stdout)).toEqual({ lines: ['a', 'b'], startLine: 1, endLine: 2 });
   });
 
   it('parses commits from a JjLogResult envelope', () => {

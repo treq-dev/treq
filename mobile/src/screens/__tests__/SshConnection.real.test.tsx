@@ -117,6 +117,7 @@ describe('SSH connection and Phase 3 review screens (real Rust, no mocks)', () =
     fireEvent.changeText(workspaces.getByPlaceholderText('/home/treq/repos/my-project'), '/repo');
     fireEvent.press(workspaces.getByText('Load workspaces'));
     await waitFor(() => expect(workspaces.getByText('Feature X')).toBeTruthy(), { timeout: 10_000 });
+    workspaces.unmount();
 
     // WorkspaceDetailScreen: real changed-file list from the mock server
     const detail = render(
@@ -130,8 +131,14 @@ describe('SSH connection and Phase 3 review screens (real Rust, no mocks)', () =
       />,
     );
     await waitFor(() => expect(detail.getByText('src/lib.rs')).toBeTruthy(), { timeout: 10_000 });
+    detail.unmount();
 
-    // DiffScreen: real diff hunk for that file
+    // DiffScreen: real diff hunk for that file, plus its real
+    // working-copy file context, loaded on demand. Each screen is
+    // unmounted once done with it - rendering a second DiffScreen later
+    // (for the conflicted path) while this one is still mounted made
+    // `getByText`/`fireEvent.press` ambiguous between the two same-shaped
+    // trees in earlier iterations of this test.
     const diff = render(
       <DiffScreen
         navigation={{} as any}
@@ -142,6 +149,9 @@ describe('SSH connection and Phase 3 review screens (real Rust, no mocks)', () =
       />,
     );
     await waitFor(() => expect(diff.getByText('@@ -1,3 +1,4 @@')).toBeTruthy(), { timeout: 10_000 });
+    fireEvent.press(diff.getByText('Working copy'));
+    await waitFor(() => expect(diff.getByText('Working copy (lines 1-3)')).toBeTruthy(), { timeout: 10_000 });
+    diff.unmount();
 
     // CommitsScreen: real commit list
     const commits = render(
@@ -151,14 +161,36 @@ describe('SSH connection and Phase 3 review screens (real Rust, no mocks)', () =
       />,
     );
     await waitFor(() => expect(commits.getByText('Add feature')).toBeTruthy(), { timeout: 10_000 });
+    commits.unmount();
 
-    // ConflictsScreen: real conflicted-path list
+    // ConflictsScreen: real conflicted-path list, tapping through to a
+    // real Diff render carrying real conflict-region content
+    let navigatedTo: { path: string } | null = null;
     const conflicts = render(
       <ConflictsScreen
-        navigation={{} as any}
+        navigation={{ navigate: (_screen: string, params: { path: string }) => { navigatedTo = params; } } as any}
         route={{ key: 'conflicts', name: 'Conflicts', params: { sessionId, repo: '/repo', workspaceId: 7 } } as any}
       />,
     );
     await waitFor(() => expect(conflicts.getByText('src/a.rs')).toBeTruthy(), { timeout: 10_000 });
+    fireEvent.press(conflicts.getByText('src/a.rs'));
+    expect(navigatedTo).toEqual({ sessionId, repo: '/repo', workspaceId: 7, path: 'src/a.rs' });
+    conflicts.unmount();
+
+    const conflictDiff = render(
+      <DiffScreen
+        navigation={{} as any}
+        route={{
+          key: 'diff', name: 'Diff',
+          params: { sessionId, repo: '/repo', workspaceId: 7, path: 'src/a.rs' },
+        } as any}
+      />,
+    );
+    await waitFor(
+      () => expect(conflictDiff.getByText('This file has unresolved conflicts.')).toBeTruthy(),
+      { timeout: 10_000 },
+    );
+    expect(conflictDiff.getByText('Conflict 1 of 1')).toBeTruthy();
+    conflictDiff.unmount();
   }, 30_000);
 });

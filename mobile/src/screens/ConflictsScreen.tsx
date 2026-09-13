@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import TreqSsh from '../native/TreqSsh';
@@ -7,7 +7,11 @@ import { listConflictsArgv, parseConflicts } from '../lib/treqCli';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Conflicts'>;
 
-export function ConflictsScreen({ route }: Props): React.JSX.Element {
+// Conflict detail (per-file conflict marker regions) is shown by tapping
+// through to DiffScreen, which renders `conflictRegions` for that path -
+// there is no separate per-commit conflict command in the remote CLI
+// protocol to call instead (see prds/mobile.md's Phase 3 section).
+export function ConflictsScreen({ navigation, route }: Props): React.JSX.Element {
   const { sessionId, repo, workspaceId } = route.params;
   const [conflicts, setConflicts] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(true);
@@ -41,9 +45,12 @@ export function ConflictsScreen({ route }: Props): React.JSX.Element {
           keyExtractor={(p) => p}
           ListEmptyComponent={<Text style={styles.label}>No conflicts.</Text>}
           renderItem={({ item }) => (
-            <View style={styles.row}>
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => navigation.navigate('Diff', { sessionId, repo, workspaceId, path: item })}
+            >
               <Text style={styles.mono}>{item}</Text>
-            </View>
+            </TouchableOpacity>
           )}
         />
       ) : null}

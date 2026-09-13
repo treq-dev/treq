@@ -31,11 +31,34 @@ export type FileChange = {
   changedLineCount: number;
 };
 
+/**
+ * Simplified mirror of a single `ConflictRegionView` (`conflict_markers.rs`)
+ * - only enough to show a reader "this hunk has an unresolved conflict"
+ * and its raw marker text, not the full structural line/comparison detail
+ * desktop's conflict editor uses. `prds/mobile.md`'s Phase 3 section notes
+ * this is a simplification, not a parity claim.
+ */
+export type ConflictRegion = {
+  id: string;
+  conflictNumber: number;
+  totalConflicts: number;
+  content: string;
+};
+
 export type DiffHunk = {
   id: string;
   header: string;
   lines: string[];
   patch: string;
+  conflictRegions: ConflictRegion[];
+};
+
+export type FileRevision = 'workingCopy' | 'parent';
+
+export type FileLines = {
+  lines: string[];
+  startLine: number;
+  endLine: number;
 };
 
 export type Commit = {
@@ -76,6 +99,29 @@ export function listCommitsArgv(repo: string, workspaceId?: number): string[] {
 
 export function listConflictsArgv(repo: string, workspaceId?: number): string[] {
   return [...baseArgv('conflicts', 'list', repo, workspaceId), '--format', 'json'];
+}
+
+export function readFileArgv(
+  repo: string,
+  path: string,
+  revision: FileRevision,
+  workspaceId?: number,
+  startLine?: number,
+  endLine?: number,
+): string[] {
+  const argv = [
+    ...baseArgv('file', 'read', repo, workspaceId),
+    '--path', path,
+    '--revision', revision === 'workingCopy' ? 'working-copy' : 'parent',
+  ];
+  if (startLine !== undefined) {
+    argv.push('--start-line', String(startLine));
+  }
+  if (endLine !== undefined) {
+    argv.push('--end-line', String(endLine));
+  }
+  argv.push('--format', 'json');
+  return argv;
 }
 
 /**
@@ -133,12 +179,30 @@ export function parseFileChanges(stdout: string): FileChange[] {
 }
 
 export function parseDiffHunks(stdout: string): DiffHunk[] {
-  type RawHunk = { id: string; header: string; lines: string[]; patch: string };
+  type RawConflictRegion = {
+    id: string;
+    conflict_number: number;
+    total_conflicts: number;
+    content: string;
+  };
+  type RawHunk = {
+    id: string;
+    header: string;
+    lines: string[];
+    patch: string;
+    conflict_regions?: RawConflictRegion[];
+  };
   return parseCliJson<RawHunk[]>(stdout).map((h) => ({
     id: h.id,
     header: h.header,
     lines: h.lines,
     patch: h.patch,
+    conflictRegions: (h.conflict_regions ?? []).map((r) => ({
+      id: r.id,
+      conflictNumber: r.conflict_number,
+      totalConflicts: r.total_conflicts,
+      content: r.content,
+    })),
   }));
 }
 
@@ -172,4 +236,10 @@ export function parseCommits(stdout: string): Commit[] {
 
 export function parseConflicts(stdout: string): string[] {
   return parseCliJson<string[]>(stdout);
+}
+
+export function parseFileLines(stdout: string): FileLines {
+  type RawFileLines = { lines: string[]; start_line: number; end_line: number };
+  const raw = parseCliJson<RawFileLines>(stdout);
+  return { lines: raw.lines, startLine: raw.start_line, endLine: raw.end_line };
 }
