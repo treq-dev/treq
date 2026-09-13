@@ -7,6 +7,7 @@
 use crate::core::feature_preview::PreviewFeature;
 use crate::core::remote_control_plane::SshEndpoint;
 use crate::core::remote_pty::{PtyLaunchSpec, RemotePtyBinding, RemotePtyError, RemotePtyManager};
+use crate::pty::Utf8StreamDecoder;
 use crate::AppState;
 use serde::Serialize;
 use tauri::{Emitter, State};
@@ -96,9 +97,14 @@ pub async fn remote_pty_create(
   let data_event = data_event_name(&session_id);
   let exit_event = exit_event_name(&session_id);
   let app_for_data = app.clone();
+  let app_for_decoder_exit = app.clone();
   let sid_for_data = session_id.clone();
   let app_for_exit = app;
   let sid_for_exit = session_id.clone();
+  let decoder = std::sync::Arc::new(std::sync::Mutex::new(Utf8StreamDecoder::new()));
+  let data_decoder = decoder.clone();
+  let exit_decoder = decoder;
+  let data_event_for_exit = data_event.clone();
 
   manager
     .create(
@@ -111,18 +117,23 @@ pub async fn remote_pty_create(
         // Never log raw terminal data (PRD "never log raw terminal output ...
         // by default"); only the event name/session id are logged, in
         // `remote_pty_create`'s entry line above.
-        if let Err(error) =
-          app_for_data.emit(&data_event, String::from_utf8_lossy(&chunk).into_owned())
-        {
-          log::warn!(
-            "remote pty emit failed: session_id={}, event={}, error={}",
-            sid_for_data,
-            data_event,
-            error
-          );
+        let decoded = data_decoder.lock().unwrap().push(&chunk);
+        if !decoded.is_empty() {
+          if let Err(error) = app_for_data.emit(&data_event, decoded) {
+            log::warn!(
+              "remote pty emit failed: session_id={}, event={}, error={}",
+              sid_for_data,
+              data_event,
+              error
+            );
+          }
         }
       },
       move |exit_status| {
+        let trailing = exit_decoder.lock().unwrap().finish();
+        if !trailing.is_empty() {
+          let _ = app_for_decoder_exit.emit(&data_event_for_exit, trailing);
+        }
         if let Err(error) = app_for_exit.emit(&exit_event, RemotePtyExitPayload { exit_status }) {
           log::warn!(
             "remote pty exit emit failed: session_id={}, event={}, error={}",

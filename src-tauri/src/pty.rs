@@ -14,32 +14,51 @@ use std::thread;
 /// - `new_bytes`: the new bytes read from the PTY
 ///
 /// Returns a valid UTF-8 String, potentially leaving trailing incomplete bytes in `pending`.
-fn process_utf8_chunk(pending: &mut Vec<u8>, new_bytes: &[u8]) -> String {
-  // Combine pending bytes with new bytes
-  let mut combined = std::mem::take(pending);
-  combined.extend_from_slice(new_bytes);
+#[derive(Default)]
+pub(crate) struct Utf8StreamDecoder {
+  pending: Vec<u8>,
+}
 
-  match std::str::from_utf8(&combined) {
-    Ok(valid_str) => {
-      // All bytes are valid UTF-8
-      valid_str.to_string()
-    }
-    Err(error) => {
-      let valid_up_to = error.valid_up_to();
+impl Utf8StreamDecoder {
+  pub(crate) fn new() -> Self {
+    Self::default()
+  }
 
-      // Check if this is an incomplete sequence at the end (not a real error)
-      if error.error_len().is_none() {
-        // Incomplete sequence at end - buffer the trailing bytes
-        let (valid, trailing) = combined.split_at(valid_up_to);
-        *pending = trailing.to_vec();
+  pub(crate) fn push(&mut self, new_bytes: &[u8]) -> String {
+    self.pending.extend_from_slice(new_bytes);
+    let mut output = String::new();
 
-        // Return the valid portion (should always be valid UTF-8)
-        String::from_utf8(valid.to_vec()).unwrap_or_default()
-      } else {
-        // Invalid UTF-8 mid-stream: use lossy output (rare for a real PTY)
-        String::from_utf8_lossy(&combined).to_string()
+    loop {
+      match std::str::from_utf8(&self.pending) {
+        Ok(valid) => {
+          output.push_str(valid);
+          self.pending.clear();
+          break;
+        }
+        Err(error) => {
+          let valid_up_to = error.valid_up_to();
+          output.push_str(std::str::from_utf8(&self.pending[..valid_up_to]).unwrap_or_default());
+          match error.error_len() {
+            None => {
+              self.pending.drain(..valid_up_to);
+              break;
+            }
+            Some(invalid_len) => {
+              output.push('�');
+              self.pending.drain(..valid_up_to + invalid_len);
+            }
+          }
+        }
       }
     }
+
+    output
+  }
+
+  pub(crate) fn finish(&mut self) -> String {
+    let output = String::from_utf8_lossy(&self.pending).into_owned();
+    self.pending.clear();
+    output
   }
 }
 
@@ -409,7 +428,7 @@ impl PtyManager {
     let reader_session_id = session_id.clone();
     thread::spawn(move || {
       let mut buffer = [0u8; 8192];
-      let mut pending_bytes: Vec<u8> = Vec::with_capacity(4);
+      let mut utf8_decoder = Utf8StreamDecoder::new();
       let mut line_buffer = String::new();
       let mut suppressed_tail = String::new();
       let mut non_matching_lines_emitted: usize = 0;
@@ -422,8 +441,8 @@ impl PtyManager {
         match reader.read(&mut buffer) {
           Ok(0) => {
             // EOF: flush any pending bytes
-            if !pending_bytes.is_empty() {
-              let data = String::from_utf8_lossy(&pending_bytes).to_string();
+            {
+              let data = utf8_decoder.finish();
               if !data.is_empty() {
                 line_buffer.push_str(&data);
               }
@@ -435,7 +454,7 @@ impl PtyManager {
             break;
           }
           Ok(n) => {
-            let mut data = process_utf8_chunk(&mut pending_bytes, &buffer[..n]);
+            let mut data = utf8_decoder.push(&buffer[..n]);
             if data.is_empty() {
               continue;
             }
@@ -688,6 +707,25 @@ mod tests {
     } else {
       Some("/bin/sh".to_string())
     }
+  }
+
+  #[test]
+  fn utf8_stream_decoder_preserves_characters_split_across_chunks() {
+    let mut decoder = Utf8StreamDecoder::new();
+    let separator = "⎯".as_bytes();
+
+    assert_eq!(decoder.push(&separator[..1]), "");
+    assert_eq!(decoder.push(&separator[1..2]), "");
+    assert_eq!(decoder.push(&separator[2..]), "⎯");
+    assert_eq!(decoder.finish(), "");
+  }
+
+  #[test]
+  fn utf8_stream_decoder_recovers_after_invalid_bytes() {
+    let mut decoder = Utf8StreamDecoder::new();
+
+    assert_eq!(decoder.push(&[b'a', 0xff, b'b']), "a�b");
+    assert_eq!(decoder.push("⎯".as_bytes()), "⎯");
   }
 
   #[test]

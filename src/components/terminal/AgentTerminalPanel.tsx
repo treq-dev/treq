@@ -6,7 +6,10 @@ import React, {
   useState,
 } from "react";
 import { useAgentMessageQueue } from "../../hooks/useAgentMessageQueue";
-import { looksLikeAgentUserQuestion } from "../../lib/agentMessageQueue";
+import {
+  looksLikeAgentUserQuestion,
+  looksLikeShellPrompt,
+} from "../../lib/agentMessageQueue";
 import {
   ptyClose,
   ptyWrite,
@@ -194,10 +197,10 @@ export const AgentTerminalPanel = ({
   };
 
   const handleTerminalIdle = () => {
+    const outputWindow = terminalQuestionWindow(processOutputTailRef.current);
     markIdle({
-      awaitingQuestion: looksLikeAgentUserQuestion(
-        terminalQuestionWindow(processOutputTailRef.current),
-      ),
+      awaitingQuestion: looksLikeAgentUserQuestion(outputWindow),
+      shellPrompt: looksLikeShellPrompt(outputWindow),
     });
     chatRecorderRef.current?.idle();
     onTerminalIdle?.();
