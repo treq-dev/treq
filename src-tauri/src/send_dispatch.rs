@@ -358,11 +358,11 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
     lookup[*b as usize] = i as u8;
   }
   let cleaned: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
-  if cleaned.len() % 4 != 0 {
+  if !cleaned.len().is_multiple_of(4) {
     return Err("invalid image data".to_string());
   }
   let mut out = Vec::with_capacity(cleaned.len() / 4 * 3);
-  for chunk in cleaned.chunks_exact(4) {
+  for chunk in cleaned.as_chunks::<4>().0 {
     let pad = chunk.iter().filter(|b| **b == b'=').count();
     let mut vals = [0u8; 4];
     for i in 0..4 {

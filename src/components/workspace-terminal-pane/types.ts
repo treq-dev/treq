@@ -21,7 +21,7 @@ export interface WorkspaceTerminalPaneProps {
   onActiveSessionChange?: (sessionId: number | null) => void;
   onCreateNewSession?: (
     activeWorkspacePath?: string | null,
-    agent?: "claude" | "codex" | "cursor",
+    agent?: "claude" | "codex" | "cursor" | "copilot",
   ) => void;
   onCloseSession?: (sessionId: number) => void;
   onNavigateToWorkspace?: (workspaceKey: string, isMainRepo: boolean) => void;
@@ -35,7 +35,9 @@ export interface WorkspaceTerminalPaneProps {
 export interface WorkspaceTerminalPaneHandle {
   toggleCollapse: () => void;
   toggleMaximize: () => void;
-  createAgentSession: (agent?: "claude" | "codex" | "cursor") => void;
+  createAgentSession: (
+    agent?: "claude" | "codex" | "cursor" | "copilot",
+  ) => void;
   createShellSession: (workingDir?: string) => void;
   closeTerminalsForWorkspace: (workspaceKey: string) => void;
   focusTerminal: (id: string) => void;

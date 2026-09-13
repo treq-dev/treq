@@ -19,6 +19,7 @@ import type {
   StashEntry,
 } from "./api-types";
 import type { ConflictCommentRecord } from "./api-types-review";
+import { currentWindowLabel } from "./window-label";
 
 export * from "./api-pr-status";
 
@@ -72,6 +73,7 @@ export const ptyCreateSession = (
 ): Promise<void> =>
   invoke("pty_create_session", {
     sessionId,
+    windowLabel: currentWindowLabel(),
     workingDir,
     shell,
     initialCommand,
@@ -128,6 +130,7 @@ export const remotePtyCreate = (
 ): Promise<void> =>
   invoke("remote_pty_create", {
     sessionId,
+    windowLabel: currentWindowLabel(),
     endpoint,
     repositoryId,
     workspaceId,

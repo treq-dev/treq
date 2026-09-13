@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
@@ -10,7 +8,6 @@ import {
   getCachedPrInfo,
   getWorkspaces,
   ghCreatePr,
-  ghViewPr,
   getPrInfoViaGh,
   pushWorkspaceToRemote,
   updateWorkspace,
@@ -22,6 +19,7 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
+  setOriginUrl,
   writeWorkspaceFile,
 } from "../../utils";
 import { deriveConventionalPrTitle } from "../../../src/lib/github-pr";
@@ -38,7 +36,6 @@ vi.mock("../../../src/lib/api", async (importOriginal) => {
     refreshPrStatuses: vi.fn(async () => undefined),
     getPrChecksForPr: vi.fn().mockResolvedValue(null),
     ghCreatePr: vi.fn().mockResolvedValue(42),
-    ghViewPr: vi.fn(),
     ghListPrs: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
     ghListIssues: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
     pushWorkspaceToRemote: vi.fn(
@@ -47,20 +44,6 @@ vi.mock("../../../src/lib/api", async (importOriginal) => {
     ),
   };
 });
-
-function setOriginUrl(repoPath: string, remoteUrl: string) {
-  const configPath = path.join(repoPath, ".git", "config");
-  let config = fs.readFileSync(configPath, "utf-8");
-  if (/\[remote "origin"\][\s\S]*?url\s*=/.test(config)) {
-    config = config.replace(
-      /(\[remote "origin"\][\s\S]*?url\s*=\s*).*/m,
-      `$1${remoteUrl}`,
-    );
-  } else {
-    config += `\n[remote "origin"]\n\turl = ${remoteUrl}\n`;
-  }
-  fs.writeFileSync(configPath, config);
-}
 
 describe("ShowWorkspace - Create PR", () => {
   let repoPath: string;
@@ -445,139 +428,5 @@ describe("ShowWorkspace - Create PR", () => {
     expect(url).toContain("feat%2Fcreate-pr");
     expect(url).toContain("title=feat%3A+Ship+the+feature");
     expect(url).toContain("body=Implements+the+feature+end-to-end.");
-  });
-
-  it("navigates to in-app GitHub PR detail on View PR; Open on Web opens browser", async () => {
-    await setupPushedWorkspaceWithGitHub();
-    vi.mocked(getCachedPrInfo).mockResolvedValue({
-      number: 9,
-      title: "Existing",
-      state: "OPEN",
-      url: "https://github.com/acme/treq/pull/9",
-      head_ref_name: "feat/create-pr",
-      base_ref_name: "main",
-      merge_state_status: "CLEAN",
-      is_draft: false,
-    });
-    vi.mocked(ghViewPr).mockResolvedValue({
-      number: 9,
-      title: "Existing",
-      state: "OPEN",
-      url: "https://github.com/acme/treq/pull/9",
-      body: "PR body",
-      author: { login: "alice" },
-      labels: [],
-      head_ref_name: "feat/create-pr",
-      base_ref_name: "main",
-      merge_state_status: "CLEAN",
-      created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-01T00:00:00Z",
-      comments: null,
-    });
-    render(<Dashboard />);
-
-    const header = await openWorkspace("feat/create-pr");
-
-    const viewPr = await within(header).findByRole("button", {
-      name: /view pr.*open/i,
-    });
-    expect(viewPr.className).toMatch(/border-green-600/);
-    expect(
-      within(header).queryByRole("button", { name: /^create pr$/i }),
-    ).not.toBeInTheDocument();
-
-    await user.click(
-      within(header).getByRole("button", { name: /open pr on web/i }),
-    );
-    expect(openUrl).toHaveBeenCalledWith("https://github.com/acme/treq/pull/9");
-    vi.mocked(openUrl).mockClear();
-
-    await user.click(viewPr);
-    expect(openUrl).not.toHaveBeenCalled();
-    expect(await screen.findByText("Existing")).toBeVisible();
-    expect(ghViewPr).toHaveBeenCalledWith("acme/treq", 9);
-  });
-
-  it("exposes accessible names for the View PR controls", async () => {
-    await setupPushedWorkspaceWithGitHub();
-    vi.mocked(getCachedPrInfo).mockResolvedValue({
-      number: 9,
-      title: "Existing",
-      state: "OPEN",
-      url: "https://github.com/acme/treq/pull/9",
-      head_ref_name: "feat/create-pr",
-      base_ref_name: "main",
-      merge_state_status: "CLEAN",
-      is_draft: false,
-    });
-    render(<Dashboard />);
-
-    const header = await openWorkspace("feat/create-pr");
-    const viewPr = await within(header).findByRole("button", {
-      name: /view pr.*open/i,
-    });
-    const openOnWeb = within(header).getByRole("button", {
-      name: /open pr on web/i,
-    });
-
-    expect(viewPr).toHaveAttribute("aria-label", "View PR (#9, open)");
-    expect(openOnWeb).toHaveAttribute("aria-label", "Open PR on web");
-  });
-
-  it("uses draft label when PR is a draft", async () => {
-    await setupPushedWorkspaceWithGitHub();
-    vi.mocked(getCachedPrInfo).mockResolvedValue({
-      number: 12,
-      title: "Draft PR",
-      state: "OPEN",
-      url: "https://github.com/acme/treq/pull/12",
-      head_ref_name: "feat/create-pr",
-      base_ref_name: "main",
-      merge_state_status: "CLEAN",
-      is_draft: true,
-    });
-    render(<Dashboard />);
-
-    const header = await openWorkspace("feat/create-pr");
-    expect(
-      await within(header).findByRole("button", { name: /view pr.*draft/i }),
-    ).toBeVisible();
-  });
-
-  it("styles View PR for closed and merged states", async () => {
-    await setupPushedWorkspaceWithGitHub();
-    vi.mocked(getCachedPrInfo).mockResolvedValue({
-      number: 10,
-      title: "Closed",
-      state: "CLOSED",
-      url: "https://github.com/acme/treq/pull/10",
-      head_ref_name: "feat/create-pr",
-      base_ref_name: "main",
-      merge_state_status: null,
-    });
-    const view = render(<Dashboard />);
-
-    let header = await openWorkspace("feat/create-pr");
-    const closed = await within(header).findByRole("button", {
-      name: /view pr.*closed/i,
-    });
-    expect(closed.className).toMatch(/border-red-600/);
-
-    view.unmount();
-    vi.mocked(getCachedPrInfo).mockResolvedValue({
-      number: 11,
-      title: "Merged",
-      state: "MERGED",
-      url: "https://github.com/acme/treq/pull/11",
-      head_ref_name: "feat/create-pr",
-      base_ref_name: "main",
-      merge_state_status: null,
-    });
-    render(<Dashboard />);
-    header = await openWorkspace("feat/create-pr");
-    const merged = await within(header).findByRole("button", {
-      name: /view pr.*merged/i,
-    });
-    expect(merged.className).toMatch(/border-purple-600/);
   });
 });

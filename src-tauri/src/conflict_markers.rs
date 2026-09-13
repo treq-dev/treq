@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ConflictStyle {
   JjDiff,
@@ -8,13 +8,8 @@ pub enum ConflictStyle {
   JjGitDiff3,
   GitMerge,
   GitDiff3,
+  #[default]
   Unknown,
-}
-
-impl Default for ConflictStyle {
-  fn default() -> Self {
-    Self::Unknown
-  }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]

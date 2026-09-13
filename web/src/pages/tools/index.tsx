@@ -53,6 +53,14 @@ const tools = [
     icon: '🦆',
     tags: ['fun', 'debugging', 'rubber-duck'],
   },
+  {
+    name: 'Markdown Annotator',
+    slug: 'markdown-annotator',
+    description:
+      'Review markdown and code files with inline annotations. Fetch from a GitHub URL or paste content, add line-level comments, then export a review prompt for Claude or ChatGPT.',
+    icon: '📝',
+    tags: ['markdown', 'review', 'ai'],
+  },
 ];
 
 const TOOLS_SCHEMA = {

@@ -21,6 +21,9 @@ tauri-test = ["dep:tauri-test", "dep:napi", "dep:napi-derive", "dep:tempfile"]
 tauri-build = { version = "2", features = [] }
 napi-build = "2"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dependencies]
 tauri = { version = "2.10.3", features = ["protocol-asset", "unstable"] }
 tauri-test = { version = "0.2.1", optional = true }
@@ -66,8 +69,6 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", 
 russh = "0.63.1"
 bytes = "1"
 getrandom = "0.4"
-tauri-plugin-keystore = "2.1.0-alpha.1"
-tauri-plugin-biometric = "2"
 
 [dev-dependencies]
 mockall = "0.14.0"

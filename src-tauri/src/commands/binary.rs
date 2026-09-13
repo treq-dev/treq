@@ -14,7 +14,7 @@ pub struct EditorAppsResponse {
 
 /// Load cached binary paths from database on startup
 pub fn load_cached_binary_paths(db: &Database) -> HashMap<String, String> {
-  let binaries = vec!["git", "jj", "claude", "codex", "cursor-agent"];
+  let binaries = vec!["git", "jj", "claude", "codex", "cursor-agent", "copilot"];
   let mut paths = HashMap::new();
 
   for binary in binaries {

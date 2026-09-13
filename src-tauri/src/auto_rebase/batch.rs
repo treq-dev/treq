@@ -18,10 +18,7 @@ pub fn check_and_rebase_all(
   let mut grouped: HashMap<String, Vec<Workspace>> = HashMap::new();
   for workspace in all_workspaces {
     if let Some(target) = &workspace.target_branch {
-      grouped
-        .entry(target.clone())
-        .or_insert_with(Vec::new)
-        .push(workspace);
+      grouped.entry(target.clone()).or_default().push(workspace);
     }
   }
 

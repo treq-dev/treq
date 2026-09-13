@@ -77,12 +77,17 @@ export const ResolveConflictsDialog: React.FC<ResolveConflictsDialogProps> = ({
         resolveSession,
       );
 
-      let resolvedAgent: "claude" | "codex" | "cursor" = "claude";
+      let resolvedAgent: "claude" | "codex" | "cursor" | "copilot" = "claude";
       try {
         const repoDefault = await getRepoSetting(repoPath, "default_agent");
         const appDefault = await getSetting("default_agent");
         const pick = repoDefault || appDefault;
-        if (pick === "codex" || pick === "cursor" || pick === "claude") {
+        if (
+          pick === "codex" ||
+          pick === "cursor" ||
+          pick === "copilot" ||
+          pick === "claude"
+        ) {
           resolvedAgent = pick;
         }
       } catch {
@@ -140,7 +145,7 @@ export const ResolveConflictsDialog: React.FC<ResolveConflictsDialogProps> = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-1.5">
             <span>Resolve commit conflicts inplace</span>
-            <TooltipProvider delayDuration={200}>
+            <TooltipProvider delay={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

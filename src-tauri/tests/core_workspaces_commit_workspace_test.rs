@@ -505,7 +505,7 @@ fn test_create_commit_excludes_bundled_codex_skill() {
     .map(|f| f.path.as_str())
     .collect();
   assert!(
-    committed_paths.iter().any(|path| *path == "app.txt"),
+    committed_paths.contains(&"app.txt"),
     "expected app.txt in the committed diff, got: {committed_paths:?}"
   );
   assert!(

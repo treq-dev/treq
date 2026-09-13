@@ -90,7 +90,7 @@ function stackMaxChange(entries: readonly QueueEntry[]): number {
 
 function StackHelpTooltip({ targetBranch }: { targetBranch: string }) {
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delay={200}>
       <Tooltip>
         <TooltipTrigger asChild>
           <button
