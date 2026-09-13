@@ -64,7 +64,7 @@ export function ViewPrButton({
   const statusLabel = prInfo.is_draft ? "draft" : prInfo.state.toLowerCase();
 
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delay={200}>
       <div className="inline-flex items-center">
         <Tooltip>
           <TooltipTrigger asChild>

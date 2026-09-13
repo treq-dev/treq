@@ -1308,7 +1308,7 @@ function CommitWithDiff({
                 Immutable
               </span>
             )}
-            <TooltipProvider delayDuration={300}>
+            <TooltipProvider delay={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="text-base text-muted-foreground">

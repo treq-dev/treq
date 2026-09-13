@@ -316,7 +316,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     : undefined;
 
   return (
-    <TooltipProvider delayDuration={200} skipDelayDuration={100}>
+    <TooltipProvider delay={200} timeout={100}>
       <Sidebar
         collapsible="none"
         className="group/sidebar relative h-screen border-r border-border"

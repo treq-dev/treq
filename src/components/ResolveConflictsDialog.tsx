@@ -145,7 +145,7 @@ export const ResolveConflictsDialog: React.FC<ResolveConflictsDialogProps> = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-1.5">
             <span>Resolve commit conflicts inplace</span>
-            <TooltipProvider delayDuration={200}>
+            <TooltipProvider delay={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

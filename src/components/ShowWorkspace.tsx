@@ -1796,7 +1796,7 @@ export const ShowWorkspace = ({
                 </>
               )}
               {workspace && workspaceScheduling && (
-                <TooltipProvider delayDuration={200}>
+                <TooltipProvider delay={200}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1845,7 +1845,7 @@ export const ShowWorkspace = ({
                       {homeRepoTargetAheadCount > 0 && (
                         <>
                           {homeRebaseDryRun?.would_conflict && (
-                            <TooltipProvider delayDuration={200}>
+                            <TooltipProvider delay={200}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <span className="flex items-center text-yellow-600 dark:text-yellow-400">
@@ -1872,7 +1872,7 @@ export const ShowWorkspace = ({
                               </Tooltip>
                             </TooltipProvider>
                           )}
-                          <TooltipProvider delayDuration={200}>
+                          <TooltipProvider delay={200}>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
@@ -1905,7 +1905,7 @@ export const ShowWorkspace = ({
                   )}
                   {/* Stack button for home repo */}
                   {onCreateStackedWorkspace && (
-                    <TooltipProvider delayDuration={200}>
+                    <TooltipProvider delay={200}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -1935,7 +1935,7 @@ export const ShowWorkspace = ({
               {workspace &&
                 workspace.not_on_remote &&
                 (!remoteInfo || workspace.branch_name === defaultBranch) && (
-                  <TooltipProvider delayDuration={200}>
+                  <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -2004,7 +2004,7 @@ export const ShowWorkspace = ({
               {(!workspace || !workspace.not_on_remote) &&
                 syncStatus &&
                 (isHomeRepo || hasSyncChanges) && (
-                  <TooltipProvider delayDuration={200}>
+                  <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -2053,7 +2053,7 @@ export const ShowWorkspace = ({
                 workspace &&
                 workspace.branch_name !== defaultBranch &&
                 !workspace.not_on_remote && (
-                  <TooltipProvider delayDuration={200}>
+                  <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -2117,7 +2117,7 @@ export const ShowWorkspace = ({
                 )}
               {/* Merge button moved here */}
               {workspace && workspace.branch_name !== defaultBranch && (
-                <TooltipProvider delayDuration={200}>
+                <TooltipProvider delay={200}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="inline-flex">

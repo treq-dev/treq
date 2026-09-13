@@ -202,7 +202,7 @@ function SkillRow({
     <li className="relative border rounded-md p-3 pr-12 space-y-2">
       {installed && (
         <div className="absolute top-2 right-2">
-          <TooltipProvider delayDuration={200}>
+          <TooltipProvider delay={200}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
