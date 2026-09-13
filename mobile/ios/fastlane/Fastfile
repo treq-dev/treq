@@ -1,0 +1,44 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Build a signed release IPA and push it to TestFlight (internal testing)"
+  lane :beta do
+    api_key = app_store_connect_api_key(
+      key_id: ENV["TREQ_ASC_KEY_ID"],
+      issuer_id: ENV["TREQ_ASC_ISSUER_ID"],
+      key_content: ENV["TREQ_ASC_KEY_CONTENT"],
+      is_key_content_base64: true
+    )
+
+    match(
+      type: "appstore",
+      readonly: true,
+      api_key: api_key,
+      git_url: ENV["TREQ_MATCH_GIT_URL"],
+      storage_mode: "git"
+    )
+
+    increment_build_number(
+      xcodeproj: "TreqMobile.xcodeproj",
+      build_number: ENV["TREQ_BUILD_NUMBER"]
+    )
+
+    build_app(
+      workspace: "TreqMobile.xcworkspace",
+      scheme: "TreqMobile",
+      configuration: "Release",
+      export_method: "app-store",
+      export_options: {
+        provisioningProfiles: {
+          "com.treq.mobile" => "match AppStore com.treq.mobile"
+        }
+      }
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false
+    )
+  end
+end

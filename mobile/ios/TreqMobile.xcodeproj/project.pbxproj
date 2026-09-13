@@ -11,6 +11,7 @@
 		0C80B921A6F3F58F76C31292 /* libPods-TreqMobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-TreqMobile.a */; };
 		13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB01A68108700A75B9A /* AppDelegate.mm */; };
 		63CFC6833EA300A817F3C3D2 /* TreqSshBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6AE81B9102FD5F02503F402 /* TreqSshBridge.swift */; };
+		1BB60E33EEC04F18B3A9089D /* TreqMobileSsh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5347C12E74FA45AC8C01F6AA /* TreqMobileSsh.swift */; };
 		20EE7AF726DA4F04F98A14C8 /* TreqSshBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 005BCC42280EC4B603B2BB93 /* TreqSshBridge.m */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		13B07FC11A68108700A75B9A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB71A68108700A75B9A /* main.m */; };
@@ -36,6 +37,7 @@
 		13B07FAF1A68108700A75B9A /* AppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = AppDelegate.h; path = TreqMobile/AppDelegate.h; sourceTree = "<group>"; };
 		13B07FB01A68108700A75B9A /* AppDelegate.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = AppDelegate.mm; path = TreqMobile/AppDelegate.mm; sourceTree = "<group>"; };
 		F6AE81B9102FD5F02503F402 /* TreqSshBridge.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = TreqSshBridge.swift; path = TreqMobile/TreqSshBridge.swift; sourceTree = "<group>"; };
+		5347C12E74FA45AC8C01F6AA /* TreqMobileSsh.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = TreqMobileSsh.swift; path = TreqMobile/TreqMobileSsh.swift; sourceTree = "<group>"; };
 		005BCC42280EC4B603B2BB93 /* TreqSshBridge.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = TreqSshBridge.m; path = TreqMobile/TreqSshBridge.m; sourceTree = "<group>"; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = TreqMobile/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = TreqMobile/Info.plist; sourceTree = "<group>"; };
@@ -99,6 +101,7 @@
 				13B07FB71A68108700A75B9A /* main.m */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 				F6AE81B9102FD5F02503F402 /* TreqSshBridge.swift */,
+				5347C12E74FA45AC8C01F6AA /* TreqMobileSsh.swift */,
 				005BCC42280EC4B603B2BB93 /* TreqSshBridge.m */,
 			);
 			name = TreqMobile;
@@ -402,6 +405,7 @@
 			files = (
 				13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */,
 				63CFC6833EA300A817F3C3D2 /* TreqSshBridge.swift in Sources */,
+				1BB60E33EEC04F18B3A9089D /* TreqMobileSsh.swift in Sources */,
 				20EE7AF726DA4F04F98A14C8 /* TreqSshBridge.m in Sources */,
 				13B07FC11A68108700A75B9A /* main.m in Sources */,
 			);
