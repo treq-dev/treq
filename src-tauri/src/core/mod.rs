@@ -18,6 +18,7 @@ pub mod remote_local_keys;
 pub mod remote_provider;
 pub mod remote_provider_sprites;
 pub mod remote_pty;
+pub mod pty_remote_supervisor;
 pub mod remote_ssh_config;
 pub mod remote_ssh_transport;
 pub mod repo;
