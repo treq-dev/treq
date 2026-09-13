@@ -1,21 +1,16 @@
 mod e2e_test_helpers;
 
 use e2e_test_helpers::TestRepo;
-use opentelemetry::KeyValue;
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_sdk::logs::{SdkLoggerProvider, SimpleLogProcessor};
-use opentelemetry_sdk::Resource;
 use serde_json::Value;
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Registry;
-use treq_lib::telemetry::{cleanup_old_logs, forward_log_record, FileLogExporter};
+use treq_lib::telemetry::{cleanup_old_logs, JsonLogLayer};
 
-/// True for an OTLP JSON record produced by one of this test's own
-/// `forward_log_record` calls, as opposed to a self-diagnostic record the
-/// OTel SDK emits through the same pipeline (e.g. on `LoggerProvider` drop).
+/// True for a JSON record produced by one of this test's own
+/// `forward_log_record` calls, as opposed to any stray line from elsewhere.
 fn is_forwarded_record(v: &Value) -> bool {
-  v["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]["body"]["stringValue"]
+  v["message"]
     .as_str()
     .is_some_and(|body| body.starts_with("message at "))
 }
@@ -27,28 +22,13 @@ fn emit_log_line_to(dir: &std::path::Path) -> std::path::PathBuf {
   let appender = tracing_appender::rolling::daily(dir, "treq");
   let (writer, worker_guard) = tracing_appender::non_blocking(appender);
 
-  let exporter = FileLogExporter::new(writer);
-  let resource = Resource::builder()
-    .with_attributes(vec![KeyValue::new("service.name", "treq")])
-    .build();
-  let provider = SdkLoggerProvider::builder()
-    .with_log_processor(SimpleLogProcessor::new(exporter))
-    .with_resource(resource)
-    .build();
-  let layer = OpenTelemetryTracingBridge::new(&provider);
+  let layer = JsonLogLayer::new(writer);
   let subscriber = Registry::default().with(layer);
   let dispatch_guard = tracing::subscriber::set_default(subscriber);
 
-  forward_log_record(
-    &log::Record::builder()
-      .level(log::Level::Info)
-      .target("seed")
-      .args(format_args!("seed line"))
-      .build(),
-  );
+  tracing::info!(source = "seed", "seed line");
 
   drop(dispatch_guard);
-  drop(provider);
   drop(worker_guard);
 
   std::fs::read_dir(dir)
@@ -111,71 +91,32 @@ fn cleanup_old_logs_is_tolerant_of_subdirs_and_missing_dir() {
   );
 }
 
-/// End-to-end: `forward_log_record` produces tracing events that flow through
-/// the OTel pipeline and `FileLogExporter` writes them as one OTLP-shaped
-/// JSON object per line, preserving severity, body, the original log target
-/// (as `attributes.source`), and the service resource.
+/// End-to-end: tracing events flow through the `tracing_subscriber` JSON
+/// layer and get written as one JSON object per line, preserving severity,
+/// message, and any extra event fields (here, `source`, mirroring how
+/// `forward_log_record` attaches the original `log` target).
+///
+/// Uses a thread-local subscriber (`tracing::subscriber::set_default`) rather
+/// than the process-global one `telemetry::init` installs, so this test can
+/// coexist with the other tests in this binary.
 #[test]
-fn forward_log_record_emits_otlp_json_per_level() {
+fn forward_log_record_emits_json_per_level() {
   let dir = tempfile::tempdir().expect("tempdir");
 
   let appender = tracing_appender::rolling::daily(dir.path(), "treq");
   let (writer, worker_guard) = tracing_appender::non_blocking(appender);
 
-  let exporter = FileLogExporter::new(writer);
-  let resource = Resource::builder()
-    .with_attributes(vec![KeyValue::new("service.name", "treq")])
-    .build();
-  let provider = SdkLoggerProvider::builder()
-    .with_log_processor(SimpleLogProcessor::new(exporter))
-    .with_resource(resource)
-    .build();
-
-  let layer = OpenTelemetryTracingBridge::new(&provider);
+  let layer = JsonLogLayer::new(writer);
   let subscriber = Registry::default().with(layer);
-
-  // Thread-local default — does not touch the global subscriber, so this
-  // test plays nicely with the rest of the test binary.
   let dispatch_guard = tracing::subscriber::set_default(subscriber);
 
-  forward_log_record(
-    &log::Record::builder()
-      .level(log::Level::Error)
-      .target("test_source")
-      .args(format_args!("message at ERROR"))
-      .build(),
-  );
-  forward_log_record(
-    &log::Record::builder()
-      .level(log::Level::Warn)
-      .target("test_source")
-      .args(format_args!("message at WARN"))
-      .build(),
-  );
-  forward_log_record(
-    &log::Record::builder()
-      .level(log::Level::Info)
-      .target("test_source")
-      .args(format_args!("message at INFO"))
-      .build(),
-  );
-  forward_log_record(
-    &log::Record::builder()
-      .level(log::Level::Debug)
-      .target("test_source")
-      .args(format_args!("message at DEBUG"))
-      .build(),
-  );
-  forward_log_record(
-    &log::Record::builder()
-      .level(log::Level::Trace)
-      .target("test_source")
-      .args(format_args!("message at TRACE"))
-      .build(),
-  );
+  tracing::error!(source = "test_source", "message at ERROR");
+  tracing::warn!(source = "test_source", "message at WARN");
+  tracing::info!(source = "test_source", "message at INFO");
+  tracing::debug!(source = "test_source", "message at DEBUG");
+  tracing::trace!(source = "test_source", "message at TRACE");
 
   drop(dispatch_guard);
-  drop(provider); // shut down processors
   drop(worker_guard); // flush non-blocking writer worker
 
   let log_file = std::fs::read_dir(dir.path())
@@ -184,16 +125,10 @@ fn forward_log_record_emits_otlp_json_per_level() {
     .find(|e| e.file_name().to_string_lossy().starts_with("treq."))
     .expect("rolling appender wrote a file");
 
-  // `WorkerGuard`'s drop only waits a bounded amount of time for the
-  // non-blocking writer's background thread to flush; under heavy CI load
-  // that window can be missed even though the record was queued. Poll
-  // instead of assuming the flush already landed by the time we read.
-  //
-  // The SDK also emits its own self-diagnostic record ("Last reference of
-  // LoggerProvider dropped, initiating shutdown.") through this same
-  // pipeline when `provider` is dropped. It isn't one of the five records
-  // this test forwarded, so filter to lines carrying our own message body
-  // rather than asserting on the raw line count.
+  // Flushing on drop only waits a bounded amount of time for the
+  // non-blocking writer's background thread; under heavy CI load that
+  // window can be missed even though the record was queued. Poll instead of
+  // assuming the flush already landed by the time we read.
   let is_own_record =
     |line: &&str| serde_json::from_str::<Value>(line).is_ok_and(|v| is_forwarded_record(&v));
 
@@ -222,49 +157,27 @@ fn forward_log_record_emits_otlp_json_per_level() {
     let v: Value =
       serde_json::from_str(line).unwrap_or_else(|e| panic!("invalid JSON line {line:?}: {e}"));
 
-    let log_record = &v["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0];
     assert_eq!(
-      log_record["severityText"], expected_severity,
+      v["severityText"], expected_severity,
       "severityText should match log level"
     );
 
-    let body = log_record["body"]["stringValue"]
-      .as_str()
-      .expect("body.stringValue string");
+    let message = v["message"].as_str().expect("message string");
     assert!(
-      body.starts_with("message at "),
-      "body should contain forwarded message, got {body:?}"
+      message.starts_with("message at "),
+      "message should contain forwarded message, got {message:?}"
     );
 
-    let attrs = log_record["attributes"]
-      .as_array()
-      .expect("attributes array");
-    let source = attrs
-      .iter()
-      .find(|kv| kv["key"].as_str() == Some("source"))
-      .and_then(|kv| kv["value"]["stringValue"].as_str());
+    let source = v["fields"]["source"].as_str();
     assert_eq!(
       source,
       Some("test_source"),
-      "original log target should be preserved as attributes.source"
-    );
-
-    let resource_attrs = v["resourceLogs"][0]["resource"]["attributes"]
-      .as_array()
-      .expect("resource.attributes array");
-    let service_name = resource_attrs
-      .iter()
-      .find(|kv| kv["key"].as_str() == Some("service.name"))
-      .and_then(|kv| kv["value"]["stringValue"].as_str());
-    assert_eq!(
-      service_name,
-      Some("treq"),
-      "service.name resource attribute should be present"
+      "original log target should be preserved as fields.source"
     );
 
     assert!(
-      log_record["timeUnixNano"].is_string(),
-      "timeUnixNano should be a string per OTLP JSON spec"
+      v["timeUnixNano"].is_string(),
+      "timeUnixNano should be a string"
     );
   }
 }
