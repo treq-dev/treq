@@ -91,21 +91,41 @@ opposed to managed-instance) path.
   its own certificate-building library).
 - `android-build` (CI job): `./gradlew :app:assembleDebug` against the real
   React Native Android artifact in the real generated Gradle project - a
-  full, real, linked debug APK, not just Kotlin/Java compilation. Verified
+  full, real, linked debug APK, not just Kotlin/Java compilation. Runs with
+  New Architecture **on** (`newArchEnabled=true` - TurboModules/Fabric,
+  the RN 0.76 default; `react-native-screens`'s Fabric components compile
+  and link for real, including its generated `react_codegen_*` C++). Verified
   locally in this sandbox by installing an Android SDK (`cmdline-tools`,
   `platforms;android-35`, `build-tools;35.0.0`), the Android NDK
   (`ndk;26.1.10909125`), `cargo-ndk`, and the four
   `*-linux-android*`/`*-linux-androideabi` Rust targets, then running the
-  same command - `BUILD SUCCESSFUL`, zero errors, `app-debug.apk` (129MB)
-  produced with `lib/<abi>/libtreq_mobile_ssh.so` (a real, unstripped,
-  correctly-architected ELF `.so` per `file`/`nm -D`) present in the APK for
-  all four ABIs alongside React Native's own `libreactnative.so`,
-  `libhermes.so`, etc. `TreqSshModule.kt`/`TreqSshPackage.kt` compile
-  against the real UniFFI Kotlin bindings (generated from source by
-  `generateTreqMobileSshBindings`) as before; the new
-  `buildTreqMobileSshNativeLibs` Gradle task (`cargo ndk build --release`
-  across `arm64-v8a`/`armeabi-v7a`/`x86_64`/`x86`, wired into `preBuild`)
-  is what makes the per-ABI `.so` files exist for `assembleDebug` to link.
+  same command - `BUILD SUCCESSFUL`, zero errors, `app-debug.apk` (147MB,
+  unstripped/unminified/all-ABI, as debug builds always are) produced with
+  `lib/<abi>/libtreq_mobile_ssh.so` (a real, unstripped, correctly-
+  architected ELF `.so` per `file`/`nm -D`) present for all four ABIs
+  alongside React Native's own `libreactnative.so`, `libhermes.so`, etc.
+  `TreqSshModule.kt`/`TreqSshPackage.kt` compile against the real UniFFI
+  Kotlin bindings (generated from source by `generateTreqMobileSshBindings`)
+  as before; the new `buildTreqMobileSshNativeLibs` Gradle task (`cargo ndk
+  build --release` across `arm64-v8a`/`armeabi-v7a`/`x86_64`/`x86`, wired
+  into `preBuild`) is what makes the per-ABI `.so` files exist for
+  `assembleDebug`/`assembleRelease`/`bundleRelease` to link.
+- **Production build** (`./gradlew :app:assembleRelease :app:bundleRelease`,
+  run locally, not yet a CI job): a real release build - Proguard/R8
+  minification, resource shrinking, stripped debug symbols - not just a
+  debug build with `assembleDebug` swapped for `assembleRelease`.
+  `app-release.apk` (the universal, all-four-ABI fat APK, what
+  `assembleRelease` produces) is 71MB, about half the 147MB debug APK
+  (R8 minification + stripped native debug symbols). `app-release.aab`
+  (`bundleRelease` - the actual Play Store upload artifact) is 51MB. Real
+  per-device download size - what a user's phone actually downloads,
+  computed by Google's own `bundletool build-apks` + `get-size total`
+  against that `.aab`, splitting by ABI/density/language the way Play
+  does - is **~11.2-12.8MB** depending on the device's ABI (arm64-v8a
+  ~12.0MB, armeabi-v7a ~11.3MB, x86_64 ~12.3MB, x86 ~12.8MB; density has
+  negligible effect since this app ships no raster image assets yet). The
+  fat universal APK is not what end users would ever download in
+  production - the `.aab`'s per-device split is.
 - `ios-build` (CI job, `macos-14`): `pod install` + `xcodebuild build`
   against the real generated Xcode project, including
   `TreqSshBridge.swift`/`.m` (added to the project's Sources build phase
@@ -119,8 +139,11 @@ opposed to managed-instance) path.
 - The `ios-build` CI job itself has never actually run (no macOS available
   in this development sandbox to dry-run it) - only locally checkable
   proxies (pbxproj structural validity, Info.plist XML validity) were
-  verified. `android-build`'s equivalent (full `assembleDebug`) *was* run
-  locally and passed, producing a real linked APK.
+  verified. `android-build`'s equivalent (full `assembleDebug` with New
+  Architecture on, plus a local production `assembleRelease`/`bundleRelease`)
+  *was* run locally and passed, producing a real linked APK/AAB.
+- CI's `android-build` job still only runs `assembleDebug`, not a release
+  build - the production-size numbers above are from a local run only.
 - A full linked iOS IPA: `TreqSshBridge.swift` needs the UniFFI Swift
   bindings built as a real iOS XCFramework
   (`cargo build --target aarch64-apple-ios` etc. +
@@ -181,20 +204,27 @@ and `rustup target add aarch64-linux-android armv7-linux-androideabi
 x86_64-linux-android i686-linux-android`. iOS's XCFramework equivalent is
 not yet scripted (see "What's still not verified").
 
-Getting a real linked Android APK required two fixes beyond installing the
-NDK:
+Getting a real linked Android APK (New Architecture on, per the RN 0.76
+default and `TreqSshModule`/`TreqSshPackage` not needing anything different)
+required one fix beyond installing the NDK:
 
-- **New Architecture disabled** (`newArchEnabled=false` in
-  `android/gradle.properties`): `TreqSshModule`/`TreqSshPackage` are plain
-  bridge modules, not TurboModules/Fabric components, so New Architecture's
-  CMake codegen path bought nothing here.
 - **AGP pinned to 8.7.2** (`android/build.gradle`, previously unversioned
   and resolving to 8.6.0 via the React Native Gradle plugin): AGP 8.6.0's
   prefab-package handling has a real bug that fails `configureCMakeDebug`
   for any autolinked library with its own native code (`react-native-screens`
   here) with `[CXX1210] ... : No compatible library found`, even though the
   underlying `prefab` CLI invocation succeeds when run by hand with the
-  exact same arguments AGP logs. 8.7.2 does not have this bug.
+  exact same arguments AGP logs. 8.7.2 does not have this bug. (New
+  Architecture was briefly disabled while narrowing this down - disabling
+  it also worked around the bug for `:app` itself, since screens' own CMake
+  build is skipped when `RNS_NEW_ARCH_ENABLED` is false, but 8.7.2 fixes
+  the root cause, so it's back on.)
+- **`@react-native/metro-config` added to `package.json`'s devDependencies**:
+  `metro.config.js` requires it directly, but it was never listed -
+  harmless for debug (Metro runs via the dev server), but
+  `assembleRelease`'s `createBundleReleaseJsAndAssets` task shells out to
+  it to produce the release JS bundle and failed with "Cannot find module
+  '@react-native/metro-config'" until this was added.
 
 ## Running the app
 
