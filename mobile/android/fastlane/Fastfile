@@ -1,6 +1,13 @@
 default_platform(:android)
 
 platform :android do
+  desc "Capture Play Store screenshots via the instrumented screenshots test (see Screengrabfile)"
+  lane :screenshots do
+    gradle(task: "assembleDebug", project_dir: ".")
+    gradle(task: "assembleAndroidTest", project_dir: ".")
+    screengrab
+  end
+
   desc "Build a signed release AAB and push it to the Play Store internal testing track"
   lane :internal do
     gradle(
