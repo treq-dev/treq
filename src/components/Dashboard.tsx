@@ -143,6 +143,7 @@ import { startManagedCertificateRenewal } from "../lib/remote-cert-lifecycle";
 import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 import { remoteForceCutoff } from "../lib/api-extra";
 import { RemoteRepositorySelector } from "./remote/RemoteRepositorySelector";
+import { RemoteTerminalDialog } from "./RemoteTerminalDialog";
 import { invalidateReviewChangeCount } from "../lib/review-change-count";
 import {
   clearSWRCache,
@@ -391,6 +392,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     useState<RemoteRepoProbe | null>(null);
   const [explicitEndpointCloneUrl, setExplicitEndpointCloneUrl] = useState("");
   const [confirmInitRemoteRepo, setConfirmInitRemoteRepo] = useState(false);
+  const [showRemoteTerminalDialog, setShowRemoteTerminalDialog] =
+    useState(false);
   const [explicitGenerationTransition, setExplicitGenerationTransition] =
     useState(false);
   const [remoteRepoBusy, setRemoteRepoBusy] = useState(false);
@@ -2755,14 +2758,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <div className="relative z-50 shrink-0 border-b bg-background">
                   <div className="flex items-center justify-between px-4 py-1 text-xs text-muted-foreground">
                     <span>{activeRepository?.displayName}</span>
-                    <button
-                      type="button"
-                      className="underline underline-offset-2"
-                      onClick={handleRefreshRemote}
-                      disabled={Boolean(cutoffReason)}
-                    >
-                      Refresh
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {activeSshEndpoint && (
+                        <button
+                          type="button"
+                          className="underline underline-offset-2"
+                          onClick={() => setShowRemoteTerminalDialog(true)}
+                          disabled={Boolean(cutoffReason)}
+                        >
+                          Terminal
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="underline underline-offset-2"
+                        onClick={handleRefreshRemote}
+                        disabled={Boolean(cutoffReason)}
+                      >
+                        Refresh
+                      </button>
+                    </div>
                   </div>
                   <div className="px-4 pb-1.5">
                     <RemoteStatusBanner
@@ -3202,6 +3217,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
           />
           {remoteSshDialog}
           <RemoteAmbiguousMutationDialog />
+          {activeSshEndpoint && activeRepository?.canonicalPath && (
+            <RemoteTerminalDialog
+              open={showRemoteTerminalDialog}
+              onOpenChange={setShowRemoteTerminalDialog}
+              endpoint={activeSshEndpoint}
+              repositoryId={activeRepository.canonicalPath}
+              workspaceId="root"
+              remoteWorkingDirectory={activeRepository.canonicalPath}
+            />
+          )}
         </SidebarProvider>
       )}
     </ActiveRepositoryProvider>
