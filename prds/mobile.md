@@ -142,11 +142,17 @@ Open items before this is more than a prototype:
 - No production Android/iOS release build has been produced or code-signed yet in this environment - `.github/workflows/mobile.yml` currently builds unsigned debug artifacts only. Signed release pipelines (Play Store / TestFlight) are future work, not scoped to this pass.
 - No UI for the "biometrics not set up" / secure-storage-unavailable case.
 
-### Phase 3: Read-only review (in progress)
+### Phase 3: Read-only review (done)
 
 `MobileShell` dispatches the same `TreqCommandRequest` JSON protocol desktop's `remote_dispatch_over_ssh`/`remote_dispatch_local` already implement - mobile needs no separate command protocol or CLI-parsing layer, since it is the same Tauri backend.
 
-Status: workspace listing is wired (`MobileShell`'s workspace list via `getWorkspaces`). Not yet built: dedicated diff, commit, and conflict screens for the mobile layout - `Dashboard`'s existing panels are desktop-oriented (multi-pane) and need touch-first single-column equivalents. Tracking as "in progress" until those exist.
+Workspace selection in `MobileShell` opens a touch-first, single-column workspace view with three tabs, all built on the same `lib/api.ts` calls desktop's `Dashboard` uses - no new backend/IPC surface:
+
+- **Changes** (`src/components/mobile/MobileDiffView.tsx`) - the working-copy diff via `getWorkspaceDiff`, collapsible per-file hunks (`MobileFileDiffList`/`MobileHunkView`). Uncommitted files fetch their hunks separately via `getWorkspaceFileHunksBatch`, since `getWorkspaceDiff`'s `hunks_by_file` only covers `committed_files`.
+- **History** (`src/components/mobile/MobileCommitView.tsx`) - reuses `LinearCommitHistory` as-is for the commit list, with drill-down into a single commit's diff via `getCommitDiff`.
+- **Conflicts** (`src/components/mobile/MobileConflictView.tsx`) - reuses `ConflictsSection` as-is for the conflicted-file list, with drill-down into conflict markers. A committed (e.g. rebase) conflict's `conflict_regions` live in `getWorkspaceDiff`'s `hunks_by_file`; the view falls back to `getWorkspaceFileHunks` for a conflict still only present in an uncommitted working-copy edit.
+
+Verified against a real jj repo (uncommitted change, a commit, and a real merge conflict) via `scripts/screenshot/specs/mobile-shell-review.spec.tsx`.
 
 ### Phase 4: Agent control (not started)
 
