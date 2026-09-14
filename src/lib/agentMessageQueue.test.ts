@@ -5,6 +5,7 @@ import {
   enqueueAgentMessage,
   formatAgentMessageForPty,
   looksLikeAgentUserQuestion,
+  looksLikeShellPrompt,
   removeAgentMessage,
   updateAgentMessage,
 } from "./agentMessageQueue";
@@ -63,6 +64,22 @@ describe("agentMessageQueue", () => {
 
   it("formats message for pty as text plus carriage return", () => {
     expect(formatAgentMessageForPty("hello")).toBe("hello\r");
+  });
+});
+
+describe("looksLikeShellPrompt", () => {
+  it("detects the zsh prompt shown after an agent process exits", () => {
+    expect(looksLikeShellPrompt("projects/treq [main] » ")).toBe(true);
+  });
+
+  it("detects an unterminated zsh parser continuation prompt", () => {
+    expect(looksLikeShellPrompt("subsh quote> ")).toBe(true);
+  });
+
+  it("does not mistake ordinary agent output for a shell prompt", () => {
+    expect(looksLikeShellPrompt("Tests 1 failed | 321 passed (322)\n")).toBe(
+      false,
+    );
   });
 });
 
