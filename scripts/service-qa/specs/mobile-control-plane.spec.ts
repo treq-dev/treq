@@ -1,18 +1,10 @@
 /**
- * Worked example: the mobile app's control-plane contract
- * (`mobile/src/lib/controlPlane.ts`) against a real local Supabase CLI
- * stack instead of the mocked Supabase client Jest uses in
- * `mobile/src/screens/__tests__/*.test.tsx`.
- *
- * This does not import mobile's TypeScript directly (Jest/RN and this
- * Node/vitest harness use different module resolution and RN-only globals
- * would need polyfilling for no benefit) - it exercises the exact same
- * request/response shapes controlPlane.ts sends and expects, against the
- * same `remote-instance` / `remote-ssh-trust` edge functions, closing the
- * gap called out in mobile/README.md's "What's still not verified":
- * "The control-plane client ... against a live Supabase stack: still
- * mocked-client-only ... since bringing up the local Supabase CLI stack
- * needs a reachable Docker daemon."
+ * Worked example: the mobile-connectivity control-plane contract
+ * (`RemoteConnectPanel`/managed-VM setup flow, mobile PRD Phase 2-3)
+ * against a real local Supabase CLI stack, exercising the exact
+ * request/response shapes the Tauri app's `ensure_mobile_device_key`
+ * command and the managed-connect flow send and expect against the
+ * `remote-instance` / `remote-ssh-trust` edge functions.
  *
  * Requires `REMOTE_SPRITES_STUB=1` (set by `scripts/service-qa/up.sh`) so
  * `ensure`/`wake`/`status` resolve without a real Fly.io account.
@@ -56,9 +48,10 @@ async function signedInUser(): Promise<{
   return { testUser, client, accessToken: data.session.access_token };
 }
 
-/** Mirrors mobile's `invokeRemoteInstance`/`invokeRemoteTrust` - a bare
- * fetch against `functions/v1/<name>` with `{ action, ...body }`, same as
- * `supabase.functions.invoke` sends over the wire. */
+/** Mirrors the mobile-connectivity flow's `invokeRemoteInstance`/
+ * `invokeRemoteTrust` calls - a bare fetch against `functions/v1/<name>`
+ * with `{ action, ...body }`, same as `supabase.functions.invoke` sends
+ * over the wire. */
 async function invoke(
   fnName: "remote-instance" | "remote-ssh-trust",
   accessToken: string,
@@ -106,7 +99,7 @@ async function generateOpenSshEd25519PublicKey(comment: string): Promise<string>
   return `ssh-ed25519 ${btoa(binary)} ${comment}`;
 }
 
-it("mobile listRegions/listSizePresets return the catalog controlPlane.ts expects", async () => {
+it("mobile listRegions/listSizePresets return the catalog the connect flow expects", async () => {
   const { accessToken } = await signedInUser();
 
   const regions = await invoke("remote-instance", accessToken, "list_regions");
@@ -129,7 +122,7 @@ it("mobile listRegions/listSizePresets return the catalog controlPlane.ts expect
 }, 60_000);
 
 it(
-  "mobile's registerClientKey -> ensureInstance -> issueCertificate round trip succeeds against the real edge functions",
+  "mobile's ensureInstance -> registerClientKey -> issueCertificate round trip succeeds against the real edge functions",
   async () => {
     const { testUser, accessToken } = await signedInUser();
 
@@ -173,14 +166,15 @@ it(
     }
     expect(lastStatus).toBe("ready");
 
-    // registerClientKey: mobile's own generateDeviceKey() produces a real
-    // ed25519 keypair via the native module; this spec's stand-in is the
-    // same OpenSSH-line encoding remote_e2e.test.ts uses.
+    // registerClientKey: the app's own `ensure_mobile_device_key` Tauri
+    // command produces a real ed25519 keypair via platform keystore; this
+    // spec's stand-in is the same OpenSSH-line encoding
+    // remote_e2e.test.ts uses.
     const publicKey = await generateOpenSshEd25519PublicKey(`${testUser.email}@mobile-qa`);
     const register = await invoke("remote-ssh-trust", accessToken, "register_client_key", {
       idempotency_key: `mobile-qa-${crypto.randomUUID()}`,
       public_key: publicKey,
-      comment: "React Native device",
+      comment: "Tauri mobile device",
     });
     expect(register.status).toBe(200);
     const registeredKey = (register.json.key ?? (register.json.keys as unknown[] | undefined)?.[0]) as
@@ -189,8 +183,8 @@ it(
     expect(registeredKey?.id).toBeTruthy();
     const keyId = registeredKey!.id!;
 
-    // issueCertificate: the exact request shape controlPlane.ts's
-    // issueCertificate/ManagedConnectScreen.handleConnect send.
+    // issueCertificate: the exact request shape the managed-connect
+    // flow's issueCertificate/handleConnect send.
     const issue = await invoke("remote-ssh-trust", accessToken, "issue_certificate", {
       instance_id: instanceId,
       key_id: keyId,
@@ -201,7 +195,7 @@ it(
     const endpoint = issue.json.endpoint as { host_keys?: Array<{ fingerprint_sha256?: string }> } | undefined;
     expect(endpoint?.host_keys?.[0]?.fingerprint_sha256).toBeTruthy();
 
-    // Silent renewal: certRenewal.ts's CertificateRenewalManager calls
+    // Silent renewal: the certificate renewal manager calls
     // issue_certificate again with `renewal: true` ahead of expiry.
     const renewed = await invoke("remote-ssh-trust", accessToken, "issue_certificate", {
       instance_id: instanceId,
@@ -211,7 +205,7 @@ it(
     expect(renewed.status).toBe(200);
     expect(renewed.json.serial).not.toBe(issue.json.serial);
 
-    // wakeInstance: ManagedConnectScreen's handleWake path against an
+    // wakeInstance: the connect flow's handleWake path against an
     // already-ready (non-suspended) instance, same as the desktop e2e
     // suite's "ordinary wake" case.
     const wake = await invoke("remote-instance", accessToken, "wake", {
@@ -243,7 +237,7 @@ it(
   60_000,
 );
 
-it("issueCertificate rejects an unregistered key id, matching controlPlane.ts's error-throwing contract", async () => {
+it("issueCertificate rejects an unregistered key id, matching the connect flow's error-throwing contract", async () => {
   const { accessToken } = await signedInUser();
 
   const ensure = await invoke("remote-instance", accessToken, "ensure", {

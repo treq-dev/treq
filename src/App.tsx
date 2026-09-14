@@ -2,14 +2,17 @@ import { SWRConfig } from "swr";
 import { Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { Dashboard } from "./components/Dashboard";
+import { MobileShell } from "./components/MobileShell";
 import { ToastProvider } from "./components/ui/toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { useIsMobile } from "./hooks/use-mobile";
 import { PrismThemeLoader } from "./components/PrismThemeLoader";
 import { AppStoreEffects } from "./stores/AppStoreEffects";
 import { defaultSWRConfig, SWRMutateScope } from "./lib/swr-cache";
 import "./index.css";
 
 function AppContent() {
+  const isMobile = useIsMobile();
   return (
     <div className="flex h-screen">
       <ErrorBoundary
@@ -20,7 +23,7 @@ function AppContent() {
           }
         }}
       >
-        <Dashboard />
+        {isMobile ? <MobileShell /> : <Dashboard />}
       </ErrorBoundary>
     </div>
   );
