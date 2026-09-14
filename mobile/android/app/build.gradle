@@ -84,6 +84,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode Integer.parseInt(System.getenv("TREQ_VERSION_CODE") ?: "1")
         versionName System.getenv("TREQ_VERSION_NAME") ?: "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments clearPackageData: "true"
     }
     signingConfigs {
         debug {
@@ -131,6 +133,14 @@ dependencies {
     // generateTreqMobileSshBindings task below), which use JNA to load the
     // native library.
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+
+    // Instrumented screenshot capture for `fastlane screengrab` (see
+    // fastlane/Screengrabfile and app/src/androidTest/.../ScreenshotTest.kt).
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestImplementation("tools.fastlane:screengrab:2.1.1")
 }
 
 // Generates the UniFFI Kotlin bindings for crates/treq-mobile-ssh from

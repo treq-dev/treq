@@ -1,0 +1,15 @@
+# Screengrabfile - configuration for `fastlane screengrab` (screenshots lane)
+# https://docs.fastlane.tools/actions/screengrab/
+
+app_package_name("com.treq.mobile")
+use_tests_in_packages(["com.treq.mobile.screenshots"])
+
+locales(["en-US"])
+
+app_apk_path("app/build/outputs/apk/debug/app-debug.apk")
+tests_apk_path("app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk")
+
+output_directory("./fastlane/metadata/android")
+clear_previous_screenshots(true)
+
+device_type("phone")
