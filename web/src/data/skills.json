@@ -1,61 +1,61 @@
 {
-  "generatedAt": "2026-09-07T11:22:08.130Z",
+  "generatedAt": "2026-09-14T11:32:03.480Z",
   "sources": [
     {
       "id": "anthropic",
       "name": "Anthropic",
       "url": "https://github.com/anthropics/skills",
       "skillCount": 19,
-      "stars": 174960
+      "stars": 176219
     },
     {
       "id": "openai",
       "name": "OpenAI",
       "url": "https://github.com/openai/skills",
       "skillCount": 44,
-      "stars": 25795
+      "stars": 27146
     },
     {
       "id": "mattpocock",
       "name": "Matt Pocock",
       "url": "https://github.com/mattpocock/skills",
       "skillCount": 37,
-      "stars": 255670
+      "stars": 261718
     },
     {
       "id": "vercel",
       "name": "Vercel",
       "url": "https://github.com/vercel-labs/agent-browser",
       "skillCount": 1,
-      "stars": 42083
+      "stars": 42536
     },
     {
       "id": "microsoft",
       "name": "Microsoft",
       "url": "https://github.com/microsoft/azure-skills",
       "skillCount": 35,
-      "stars": 1459
+      "stars": 1480
     },
     {
       "id": "superpowers",
       "name": "Superpowers",
       "url": "https://github.com/obra/superpowers",
       "skillCount": 14,
-      "stars": 282635
+      "stars": 286453
     },
     {
       "id": "caveman",
       "name": "Caveman",
       "url": "https://github.com/JuliusBrussee/caveman",
       "skillCount": 20,
-      "stars": 104030
+      "stars": 105480
     },
     {
       "id": "prisma",
       "name": "Prisma",
       "url": "https://github.com/prisma/skills",
       "skillCount": 9,
-      "stars": 56
+      "stars": 57
     }
   ],
   "skills": [
@@ -767,7 +767,7 @@
       "path": "skills/claude-api",
       "url": "https://github.com/anthropics/skills/tree/main/skills/claude-api",
       "route": "/skills/anthropic/claude-api",
-      "checksum": "55b924798d031579634c497f718048fdce6edca1fd5c9bb6cef78939dc44c756",
+      "checksum": "945ba6c7c351390f47b961eaf9d836af6bdab35e2b9e718703360fad6cd75eba",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -778,7 +778,7 @@
         },
         {
           "path": "SKILL.md",
-          "size": 85701,
+          "size": 86198,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/SKILL.md"
@@ -1037,7 +1037,7 @@
         },
         {
           "path": "shared/anthropic-cli.md",
-          "size": 16128,
+          "size": 18162,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/anthropic-cli.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/anthropic-cli.md"
@@ -1065,7 +1065,7 @@
         },
         {
           "path": "shared/live-sources.md",
-          "size": 22226,
+          "size": 22559,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/live-sources.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/live-sources.md"
@@ -1079,7 +1079,7 @@
         },
         {
           "path": "shared/managed-agents-client-patterns.md",
-          "size": 11286,
+          "size": 12043,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-client-patterns.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-client-patterns.md"
@@ -1100,7 +1100,7 @@
         },
         {
           "path": "shared/managed-agents-events.md",
-          "size": 24645,
+          "size": 24955,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-events.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-events.md"
@@ -1114,7 +1114,7 @@
         },
         {
           "path": "shared/managed-agents-multiagent.md",
-          "size": 25549,
+          "size": 26194,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-multiagent.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-multiagent.md"
@@ -1156,7 +1156,7 @@
         },
         {
           "path": "shared/managed-agents-tools.md",
-          "size": 29792,
+          "size": 35652,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/managed-agents-tools.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/managed-agents-tools.md"
@@ -4720,11 +4720,11 @@
       "path": "skills/azure-compliance",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-compliance",
       "route": "/skills/microsoft/azure-compliance",
-      "checksum": "a2a6ab8c2035b4a88a1074869acdffc32af0b7480a77dc7ef82e439b166fbfd5",
+      "checksum": "399fb7e913af4bc66ccda33c2e102709afc7887465a718198cdefdb712967453",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 4739,
+          "size": 3974,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-compliance/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-compliance/SKILL.md"
@@ -6402,11 +6402,11 @@
       "path": "skills/azure-prepare",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-prepare",
       "route": "/skills/microsoft/azure-prepare",
-      "checksum": "848b5c4f1cfb29d3f1176b2f7db59c4f0c2e1c9bd3dce7228725e0d504235d71",
+      "checksum": "5a560276385ba66430e97258e35c9c511af546c7147f7adae5f08e5bd17abd68",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 12696,
+          "size": 12861,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-prepare/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-prepare/SKILL.md"
@@ -7085,7 +7085,7 @@
         },
         {
           "path": "references/services/functions/README.md",
-          "size": 3852,
+          "size": 3221,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-prepare/references/services/functions/README.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-prepare/references/services/functions/README.md"
@@ -7105,11 +7105,25 @@
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-prepare/references/services/functions/bicep.md"
         },
         {
+          "path": "references/services/functions/cold-start.md",
+          "size": 6421,
+          "binary": false,
+          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-prepare/references/services/functions/cold-start.md",
+          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-prepare/references/services/functions/cold-start.md"
+        },
+        {
           "path": "references/services/functions/durable.md",
           "size": 1858,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-prepare/references/services/functions/durable.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-prepare/references/services/functions/durable.md"
+        },
+        {
+          "path": "references/services/functions/hosting-plans.md",
+          "size": 6991,
+          "binary": false,
+          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-prepare/references/services/functions/hosting-plans.md",
+          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-prepare/references/services/functions/hosting-plans.md"
         },
         {
           "path": "references/services/functions/templates/README.md",
@@ -8532,7 +8546,7 @@
     {
       "id": "microsoft/microsoft-foundry",
       "name": "microsoft-foundry",
-      "description": "Build, deploy, evaluate, optimize, fine-tune, and manage Microsoft Foundry agents, models, and resources end to end. USE FOR: azd ai agent, azd provision/deploy, hosted agent scaffold/develop/run/deploy/troubleshoot, prompt agent create, create agent, update agent, add tool to agent, invoke agent, agent.yaml, evaluate agent, batch eval, continuous eval, continuous monitoring, agent CI/CD, optimize prompt, improve prompt, prompt optimizer, optimize agent instructions, Agent Optimizer scaffold, dataset curation from traces, deploy model, model fine-tuning (SFT/DPO/RFT), Foundry project, RBAC, role assignment, permissions, quota, capacity, region, deployment failure, AI Services, create Foundry resource, knowledge index, customize deployment, onboard, availability, training-data, grader, distillation, large file upload. DO NOT USE FOR: Azure Functions, App Service, general Azure deploy (use azure-deploy), general Azure prep (use azure-prepare).",
+      "description": "Build, deploy, evaluate, optimize, fine-tune, and manage Microsoft Foundry agents, models, and resources end to end. USE FOR: foundry, azd ai agent, azd provision/deploy, hosted agent scaffold/develop/run/deploy/troubleshoot, prompt agent create, create agent, update agent, add tool to agent, invoke agent, agent.yaml, evaluate agent, batch eval, continuous eval, continuous monitoring, agent CI/CD, optimize prompt, improve prompt, prompt optimizer, optimize agent instructions, Agent Optimizer scaffold, dataset curation from traces, deploy model, model fine-tuning (SFT/DPO/RFT), Foundry project, RBAC, role assignment, permissions, quota, capacity, region, deployment failure, AI Services, create Foundry resource, knowledge index, customize deployment, onboard, availability, training-data, grader, distillation, large file upload. DO NOT USE FOR: Azure Functions, App Service, general Azure deploy (use azure-deploy), general Azure prep (use azure-prepare).",
       "source": "microsoft",
       "category": null,
       "license": "MIT",
@@ -8540,7 +8554,7 @@
       "path": "skills/microsoft-foundry",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry",
       "route": "/skills/microsoft/microsoft-foundry",
-      "checksum": "5e78d6b1a407ec8d9ec66f4e72f2dd590c456c5f9445a3f85e7a32b444918223",
+      "checksum": "cc502deab103d742d83b6c5204d00e001b8466915ec9bf9c0bf6779e7c40686f",
       "files": [
         {
           "path": ".gitignore",
@@ -8551,7 +8565,7 @@
         },
         {
           "path": "SKILL.md",
-          "size": 26342,
+          "size": 26351,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/SKILL.md"
@@ -8607,7 +8621,7 @@
         },
         {
           "path": "foundry-agent/azd-guidance/references/azd-ai-cli.md",
-          "size": 8920,
+          "size": 8913,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/azd-guidance/references/azd-ai-cli.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/azd-guidance/references/azd-ai-cli.md"
@@ -8621,7 +8635,7 @@
         },
         {
           "path": "foundry-agent/create/create-hosted.md",
-          "size": 30509,
+          "size": 33580,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/create/create-hosted.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/create-hosted.md"
@@ -8635,7 +8649,7 @@
         },
         {
           "path": "foundry-agent/create/quick-start-hosted.md",
-          "size": 22677,
+          "size": 22895,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/create/quick-start-hosted.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/quick-start-hosted.md"
@@ -8649,7 +8663,7 @@
         },
         {
           "path": "foundry-agent/create/references/foundry-model.md",
-          "size": 1459,
+          "size": 1598,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/create/references/foundry-model.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/references/foundry-model.md"
@@ -8683,8 +8697,15 @@
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/references/guardrails/guardrail-manage.md"
         },
         {
+          "path": "foundry-agent/create/references/langchain-langgraph-hosting.md",
+          "size": 2257,
+          "binary": false,
+          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/create/references/langchain-langgraph-hosting.md",
+          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/references/langchain-langgraph-hosting.md"
+        },
+        {
           "path": "foundry-agent/create/references/local-run.md",
-          "size": 9777,
+          "size": 10294,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/create/references/local-run.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/references/local-run.md"
@@ -8866,10 +8887,17 @@
         },
         {
           "path": "foundry-agent/deploy/deploy.md",
-          "size": 20193,
+          "size": 21128,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/deploy/deploy.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/deploy/deploy.md"
+        },
+        {
+          "path": "foundry-agent/deploy/references/container-deploy.md",
+          "size": 2140,
+          "binary": false,
+          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/deploy/references/container-deploy.md",
+          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/deploy/references/container-deploy.md"
         },
         {
           "path": "foundry-agent/eval-datasets/eval-datasets.md",
@@ -9335,7 +9363,7 @@
         },
         {
           "path": "project/create/create-foundry-project.md",
-          "size": 9210,
+          "size": 8586,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/project/create/create-foundry-project.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/project/create/create-foundry-project.md"
@@ -16799,11 +16827,11 @@
       "path": "prisma-compute",
       "url": "https://github.com/prisma/skills/tree/main/prisma-compute",
       "route": "/skills/prisma/prisma-compute",
-      "checksum": "08ca730f79e50754475426c9bddb04080dca3df2acecd93702f63642bd7ebe85",
+      "checksum": "0d53673c5236099f72a11bbc3e3e4337effef59c7326d6eb430c8c6e8b4562b7",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 15311,
+          "size": 15575,
           "binary": false,
           "githubUrl": "https://github.com/prisma/skills/blob/main/prisma-compute/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/prisma/skills/main/prisma-compute/SKILL.md"
@@ -16845,7 +16873,7 @@
         },
         {
           "path": "references/troubleshooting.md",
-          "size": 16338,
+          "size": 18021,
           "binary": false,
           "githubUrl": "https://github.com/prisma/skills/blob/main/prisma-compute/references/troubleshooting.md",
           "rawUrl": "https://raw.githubusercontent.com/prisma/skills/main/prisma-compute/references/troubleshooting.md"
