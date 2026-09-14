@@ -479,7 +479,7 @@ remote_working_directory
 local_session_id
 ```
 
-For the initial desktop scope, terminal reconnect may be explicitly unsupported after the client exits. Agent processes that must survive disconnection require Treq CLI lifecycle commands backed by a VM-local supervisor. Such a supervisor listens only locally and does not introduce a public Treq daemon.
+This carve-out (terminal reconnect explicitly unsupported after the client exits) is retired at the backend level: [Mobile Remote Control](./mobile.md)'s Phase 7 added a VM-local persistent PTY supervisor (`core::pty_remote_supervisor`, tmux/screen-backed) and its `pty-remote` CLI surface, and Phase 8 added `RemotePtyManager::create_with_command` plus `remote_pty_list_persistent_sessions`/`remote_pty_reattach` Tauri commands so a desktop client *can* list and reattach to a session that outlived a prior connection. What remains unsupported is UI: desktop's remote-review surface has no terminal panel wired to these commands yet, so nothing in the shipped app actually offers reattach today - see `mobile.md`'s Phase 8 write-up for exactly what exists versus what's still a backend-only capability. Agent processes that must survive disconnection still use the separate `agent-remote` CLI lifecycle commands backed by `core::agent_supervisor`, unaffected by this. Neither supervisor listens on a public network port or introduces a public Treq daemon.
 
 When an agent exits or a mutation completes, the desktop client refreshes remote repository status, changes, commits, and conflicts.
 

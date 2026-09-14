@@ -22,6 +22,19 @@ dictionary ExecResult {
   string stderr;
 };
 
+// PTY output/lifecycle events (mobile PRD Phase 7, item 2). UniFFI 0.28's
+// UDL-based scaffolding (this crate is not on the proc-macro path) has no
+// practical support for an async callback interface that could push these
+// to Kotlin/Swift as they arrive - see the "spike result" comment on
+// `poll_pty_events` in lib.rs for what was tried. Events are instead
+// buffered VM-side (bounded, oldest dropped first) and drained by polling.
+[Enum]
+interface PtyEvent {
+  Data(sequence<u8> bytes);
+  ExitStatus(u32 code);
+  Closed();
+};
+
 interface SshClient {
   constructor();
 
@@ -53,4 +66,29 @@ interface SshClient {
   ExecResult exec_command(u64 session_id, sequence<string> argv);
 
   void disconnect(u64 session_id);
+
+  // Opens a PTY channel on `session_id`'s connection and execs `command` on
+  // it (typically the literal command line `pty-remote attach-command`
+  // returns). Returns an opaque pty id for pty_write/pty_resize/
+  // poll_pty_events/close_pty.
+  [Throws=SshError]
+  u64 open_pty(u64 session_id, string term, u16 cols, u16 rows, string command);
+
+  // Writes raw bytes to an open PTY's stdin.
+  [Throws=SshError]
+  void pty_write(u64 pty_id, sequence<u8> data);
+
+  // Sends a window-change request so the remote PTY (and, when attached to
+  // a `pty-remote` tmux/screen session, that session itself) resizes.
+  [Throws=SshError]
+  void pty_resize(u64 pty_id, u16 cols, u16 rows);
+
+  // Drains up to max_events buffered PtyEvents, blocking up to timeout_ms
+  // if none are yet available. See lib.rs's `poll_pty_events` doc comment
+  // for why this is polling rather than a pushed callback.
+  [Throws=SshError]
+  sequence<PtyEvent> poll_pty_events(u64 pty_id, u64 timeout_ms, u32 max_events);
+
+  // Closes a PTY session. Idempotent.
+  void close_pty(u64 pty_id);
 };

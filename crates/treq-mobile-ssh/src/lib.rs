@@ -51,6 +51,22 @@ pub struct ExecResult {
     pub stderr: String,
 }
 
+/// PTY output/lifecycle event (mobile PRD Phase 7, item 2). See
+/// `poll_pty_events` for why this is drained by polling rather than pushed
+/// through a UniFFI async callback interface.
+pub enum PtyEvent {
+    Data { bytes: Vec<u8> },
+    ExitStatus { code: u32 },
+    Closed,
+}
+
+/// Bound on how many undrained events a single PTY session buffers before
+/// the oldest are dropped, mirroring desktop's
+/// `remote_pty::MAX_BUFFERED_OUTPUT_BYTES` backstop — a client that stops
+/// polling (backgrounded app) must not let the VM-side process consume
+/// unbounded memory here.
+const MAX_BUFFERED_PTY_EVENTS: usize = 4096;
+
 /// Verifies the server's presented host key against a single pinned
 /// fingerprint, the same never-bypass policy as the desktop
 /// `HostKeyVerifier` (see `remote_ssh_transport::HostKeyVerifier`).
@@ -79,9 +95,26 @@ struct Session {
     handle: Handle<HostKeyVerifier>,
 }
 
+/// One open PTY channel plus its bounded event backlog. Read and write
+/// halves are split (`russh::Channel::split`) rather than sharing one
+/// `Channel` behind a single lock: the reader task holds `wait()` (which
+/// needs `&mut self` and blocks until the next message) for the session's
+/// entire lifetime, so a write path that had to take the *same* lock would
+/// deadlock waiting for a message that a blocked write can never cause to
+/// arrive. `write_half`'s methods (`data_bytes`/`window_change`/`close`)
+/// take `&self`, so `Arc<ChannelWriteHalf<_>>` needs no lock at all.
+struct PtyState {
+    write_half: Arc<russh::ChannelWriteHalf<client::Msg>>,
+    events: Arc<Mutex<std::collections::VecDeque<PtyEvent>>>,
+    /// Signaled by the reader task whenever it pushes a new event, so
+    /// `poll_pty_events` can block efficiently instead of busy-polling.
+    notify: Arc<tokio::sync::Notify>,
+}
+
 pub struct SshClient {
     runtime: tokio::runtime::Runtime,
     sessions: Mutex<HashMap<u64, Session>>,
+    ptys: Mutex<HashMap<u64, PtyState>>,
     next_id: AtomicU64,
 }
 
@@ -90,6 +123,7 @@ impl SshClient {
         Self {
             runtime: tokio::runtime::Runtime::new().expect("failed to start tokio runtime"),
             sessions: Mutex::new(HashMap::new()),
+            ptys: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
         }
     }
@@ -241,6 +275,214 @@ impl SshClient {
     pub fn disconnect(&self, session_id: u64) {
         self.sessions.lock().expect("session map poisoned").remove(&session_id);
     }
+
+    /// Opens a PTY channel on `session_id`'s connection and execs `command`
+    /// on it (analogous to desktop's `RemotePtyChannel::open` /
+    /// `remote_pty::build_launch_command` — callers pass the already-built
+    /// command line, e.g. from `pty-remote attach-command`). Returns an
+    /// opaque pty id used by `pty_write`/`pty_resize`/`poll_pty_events`/
+    /// `close_pty`. A background reader task streams output into a bounded
+    /// backlog (see `poll_pty_events`).
+    pub fn open_pty(
+        &self,
+        session_id: u64,
+        term: String,
+        cols: u16,
+        rows: u16,
+        command: String,
+    ) -> Result<u64, SshError> {
+        // `Handle` is not `Clone` (it owns the connection's reply receiver),
+        // so — mirroring `exec_command` above — the sessions lock is held
+        // across the `.await` calls that only need `channel_open_session`
+        // (which takes `&self`), then dropped once the channel itself
+        // (an independent object, not borrowed from `Handle`) is obtained.
+        let mut sessions = self.sessions.lock().expect("session map poisoned");
+        let session = sessions.get_mut(&session_id).ok_or(SshError::SessionNotFound)?;
+
+        let (channel, events, notify) = self.runtime.block_on(async {
+            let channel = session
+                .handle
+                .channel_open_session()
+                .await
+                .map_err(|e| SshError::CommandFailed(e.to_string()))?;
+            channel
+                .request_pty(true, &term, cols as u32, rows as u32, 0, 0, &[])
+                .await
+                .map_err(|e| SshError::CommandFailed(e.to_string()))?;
+            channel
+                .exec(true, command.as_str())
+                .await
+                .map_err(|e| SshError::CommandFailed(e.to_string()))?;
+            Ok::<_, SshError>((
+                channel,
+                Arc::new(Mutex::new(std::collections::VecDeque::new())),
+                Arc::new(tokio::sync::Notify::new()),
+            ))
+        })?;
+        drop(sessions);
+
+        let (mut read_half, write_half) = channel.split();
+        let write_half = Arc::new(write_half);
+        let pty_id = self.next_id.fetch_add(1, Ordering::SeqCst);
+
+        let reader_events = events.clone();
+        let reader_notify = notify.clone();
+        self.runtime.spawn(async move {
+            loop {
+                let msg = read_half.wait().await;
+                let Some(msg) = msg else {
+                    push_event(&reader_events, PtyEvent::Closed, MAX_BUFFERED_PTY_EVENTS);
+                    reader_notify.notify_waiters();
+                    break;
+                };
+                match msg {
+                    russh::ChannelMsg::Data { data } => {
+                        push_event(
+                            &reader_events,
+                            PtyEvent::Data { bytes: data.to_vec() },
+                            MAX_BUFFERED_PTY_EVENTS,
+                        );
+                        reader_notify.notify_waiters();
+                    }
+                    russh::ChannelMsg::ExtendedData { data, .. } => {
+                        push_event(
+                            &reader_events,
+                            PtyEvent::Data { bytes: data.to_vec() },
+                            MAX_BUFFERED_PTY_EVENTS,
+                        );
+                        reader_notify.notify_waiters();
+                    }
+                    russh::ChannelMsg::ExitStatus { exit_status } => {
+                        push_event(
+                            &reader_events,
+                            PtyEvent::ExitStatus { code: exit_status },
+                            MAX_BUFFERED_PTY_EVENTS,
+                        );
+                        reader_notify.notify_waiters();
+                    }
+                    russh::ChannelMsg::Close | russh::ChannelMsg::Eof => {
+                        push_event(&reader_events, PtyEvent::Closed, MAX_BUFFERED_PTY_EVENTS);
+                        reader_notify.notify_waiters();
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        self.ptys.lock().expect("pty map poisoned").insert(
+            pty_id,
+            PtyState {
+                write_half,
+                events,
+                notify,
+            },
+        );
+        Ok(pty_id)
+    }
+
+    /// Writes raw bytes to an open PTY's stdin.
+    pub fn pty_write(&self, pty_id: u64, data: Vec<u8>) -> Result<(), SshError> {
+        let write_half = {
+            let ptys = self.ptys.lock().expect("pty map poisoned");
+            ptys.get(&pty_id).ok_or(SshError::SessionNotFound)?.write_half.clone()
+        };
+        self.runtime.block_on(async move {
+            write_half
+                .data_bytes(data)
+                .await
+                .map_err(|e| SshError::CommandFailed(e.to_string()))
+        })
+    }
+
+    /// Sends a window-change request so the remote PTY (and, when the
+    /// remote command is `pty-remote attach-command`'s tmux/screen session,
+    /// the persistent session itself) resizes to match the client's
+    /// terminal.
+    pub fn pty_resize(&self, pty_id: u64, cols: u16, rows: u16) -> Result<(), SshError> {
+        let write_half = {
+            let ptys = self.ptys.lock().expect("pty map poisoned");
+            ptys.get(&pty_id).ok_or(SshError::SessionNotFound)?.write_half.clone()
+        };
+        self.runtime.block_on(async move {
+            write_half
+                .window_change(cols as u32, rows as u32, 0, 0)
+                .await
+                .map_err(|e| SshError::CommandFailed(e.to_string()))
+        })
+    }
+
+    /// Drains up to `max_events` buffered [`PtyEvent`]s, blocking up to
+    /// `timeout_ms` if none are yet available (returns immediately once at
+    /// least one event is ready, or once the timeout elapses with an empty
+    /// result — never blocks past `timeout_ms`).
+    ///
+    /// ## Spike result: why polling, not a UniFFI async callback interface
+    ///
+    /// UniFFI has supported callback interfaces (Kotlin/Swift objects Rust
+    /// calls into) since well before 0.28, and later versions added
+    /// `async` support for them — but only on the proc-macro (`uniffi::*`
+    /// attribute) generation path. This crate is on the UDL scaffolding
+    /// path (`uniffi::include_scaffolding!`, see `build.rs`), where
+    /// `[Trait]`/callback interfaces backing a `Fn(PtyEvent)`-style push
+    /// callback are not available at the pinned `uniffi = "0.28"` version
+    /// used here — migrating to the proc-macro path is a larger, separate
+    /// change (it touches every existing method's generated bindings and
+    /// the Kotlin/Swift FFI test programs in `ffi-tests/`), not something
+    /// to fold into a PTY-only change. So: events are buffered VM-side
+    /// (bounded, see `MAX_BUFFERED_PTY_EVENTS`) and the native bridge polls
+    /// this method from a background thread/coroutine — the same shape
+    /// mobile's `AgentScreen` already uses for `agent-remote status`/`logs`
+    /// polling, so the pattern is not new to this codebase.
+    pub fn poll_pty_events(&self, pty_id: u64, timeout_ms: u64, max_events: u32) -> Result<Vec<PtyEvent>, SshError> {
+        let (events, notify) = {
+            let ptys = self.ptys.lock().expect("pty map poisoned");
+            let state = ptys.get(&pty_id).ok_or(SshError::SessionNotFound)?;
+            (state.events.clone(), state.notify.clone())
+        };
+
+        self.runtime.block_on(async move {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+            loop {
+                {
+                    let mut queue = events.lock().expect("pty event queue poisoned");
+                    if !queue.is_empty() {
+                        let take = queue.len().min(max_events as usize);
+                        let drained = queue.drain(..take).collect();
+                        return Ok(drained);
+                    }
+                }
+                let now = tokio::time::Instant::now();
+                if now >= deadline {
+                    return Ok(vec![]);
+                }
+                let _ = tokio::time::timeout(deadline - now, notify.notified()).await;
+            }
+        })
+    }
+
+    /// Closes a PTY session. Idempotent, mirroring desktop's
+    /// `RemotePtyManager::close` convention.
+    pub fn close_pty(&self, pty_id: u64) {
+        let removed = self.ptys.lock().expect("pty map poisoned").remove(&pty_id);
+        if let Some(state) = removed {
+            self.runtime.block_on(async move {
+                let _ = state.write_half.close().await;
+            });
+        }
+    }
+}
+
+fn push_event(
+    events: &Arc<Mutex<std::collections::VecDeque<PtyEvent>>>,
+    event: PtyEvent,
+    max_len: usize,
+) {
+    let mut queue = events.lock().expect("pty event queue poisoned");
+    if queue.len() >= max_len {
+        queue.pop_front();
+    }
+    queue.push_back(event);
 }
 
 /// Opens a TCP+SSH connection and verifies the server's host key against
@@ -293,8 +535,9 @@ pub mod mock_server {
     use russh::keys::PrivateKey;
     use russh::server::{self, Msg as ServerMsg, Server as _, Session as ServerSession};
     use russh::{Channel, ChannelId};
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     pub fn test_host_key() -> PrivateKey {
@@ -340,6 +583,12 @@ pub mod mock_server {
     #[derive(Clone)]
     struct MockServer {
         call_count: Arc<AtomicUsize>,
+        /// Simulates a tmux/screen session's scrollback surviving across a
+        /// detach + reconnect: keyed by the session label embedded in a
+        /// `pty-echo:<label>` exec command, shared across every connection
+        /// this `MockServer` accepts (mirroring how a real `pty-remote`
+        /// session lives on the VM independent of any one SSH connection).
+        pty_backlogs: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     }
 
     impl server::Server for MockServer {
@@ -347,12 +596,23 @@ pub mod mock_server {
         fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> MockHandler {
             MockHandler {
                 call_count: self.call_count.clone(),
+                pty_backlogs: self.pty_backlogs.clone(),
+                pty_requested: false,
+                active_backlog_key: None,
             }
         }
     }
 
     struct MockHandler {
         call_count: Arc<AtomicUsize>,
+        pty_backlogs: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+        /// Set by `pty_request`; `exec_request` uses this to decide whether
+        /// to behave like the plain exec-once-and-close fixture or the
+        /// PTY-echo-and-stay-open fixture the reattach test below exercises.
+        pty_requested: bool,
+        /// Set once `exec_request` recognizes a `pty-echo:<label>` command;
+        /// `data()` uses it to know which backlog to append echoed bytes to.
+        active_backlog_key: Option<String>,
     }
 
     impl server::Handler for MockHandler {
@@ -384,6 +644,35 @@ pub mod mock_server {
             Ok(())
         }
 
+        async fn pty_request(
+            &mut self,
+            channel: ChannelId,
+            _term: &str,
+            _col_width: u32,
+            _row_height: u32,
+            _pix_width: u32,
+            _pix_height: u32,
+            _modes: &[(russh::Pty, u32)],
+            session: &mut ServerSession,
+        ) -> Result<(), Self::Error> {
+            self.pty_requested = true;
+            session.channel_success(channel)?;
+            Ok(())
+        }
+
+        async fn window_change_request(
+            &mut self,
+            channel: ChannelId,
+            _col_width: u32,
+            _row_height: u32,
+            _pix_width: u32,
+            _pix_height: u32,
+            session: &mut ServerSession,
+        ) -> Result<(), Self::Error> {
+            session.channel_success(channel)?;
+            Ok(())
+        }
+
         async fn exec_request(
             &mut self,
             channel: ChannelId,
@@ -393,10 +682,58 @@ pub mod mock_server {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             let command = String::from_utf8_lossy(data).to_string();
             session.channel_success(channel)?;
+
+            // `open_pty` PTY-mode commands (`pty-echo:<label>`): stay open
+            // and echo interactively, replaying any backlog a *previous*
+            // connection for the same label left behind — the mock
+            // stand-in for tmux/screen's reattach-shows-scrollback
+            // behavior `pty_remote_supervisor::build_attach_command`
+            // relies on server-side.
+            if self.pty_requested {
+                if let Some(label) = command.strip_prefix("pty-echo:") {
+                    self.active_backlog_key = Some(label.to_string());
+                    let backlog = self
+                        .pty_backlogs
+                        .lock()
+                        .unwrap()
+                        .get(label)
+                        .cloned()
+                        .unwrap_or_default();
+                    if !backlog.is_empty() {
+                        session.data(channel, bytes::Bytes::from(backlog))?;
+                    }
+                    return Ok(());
+                }
+            }
+
             let response = fixture_response(&command);
             session.data(channel, bytes::Bytes::from(response.into_bytes()))?;
             session.exit_status_request(channel, 0)?;
             session.close(channel)?;
+            Ok(())
+        }
+
+        async fn data(
+            &mut self,
+            channel: ChannelId,
+            data: &[u8],
+            session: &mut ServerSession,
+        ) -> Result<(), Self::Error> {
+            let Some(label) = self.active_backlog_key.clone() else {
+                return Ok(());
+            };
+            if data == b"__exit__" {
+                session.exit_status_request(channel, 0)?;
+                session.close(channel)?;
+                return Ok(());
+            }
+            self.pty_backlogs
+                .lock()
+                .unwrap()
+                .entry(label)
+                .or_default()
+                .extend_from_slice(data);
+            session.data(channel, bytes::Bytes::from(data.to_vec()))?;
             Ok(())
         }
     }
@@ -463,6 +800,7 @@ pub mod mock_server {
 
         let mut server = MockServer {
             call_count: Arc::new(AtomicUsize::new(0)),
+            pty_backlogs: Arc::new(Mutex::new(HashMap::new())),
         };
 
         tokio::spawn(async move {
@@ -668,5 +1006,169 @@ mod tests {
         );
 
         assert!(matches!(result, Err(SshError::KeyMaterialUnavailable(_))));
+    }
+
+    /// Establishes a real SSH session against the mock server, opens a PTY
+    /// on it, writes bytes, and reads them back through `poll_pty_events` —
+    /// exercising `open_pty`/`pty_write`/`pty_resize`/`poll_pty_events`/
+    /// `close_pty` end to end (mobile PRD Phase 7, item 2).
+    #[test]
+    fn open_pty_write_and_poll_round_trip_through_a_real_ssh_session() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (addr, host_key) = runtime.block_on(start_mock_server("127.0.0.1:0"));
+        let expected_fingerprint = host_key.public_key().fingerprint(HashAlg::Sha256).to_string();
+
+        let client = SshClient::new();
+        let device_key = client.generate_device_key().unwrap();
+        let session_id = client
+            .connect(
+                addr.ip().to_string(),
+                addr.port(),
+                "treq".to_string(),
+                device_key.private_key_pem,
+                expected_fingerprint,
+            )
+            .unwrap();
+
+        let pty_id = client
+            .open_pty(session_id, "xterm-256color".to_string(), 80, 24, "pty-echo:round-trip".to_string())
+            .expect("open_pty should succeed against the mock server");
+
+        client.pty_write(pty_id, b"hello\n".to_vec()).unwrap();
+        client.pty_resize(pty_id, 100, 40).unwrap();
+
+        // Poll until the echoed data shows up (bounded by a generous
+        // overall timeout across a few short polls, since a single
+        // `poll_pty_events` call already blocks up to its own timeout).
+        let mut collected = Vec::new();
+        for _ in 0..20 {
+            let events = client.poll_pty_events(pty_id, 500, 16).unwrap();
+            for event in events {
+                if let PtyEvent::Data { bytes } = event {
+                    collected.extend_from_slice(&bytes);
+                }
+            }
+            if collected.windows(6).any(|w| w == b"hello\n") {
+                break;
+            }
+        }
+        assert!(
+            collected.windows(6).any(|w| w == b"hello\n"),
+            "expected echoed bytes to include the written data, got: {collected:?}"
+        );
+
+        client.pty_write(pty_id, b"__exit__".to_vec()).unwrap();
+        // Draining until Closed confirms the reader task observed the
+        // channel end after the mock server's exit_status_request + close.
+        let mut saw_closed = false;
+        for _ in 0..20 {
+            let events = client.poll_pty_events(pty_id, 500, 16).unwrap();
+            if events.iter().any(|e| matches!(e, PtyEvent::Closed | PtyEvent::ExitStatus { .. })) {
+                saw_closed = true;
+                break;
+            }
+        }
+        assert!(saw_closed, "expected a Closed/ExitStatus event after __exit__");
+
+        client.close_pty(pty_id);
+        // Idempotent.
+        client.close_pty(pty_id);
+    }
+
+    /// Mobile PRD Phase 7's reattach scenario: a second PTY session opened
+    /// against the *same backend label* (mirroring `pty-remote attach`
+    /// reattaching to a still-running tmux/screen session after the app
+    /// was backgrounded or the connection dropped) replays whatever
+    /// backlog the first session produced, before any new bytes are
+    /// written on the new connection — the same guarantee tmux's
+    /// scrollback gives a real reattach.
+    #[test]
+    fn reattach_replays_backlog_from_a_prior_session() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (addr, host_key) = runtime.block_on(start_mock_server("127.0.0.1:0"));
+        let expected_fingerprint = host_key.public_key().fingerprint(HashAlg::Sha256).to_string();
+
+        let client = SshClient::new();
+        let device_key = client.generate_device_key().unwrap();
+        let session_id = client
+            .connect(
+                addr.ip().to_string(),
+                addr.port(),
+                "treq".to_string(),
+                device_key.private_key_pem.clone(),
+                expected_fingerprint.clone(),
+            )
+            .unwrap();
+
+        let first_pty = client
+            .open_pty(
+                session_id,
+                "xterm-256color".to_string(),
+                80,
+                24,
+                "pty-echo:reattach-scenario".to_string(),
+            )
+            .unwrap();
+        client.pty_write(first_pty, b"first-session-output\n".to_vec()).unwrap();
+
+        // Wait for the echo to land (and therefore be recorded in the
+        // shared backlog) before simulating a detach.
+        let mut seen_first = false;
+        for _ in 0..20 {
+            let events = client.poll_pty_events(first_pty, 500, 16).unwrap();
+            if events.iter().any(|e| matches!(e, PtyEvent::Data { bytes } if bytes.windows(20).any(|w| w == b"first-session-output"))) {
+                seen_first = true;
+                break;
+            }
+        }
+        assert!(seen_first, "expected the first session's write to be echoed");
+
+        // Simulate detach: close this pty (and the underlying SSH session)
+        // without ever "stopping" the backend session — a real
+        // `pty-remote` session survives exactly this the same way tmux
+        // does.
+        client.close_pty(first_pty);
+        client.disconnect(session_id);
+
+        // Reconnect (a fresh SSH session, as a relaunch of the app would
+        // establish) and open a PTY against the *same* backend label.
+        let second_session_id = client
+            .connect(
+                addr.ip().to_string(),
+                addr.port(),
+                "treq".to_string(),
+                device_key.private_key_pem,
+                expected_fingerprint,
+            )
+            .unwrap();
+        let second_pty = client
+            .open_pty(
+                second_session_id,
+                "xterm-256color".to_string(),
+                80,
+                24,
+                "pty-echo:reattach-scenario".to_string(),
+            )
+            .unwrap();
+
+        let mut replayed = Vec::new();
+        for _ in 0..20 {
+            let events = client.poll_pty_events(second_pty, 500, 16).unwrap();
+            for event in events {
+                if let PtyEvent::Data { bytes } = event {
+                    replayed.extend_from_slice(&bytes);
+                }
+            }
+            if replayed.windows(20).any(|w| w == b"first-session-output") {
+                break;
+            }
+        }
+        assert!(
+            replayed.windows(20).any(|w| w == b"first-session-output"),
+            "expected the reattached session to replay the prior session's backlog, got: {replayed:?}"
+        );
+
+        client.close_pty(second_pty);
+        client.disconnect(second_session_id);
     }
 }

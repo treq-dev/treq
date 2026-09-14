@@ -214,6 +214,31 @@ impl RemotePtyManager {
     on_output: impl Fn(Vec<u8>) + Send + 'static,
     on_exit: impl FnOnce(Option<u32>) + Send + 'static,
   ) -> Result<(), RemotePtyError> {
+    let command = build_launch_command(&binding.remote_working_directory, &spec);
+    self
+      .create_with_command(binding, endpoint, &command, cols, rows, on_output, on_exit)
+      .await
+  }
+
+  /// Same as [`Self::create`], but takes an already-built command line
+  /// rather than a [`PtyLaunchSpec`] — used for Phase 8 desktop reattach,
+  /// where the command is `pty-remote attach-command`'s response (computed
+  /// server-side from typed fields, exactly like `build_launch_command`
+  /// does, just by the VM instead of this process) rather than assembled
+  /// here. Never accepts a frontend-supplied raw string directly: callers
+  /// must obtain `command` from a `TreqCommandRequest::PtyAttachCommand`
+  /// round trip, not construct it themselves.
+  #[allow(clippy::too_many_arguments)]
+  pub async fn create_with_command(
+    &self,
+    binding: RemotePtyBinding,
+    endpoint: &SshEndpoint,
+    command: &str,
+    cols: u16,
+    rows: u16,
+    on_output: impl Fn(Vec<u8>) + Send + 'static,
+    on_exit: impl FnOnce(Option<u32>) + Send + 'static,
+  ) -> Result<(), RemotePtyError> {
     {
       let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
       if sessions.contains_key(&binding.local_session_id) {
@@ -223,14 +248,13 @@ impl RemotePtyManager {
       }
     }
 
-    let command = build_launch_command(&binding.remote_working_directory, &spec);
     let channel = RemotePtyChannel::open(
       &self.pool,
       endpoint,
       "xterm-256color",
       cols,
       rows,
-      Some(&command),
+      Some(command),
     )
     .await?;
     let channel = Arc::new(channel);
@@ -1143,5 +1167,50 @@ mod tests {
       }
     );
     assert!(!manager.session_exists("blocked-1"));
+  }
+
+  // -- Phase 8: create_with_command (desktop reattach) -------------------------
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn create_with_command_opens_a_pty_with_an_already_built_command_line() {
+    let (addr, host_key) = start_echo_server().await;
+    let client_key = test_host_key();
+    let dir = tempfile::tempdir().unwrap();
+    let key_reference = write_client_key(dir.path(), &client_key);
+    let endpoint = test_endpoint("ep-1", addr, &host_key, key_reference);
+
+    let pool = Arc::new(SshConnectionPool::new());
+    let manager = RemotePtyManager::new(pool);
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+
+    // Mirrors what `pty-remote attach-command` would return: a fully
+    // pre-built literal command line, not a `PtyLaunchSpec` this manager
+    // assembles itself.
+    let command = "cd /srv/project && exec tmux new-session -A -s treq-pty-1-term";
+
+    manager
+      .create_with_command(
+        binding("ep-1", "reattach-1"),
+        &endpoint,
+        command,
+        80,
+        24,
+        move |chunk| {
+          let _ = tx.send(chunk);
+        },
+        |_| {},
+      )
+      .await
+      .unwrap();
+
+    let first = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(first, b"ready\n");
+
+    manager.write("reattach-1", b"hello\n").await.unwrap();
+    let echoed = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(echoed, b"hello\n");
+
+    manager.close("reattach-1").await.unwrap();
+    assert!(!manager.session_exists("reattach-1"));
   }
 }

@@ -449,6 +449,37 @@ pub(crate) fn parse_remote_command_request(
       repo,
       workspace: require_workspace()?,
     }),
+    ("pty-remote", "start") => {
+      let payload = core::remote::parse_pty_launch_payload(&require_value("pty launch payload")?)?;
+      Ok(TreqCommandRequest::PtyStart {
+        repo,
+        workspace: require_workspace()?,
+        label: require_target("session label")?,
+        remote_dir: payload.remote_dir,
+        command: payload.command,
+        cols: payload.cols,
+        rows: payload.rows,
+        idempotency_key: require_idempotency_key(idempotency_key)?,
+      })
+    }
+    ("pty-remote", "list") => Ok(TreqCommandRequest::PtyList { repo, workspace }),
+    ("pty-remote", "stop") => Ok(TreqCommandRequest::PtyStop {
+      repo,
+      workspace: require_workspace()?,
+      label: require_target("session label")?,
+    }),
+    ("pty-remote", "attach-command") => {
+      let payload = core::remote::parse_pty_launch_payload(&require_value("pty launch payload")?)?;
+      Ok(TreqCommandRequest::PtyAttachCommand {
+        repo,
+        workspace: require_workspace()?,
+        label: require_target("session label")?,
+        remote_dir: payload.remote_dir,
+        command: payload.command,
+        cols: payload.cols,
+        rows: payload.rows,
+      })
+    }
     _ => Err(format!("unknown {command} action '{action}'")),
   }
 }
@@ -489,9 +520,8 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
     "resolve" => workspace_handlers::handle_resolve(&subcommand.matches),
     "send" => workspace_handlers::handle_send(&subcommand.matches),
     "repo" => handle_repo_command(&subcommand.matches).is_ok(),
-    "workspace" | "changes" | "file" | "commits" | "conflicts" | "git" | "agent-remote" => {
-      handle_remote_review_command(&subcommand.name, &subcommand.matches).is_ok()
-    }
+    "workspace" | "changes" | "file" | "commits" | "conflicts" | "git" | "agent-remote"
+    | "pty-remote" => handle_remote_review_command(&subcommand.name, &subcommand.matches).is_ok(),
     "help" => {
       print_cli_help();
       true
@@ -544,6 +574,7 @@ pub(super) fn is_supported_cli_command(name: &str) -> bool {
       | "conflicts"
       | "git"
       | "agent-remote"
+      | "pty-remote"
       | "help"
   )
 }

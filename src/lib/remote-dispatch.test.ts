@@ -44,8 +44,12 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "AgentStatus",
       "AgentStop",
       "AgentLogs",
+      "PtyStart",
+      "PtyList",
+      "PtyStop",
+      "PtyAttachCommand",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(36);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(40);
   });
 
   it("is exhaustive over the request union", () => {
@@ -182,6 +186,29 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       { kind: "AgentStatus", repo: "/r", workspace: "1" },
       { kind: "AgentStop", repo: "/r", workspace: "1" },
       { kind: "AgentLogs", repo: "/r", workspace: "1" },
+      {
+        kind: "PtyStart",
+        repo: "/r",
+        workspace: "1",
+        label: "term",
+        remote_dir: "/srv/project",
+        command: "bash",
+        cols: 80,
+        rows: 24,
+        idempotency_key: "k",
+      },
+      { kind: "PtyList", repo: "/r" },
+      { kind: "PtyStop", repo: "/r", workspace: "1", label: "term" },
+      {
+        kind: "PtyAttachCommand",
+        repo: "/r",
+        workspace: "1",
+        label: "term",
+        remote_dir: "/srv/project",
+        command: "bash",
+        cols: 80,
+        rows: 24,
+      },
     ];
     const seen = new Set(samples.map((r) => treqCommandKind(r)));
     expect([...seen].sort()).toEqual([...TREQ_COMMAND_KINDS].sort());

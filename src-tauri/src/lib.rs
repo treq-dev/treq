@@ -828,6 +828,8 @@ pub fn run() {
             commands::remote_pty_resize,
             commands::remote_pty_close,
             commands::remote_pty_session_exists,
+            commands::remote_pty_list_persistent_sessions,
+            commands::remote_pty_reattach,
             commands::read_file,
             commands::write_send_review_image,
             commands::write_agent_cli_files,

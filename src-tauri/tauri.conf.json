@@ -568,6 +568,49 @@
               "description": "Output format: human or json"
             }
           ]
+        },
+        "pty-remote": {
+          "description": "VM-local persistent PTY sessions (tmux/screen-backed) for full terminal streaming and reattach",
+          "args": [
+            {
+              "name": "action",
+              "index": 1,
+              "takesValue": true,
+              "required": true,
+              "description": "Command action: start, list, stop, attach-command"
+            },
+            {
+              "name": "repo",
+              "takesValue": true,
+              "required": true,
+              "description": "Repository path"
+            },
+            {
+              "name": "workspace",
+              "takesValue": true,
+              "description": "Workspace numeric ID"
+            },
+            {
+              "name": "target",
+              "takesValue": true,
+              "description": "Session label"
+            },
+            {
+              "name": "value",
+              "takesValue": true,
+              "description": "JSON-encoded {remote_dir, command, cols, rows} launch payload for start/attach-command"
+            },
+            {
+              "name": "idempotency-key",
+              "takesValue": true,
+              "description": "Idempotency key for mutations where a retry could duplicate work"
+            },
+            {
+              "name": "format",
+              "takesValue": true,
+              "description": "Output format: human or json"
+            }
+          ]
         }
       }
     },
