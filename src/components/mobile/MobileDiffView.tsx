@@ -1,5 +1,9 @@
 import useSWR from "swr";
-import { getWorkspaceDiff } from "../../lib/api";
+import {
+  getWorkspaceDiff,
+  getWorkspaceFileHunksBatch,
+  type JjFileDiff,
+} from "../../lib/api";
 import { MobileFileDiffList } from "./MobileFileDiffList";
 
 interface MobileDiffViewProps {
@@ -12,6 +16,22 @@ export function MobileDiffView({ repoPath, workspaceId }: MobileDiffViewProps) {
   const { data, error, isLoading } = useSWR(
     ["mobile-workspace-diff", repoPath, workspaceId],
     () => getWorkspaceDiff(repoPath, workspaceId),
+  );
+
+  // hunks_by_file only covers committed_files; uncommitted (working-copy)
+  // files need their own hunk fetch (see workspace_diff_with_conflict_style
+  // in src-tauri/src/core/workspaces.rs).
+  const uncommittedPaths = (data?.uncommitted_files ?? []).map((f) => f.path);
+  const { data: uncommittedHunks } = useSWR(
+    uncommittedPaths.length > 0
+      ? [
+          "mobile-workspace-uncommitted-hunks",
+          repoPath,
+          workspaceId,
+          uncommittedPaths,
+        ]
+      : null,
+    () => getWorkspaceFileHunksBatch(repoPath, workspaceId, uncommittedPaths),
   );
 
   if (isLoading) {
@@ -33,12 +53,16 @@ export function MobileDiffView({ repoPath, workspaceId }: MobileDiffViewProps) {
   }
 
   const files = [...data.committed_files, ...(data.uncommitted_files ?? [])];
+  const uncommittedFileDiffs: JjFileDiff[] = (
+    uncommittedHunks?.files ?? []
+  ).map((f) => ({ path: f.path, hunks: f.hunks }));
+  const hunksByFile = [...data.hunks_by_file, ...uncommittedFileDiffs];
 
   return (
     <div className="flex flex-col gap-4">
       <MobileFileDiffList
         files={files}
-        hunksByFile={data.hunks_by_file}
+        hunksByFile={hunksByFile}
         emptyLabel="No changes in this workspace."
       />
     </div>

@@ -1,7 +1,12 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { ArrowLeft } from "lucide-react";
-import { getWorkspaceFileHunks, getWorkspaceStatus } from "../../lib/api";
+import {
+  getWorkspaceDiff,
+  getWorkspaceFileHunks,
+  getWorkspaceStatus,
+  type JjDiffHunk,
+} from "../../lib/api";
 import { ConflictsSection } from "../ConflictsSection";
 import { MobileConflictRegionView } from "./MobileConflictRegionView";
 import { MobileHunkView } from "./MobileHunkView";
@@ -71,14 +76,33 @@ function MobileConflictFile({
   filePath,
   onBack,
 }: MobileConflictFileProps) {
+  // Committed (e.g. rebase) conflicts carry their conflict_regions in
+  // getWorkspaceDiff's hunks_by_file; uncommitted in-progress edits to a
+  // conflicted file show up via getWorkspaceFileHunks instead. Try the
+  // committed-diff source first, then fall back to the working-copy one.
+  const { data: diff, isLoading: diffLoading } = useSWR(
+    ["mobile-workspace-diff", repoPath, workspaceId],
+    () => getWorkspaceDiff(repoPath, workspaceId),
+  );
+  const committedHunks = diff?.hunks_by_file.find(
+    (f) => f.path === filePath,
+  )?.hunks;
+
   const {
-    data: hunks,
+    data: workingCopyHunks,
     error,
-    isLoading,
+    isLoading: hunksLoading,
   } = useSWR(
-    ["mobile-conflict-file-hunks", repoPath, workspaceId, filePath],
+    !diffLoading && !committedHunks?.length
+      ? ["mobile-conflict-file-hunks", repoPath, workspaceId, filePath]
+      : null,
     () => getWorkspaceFileHunks(repoPath, workspaceId, filePath),
   );
+
+  const hunks: JjDiffHunk[] | undefined = committedHunks?.length
+    ? committedHunks
+    : workingCopyHunks;
+  const isLoading = diffLoading || (!committedHunks?.length && hunksLoading);
 
   return (
     <div className="flex flex-col gap-3">
@@ -98,7 +122,12 @@ function MobileConflictFile({
         <p className="text-sm text-muted-foreground">Loading conflict…</p>
       )}
       {error && <p className="text-sm text-destructive">{String(error)}</p>}
-      {hunks && (
+      {!isLoading && hunks && hunks.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No diff available for this conflicted file (possibly deleted).
+        </p>
+      )}
+      {hunks && hunks.length > 0 && (
         <div className="flex flex-col gap-2">
           {hunks.flatMap((hunk) =>
             hunk.conflict_regions && hunk.conflict_regions.length > 0

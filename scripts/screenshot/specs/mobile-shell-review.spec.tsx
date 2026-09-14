@@ -3,13 +3,12 @@ import { it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
   createTestRepo,
-  newCommitWithParents,
   openRepo,
-  resolveChangeId,
   resolveWorkspacePath,
   writeWorkspaceFile,
 } from "../../../test/utils";
 import {
+  checkAndRebaseWorkspaces,
   createCommit,
   createWorkspace,
   ensureWorkspaceIndexed,
@@ -22,7 +21,7 @@ import { captureDocument } from "../capture";
 
 it("captures the mobile shell's changes, history, and conflicts tabs", async () => {
   const branchName = "feat/mobile-review";
-  const { repoPath } = createTestRepo(false);
+  const { repoPath, defaultBranch } = createTestRepo(false);
   openRepo(repoPath);
 
   const workspaceId = await createWorkspace(repoPath, branchName);
@@ -38,15 +37,13 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
   // A committed history entry.
   writeWorkspaceFile(workspacePath, "README.md", "workspace side\n");
   await createCommit(repoPath, workspaceId, "workspace conflicting change");
-  const workspaceChangeId = resolveChangeId(workspacePath, "@-");
 
-  // A conflicting commit on the other side.
+  // A conflicting commit on the other side, then rebase onto it: produces a
+  // real conflict with resolvable diff regions (matches the fixture used by
+  // test/integration/review/conflict.test.tsx's InlineConflictCard coverage).
   writeWorkspaceFile(repoPath, "README.md", "main side\n");
   await createCommit(repoPath, null, "main conflicting change");
-  const mainChangeId = resolveChangeId(repoPath, "@-");
-
-  // Merge them: produces a real conflict in the working copy.
-  newCommitWithParents(workspacePath, [workspaceChangeId, mainChangeId]);
+  await checkAndRebaseWorkspaces(repoPath, workspaceId, defaultBranch, true);
   await ensureWorkspaceIndexed(repoPath, workspaceId, workspacePath);
 
   // An extra uncommitted change for the Changes tab.
@@ -57,12 +54,12 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
   const user = userEvent.setup();
   render(<MobileShell />);
 
-  const workspaceButton = await screen.findByText(branchName);
+  const workspaceButton = await screen.findByText(workspace.workspace_name);
   await captureDocument(document, {
     name: "mobile-shell-review-01-workspace-list",
     expectations: [
       "A single-column mobile layout with a 'Treq' header and a workspace list.",
-      `A workspace entry labeled "${branchName}" is visible as a tappable row.`,
+      `A workspace entry labeled "${workspace.workspace_name}" is visible as a tappable row.`,
     ],
   });
 
