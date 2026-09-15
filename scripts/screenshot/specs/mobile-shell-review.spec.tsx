@@ -111,4 +111,12 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
       "Conflict marker lines and both sides' content are rendered in a monospace block.",
     ],
   });
+
+  await captureDocument(document, {
+    name: "mobile-shell-review-07-remote-connect-panel",
+    expectations: [
+      "A 'Remote instance' section is visible below the local repo review content.",
+      "A 'Connect to managed instance' button is shown, not yet connected.",
+    ],
+  });
 }, 60000);

@@ -27,6 +27,7 @@ export function WorkspaceDetailScreen({
   onOpenCommits,
   onOpenConflicts,
   onOpenAgent,
+  onOpenTerminal,
 }: {
   endpoint: SshEndpoint;
   repo: string;
@@ -35,6 +36,7 @@ export function WorkspaceDetailScreen({
   onOpenCommits: () => void;
   onOpenConflicts: () => void;
   onOpenAgent: () => void;
+  onOpenTerminal: () => void;
 }) {
   const statusKey = [
     "remote-workspace-status",
@@ -241,6 +243,13 @@ export function WorkspaceDetailScreen({
           className="flex-1 rounded-md border px-3 py-2 text-sm"
         >
           Agent
+        </button>
+        <button
+          type="button"
+          onClick={onOpenTerminal}
+          className="flex-1 rounded-md border px-3 py-2 text-sm"
+        >
+          Terminal
         </button>
       </div>
 

@@ -58,6 +58,7 @@ describe("WorkspaceDetailScreen mutations", () => {
         onOpenCommits={() => {}}
         onOpenConflicts={() => {}}
         onOpenAgent={() => {}}
+        onOpenTerminal={() => {}}
       />,
     );
 

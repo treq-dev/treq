@@ -12,6 +12,7 @@ import type {
   JjLogCommit,
 } from "../lib/api-types";
 import { RemoteAgentScreen } from "./RemoteAgentScreen";
+import { RemoteTerminalScreen } from "./mobile/RemoteTerminalScreen";
 import {
   WorkspaceDetailScreen,
   ConflictsScreen,
@@ -28,7 +29,8 @@ type Screen =
   | { name: "diff"; workspace: string; path: string }
   | { name: "commits"; workspace: string }
   | { name: "conflicts"; workspace: string }
-  | { name: "agent"; workspace: string };
+  | { name: "agent"; workspace: string }
+  | { name: "terminal"; workspace: string };
 
 /**
  * Phase 3 (read-only review), Phase 4 (agent control), and Phase 5
@@ -88,6 +90,9 @@ export function RemoteRepoScreen({
           onOpenAgent={() =>
             setScreen({ name: "agent", workspace: screen.workspace })
           }
+          onOpenTerminal={() =>
+            setScreen({ name: "terminal", workspace: screen.workspace })
+          }
         />
       )}
       {screen.name === "diff" && (
@@ -114,6 +119,13 @@ export function RemoteRepoScreen({
       )}
       {screen.name === "agent" && (
         <RemoteAgentScreen
+          endpoint={endpoint}
+          repo={repo}
+          workspace={screen.workspace}
+        />
+      )}
+      {screen.name === "terminal" && (
+        <RemoteTerminalScreen
           endpoint={endpoint}
           repo={repo}
           workspace={screen.workspace}
