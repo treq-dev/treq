@@ -36,6 +36,11 @@ export interface ChangesDiffViewerProps {
     reviewMarkdown: string,
     mode: "plan" | "acceptEdits",
   ) => Promise<void>;
+  /**
+   * Launches a review agent terminal seeded with `prompt`, the same way any
+   * other treq terminal agent is launched. `agent` overrides the repo default.
+   */
+  onStartAgentReview?: (prompt: string, agent?: string) => Promise<void>;
   conflictedFiles?: string[];
   showCommittedChanges?: boolean;
   onShowCommittedChangesChange?: (show: boolean) => void;

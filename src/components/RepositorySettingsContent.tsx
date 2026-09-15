@@ -33,6 +33,9 @@ export const RepositorySettingsContent = ({
     defaultAgent: string;
     autoPush: boolean;
     ignoreGeneratedAgentFiles: boolean;
+    reviewPrompt: string;
+    reviewAgent: string;
+    autoReviewTrigger: string;
   } | null>(null);
 
   const {
@@ -47,6 +50,9 @@ export const RepositorySettingsContent = ({
       agent,
       autoPushSetting,
       ignoreGeneratedSetting,
+      reviewPromptSetting,
+      reviewAgentSetting,
+      autoReviewTriggerSetting,
     ] = await Promise.all([
       getRepoSetting(repoPath, "branch_name_pattern"),
       getRepoSetting(repoPath, "included_copy_files"),
@@ -54,6 +60,9 @@ export const RepositorySettingsContent = ({
       getRepoSetting(repoPath, "default_agent"),
       getRepoSetting(repoPath, "auto_push"),
       getRepoSetting(repoPath, "ignore_generated_treq_paths"),
+      getRepoSetting(repoPath, "review_prompt"),
+      getRepoSetting(repoPath, "review_agent"),
+      getRepoSetting(repoPath, "auto_review_trigger"),
     ]);
     return {
       branchNamePattern: branchPattern || "treq/{name}",
@@ -62,6 +71,9 @@ export const RepositorySettingsContent = ({
       defaultAgent: agent || "",
       autoPush: autoPushSetting === "true",
       ignoreGeneratedAgentFiles: ignoreGeneratedSetting === "true",
+      reviewPrompt: reviewPromptSetting || "",
+      reviewAgent: reviewAgentSetting || "",
+      autoReviewTrigger: autoReviewTriggerSetting || "off",
     };
   });
 
@@ -75,6 +87,9 @@ export const RepositorySettingsContent = ({
           defaultAgent: "",
           autoPush: false,
           ignoreGeneratedAgentFiles: false,
+          reviewPrompt: "",
+          reviewAgent: "",
+          autoReviewTrigger: "off",
         });
   const {
     branchNamePattern,
@@ -83,6 +98,9 @@ export const RepositorySettingsContent = ({
     defaultAgent,
     autoPush,
     ignoreGeneratedAgentFiles,
+    reviewPrompt,
+    reviewAgent,
+    autoReviewTrigger,
   } = settings;
 
   // .treq/config.yaml, when it sets a field, is synced into these same repo
@@ -94,6 +112,9 @@ export const RepositorySettingsContent = ({
   const includedFilesManaged = yamlConfig?.included_copy_files != null;
   const defaultModelManaged = yamlConfig?.default_model != null;
   const defaultAgentManaged = yamlConfig?.default_agent != null;
+  const reviewPromptManaged = yamlConfig?.review_prompt != null;
+  const reviewAgentManaged = yamlConfig?.review_agent != null;
+  const autoReviewTriggerManaged = yamlConfig?.auto_review_trigger != null;
 
   const error =
     saveError ?? (loadError ? `Failed to load settings: ${loadError}` : null);
@@ -106,6 +127,9 @@ export const RepositorySettingsContent = ({
       defaultAgent: string;
       autoPush: boolean;
       ignoreGeneratedAgentFiles: boolean;
+      reviewPrompt: string;
+      reviewAgent: string;
+      autoReviewTrigger: string;
     }>,
   ) => {
     setDraft({
@@ -116,6 +140,9 @@ export const RepositorySettingsContent = ({
       defaultAgent,
       autoPush,
       ignoreGeneratedAgentFiles,
+      reviewPrompt,
+      reviewAgent,
+      autoReviewTrigger,
       ...patch,
     });
   };
@@ -128,6 +155,10 @@ export const RepositorySettingsContent = ({
   const setAutoPush = (v: boolean) => updateDraft({ autoPush: v });
   const setIgnoreGeneratedAgentFiles = (v: boolean) =>
     updateDraft({ ignoreGeneratedAgentFiles: v });
+  const setReviewPrompt = (v: string) => updateDraft({ reviewPrompt: v });
+  const setReviewAgent = (v: string) => updateDraft({ reviewAgent: v });
+  const setAutoReviewTrigger = (v: string) =>
+    updateDraft({ autoReviewTrigger: v });
 
   const handleSave = async () => {
     onSavingChange?.(true);
@@ -144,6 +175,9 @@ export const RepositorySettingsContent = ({
           "ignore_generated_treq_paths",
           ignoreGeneratedAgentFiles ? "true" : "false",
         ),
+        setRepoSetting(repoPath, "review_prompt", reviewPrompt),
+        setRepoSetting(repoPath, "review_agent", reviewAgent),
+        setRepoSetting(repoPath, "auto_review_trigger", autoReviewTrigger),
       ]);
       addToast({
         title: "Settings saved",
@@ -271,8 +305,8 @@ export const RepositorySettingsContent = ({
             Ignore generated Treq paths
           </Label>
           <p className="text-sm text-muted-foreground mt-1">
-            Add .jj*/ and Treq-generated agent skill paths to this repository's
-            .gitignore
+            Add .jj*/ and Treq-generated agent skill paths to this
+            repository&apos;s .gitignore
           </p>
         </div>
         <Switch
@@ -280,6 +314,71 @@ export const RepositorySettingsContent = ({
           checked={ignoreGeneratedAgentFiles}
           onCheckedChange={setIgnoreGeneratedAgentFiles}
         />
+      </div>
+
+      <div className="space-y-4 border-t border-border pt-6">
+        <div>
+          <h3 className="text-sm font-medium">Code Review</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Settings for the AI review agent. Its comments stay local to this
+            machine and are never pushed to GitHub.
+          </p>
+        </div>
+
+        <div>
+          <Label htmlFor="review-prompt">Custom Review Prompt</Label>
+          <Textarea
+            id="review-prompt"
+            value={reviewPrompt}
+            onChange={(e) => setReviewPrompt(e.target.value)}
+            placeholder="Leave empty to use the built-in review prompt"
+            rows={6}
+            className="font-mono text-sm mt-2"
+            disabled={reviewPromptManaged}
+          />
+          <p className="text-sm text-muted-foreground mt-1">
+            Overrides the built-in prompt. {"{target_type}"}, {"{target_id}"}{" "}
+            and {"{diff_summary}"} are substituted before the prompt is sent.
+          </p>
+        </div>
+
+        <div>
+          <Label htmlFor="review-agent">Review Agent</Label>
+          <select
+            id="review-agent"
+            value={reviewAgent}
+            onChange={(e) => setReviewAgent(e.target.value)}
+            className="mt-2 w-full px-3 py-2 border rounded-md bg-background text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={reviewAgentManaged}
+          >
+            <option value="">Use Default Agent</option>
+            <option value="claude">Claude</option>
+            <option value="codex">Codex</option>
+            <option value="cursor">Cursor</option>
+          </select>
+          <p className="text-sm text-muted-foreground mt-1">
+            Agent launched by Start Review (overrides the default agent)
+          </p>
+        </div>
+
+        <div>
+          <Label htmlFor="auto-review-trigger">Automatic Review</Label>
+          <select
+            id="auto-review-trigger"
+            value={autoReviewTrigger}
+            onChange={(e) => setAutoReviewTrigger(e.target.value)}
+            className="mt-2 w-full px-3 py-2 border rounded-md bg-background text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={autoReviewTriggerManaged}
+          >
+            <option value="off">Off</option>
+            <option value="on-commit">On commit</option>
+            <option value="on-push">On push</option>
+          </select>
+          <p className="text-sm text-muted-foreground mt-1">
+            When a review should start on its own. Stored now; the triggers
+            themselves are not wired up yet.
+          </p>
+        </div>
       </div>
 
       {error && <div className="text-sm text-destructive">{error}</div>}

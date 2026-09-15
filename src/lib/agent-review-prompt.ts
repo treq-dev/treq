@@ -1,0 +1,88 @@
+import { AGENT_REVIEW_TARGET_WORKSPACE_DIFF } from "./api-types-review";
+
+export interface ReviewPromptVars {
+  /** Target type discriminator, e.g. "workspace_diff". */
+  targetType: string;
+  /** Identifier within the target type, e.g. a workspace id. */
+  targetId: string;
+  /** Short human summary of what is being reviewed. */
+  diffSummary: string;
+}
+
+/**
+ * Built-in review prompt. A repo can override it with a custom prompt in
+ * repository settings; both go through {@link renderReviewPrompt}, so a custom
+ * prompt can use the same `{target_type}` / `{target_id}` / `{diff_summary}`
+ * placeholders.
+ */
+export const DEFAULT_REVIEW_PROMPT = `You are reviewing the current changes in this repository.
+
+What is under review: {diff_summary}
+
+Read the diff yourself (for example with \`treq diff\` or \`git diff\`), then look for
+correctness bugs, missed edge cases, unsafe error handling, and clear quality
+problems. Skip style nits the project's formatter already handles.
+
+Record every finding as a local-only review comment with:
+
+  treq agent-review add \\
+    --target-type {target_type} \\
+    --target-id {target_id} \\
+    --file <path relative to the repo root> \\
+    --start-line <first line> --end-line <last line> \\
+    --side new \\
+    --comment "<what is wrong and why it matters>"
+
+When you can name the exact replacement for those lines, add a suggestion so the
+user can apply it in one click:
+
+    --suggestion "\\\`\\\`\\\`suggestion
+<the replacement text for lines start-line..end-line>
+\\\`\\\`\\\`"
+
+Rules:
+- One comment per finding, anchored to the narrowest line range that shows it.
+- A suggestion must replace exactly the lines from --start-line to --end-line.
+- Do not edit any files yourself. Leave comments only.
+- Say nothing if the change is fine; do not invent findings to fill a quota.
+
+When you are done, print a one-paragraph summary of what you reviewed and how
+many comments you left.`;
+
+/** Fill `{target_type}` / `{target_id}` / `{diff_summary}` placeholders. */
+export function renderReviewPrompt(
+  template: string,
+  vars: ReviewPromptVars,
+): string {
+  return template
+    .split("{target_type}")
+    .join(vars.targetType)
+    .split("{target_id}")
+    .join(vars.targetId)
+    .split("{workspace_id}")
+    .join(vars.targetId)
+    .split("{diff_summary}")
+    .join(vars.diffSummary);
+}
+
+/** Convenience wrapper: custom prompt when set, otherwise the built-in one. */
+export function buildReviewPrompt(
+  customPrompt: string | null | undefined,
+  vars: ReviewPromptVars,
+): string {
+  const template = customPrompt?.trim() ? customPrompt : DEFAULT_REVIEW_PROMPT;
+  return renderReviewPrompt(template, vars);
+}
+
+/** Summary line used when a workspace diff is what is being reviewed. */
+export function workspaceDiffSummary(
+  branchName: string | undefined,
+  fileCount: number,
+): string {
+  const files = `${fileCount} changed file${fileCount === 1 ? "" : "s"}`;
+  return branchName
+    ? `the ${branchName} workspace diff (${files})`
+    : `the current workspace diff (${files})`;
+}
+
+export { AGENT_REVIEW_TARGET_WORKSPACE_DIFF };

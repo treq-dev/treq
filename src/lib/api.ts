@@ -131,6 +131,31 @@ export const setRepoSetting = (
   value: string,
 ): Promise<void> => invoke("set_repo_setting", { repoPath, key, value });
 
+export const listAgentReviewComments = (
+  repoPath: string,
+  targetType: string,
+  targetId: string,
+): Promise<import("./api-types-review").AgentReviewComment[]> =>
+  invoke("list_agent_review_comments", { repoPath, targetType, targetId });
+
+export const resolveAgentReviewComment = (
+  repoPath: string,
+  commentId: string,
+): Promise<void> =>
+  invoke("resolve_agent_review_comment", { repoPath, commentId });
+
+export const deleteAgentReviewComment = (
+  repoPath: string,
+  commentId: string,
+): Promise<void> =>
+  invoke("delete_agent_review_comment", { repoPath, commentId });
+
+export const applyAgentReviewSuggestion = (
+  repoPath: string,
+  commentId: string,
+): Promise<void> =>
+  invoke("apply_agent_review_suggestion", { repoPath, commentId });
+
 export const loadRepoYamlConfig = (repoPath: string): Promise<RepoYamlConfig> =>
   invoke("load_repo_yaml_config", { repoPath });
 

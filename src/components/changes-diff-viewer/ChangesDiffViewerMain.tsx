@@ -10,6 +10,8 @@ import { useGithubReviewThreads } from "./hooks/useGithubReviewThreads";
 import { useFileStaging } from "./hooks/useFileStaging";
 import { useFileLoading } from "./hooks/useFileLoading";
 import { useReview } from "./hooks/useReview";
+import { useAgentReviewComments } from "./hooks/useAgentReviewComments";
+import { AgentReviewContext } from "./AgentReviewContext";
 import { useConflicts } from "./hooks/useConflicts.ts";
 import { useFileActions } from "./hooks/useFileActions";
 import { useToast } from "../ui/toast";
@@ -19,7 +21,12 @@ import { DiffContentArea } from "./DiffContentArea";
 import { FileSidebar } from "./FileSidebar";
 import { filesEqual } from "./utils";
 import { HOME_MOVE_ENDPOINT } from "../../lib/change-file-drag";
-import { stashWorkspaceChanges } from "../../lib/api";
+import { getRepoSetting, stashWorkspaceChanges } from "../../lib/api";
+import { AGENT_REVIEW_TARGET_WORKSPACE_DIFF } from "../../lib/api-types-review";
+import {
+  buildReviewPrompt,
+  workspaceDiffSummary,
+} from "../../lib/agent-review-prompt";
 import { invalidateReviewChangeCount } from "../../lib/review-change-count";
 import { invalidateQueries } from "../../lib/swr-cache";
 import type {
@@ -41,6 +48,7 @@ export const ChangesDiffViewer = ({
   initialSelectedFile,
   onReviewSubmitted,
   onCreateAgentWithReview,
+  onStartAgentReview,
   conflictedFiles = [],
   showCommittedChanges = false,
   onShowCommittedChangesChange,
@@ -434,184 +442,267 @@ export const ChangesDiffViewer = ({
     }
   };
 
+  // Local agent review comments target this workspace's diff. `targetType` is
+  // a discriminator, not a constant, so other reviewable content types can
+  // reuse the same storage and UI later.
+  const agentReviewTargetId =
+    workspaceId != null ? String(workspaceId) : undefined;
+  const {
+    openAgentReviewComments,
+    getAgentCommentsForLine,
+    resolveAgentComment,
+    deleteAgentComment,
+    applyAgentSuggestion,
+  } = useAgentReviewComments({
+    repoPath,
+    targetType: AGENT_REVIEW_TARGET_WORKSPACE_DIFF,
+    targetId: agentReviewTargetId,
+  });
+
+  const [startingAgentReview, setStartingAgentReview] = useState(false);
+
+  const handleStartAgentReview = async () => {
+    if (!onStartAgentReview || !agentReviewTargetId) return;
+    setStartingAgentReview(true);
+    try {
+      let customPrompt: string | null = null;
+      let reviewAgent: string | null = null;
+      if (repoPath) {
+        try {
+          [customPrompt, reviewAgent] = await Promise.all([
+            getRepoSetting(repoPath, "review_prompt"),
+            getRepoSetting(repoPath, "review_agent"),
+          ]);
+        } catch {
+          // Repo may not be initialized yet — fall back to the built-in prompt.
+        }
+      }
+      const prompt = buildReviewPrompt(customPrompt, {
+        targetType: AGENT_REVIEW_TARGET_WORKSPACE_DIFF,
+        targetId: agentReviewTargetId,
+        diffSummary: workspaceDiffSummary(branchName, files.length),
+      });
+      await onStartAgentReview(prompt, reviewAgent || undefined);
+    } catch (error) {
+      addToast({
+        description: error instanceof Error ? error.message : String(error),
+        title: "Failed to start review",
+        type: "error",
+      });
+    } finally {
+      setStartingAgentReview(false);
+    }
+  };
+
+  const handleAgentCommentError = (message: string) => {
+    addToast({
+      description: message,
+      title: "Review comment action failed",
+      type: "error",
+    });
+  };
+
+  const applyAgentSuggestionAndReload = async (commentId: string) => {
+    await applyAgentSuggestion(commentId);
+    await invalidateCache();
+    await loadChangedFiles();
+  };
+
   const hasConflicts = actualConflictedFiles.length > 0;
   const totalComments = comments.length + conflictComments.size;
   const showActionBar = hasConflicts || comments.length > 0;
 
   return (
-    <div
-      className="flex h-full overflow-hidden"
-      data-testid="changes-diff-viewer"
-      onClick={handleBackgroundClick}
+    <AgentReviewContext.Provider
+      value={{
+        getAgentCommentsForLine,
+        resolveAgentComment,
+        deleteAgentComment,
+        applyAgentSuggestion: applyAgentSuggestionAndReload,
+        onAgentCommentError: handleAgentCommentError,
+      }}
     >
-      <FileSidebar
-        commitInputRef={commitInputRef}
-        handleCommit={handleCommit}
-        handleCommitAndPush={handleCommitAndPush}
-        handleCommitAndCreatePR={handleCommitAndCreatePR}
-        pendingAction={pendingAction}
-        canCreatePr={canCreatePr}
-        hasPr={hasPr}
-        readOnly={readOnly}
-        files={files}
-        commitPending={commitPending}
-        stagedFiles={stagedFiles}
-        initialLoading={initialLoading}
-        actualConflictedFiles={actualConflictedFiles}
-        collapsedSections={collapsedSections}
-        toggleSectionCollapse={toggleSectionCollapse}
-        activeFilePath={activeFilePath}
-        setActiveFilePath={setActiveFilePath}
-        showCommittedChanges={showCommittedChanges}
-        onToggleShowCommitted={
-          onShowCommittedChangesChange
-            ? () => onShowCommittedChangesChange(!showCommittedChanges)
-            : undefined
-        }
-        committedFiles={committedFiles}
-        committedSectionCollapsed={committedSectionCollapsed}
-        setCommittedSectionCollapsed={setCommittedSectionCollapsed}
-        scrollToFileIfNeeded={scrollToFileIfNeeded}
-        stagedFilesList={stagedFilesList}
-        selectedStagedFiles={selectedStagedFiles}
-        lastSelectedStagedIndex={lastSelectedStagedIndex}
-        handleStagedFileSelect={handleStagedFileSelect}
-        handleSelectAllStaged={handleSelectAllStaged}
-        handleUnstageFile={handleUnstageFile}
-        handleUnstageAllFiles={handleUnstageAllFiles}
-        setSelectedStagedFiles={setSelectedStagedFiles}
-        unstagedFiles={unstagedFiles}
-        selectedUnstagedFiles={selectedUnstagedFiles}
-        lastSelectedFileIndex={lastSelectedFileIndex}
-        handleFileSelect={handleFileSelect}
-        onMoveFilesToNewWorkspace={onMoveFilesToNewWorkspace}
-        handleDiscardAll={handleDiscardAll}
-        handleStashAll={handleStashAll}
-        handleDiscardFiles={handleDiscardFiles}
-        setSelectedUnstagedFiles={setSelectedUnstagedFiles}
-        handleSelectAllUnstaged={handleSelectAllUnstaged}
-        handleStageFile={handleStageFile}
-        handleStageAllFiles={handleStageAllFiles}
-        fileActionTarget={fileActionTarget}
-        workspacePath={workspacePath}
-        sourceBranch={branchName ?? HOME_MOVE_ENDPOINT}
-      />
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <ReviewActionBar
-          showActionBar={showActionBar}
-          hasConflicts={hasConflicts}
-          totalComments={totalComments}
-          comments={comments}
-          staleFiles={staleFiles}
-          reviewPopoverOpen={reviewPopoverOpen}
-          setReviewPopoverOpen={setReviewPopoverOpen}
-          finalReviewComment={finalReviewComment}
-          setFinalReviewComment={setFinalReviewComment}
-          showCancelDialog={showCancelDialog}
-          setShowCancelDialog={setShowCancelDialog}
-          copiedReview={copiedReview}
-          sendingReview={sendingReview}
-          handleCopyReview={handleCopyReview}
-          handleCancelReview={handleCancelReview}
-          handleRequestChanges={handleRequestChanges}
-          handleReloadWithPendingChanges={handleReloadWithPendingChanges}
-          getAllOutdatedComments={getAllOutdatedComments}
-          handleCopyOutdatedComments={handleCopyOutdatedComments}
-        />
-        <DiffContentArea
-          isSearchOpen={isSearchOpen}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          currentMatchIndex={currentMatchIndex}
-          setCurrentMatchIndex={setCurrentMatchIndex}
-          handleSearchNext={handleSearchNext}
-          handleSearchPrevious={handleSearchPrevious}
-          handleSearchClose={handleSearchClose}
-          searchFocusTrigger={searchFocusTrigger}
-          searchData={searchData}
-          debouncedSearchQuery={debouncedSearchQuery}
-          initialLoading={initialLoading}
-          loadingAllHunks={loadingAllHunks}
-          files={files}
-          allFileHunks={allFileHunks}
-          committedFiles={committedFiles}
-          committedFileHunks={committedFileHunks}
-          showCommittedChanges={showCommittedChanges}
-          largeChangesetExpanded={largeChangesetExpanded}
-          setLargeChangesetExpanded={setLargeChangesetExpanded}
-          actualConflictedFiles={actualConflictedFiles}
-          conflictLineLookups={conflictLineLookups}
-          firstConflictRegionIdByFile={firstConflictRegionIdByFile}
-          expandedContext={expandedContext}
-          conflictComments={conflictComments}
-          openConflictComments={openConflictComments}
-          editingConflictCommentId={editingConflictCommentId}
-          diffLineSelection={diffLineSelection}
-          showCommentInput={showCommentInput}
-          pendingComment={pendingComment}
-          editingCommentId={editingCommentId}
-          comments={comments}
-          conflictFileRefs={conflictFileRefs}
-          diffFontSize={diffFontSize}
-          handleExpandContext={handleExpandContext}
-          handleLineMouseDown={handleLineMouseDown}
-          handleLineMouseEnter={handleLineMouseEnter}
-          handleLineMouseUp={handleLineMouseUp}
-          handleAddCommentFromSelection={handleAddCommentFromSelection}
-          isLineSelected={isLineSelected}
-          saveConflictComment={saveConflictComment}
-          clearConflictComment={clearConflictComment}
-          toggleConflictComment={toggleConflictComment}
-          setOpenConflictComments={setOpenConflictComments}
-          startEditConflictComment={startEditConflictComment}
-          cancelEditConflictComment={cancelEditConflictComment}
-          saveEditConflictComment={saveEditConflictComment}
-          addComment={addComment}
-          cancelComment={cancelComment}
-          deleteComment={deleteComment}
-          startEditComment={startEditComment}
-          cancelEditComment={cancelEditComment}
-          saveEditComment={saveEditComment}
-          setPendingComment={setPendingComment}
-          setShowCommentInput={setShowCommentInput}
-          getCommentsForLine={getCommentsForLine}
-          getThreadsForLine={getThreadsForLine}
-          getUnplacedThreadsForFile={getUnplacedThreadsForFile}
-          collapsedThreadIds={collapsedThreadIds}
-          toggleThreadCollapse={toggleThreadCollapse}
-          collapsedFiles={collapsedFiles}
-          viewedFiles={viewedFiles}
-          expandedLargeDiffs={expandedLargeDiffs}
+      <div
+        className="flex h-full overflow-hidden"
+        data-testid="changes-diff-viewer"
+        onClick={handleBackgroundClick}
+      >
+        <FileSidebar
+          commitInputRef={commitInputRef}
+          handleCommit={handleCommit}
+          handleCommitAndPush={handleCommitAndPush}
+          handleCommitAndCreatePR={handleCommitAndCreatePR}
+          pendingAction={pendingAction}
+          canCreatePr={canCreatePr}
+          hasPr={hasPr}
           readOnly={readOnly}
-          fileActionTarget={fileActionTarget}
+          files={files}
+          commitPending={commitPending}
+          stagedFiles={stagedFiles}
+          initialLoading={initialLoading}
+          actualConflictedFiles={actualConflictedFiles}
+          collapsedSections={collapsedSections}
+          toggleSectionCollapse={toggleSectionCollapse}
+          activeFilePath={activeFilePath}
+          setActiveFilePath={setActiveFilePath}
+          showCommittedChanges={showCommittedChanges}
+          onToggleShowCommitted={
+            onShowCommittedChangesChange
+              ? () => onShowCommittedChangesChange(!showCommittedChanges)
+              : undefined
+          }
+          committedFiles={committedFiles}
+          committedSectionCollapsed={committedSectionCollapsed}
+          setCommittedSectionCollapsed={setCommittedSectionCollapsed}
+          scrollToFileIfNeeded={scrollToFileIfNeeded}
+          stagedFilesList={stagedFilesList}
+          selectedStagedFiles={selectedStagedFiles}
+          lastSelectedStagedIndex={lastSelectedStagedIndex}
+          handleStagedFileSelect={handleStagedFileSelect}
+          handleSelectAllStaged={handleSelectAllStaged}
+          handleUnstageFile={handleUnstageFile}
+          handleUnstageAllFiles={handleUnstageAllFiles}
+          setSelectedStagedFiles={setSelectedStagedFiles}
+          unstagedFiles={unstagedFiles}
           selectedUnstagedFiles={selectedUnstagedFiles}
-          workspacePath={workspacePath}
-          toggleFileCollapse={toggleFileCollapse}
-          toggleLargeDiff={toggleLargeDiff}
-          handleMarkFileViewed={handleMarkFileViewed}
-          handleUnmarkFileViewed={handleUnmarkFileViewed}
+          lastSelectedFileIndex={lastSelectedFileIndex}
+          handleFileSelect={handleFileSelect}
+          onMoveFilesToNewWorkspace={onMoveFilesToNewWorkspace}
+          handleDiscardAll={handleDiscardAll}
+          handleStashAll={handleStashAll}
           handleDiscardFiles={handleDiscardFiles}
-          handleContextMenu={handleContextMenu}
-          addToast={addToast}
-          getOutdatedCommentsForFile={getOutdatedCommentsForFile}
-          getFileCommentsForFile={getFileCommentsForFile}
-          diffContainerRef={diffContainerRef}
-          diffScrollApiRef={diffScrollApiRef}
+          setSelectedUnstagedFiles={setSelectedUnstagedFiles}
+          handleSelectAllUnstaged={handleSelectAllUnstaged}
+          handleStageFile={handleStageFile}
+          handleStageAllFiles={handleStageAllFiles}
+          fileActionTarget={fileActionTarget}
+          workspacePath={workspacePath}
+          sourceBranch={branchName ?? HOME_MOVE_ENDPOINT}
         />
-      </div>
 
-      {contextMenuPosition &&
-        diffLineSelection &&
-        diffLineSelection.lines.length > 0 && (
-          <ContextMenu
-            position={contextMenuPosition}
-            onAddComment={handleAddCommentFromSelection}
-            onCopyLocation={handleCopyLineLocation}
-            onCopyLines={handleCopyLines}
+        <div className="flex-1 flex flex-col min-w-0">
+          <ReviewActionBar
+            showActionBar={showActionBar}
+            hasConflicts={hasConflicts}
+            totalComments={totalComments}
+            comments={comments}
+            staleFiles={staleFiles}
+            reviewPopoverOpen={reviewPopoverOpen}
+            setReviewPopoverOpen={setReviewPopoverOpen}
+            finalReviewComment={finalReviewComment}
+            setFinalReviewComment={setFinalReviewComment}
+            showCancelDialog={showCancelDialog}
+            setShowCancelDialog={setShowCancelDialog}
+            copiedReview={copiedReview}
+            sendingReview={sendingReview}
+            handleCopyReview={handleCopyReview}
+            handleCancelReview={handleCancelReview}
+            handleRequestChanges={handleRequestChanges}
+            handleReloadWithPendingChanges={handleReloadWithPendingChanges}
+            getAllOutdatedComments={getAllOutdatedComments}
+            handleCopyOutdatedComments={handleCopyOutdatedComments}
+            handleStartAgentReview={
+              onStartAgentReview && agentReviewTargetId
+                ? () => void handleStartAgentReview()
+                : undefined
+            }
+            startingAgentReview={startingAgentReview}
+            agentReviewCommentCount={openAgentReviewComments.length}
           />
-        )}
-    </div>
+          <DiffContentArea
+            isSearchOpen={isSearchOpen}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            currentMatchIndex={currentMatchIndex}
+            setCurrentMatchIndex={setCurrentMatchIndex}
+            handleSearchNext={handleSearchNext}
+            handleSearchPrevious={handleSearchPrevious}
+            handleSearchClose={handleSearchClose}
+            searchFocusTrigger={searchFocusTrigger}
+            searchData={searchData}
+            debouncedSearchQuery={debouncedSearchQuery}
+            initialLoading={initialLoading}
+            loadingAllHunks={loadingAllHunks}
+            files={files}
+            allFileHunks={allFileHunks}
+            committedFiles={committedFiles}
+            committedFileHunks={committedFileHunks}
+            showCommittedChanges={showCommittedChanges}
+            largeChangesetExpanded={largeChangesetExpanded}
+            setLargeChangesetExpanded={setLargeChangesetExpanded}
+            actualConflictedFiles={actualConflictedFiles}
+            conflictLineLookups={conflictLineLookups}
+            firstConflictRegionIdByFile={firstConflictRegionIdByFile}
+            expandedContext={expandedContext}
+            conflictComments={conflictComments}
+            openConflictComments={openConflictComments}
+            editingConflictCommentId={editingConflictCommentId}
+            diffLineSelection={diffLineSelection}
+            showCommentInput={showCommentInput}
+            pendingComment={pendingComment}
+            editingCommentId={editingCommentId}
+            comments={comments}
+            conflictFileRefs={conflictFileRefs}
+            diffFontSize={diffFontSize}
+            handleExpandContext={handleExpandContext}
+            handleLineMouseDown={handleLineMouseDown}
+            handleLineMouseEnter={handleLineMouseEnter}
+            handleLineMouseUp={handleLineMouseUp}
+            handleAddCommentFromSelection={handleAddCommentFromSelection}
+            isLineSelected={isLineSelected}
+            saveConflictComment={saveConflictComment}
+            clearConflictComment={clearConflictComment}
+            toggleConflictComment={toggleConflictComment}
+            setOpenConflictComments={setOpenConflictComments}
+            startEditConflictComment={startEditConflictComment}
+            cancelEditConflictComment={cancelEditConflictComment}
+            saveEditConflictComment={saveEditConflictComment}
+            addComment={addComment}
+            cancelComment={cancelComment}
+            deleteComment={deleteComment}
+            startEditComment={startEditComment}
+            cancelEditComment={cancelEditComment}
+            saveEditComment={saveEditComment}
+            setPendingComment={setPendingComment}
+            setShowCommentInput={setShowCommentInput}
+            getCommentsForLine={getCommentsForLine}
+            getThreadsForLine={getThreadsForLine}
+            getUnplacedThreadsForFile={getUnplacedThreadsForFile}
+            collapsedThreadIds={collapsedThreadIds}
+            toggleThreadCollapse={toggleThreadCollapse}
+            collapsedFiles={collapsedFiles}
+            viewedFiles={viewedFiles}
+            expandedLargeDiffs={expandedLargeDiffs}
+            readOnly={readOnly}
+            fileActionTarget={fileActionTarget}
+            selectedUnstagedFiles={selectedUnstagedFiles}
+            workspacePath={workspacePath}
+            toggleFileCollapse={toggleFileCollapse}
+            toggleLargeDiff={toggleLargeDiff}
+            handleMarkFileViewed={handleMarkFileViewed}
+            handleUnmarkFileViewed={handleUnmarkFileViewed}
+            handleDiscardFiles={handleDiscardFiles}
+            handleContextMenu={handleContextMenu}
+            addToast={addToast}
+            getOutdatedCommentsForFile={getOutdatedCommentsForFile}
+            getFileCommentsForFile={getFileCommentsForFile}
+            diffContainerRef={diffContainerRef}
+            diffScrollApiRef={diffScrollApiRef}
+          />
+        </div>
+
+        {contextMenuPosition &&
+          diffLineSelection &&
+          diffLineSelection.lines.length > 0 && (
+            <ContextMenu
+              position={contextMenuPosition}
+              onAddComment={handleAddCommentFromSelection}
+              onCopyLocation={handleCopyLineLocation}
+              onCopyLines={handleCopyLines}
+            />
+          )}
+      </div>
+    </AgentReviewContext.Provider>
   );
 };
 

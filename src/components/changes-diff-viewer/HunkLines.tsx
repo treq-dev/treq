@@ -11,6 +11,7 @@ import { getLanguageFromPath } from "../../lib/syntax-highlight";
 import { CommentEditInput } from "../CommentEditInput";
 import { CommentInput } from "../CommentInput";
 import { InlineConflictCard } from "../InlineConflictCard";
+import { AgentReviewInlineList } from "./AgentReviewContext";
 import { GithubThreadsInlineList } from "./GithubThreadsInlineList";
 import { HighlightedLine } from "./FileRowComponent";
 import {
@@ -264,6 +265,12 @@ export const HunkDiffLine: React.FC<HunkLinesProps & { lineIndex: number }> = (
           })}
         </div>
       )}
+
+      <AgentReviewInlineList
+        filePath={filePath}
+        lineNumber={actualLineNum}
+        lineSide={currentLineSide}
+      />
 
       <GithubThreadsInlineList
         threads={githubThreadsForLine}

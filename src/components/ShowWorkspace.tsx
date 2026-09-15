@@ -1149,6 +1149,7 @@ export const ShowWorkspace = ({
     reviewMarkdown: string,
     mode: "plan" | "acceptEdits",
     sessionName: string,
+    agentOverride?: string,
   ) => {
     try {
       // Resolve the default agent from repo-level then app-level settings,
@@ -1171,7 +1172,7 @@ export const ShowWorkspace = ({
         } catch {
           // ignore
         }
-        const defaultAgent = repoDefault || appDefault;
+        const defaultAgent = agentOverride || repoDefault || appDefault;
         if (
           defaultAgent === "codex" ||
           defaultAgent === "cursor" ||
@@ -1245,6 +1246,10 @@ export const ShowWorkspace = ({
     reviewMarkdown: string,
     mode: "plan" | "acceptEdits",
   ) => createAgentWithReview(reviewMarkdown, mode, "Code Review");
+
+  /** Launches a review agent terminal seeded with a generated review prompt. */
+  const handleStartAgentReview = (prompt: string, agent?: string) =>
+    createAgentWithReview(prompt, "acceptEdits", "AI Review", agent);
 
   const handleCreateAgentWithPageReview = (
     reviewMarkdown: string,
@@ -1678,6 +1683,7 @@ export const ShowWorkspace = ({
             initialSelectedFile={initialSelectedFile}
             conflictedFiles={normalizedConflictedFiles}
             onCreateAgentWithReview={handleCreateAgentWithReview}
+            onStartAgentReview={handleStartAgentReview}
             showCommittedChanges={
               workspace && workspace.branch_name !== defaultTargetBranch
                 ? showCommittedChanges
