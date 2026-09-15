@@ -18,10 +18,10 @@ interface AgentStatusResult {
 const AGENTS = ["claude", "codex", "cursor-agent", "copilot"];
 
 /**
- * Phase 4 (agent control): start/status/logs/stop against the VM-local
- * agent supervisor via typed `TreqCommandRequest` dispatch. Non-interactive
- * `AgentInput` is available on the same protocol; this screen does not add
- * input controls.
+ * Phase 4 (agent control): start/status/logs/stop/input against the
+ * VM-local agent supervisor via typed `TreqCommandRequest` dispatch. Input
+ * here is non-interactive (a single message sent to the agent's stdin via
+ * `AgentInput`), not a live PTY attach - that is Phase 7/8's terminal path.
  */
 export function RemoteAgentScreen({
   endpoint,
@@ -34,6 +34,7 @@ export function RemoteAgentScreen({
 }) {
   const [agent, setAgent] = useState(AGENTS[0]);
   const [prompt, setPrompt] = useState("");
+  const [input, setInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -77,6 +78,31 @@ export function RemoteAgentScreen({
         setActionError(`Could not confirm the agent started: ${result.reason}`);
       }
       await mutateStatus();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendInput() {
+    if (!input.trim()) return;
+    setActionError(null);
+    setBusy(true);
+    try {
+      const result = await dispatchMutationOverSsh(endpoint, {
+        kind: "AgentInput",
+        repo,
+        workspace,
+        input,
+        idempotency_key: `agent-input:${workspace}:${Date.now()}`,
+      });
+      if (result.status === "ambiguous") {
+        setActionError(`Could not confirm the input was sent: ${result.reason}`);
+      } else {
+        setInput("");
+      }
+      await mutateLogs();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -128,14 +154,30 @@ export function RemoteAgentScreen({
           <p className="text-xs text-muted-foreground">
             Started {status.started_at}
           </p>
-          <button
-            type="button"
-            onClick={stopAgent}
-            disabled={busy}
-            className="self-start rounded-md border px-3 py-2 text-sm text-destructive"
-          >
-            {busy ? "Stopping..." : "Stop agent"}
-          </button>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Send input to the agent"
+            className="min-h-16 rounded-md border px-3 py-2 text-sm"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={sendInput}
+              disabled={busy || !input.trim()}
+              className="flex-1 rounded-md border px-3 py-2 text-sm"
+            >
+              {busy ? "Sending..." : "Send input"}
+            </button>
+            <button
+              type="button"
+              onClick={stopAgent}
+              disabled={busy}
+              className="rounded-md border px-3 py-2 text-sm text-destructive"
+            >
+              {busy ? "Stopping..." : "Stop agent"}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
@@ -166,11 +208,6 @@ export function RemoteAgentScreen({
           </button>
         </div>
       )}
-
-      <p className="text-xs text-muted-foreground">
-        Sending additional input to a running agent is not supported over this
-        connection yet — interactive input requires a live terminal attach.
-      </p>
 
       {logs && (
         <details open className="rounded-md border px-3 py-2 text-xs">

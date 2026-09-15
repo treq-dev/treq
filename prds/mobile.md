@@ -154,13 +154,13 @@ Workspace selection in `MobileShell` opens a touch-first, single-column workspac
 
 Verified against a real jj repo (uncommitted change, a commit, and a real merge conflict) via `scripts/screenshot/specs/mobile-shell-review.spec.tsx`.
 
-### Phase 4: Agent control (not started)
+### Phase 4: Agent control (done)
 
-Scope: a mobile screen that starts, inspects, sends input to, and stops a remote coding agent via the same `agent-remote start`/`input`/`status`/`stop`/`logs` commands desktop's `core::agent_supervisor` and `RemoteTerminalPanel` already call through `lib/api-extra.ts` - no new backend work, only a mobile-shell UI surface. Not yet built.
+`src/components/RemoteAgentScreen.tsx`, reached from `RemoteRepoScreen`'s per-workspace "Agent" button (itself reached from `MobileShell` -> `RemoteConnectPanel` -> `RemoteRepoScreen`), starts, inspects, sends input to, and stops a remote coding agent via typed `TreqCommandRequest` dispatch (`AgentStart`/`AgentInput`/`AgentStatus`/`AgentStop`/`AgentLogs`) over `dispatchOverSsh`/`dispatchMutationOverSsh` - the same `core::agent_supervisor` commands desktop's CLI (`agent-remote`) drives. No new backend work: this is entirely the mobile-shell UI surface described in scope. Status and logs poll on an interval; start/stop/input go through `dispatchMutationOverSsh` so a network failure during the request surfaces as `ambiguous` rather than silently retrying.
 
-### Phase 5: Controlled mutations (not started)
+### Phase 5: Controlled mutations (done)
 
-Scope: expose the same idempotency-keyed mutation commands (`core::remote`'s `with_idempotency_key`-backed workspace creation, rebase, commit creation, conflict resolution, bookmark push) already used by desktop's `Dashboard`, from `MobileShell`'s single-column layout with explicit confirmation before dispatch. Not yet built.
+`src/components/RemoteWorkspaceMutationScreens.tsx` and `RemoteRepoScreen.tsx` expose the same idempotency-keyed mutation commands (`core::remote`'s `with_idempotency_key`-backed `CreateWorkspace`, `RebaseWorkspace`, `CreateCommit`, `ResolveConflict`, `GitPush`) already used by desktop, from the same single-column mobile screens Phase 3/4 added. `MutationButton` (`src/components/remote/RemoteScreenControls.tsx`) implements the "explicit confirmation before dispatch" requirement as an arm/confirm pattern - a first tap arms the button and relabels it "Confirm ...", a second tap (or a blur, which disarms) is required to actually dispatch - rather than a separate modal dialog, to fit the single-column touch layout. Each mutation surfaces `MutationDispatchResult`'s `"ambiguous"` outcome as an inline error instead of assuming success.
 
 ### Phase 6: Mobile test infrastructure (partial)
 
