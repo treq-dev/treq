@@ -333,7 +333,10 @@ export const RepositorySettingsContent = ({
         />
       </div>
 
-      <div className="space-y-4 border-t border-border pt-6">
+      <div
+        className="space-y-4 border-t border-border pt-6"
+        data-testid="code-review-settings-section"
+      >
         <div>
           <h3 className="text-sm font-medium">Code Review</h3>
           <p className="text-sm text-muted-foreground mt-1">
