@@ -264,15 +264,18 @@ function pushHunkItems(
     maps.searchIdToIndex.set(`${filePath}:${hunkIndex}:${lineIndex}`, index);
   }
 
-  items.push({
-    type: "expand-after",
-    key: `${prefix}:expand-after`,
-    filePath,
-    isCommitted,
-    hunkIndex,
-  });
   const afterKey = `${filePath}:${hunkIndex}:after`;
   const afterLines = expandedContext.get(afterKey);
+  // An empty result means the file has no more lines below this hunk.
+  if (afterLines?.length !== 0) {
+    items.push({
+      type: "expand-after",
+      key: `${prefix}:expand-after`,
+      filePath,
+      isCommitted,
+      hunkIndex,
+    });
+  }
   if (afterLines) {
     for (let ctxIdx = 0; ctxIdx < afterLines.length; ctxIdx++) {
       items.push({
