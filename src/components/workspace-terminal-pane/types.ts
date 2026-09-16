@@ -41,6 +41,7 @@ export interface WorkspaceTerminalPaneHandle {
   createShellSession: (workingDir?: string) => void;
   closeTerminalsForWorkspace: (workspaceKey: string) => void;
   focusTerminal: (id: string) => void;
+  sendToTerminal: (id: string, text: string) => void;
   closeTerminal: (id: string) => void;
   closeIdleTerminals: () => void;
   closeAllTerminals: () => void;
