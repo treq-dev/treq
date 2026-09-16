@@ -27,7 +27,6 @@ import {
   Search,
   Trash2,
   Upload,
-  Workflow,
   Database,
   Zap,
 } from "lucide-react";
@@ -104,7 +103,6 @@ import {
 } from "./ChangesDiffViewer";
 import { BrowserPanel } from "./browser-panel/BrowserPanel";
 import type { BrowserOpenRequest } from "./browser-panel/types";
-import { ChecksTab } from "./ChecksTab";
 import { LogsTab } from "./LogsTab";
 import { CiStatusIndicator } from "./CiStatusIndicator";
 import { CommitDiffViewer } from "./CommitDiffViewer";
@@ -242,7 +240,6 @@ export const ShowWorkspace = ({
   const workspaceScheduling = usePreviewFeature("workspaceScheduling");
   const linearIntegration = usePreviewFeature("linearIntegration");
   const logsEnabled = usePreviewFeature("logs");
-  const checksEnabled = usePreviewFeature("checks");
   const browserEnabled = usePreviewFeature("browser");
   const { fontSize } = useTerminalSettingsStore();
 
@@ -331,13 +328,10 @@ export const ShowWorkspace = ({
   const [showFileBrowserInCode, setShowFileBrowserInCode] = useState(false);
 
   useEffect(() => {
-    if (
-      (!logsEnabled && activeTab === "logs") ||
-      (!checksEnabled && activeTab === "checks")
-    ) {
+    if (!logsEnabled && activeTab === "logs") {
       setActiveTab("overview");
     }
-  }, [activeTab, checksEnabled, logsEnabled]);
+  }, [activeTab, logsEnabled]);
 
   useEffect(() => {
     if (!browserEnabled && reviewSubView === "browser") {
@@ -1372,15 +1366,6 @@ export const ShowWorkspace = ({
                   </span>
                 )}
               </TabsTrigger>
-              {checksEnabled && (
-                <TabsTrigger
-                  value="checks"
-                  className="inline-flex items-center gap-1.5"
-                >
-                  <Workflow className="w-4 h-4" />
-                  <span>Checks</span>
-                </TabsTrigger>
-              )}
               {!workspace && logsEnabled && (
                 <TabsTrigger
                   value="logs"
@@ -1707,13 +1692,6 @@ export const ShowWorkspace = ({
         ) : activeTab === "logs" ? (
           <LogsTab
             repoPath={effectiveRepoPath ?? ""}
-            onSendToAgent={handleSendLogsToAgent}
-          />
-        ) : activeTab === "checks" ? (
-          <ChecksTab
-            repoPath={effectiveRepoPath ?? ""}
-            workspaceId={workspace?.id ?? 0}
-            workspacePath={workingDirectory ?? ""}
             onSendToAgent={handleSendLogsToAgent}
           />
         ) : reviewSubView === "browser" ? (
