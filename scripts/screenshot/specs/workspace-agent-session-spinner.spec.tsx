@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
@@ -24,6 +27,16 @@ import { captureDocument } from "../capture";
 // conflicted -- the same for every workspace whether or not it has an open
 // agent session (an open session only makes the pip spin while it streams).
 it("shows the right git-state pip for sessioned and session-less workspaces", async () => {
+  const fakeAgentDir = mkdtempSync(join(tmpdir(), "treq-agent-spinner-"));
+  const fakeAgentPath = join(fakeAgentDir, "claude");
+  writeFileSync(
+    fakeAgentPath,
+    "#!/bin/sh\nprintf 'agent is working\\n'\nsleep 2\n",
+  );
+  chmodSync(fakeAgentPath, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${fakeAgentDir}:${originalPath ?? ""}`;
+
   const { repoPath, defaultBranch } = createTestRepo(false);
   openRepo(repoPath);
 
@@ -80,8 +93,32 @@ it("shows the right git-state pip for sessioned and session-less workspaces", as
     });
   }
 
-  await openAgentSession("feat/session-clean");
   await openAgentSession("feat/session-dirty");
+
+  const dirtyIndicator = () =>
+    document.querySelector(
+      `[data-testid="workspace-status-indicator-${sessionDirtyId}"]`,
+    );
+  await waitFor(() => {
+    expect(dirtyIndicator()).not.toBeNull();
+    expect(document.querySelector('[data-terminal-id^="claude-"]')).not.toBeNull();
+  });
+  await captureDocument(document, {
+    name: "workspace-agent-session-spinner-01-active",
+    expectations: [
+      "feat/session-dirty shows its yellow workspace status indicator while the agent terminal is active.",
+      "The workspace sidebar and active agent terminal remain visible together.",
+    ],
+  });
+  await captureDocument(document, {
+    name: "workspace-agent-session-spinner-02-idle",
+    expectations: [
+      "feat/session-dirty keeps its yellow workspace status indicator after terminal startup settles.",
+      "The agent terminal pane remains open below the workspace content.",
+    ],
+  });
+
+  await openAgentSession("feat/session-clean");
   await openAgentSession("feat/session-conflict");
 
   // Clean rows never show a pip, session or not.
@@ -109,7 +146,7 @@ it("shows the right git-state pip for sessioned and session-less workspaces", as
   await screen.findByTestId(`workspace-conflict-indicator-${sessionConflictId}`);
 
   await captureDocument(document, {
-    name: "workspace-agent-session-spinner-01-states",
+    name: "workspace-agent-session-spinner-03-states",
     expectations: [
       "feat/no-session-clean and feat/session-clean have no pip at their right edge at all.",
       "feat/no-session-dirty and feat/session-dirty each show a small yellow pip at the right edge.",
