@@ -252,6 +252,13 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                         });
                       }}
                     >
+                      {node.depth > 1 && (
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-y-0 border-l border-border/60"
+                          style={{ left: `${16 + (node.depth - 2) * 6}px` }}
+                        />
+                      )}
                       {archiving ? (
                         <Loader2
                           data-testid="workspace-archive-spinner"
