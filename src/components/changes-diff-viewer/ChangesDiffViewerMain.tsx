@@ -46,6 +46,7 @@ export const ChangesDiffViewer = ({
   onReviewSubmitted,
   onCreateAgentWithReview,
   onStartAgentReview,
+  onSendAgentReviewCommentToAgent,
   conflictedFiles = [],
   showCommittedChanges = false,
   onShowCommittedChangesChange,
@@ -505,6 +506,7 @@ export const ChangesDiffViewer = ({
         resolveAgentComment,
         deleteAgentComment,
         applyAgentSuggestion: applyAgentSuggestionAndReload,
+        sendAgentCommentToAgent: onSendAgentReviewCommentToAgent,
         onAgentCommentError: handleAgentCommentError,
       }}
     >

@@ -68,8 +68,9 @@ it("shows the Start Review action and a local agent review comment on a diff", a
 		name: "agent-review-diff-01-comment-card",
 		expectations: [
 			'A "Start Review" button and a "1 local review comment" count are visible in the Changes tab action bar.',
-			'A review comment card is anchored on line 2 of example.ts, badged "Local review (not on GitHub)" to distinguish it from a GitHub comment.',
-			"The card shows a suggested-change block plus Apply, Resolve, and Delete actions.",
+			'A review comment card is anchored on line 2 of example.ts, badged "Local" to distinguish it from a GitHub comment.',
+			"The suggested change renders as a +/- diff against the original line, with the changed words highlighted.",
+			'The card shows Apply, "Send to agent", Resolve, and Delete actions.',
 		],
 	});
 }, 60000);

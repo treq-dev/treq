@@ -1,13 +1,22 @@
 import { useState } from "react";
-import { Bot, Check, Trash2, Wand2 } from "lucide-react";
+import { Bot, Check, Terminal, Trash2, Wand2 } from "lucide-react";
 import { Button } from "../ui/button";
+import { cn } from "../../lib/utils";
 import type { AgentReviewComment } from "../../lib/api-types-review";
+import { buildSuggestionDiff } from "./suggestionDiff";
 
 interface AgentReviewCommentCardProps {
   comment: AgentReviewComment;
+  /**
+   * The current text of lines `start_line..end_line`, used to render the
+   * suggestion as a diff. Undefined when the range is not on screen, in which
+   * case the suggestion falls back to plain text.
+   */
+  originalText?: string;
   onResolve: (commentId: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
   onApplySuggestion: (commentId: string) => Promise<void>;
+  onSendToAgent?: (comment: AgentReviewComment) => Promise<void>;
   onError: (message: string) => void;
 }
 
@@ -18,12 +27,18 @@ interface AgentReviewCommentCardProps {
  */
 export function AgentReviewCommentCard({
   comment,
+  originalText,
   onResolve,
   onDelete,
   onApplySuggestion,
+  onSendToAgent,
   onError,
 }: AgentReviewCommentCardProps) {
   const [pending, setPending] = useState(false);
+  const suggestionDiff =
+    comment.suggested_replacement != null
+      ? buildSuggestionDiff(originalText, comment.suggested_replacement)
+      : null;
 
   const run = async (action: () => Promise<void>) => {
     setPending(true);
@@ -44,7 +59,7 @@ export function AgentReviewCommentCard({
       <div className="flex items-center gap-2">
         <Bot className="w-3.5 h-3.5 text-violet-500 flex-shrink-0" />
         <span className="text-xs font-medium text-violet-600 dark:text-violet-400">
-          Local review (not on GitHub)
+          Local
         </span>
         <span className="text-xs text-muted-foreground">
           {comment.file_path}:{comment.start_line}
@@ -59,12 +74,57 @@ export function AgentReviewCommentCard({
           <div className="px-[8px] py-[4px] text-xs text-muted-foreground bg-muted/60 border-b border-border/60">
             Suggested change
           </div>
-          <pre
-            data-testid="agent-review-suggestion"
-            className="px-[8px] py-[6px] text-xs font-mono whitespace-pre-wrap break-all bg-green-500/10"
-          >
-            {comment.suggested_replacement}
-          </pre>
+          {suggestionDiff ? (
+            <div
+              data-testid="agent-review-suggestion"
+              className="text-xs font-mono"
+            >
+              {suggestionDiff.map((row, rowIndex) => (
+                <div
+                  // Rows are positional and have no stable identity of their own.
+                  key={rowIndex}
+                  data-suggestion-row={row.type}
+                  className={cn(
+                    "flex items-start px-[8px] py-[1px] whitespace-pre-wrap break-all",
+                    row.type === "removed" && "bg-red-500/10",
+                    row.type === "added" && "bg-green-500/10",
+                  )}
+                >
+                  <span className="w-3 flex-shrink-0 select-none text-muted-foreground">
+                    {row.type === "removed"
+                      ? "-"
+                      : row.type === "added"
+                        ? "+"
+                        : " "}
+                  </span>
+                  <span className="flex-1">
+                    {row.segments.map((segment, segmentIndex) => (
+                      <span
+                        key={segmentIndex}
+                        className={cn(
+                          segment.changed &&
+                            row.type === "removed" &&
+                            "bg-red-500/30 line-through",
+                          segment.changed &&
+                            row.type === "added" &&
+                            "bg-green-500/30",
+                        )}
+                      >
+                        {segment.text}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <pre
+              data-testid="agent-review-suggestion"
+              className="px-[8px] py-[6px] text-xs font-mono whitespace-pre-wrap break-all bg-green-500/10"
+            >
+              {comment.suggested_replacement}
+            </pre>
+          )}
         </div>
       )}
 
@@ -79,6 +139,18 @@ export function AgentReviewCommentCard({
           >
             <Wand2 className="w-3 h-3" />
             Apply
+          </Button>
+        )}
+        {onSendToAgent && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={pending}
+            onClick={() => run(() => onSendToAgent(comment))}
+          >
+            <Terminal className="w-3 h-3" />
+            Send to agent
           </Button>
         )}
         <Button

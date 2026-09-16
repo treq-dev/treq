@@ -96,6 +96,7 @@ import {
 import { cn, getFullWorkspacePath, resolveReadmeImageSrc } from "../lib/utils";
 import { sumWorkspaceLocFromLog } from "../lib/workspace-stack";
 import { isWorkspaceHidden } from "../lib/workspace-utils";
+import type { AgentReviewComment } from "../lib/api-types-review";
 import type { SessionCreationInfo } from "../types/sessions";
 import {
   ChangesDiffViewer,
@@ -1145,6 +1146,60 @@ export const ShowWorkspace = ({
     }
   };
 
+  /**
+   * Send one local review comment to a fresh agent terminal, formatted the same
+   * way {@link handleCreateAgentWithComment} formats a human comment, plus the
+   * agent's suggested replacement when it left one.
+   */
+  const handleSendAgentReviewCommentToAgent = async (
+    comment: AgentReviewComment,
+  ) => {
+    try {
+      const relativePath = comment.file_path.startsWith(`${workingDirectory}/`)
+        ? comment.file_path.slice(workingDirectory.length + 1)
+        : comment.file_path;
+
+      const lineRef = `${relativePath}:${comment.start_line}${
+        comment.start_line !== comment.end_line ? `-${comment.end_line}` : ""
+      }`;
+      const suggestion =
+        comment.suggested_replacement != null
+          ? `\nSuggested change:\n\`\`\`\n${comment.suggested_replacement}\n\`\`\`\n`
+          : "";
+      const formattedComment = `Please address this review comment.\n\n${lineRef}\n> ${comment.comment_text}\n${suggestion}`;
+      const sessionName = "Review Comment";
+
+      const dbSessionId = await createSession(
+        effectiveRepoPath,
+        workspace?.id ?? null,
+        sessionName,
+      );
+      const sessionRepoPath = effectiveRepoPath || workingDirectory;
+
+      onSessionCreated?.({
+        sessionId: dbSessionId,
+        sessionName,
+        workspaceId: workspace?.id ?? null,
+        workspacePath: null,
+        repoPath: sessionRepoPath,
+        pendingPrompt: formattedComment,
+        permissionMode: "acceptEdits",
+      });
+
+      addToast({
+        title: "Comment sent to agent",
+        description: "Created new agent session and sent review comment",
+        type: "success",
+      });
+    } catch (error) {
+      addToast({
+        title: "Failed to create agent",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
+
   const createAgentWithReview = async (
     reviewMarkdown: string,
     mode: "plan" | "acceptEdits",
@@ -1684,6 +1739,9 @@ export const ShowWorkspace = ({
             conflictedFiles={normalizedConflictedFiles}
             onCreateAgentWithReview={handleCreateAgentWithReview}
             onStartAgentReview={handleStartAgentReview}
+            onSendAgentReviewCommentToAgent={
+              handleSendAgentReviewCommentToAgent
+            }
             showCommittedChanges={
               workspace && workspace.branch_name !== defaultTargetBranch
                 ? showCommittedChanges

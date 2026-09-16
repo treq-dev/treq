@@ -270,6 +270,7 @@ export const HunkDiffLine: React.FC<HunkLinesProps & { lineIndex: number }> = (
         filePath={filePath}
         lineNumber={actualLineNum}
         lineSide={currentLineSide}
+        hunk={hunk}
       />
 
       <GithubThreadsInlineList
