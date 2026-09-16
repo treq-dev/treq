@@ -1397,7 +1397,7 @@ export const ShowWorkspace = ({
                   </span>
                 )}
               </TabsTrigger>
-              {!workspace && logsEnabled && (
+              {logsEnabled && (
                 <TabsTrigger
                   value="logs"
                   className="inline-flex items-center gap-1.5"
