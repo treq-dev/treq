@@ -39,7 +39,7 @@ it("pane expand/control buttons sit in an inset top-right pull", async () => {
     name: "terminal-pane-inset-controls-01-collapsed",
     expectations: [
       "There is no full-width Terminals header bar across the bottom of the workspace.",
-      "A small inset control pull with an expand chevron sits at the bottom-right of the main pane.",
+      "The collapsed terminal area remains transparent, with only a small expand chevron offset at the bottom-right of the main pane.",
     ],
   });
 
