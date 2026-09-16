@@ -92,6 +92,7 @@ describe("treq send --browser integration", () => {
     if (!workspace) throw new Error("workspace not found");
 
     vi.spyOn(api, "openBrowserWebview").mockResolvedValue(undefined);
+    vi.mocked(api.openBrowserWebview).mockClear();
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement(workspace.branch_name));
     const listenMock = vi.mocked(listen);
