@@ -2193,6 +2193,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return map;
   })();
 
+  const handleFocusTerminalSession = (id: string) => {
+    terminalPaneRef.current?.focusTerminal(id);
+  };
+
   /**
    * Opens an observable agent terminal on a workspace, seeded with a prompt.
    * Shared by agent deep links and automatic reviews so every agent treq
