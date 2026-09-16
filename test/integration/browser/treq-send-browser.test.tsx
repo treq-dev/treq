@@ -90,6 +90,12 @@ describe("treq send --browser integration", () => {
     if (!workspace) throw new Error("workspace not found");
 
     vi.spyOn(api, "openBrowserWebview").mockResolvedValue(undefined);
+    useFeaturePreviewStore.setState({
+      flags: {
+        ...useFeaturePreviewStore.getState().flags,
+        browser: false,
+      },
+    });
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement(workspace.branch_name));
     const listenMock = vi.mocked(listen);
@@ -97,12 +103,6 @@ describe("treq send --browser integration", () => {
       ([eventName]) => eventName === TREQ_SEND_EVENT,
     );
     expect(call).toBeTruthy();
-    useFeaturePreviewStore.setState({
-      flags: {
-        ...useFeaturePreviewStore.getState().flags,
-        browser: false,
-      },
-    });
 
     (call![1] as (event: { payload: unknown }) => void)({
       payload: {
