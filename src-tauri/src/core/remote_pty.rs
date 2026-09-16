@@ -138,20 +138,32 @@ impl From<SshTransportError> for RemotePtyError {
   }
 }
 
-/// Builds the remote command line for a [`PtyLaunchSpec`], starting in
-/// `remote_dir`. Every dynamic component (directory, agent binary, args) is
-/// quoted with `shell_quote` — the frontend never supplies this string
-/// directly, only the typed fields that go into it.
-fn build_launch_command(remote_dir: &str, spec: &PtyLaunchSpec) -> String {
-  let quoted_dir = crate::core::remote::shell_quote(remote_dir);
-  let program = match spec {
+/// Builds just the launch program for a [`PtyLaunchSpec`] — e.g.
+/// `"${SHELL:-/bin/bash}" -l` or `claude --foo 'bar baz'` — with every
+/// dynamic component (agent binary, args) quoted with `shell_quote`. Shared
+/// by [`build_launch_command`] (desktop's direct-launch path) and
+/// `core::pty_remote_supervisor` (the VM-local tmux/screen supervisor's
+/// start/attach-command path), so a persistent session's launch program is
+/// built from the same typed, quoted spec as a direct one — never from a
+/// frontend-supplied raw command string.
+pub fn build_launch_program(spec: &PtyLaunchSpec) -> String {
+  match spec {
     PtyLaunchSpec::Shell => "\"${SHELL:-/bin/bash}\" -l".to_string(),
     PtyLaunchSpec::Agent { agent, args } => {
       let mut parts = vec![crate::core::remote::shell_quote(agent.binary_name())];
       parts.extend(args.iter().map(|arg| crate::core::remote::shell_quote(arg)));
       parts.join(" ")
     }
-  };
+  }
+}
+
+/// Builds the remote command line for a [`PtyLaunchSpec`], starting in
+/// `remote_dir`. Every dynamic component (directory, agent binary, args) is
+/// quoted with `shell_quote` — the frontend never supplies this string
+/// directly, only the typed fields that go into it.
+fn build_launch_command(remote_dir: &str, spec: &PtyLaunchSpec) -> String {
+  let quoted_dir = crate::core::remote::shell_quote(remote_dir);
+  let program = build_launch_program(spec);
   format!("cd {quoted_dir} && exec {program}")
 }
 

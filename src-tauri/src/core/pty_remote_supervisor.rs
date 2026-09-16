@@ -48,6 +48,7 @@
 //! workspace-scoped sessions without shelling out to tmux for repos it
 //! does not know about.
 
+use crate::core::remote_pty::{build_launch_program, PtyLaunchSpec};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
@@ -122,17 +123,18 @@ pub fn session_name(workspace: &str, label: &str) -> String {
 }
 
 /// Starts (or, if one already exists, leaves running) a detached persistent
-/// session for `workspace`/`label` in `remote_dir`, running `command`
-/// (typically a login shell or an allow-listed agent binary — callers are
-/// responsible for the same typed-launch-spec discipline
-/// `core::remote_pty::PtyLaunchSpec` enforces; this module does not itself
-/// restrict `command` because it is also usable head-less/server-side where
-/// that policy lives one layer up).
+/// session for `workspace`/`label` in `remote_dir`, running `launch` (a
+/// login shell or an allow-listed agent binary). `launch` is always a typed
+/// [`PtyLaunchSpec`] — never a raw frontend-supplied command string — so its
+/// program is built by [`build_launch_program`], which individually quotes
+/// every dynamic component exactly as `core::remote_pty`'s direct-launch
+/// path does; there is no code path here that lets a caller-supplied string
+/// reach the shell unquoted.
 pub fn start_session(
   remote_dir: &str,
   workspace: &str,
   label: &str,
-  command: &str,
+  launch: &PtyLaunchSpec,
   cols: u16,
   rows: u16,
 ) -> Result<PtySessionInfo, String> {
@@ -150,6 +152,8 @@ pub fn start_session(
     });
   }
 
+  let command = build_launch_program(launch);
+  let command = command.as_str();
   let quoted_dir = crate::core::remote::shell_quote(remote_dir);
   match backend {
     PtyBackend::Tmux => {
@@ -345,10 +349,11 @@ pub fn resize_session(workspace: &str, label: &str, cols: u16, rows: u16) -> Res
 
 /// Builds the literal command line an SSH PTY channel execs to attach to
 /// (creating first if necessary) a persistent session — the `pty-remote`
-/// analogue of `core::remote_pty::build_launch_command`. Every dynamic
-/// component is quoted with `shell_quote` exactly as that function does;
-/// callers never interpolate caller-supplied strings into this command
-/// directly.
+/// analogue of `core::remote_pty::build_launch_command`. `launch` is a typed
+/// [`PtyLaunchSpec`], never a raw frontend-supplied command string: its
+/// program is built by [`build_launch_program`], and every other dynamic
+/// component (directory, session name) is quoted with `shell_quote` exactly
+/// as that function does.
 ///
 /// Uses `tmux new-session -A` ("attach if it exists, else create") so one
 /// command line covers both "start a fresh session" and "reattach to a
@@ -358,7 +363,7 @@ pub fn build_attach_command(
   remote_dir: &str,
   workspace: &str,
   label: &str,
-  command: &str,
+  launch: &PtyLaunchSpec,
   cols: u16,
   rows: u16,
 ) -> Result<String, String> {
@@ -366,6 +371,8 @@ pub fn build_attach_command(
     "dependency_error: Neither tmux nor screen is installed on this host; pty-remote requires one of them for persistent/reattachable sessions".to_string()
   })?;
   let name = session_name(workspace, label);
+  let command = build_launch_program(launch);
+  let command = command.as_str();
   let quoted_dir = crate::core::remote::shell_quote(remote_dir);
   let quoted_name = crate::core::remote::shell_quote(&name);
   Ok(match backend {
@@ -381,6 +388,7 @@ pub fn build_attach_command(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::core::remote_pty::RemoteAgentId;
 
   fn tmux_available() -> bool {
     detect_backend() == Some(PtyBackend::Tmux)
@@ -407,9 +415,45 @@ mod tests {
       // dependency_error test below instead.
       return;
     }
-    let command = build_attach_command("/tmp/x'; rm -rf / #", "ws1", "term", "bash", 80, 24)
-      .expect("backend detected");
+    let command = build_attach_command(
+      "/tmp/x'; rm -rf / #",
+      "ws1",
+      "term",
+      &PtyLaunchSpec::Shell,
+      80,
+      24,
+    )
+    .expect("backend detected");
     assert!(command.contains("'/tmp/x'\\''; rm -rf / #'"));
+  }
+
+  /// Hardening regression test: `launch` is a typed `PtyLaunchSpec`, not a
+  /// raw string, so a malicious agent argument (shell metacharacters,
+  /// attempted command chaining) can only ever appear individually
+  /// `shell_quote`d in the built command line, never interpreted as shell
+  /// syntax. This is the fix for the gap where `remote_pty_reattach`
+  /// previously accepted an unvalidated `command: String` straight from the
+  /// frontend and interpolated it unquoted into this function's output.
+  #[test]
+  fn build_attach_command_quotes_malicious_agent_arguments_and_cannot_be_used_to_inject_shell_syntax(
+  ) {
+    if detect_backend().is_none() {
+      return;
+    }
+    let malicious_arg = "'; rm -rf / #";
+    let launch = PtyLaunchSpec::Agent {
+      agent: RemoteAgentId::Claude,
+      args: vec!["--prompt".to_string(), malicious_arg.to_string()],
+    };
+    let command =
+      build_attach_command("/tmp", "ws1", "term", &launch, 80, 24).expect("backend detected");
+    // The malicious argument must appear only as its own `shell_quote`d
+    // token (every embedded `'` escaped as `'\''`), never as a bare
+    // unescaped token a shell could interpret as ending the quoted string
+    // and starting a new command.
+    assert!(command.contains("claude"));
+    assert!(command.contains(&crate::core::remote::shell_quote(malicious_arg)));
+    assert!(!command.contains(&format!(" {malicious_arg} ")));
   }
 
   #[test]
@@ -420,7 +464,8 @@ mod tests {
     if detect_backend().is_some() {
       return;
     }
-    let error = build_attach_command("/tmp", "ws1", "term", "bash", 80, 24).unwrap_err();
+    let error =
+      build_attach_command("/tmp", "ws1", "term", &PtyLaunchSpec::Shell, 80, 24).unwrap_err();
     assert!(error.contains("dependency_error"));
   }
 
@@ -438,12 +483,14 @@ mod tests {
     // Ensure a clean slate in case a previous failed run left a session.
     let _ = stop_session(workspace, label);
 
-    let info = start_session(repo_path, workspace, label, "sleep 60", 80, 24).unwrap();
+    let info =
+      start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
     assert!(info.running);
     assert_eq!(info.session_name, session_name(workspace, label));
 
     // Starting again is idempotent: same session, no error.
-    let info_again = start_session(repo_path, workspace, label, "sleep 60", 80, 24).unwrap();
+    let info_again =
+      start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
     assert_eq!(info_again.session_name, info.session_name);
 
     let sessions = list_sessions(Some(workspace)).unwrap();
@@ -471,10 +518,11 @@ mod tests {
     let label = "term";
     let _ = stop_session(workspace, label);
 
-    let info = start_session(repo_path, workspace, label, "sleep 60", 80, 24).unwrap();
+    let info =
+      start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
 
     let attach_cmd =
-      build_attach_command(repo_path, workspace, label, "sleep 60", 80, 24).unwrap();
+      build_attach_command(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
     assert!(attach_cmd.contains("new-session -A"));
     assert!(attach_cmd.contains(&info.session_name));
 

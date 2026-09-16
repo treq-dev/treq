@@ -16,7 +16,9 @@ import {
   RemoteTerminalPanel,
   type RemoteTerminalTarget,
 } from "../RemoteTerminalPanel";
+import { dispatchOverSsh } from "../../lib/remote-dispatch";
 import type { SshEndpoint } from "../../lib/api-types-remote";
+import type { Workspace } from "../../lib/api-types";
 import { RemoteTerminalTouchToolbar } from "./RemoteTerminalTouchToolbar";
 
 const DEFAULT_LABEL = "shell";
@@ -35,6 +37,26 @@ export function RemoteTerminalScreen({
   >(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [target, setTarget] = useState<RemoteTerminalTarget | null>(null);
+  // The workspace's own checkout directory on the VM, not the repo root -
+  // falls back to `repo` only if the workspace can't be found (e.g. it was
+  // removed between opening this screen and listing workspaces).
+  const [remoteWorkingDirectory, setRemoteWorkingDirectory] = useState(repo);
+
+  useEffect(() => {
+    let cancelled = false;
+    dispatchOverSsh<Workspace[]>(endpoint, { kind: "ListWorkspaces", repo })
+      .then((workspaces) => {
+        if (cancelled) return;
+        const match = workspaces.find((ws) => ws.workspace_name === workspace);
+        if (match) setRemoteWorkingDirectory(match.workspace_path);
+      })
+      .catch(() => {
+        // Best-effort: keep the repo-root fallback already in state.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [endpoint, repo, workspace]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,7 +125,7 @@ export function RemoteTerminalScreen({
                     endpoint,
                     repositoryId: repo,
                     workspaceId: workspace,
-                    remoteWorkingDirectory: repo,
+                    remoteWorkingDirectory,
                     label: session.label,
                     reattach: true,
                   })
@@ -124,7 +146,7 @@ export function RemoteTerminalScreen({
               endpoint,
               repositoryId: repo,
               workspaceId: workspace,
-              remoteWorkingDirectory: repo,
+              remoteWorkingDirectory,
               label:
                 sessions.length > 0
                   ? `${DEFAULT_LABEL}-${sessions.length + 1}`

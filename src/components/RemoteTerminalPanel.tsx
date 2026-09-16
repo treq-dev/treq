@@ -29,10 +29,10 @@ import {
   remotePtyWrite,
 } from "../lib/api-extra";
 import { dispatchOverSsh } from "../lib/remote-dispatch";
-import type { SshEndpoint } from "../lib/api-types-remote";
+import type { SshEndpoint, PtyLaunchSpec } from "../lib/api-types-remote";
 
-/** Exact command line `core::remote_pty::build_launch_command` builds for `PtyLaunchSpec::Shell`. */
-const DEFAULT_SHELL_COMMAND = '"${SHELL:-/bin/bash}" -l';
+/** Every persistent session this panel opens/reattaches to is a plain login shell. */
+const SHELL_LAUNCH: PtyLaunchSpec = { type: "shell" };
 
 export interface RemoteTerminalTarget {
   endpoint: SshEndpoint;
@@ -125,7 +125,7 @@ export const RemoteTerminalPanel = ({
             workspaceId,
             label,
             remoteWorkingDirectory,
-            DEFAULT_SHELL_COMMAND,
+            SHELL_LAUNCH,
             cols,
             rows,
           );
