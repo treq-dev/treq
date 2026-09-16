@@ -1,5 +1,5 @@
 import * as React from "react";
-import { it } from "vitest";
+import { it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
   createTestRepo,
@@ -19,6 +19,53 @@ import {
 import { render, screen } from "../../../test/test-utils";
 import { MobileShell } from "../../../src/components/MobileShell";
 import { captureDocument } from "../capture";
+import * as api from "../../../src/lib/api";
+import * as remoteControlPlane from "../../../src/lib/remote-control-plane";
+import * as remoteDispatch from "../../../src/lib/remote-dispatch";
+
+// RemoteConnectPanel's connected/error states depend on the control-plane
+// edge functions and SSH dispatch - none of which the local-jj-repo test
+// harness provides a real backend for. Mocked here the same way
+// src/components/mobile/RemoteTerminalScreen.test.tsx mocks the equivalent
+// remote-dispatch surface for that screen: vi.mock the module, keep every
+// other export real via importActual, and only stub the calls this flow
+// makes.
+vi.mock("../../../src/lib/remote-control-plane", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../src/lib/remote-control-plane")
+  >("../../../src/lib/remote-control-plane");
+  return {
+    ...actual,
+    getInstanceStatus: vi.fn(),
+    registerClientKey: vi.fn(),
+    issueCertificate: vi.fn(),
+  };
+});
+
+vi.mock("../../../src/lib/remote-dispatch", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../src/lib/remote-dispatch")
+  >("../../../src/lib/remote-dispatch");
+  return { ...actual, dispatchOverSsh: vi.fn() };
+});
+
+vi.mock("../../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../../src/lib/api")>(
+    "../../../src/lib/api",
+  );
+  return { ...actual, ensureMobileDeviceKey: vi.fn() };
+});
+
+const REMOTE_ENDPOINT = {
+  id: "ep-mobile-review",
+  instance_id: "inst-mobile-review",
+  source: { type: "managed" as const, provider: "fly_sprites", generation: 1 },
+  hostname: "vm-mobile-review.treq.dev",
+  port: 22,
+  username: "treq",
+  host_keys: [],
+  authentication: { type: "public_key" as const, key_reference: "key1" },
+};
 
 it("captures the mobile shell's changes, history, and conflicts tabs", async () => {
   const branchName = "feat/mobile-review";
@@ -132,6 +179,87 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
     expectations: [
       "A 'Remote instance' section is visible below the local repo review content.",
       "A 'Connect to managed instance' button is shown, not yet connected.",
+    ],
+  });
+
+  // Connected state: the connect flow (ensureMobileDeviceKey ->
+  // registerClientKey -> getInstanceStatus -> issueCertificate) all succeed.
+  vi.mocked(api.ensureMobileDeviceKey).mockResolvedValue({
+    public_key: "ssh-ed25519 AAAAmobiledevicekey",
+    fingerprint_sha256: "SHA256:mobiledevicefingerprint",
+  });
+  vi.mocked(remoteControlPlane.registerClientKey).mockResolvedValue({
+    operation_id: "op-register-1",
+    status: "succeeded",
+    key: {
+      id: "key-1",
+      algorithm: "ssh-ed25519",
+      fingerprint_sha256: "SHA256:mobiledevicefingerprint",
+      comment: "treq-mobile-device",
+      created_at: "2026-01-01T00:00:00Z",
+      revoked_at: null,
+    },
+  });
+  vi.mocked(remoteControlPlane.getInstanceStatus).mockResolvedValue({
+    instance: {
+      instance_id: "inst-mobile-review",
+      owner_user_id: "user-1",
+      provider_kind: "fly_sprites",
+      provider_resource_id: "res-1",
+      region: "us_east",
+      size_preset: "small",
+      status: "ready",
+      generation: 1,
+      endpoint_id: "ep-mobile-review",
+      image_manifest_version: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      ready_at: "2026-01-01T00:05:00Z",
+      disk_quota_gb: 20,
+    },
+    endpoint: REMOTE_ENDPOINT,
+  });
+  vi.mocked(remoteControlPlane.issueCertificate).mockResolvedValue({
+    certificate: "ssh-cert-mobile-review",
+    serial: "1",
+    expires_at: "2026-01-01T01:00:00Z",
+    endpoint: REMOTE_ENDPOINT,
+  });
+
+  const connectButton = await screen.findByRole("button", {
+    name: "Connect to managed instance",
+  });
+  await user.click(connectButton);
+  await screen.findByText(
+    `Connected to ${REMOTE_ENDPOINT.hostname}:${REMOTE_ENDPOINT.port}`,
+  );
+  await captureDocument(document, {
+    name: "mobile-shell-review-08-remote-connected",
+    expectations: [
+      "The Remote instance section now shows 'Connected to vm-mobile-review.treq.dev:22' instead of the Connect button.",
+      "A repository path text input and an 'Inspect repository' button are visible below the connected message.",
+    ],
+  });
+
+  // Error state: inspecting a repository fails (e.g. the ProbeRepo dispatch
+  // over SSH rejects). The connect step above already succeeded, so this
+  // shows the error surfaced from a later step in the same flow, still
+  // reachable while `endpoint` is set.
+  const dispatchOverSshMock = vi.mocked(remoteDispatch.dispatchOverSsh);
+  dispatchOverSshMock.mockRejectedValueOnce(
+    new Error("Connection to vm-mobile-review.treq.dev timed out."),
+  );
+
+  const repoPathInput = screen.getByPlaceholderText(
+    "Repository path on the instance",
+  );
+  await user.type(repoPathInput, "/srv/missing-project");
+  await user.click(screen.getByRole("button", { name: "Inspect repository" }));
+  await screen.findByText("Connection to vm-mobile-review.treq.dev timed out.");
+  await captureDocument(document, {
+    name: "mobile-shell-review-09-remote-error",
+    expectations: [
+      "A red/destructive error message 'Connection to vm-mobile-review.treq.dev timed out.' is visible in the Remote instance section.",
+      "The panel still shows the connected endpoint and repository path input above the error, not a fresh Connect button.",
     ],
   });
 }, 60000);
