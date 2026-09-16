@@ -111,7 +111,7 @@ export const WorkspaceTerminalPaneView: React.FC<
         "relative flex flex-col flex-shrink-0",
         collapsed
           ? "self-end m-1.5 overflow-visible"
-          : "border-t bg-background overflow-hidden",
+          : "border-t bg-background overflow-visible",
       )}
       style={
         collapsed
