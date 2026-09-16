@@ -46,13 +46,7 @@ export type DiffVirtuosoItem =
       filePath: string;
       isCommitted: boolean;
       hunkIndex: number;
-    }
-  | {
-      type: "expand-before";
-      key: string;
-      filePath: string;
-      isCommitted: boolean;
-      hunkIndex: number;
+      canExpandBefore: boolean;
     }
   | {
       type: "context-line";
@@ -200,6 +194,9 @@ function pushHunkItems(
 ) {
   const { filePath, hunk, hunkIndex, isCommitted, expandedContext } = args;
   const prefix = `${isCommitted ? "c" : "u"}:${filePath}:${hunkIndex}`;
+  const beforeKey = `${filePath}:${hunkIndex}:before`;
+  const beforeLines = expandedContext.get(beforeKey);
+  const { newStart } = parseHunkHeader(hunk.header);
 
   items.push({
     type: "hunk-header",
@@ -207,10 +204,9 @@ function pushHunkItems(
     filePath,
     isCommitted,
     hunkIndex,
+    canExpandBefore: newStart > 1 || Boolean(beforeLines?.length),
   });
 
-  const beforeKey = `${filePath}:${hunkIndex}:before`;
-  const beforeLines = expandedContext.get(beforeKey);
   if (beforeLines) {
     for (let ctxIdx = 0; ctxIdx < beforeLines.length; ctxIdx++) {
       items.push({
@@ -224,18 +220,6 @@ function pushHunkItems(
       });
     }
   }
-  const { newStart } = parseHunkHeader(hunk.header);
-  const hasRoomAbove = newStart > 1 || (beforeLines && beforeLines.length > 0);
-  if (hasRoomAbove) {
-    items.push({
-      type: "expand-before",
-      key: `${prefix}:expand-before`,
-      filePath,
-      isCommitted,
-      hunkIndex,
-    });
-  }
-
   const lineNumbers = computeHunkLineNumbers(hunk);
   const renderedConflictIds = new Set<string>();
   for (let lineIndex = 0; lineIndex < hunk.lines.length; lineIndex++) {

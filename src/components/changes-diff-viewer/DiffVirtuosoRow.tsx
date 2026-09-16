@@ -348,18 +348,26 @@ export function DiffVirtuosoRow({ item }: { item: DiffVirtuosoItem }) {
         hunkIndex: item.hunkIndex,
       });
       if (!hunk) return null;
-      return bodyWrap(<HunkHeaderRow hunk={hunk} />);
+      return bodyWrap(
+        <HunkHeaderRow
+          hunk={hunk}
+          onExpandBefore={
+            item.canExpandBefore
+              ? () => ctx.handleExpandContext(item.filePath, item.hunkIndex, "before")
+              : undefined
+          }
+        />,
+      );
     }
-    case "expand-before":
     case "expand-after":
       return bodyWrap(
         <HunkExpandControl
-          direction={item.type === "expand-before" ? "before" : "after"}
+          direction="after"
           onExpand={() =>
             ctx.handleExpandContext(
               item.filePath,
               item.hunkIndex,
-              item.type === "expand-before" ? "before" : "after",
+              "after",
             )
           }
         />,
