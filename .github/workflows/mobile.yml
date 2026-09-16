@@ -241,12 +241,12 @@ jobs:
           KEYSTORE_PATH="$RUNNER_TEMP/treq-release.keystore"
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
 
-          cat > src-tauri/gen/android/keystore.properties <<PROPS
-          storeFile=$KEYSTORE_PATH
-          storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          keyPassword=$ANDROID_KEY_PASSWORD
-          PROPS
+          {
+            echo "storeFile=$KEYSTORE_PATH"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > src-tauri/gen/android/keystore.properties
 
       - name: Build signed release APK/AAB
         if: steps.secrets_check.outputs.configured == 'true'

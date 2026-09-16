@@ -65,21 +65,38 @@ fn device_key_info(key: &PrivateKey) -> Result<DeviceKeyInfo, String> {
 mod mobile_storage {
   use super::{generate_private_key, PrivateKey};
   use tauri_plugin_biometric::BiometricExt;
-  use tauri_plugin_keystore::{KeystoreExt, RetrieveRequest, StoreRequest};
+  use tauri_plugin_keystore::{Error as KeystoreError, KeystoreExt, RetrieveRequest, StoreRequest};
 
   const KEYSTORE_SERVICE: &str = "com.treq.mobile-device-key";
   const KEYSTORE_USER: &str = "device-key";
 
+  /// Whether a keystore-plugin error genuinely indicates the OS-native
+  /// keystore/keychain is unavailable on this device, as opposed to some
+  /// unrelated I/O failure. The plugin's `Error` type (see its `error.rs`)
+  /// only has two variants: `Io`, for local filesystem/serialization
+  /// problems that have nothing to do with device capability, and (on
+  /// mobile) `PluginInvoke`, which wraps a rejection from the native
+  /// Android/iOS side actually trying to use the platform keystore. Only
+  /// the latter should surface as "secure storage unavailable" to the UI.
+  fn indicates_keystore_unavailable(err: &KeystoreError) -> bool {
+    match err {
+      KeystoreError::Io(_) => false,
+      #[cfg(mobile)]
+      KeystoreError::PluginInvoke(_) => true,
+    }
+  }
+
   fn require_biometrics(app: &tauri::AppHandle) -> Result<(), String> {
+    // A failure *calling* `status()` is a plugin/transport error (e.g. the
+    // native side didn't respond), not evidence that biometrics/secure
+    // storage are unavailable - that case is reported via `is_available`
+    // below, once the call actually succeeds. Don't prefix it as
+    // `SECURE_STORAGE_UNAVAILABLE_PREFIX`, or transient errors unrelated to
+    // biometric enrollment would show the "set up biometrics" UI.
     let status = app
       .biometric()
       .status()
-      .map_err(|e| {
-        format!(
-          "{}failed to read biometric status: {e}",
-          super::SECURE_STORAGE_UNAVAILABLE_PREFIX
-        )
-      })?;
+      .map_err(|e| format!("failed to read biometric status: {e}"))?;
     if !status.is_available {
       let reason = status.error.unwrap_or_else(|| {
         "Biometrics are not set up on this device; the device key cannot be stored securely."
@@ -103,10 +120,14 @@ mod mobile_storage {
         user: KEYSTORE_USER.to_string(),
       })
       .map_err(|e| {
-        format!(
-          "{}failed to read device key from keystore: {e}",
-          super::SECURE_STORAGE_UNAVAILABLE_PREFIX
-        )
+        if indicates_keystore_unavailable(&e) {
+          format!(
+            "{}failed to read device key from keystore: {e}",
+            super::SECURE_STORAGE_UNAVAILABLE_PREFIX
+          )
+        } else {
+          format!("failed to read device key from keystore: {e}")
+        }
       })?;
 
     if let Some(openssh) = existing.value {

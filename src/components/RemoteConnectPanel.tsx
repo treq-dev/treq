@@ -29,7 +29,12 @@ const LAST_REPO_KEY = "treq-mobile-last-remote-repo";
 // prefixes its error string this way when the device's secure key storage
 // (Android Keystore / iOS Keychain, gated on biometrics) isn't usable, so
 // this state can be told apart from a generic connection failure.
-const SECURE_STORAGE_UNAVAILABLE_PREFIX = "secure_storage_unavailable:";
+//
+// Exported (not just used internally) so `RemoteConnectPanel.test.tsx` can
+// assert this literal stays byte-for-byte in sync with the Rust constant -
+// see that test for why a plain string prefix, rather than a generated
+// binding, is what needs guarding here.
+export const SECURE_STORAGE_UNAVAILABLE_PREFIX = "secure_storage_unavailable:";
 
 function stripSecureStoragePrefix(message: string): string {
   return message.startsWith(SECURE_STORAGE_UNAVAILABLE_PREFIX)
