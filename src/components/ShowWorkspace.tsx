@@ -1224,6 +1224,19 @@ export const ShowWorkspace = ({
     agentOverride?: string,
   ) => {
     try {
+      if (idleAgentSession && onSendToIdleAgent) {
+        onSendToIdleAgent(
+          Number(idleAgentSession.id.replace("claude-", "")),
+          reviewMarkdown,
+        );
+        addToast({
+          title: "Review sent to agent",
+          description: "Sent review to the idle agent",
+          type: "success",
+        });
+        return;
+      }
+
       // Resolve the default agent from repo-level then app-level settings,
       // so "send review to terminal" honours the configured default agent.
       let resolvedAgent: "claude" | "codex" | "cursor" | "copilot" | undefined;

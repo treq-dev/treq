@@ -4,6 +4,7 @@ import { render, screen, waitFor } from "../../test/test-utils";
 import { ShowWorkspace } from "./ShowWorkspace";
 import type { Workspace } from "../lib/api";
 import type { SessionCreationInfo } from "../types/sessions";
+import type { TerminalSessionSummary } from "./terminal/types";
 
 // Capture the onCreateAgentWithReview callback so tests can invoke it directly.
 let capturedOnCreateAgentWithReview:
@@ -84,7 +85,13 @@ const workspace: Workspace = {
   not_on_remote: false,
 };
 
-function renderWorkspace(onSessionCreated: (s: SessionCreationInfo) => void) {
+function renderWorkspace(
+  onSessionCreated: (s: SessionCreationInfo) => void,
+  options?: {
+    idleAgentSession?: TerminalSessionSummary;
+    onSendToIdleAgent?: (sessionId: number, prompt: string) => void;
+  },
+) {
   capturedOnCreateAgentWithReview = undefined;
   return render(
     <ShowWorkspace
@@ -94,6 +101,8 @@ function renderWorkspace(onSessionCreated: (s: SessionCreationInfo) => void) {
       initialSelectedFile={null}
       onDeleteWorkspace={vi.fn()}
       onSessionCreated={onSessionCreated}
+      idleAgentSession={options?.idleAgentSession}
+      onSendToIdleAgent={options?.onSendToIdleAgent}
     />,
   );
 }
@@ -240,5 +249,31 @@ describe("Send review to terminal respects default agent setting", () => {
     ];
     expect(sessionInfo.workspaceId).toBe(7);
     expect(sessionInfo.workspacePath).toBeNull();
+  });
+
+  it("sends Edit to an existing idle agent instead of creating a session", async () => {
+    const onSessionCreated = vi.fn();
+    const onSendToIdleAgent = vi.fn();
+    const idleAgentSession: TerminalSessionSummary = {
+      id: "claude-84",
+      kind: "agent",
+      name: "Claude 1",
+      branchName: "feature-one",
+      isMainRepo: false,
+      lastActivityAt: Date.now() - 120_000,
+      lastUserInputAt: Date.now() - 120_000,
+      isStreaming: false,
+      previewOutput: "",
+    };
+    renderWorkspace(onSessionCreated, {
+      idleAgentSession,
+      onSendToIdleAgent,
+    });
+
+    await openReviewTab();
+    await capturedOnCreateAgentWithReview!("review text", "acceptEdits");
+
+    expect(onSendToIdleAgent).toHaveBeenCalledWith(84, "review text");
+    expect(onSessionCreated).not.toHaveBeenCalled();
   });
 });
