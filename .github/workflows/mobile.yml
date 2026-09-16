@@ -120,7 +120,9 @@ jobs:
         run: npm run mobile:ios:init
 
       - name: Build unsigned debug app bundle
-        run: npm run mobile:ios:build -- --debug --no-sign
+        run: >
+          npm run mobile:ios:build -- --debug --
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
