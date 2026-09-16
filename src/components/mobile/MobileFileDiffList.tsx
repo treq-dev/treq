@@ -63,7 +63,11 @@ export function MobileFileDiffList({
               <div className="flex flex-col gap-2 border-t px-2 py-2">
                 {fileDiff && fileDiff.hunks.length > 0 ? (
                   fileDiff.hunks.map((hunk) => (
-                    <MobileHunkView key={hunk.id} hunk={hunk} />
+                    <MobileHunkView
+                      key={hunk.id}
+                      hunk={hunk}
+                      filePath={file.path}
+                    />
                   ))
                 ) : (
                   <p className="px-1 py-1 text-xs text-muted-foreground">
