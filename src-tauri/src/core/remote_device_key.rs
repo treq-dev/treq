@@ -143,7 +143,16 @@ mod mobile_storage {
     app
       .keystore()
       .store(StoreRequest { value: openssh })
-      .map_err(|e| format!("failed to store device key in keystore: {e}"))?;
+      .map_err(|e| {
+        if indicates_keystore_unavailable(&e) {
+          format!(
+            "{}failed to store device key in keystore: {e}",
+            super::SECURE_STORAGE_UNAVAILABLE_PREFIX
+          )
+        } else {
+          format!("failed to store device key in keystore: {e}")
+        }
+      })?;
     Ok(key)
   }
 }
