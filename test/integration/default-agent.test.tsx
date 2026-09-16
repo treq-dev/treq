@@ -212,7 +212,7 @@ describe("default agent configuration", () => {
     if (!promptDialog) throw new Error("Agent prompt dialog was not rendered");
 
     expect(
-      within(promptDialog).getByRole("combobox", { name: /main/i }),
+      within(promptDialog).getByPlaceholderText(/describe a task/i),
     ).toBeTruthy();
   });
 
