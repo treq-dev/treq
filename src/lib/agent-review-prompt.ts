@@ -19,11 +19,26 @@ export const DEFAULT_REVIEW_PROMPT = `You are reviewing the current changes in t
 
 What is under review: {diff_summary}
 
-Read the diff yourself (for example with \`treq diff\` or \`git diff\`), then look for
-correctness bugs, missed edge cases, unsafe error handling, and clear quality
-problems. Skip style nits the project's formatter already handles.
+Work through these steps in order.
 
-Record every finding as a local-only review comment with:
+1. List the comments this diff already has, so you do not repeat one:
+
+     treq agent-review list --target-type {target_type} --target-id {target_id}
+
+   This returns every comment on the diff, tagged by source: \`local-agent\`
+   (earlier review runs), \`local-human\` (the user's own draft comments) and
+   \`github\` (review threads on the pull request). Read them all.
+
+2. Read the diff yourself (for example with \`treq diff\` or \`git diff\`), then
+   look for correctness bugs, missed edge cases, unsafe error handling, and
+   clear quality problems. Skip style nits the project's formatter already
+   handles.
+
+3. Drop any finding that a comment from step 1 already covers, whatever its
+   source and whether or not it is marked resolved. Only a genuinely new
+   finding gets a new comment.
+
+4. Record every remaining finding as a local-only review comment with:
 
   treq agent-review add \\
     --target-type {target_type} \\

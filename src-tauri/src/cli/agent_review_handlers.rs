@@ -2,6 +2,7 @@ use tauri_plugin_cli::Matches;
 
 use crate::core;
 use crate::local_db;
+use crate::review_aggregate;
 
 use super::{
   classify_cli_error, detect_repo_path, get_arg_value, print_json, print_json_error, OutputFormat,
@@ -13,6 +14,16 @@ const LOCAL_AGENT_SOURCE: &str = "local-agent";
 
 /// Default target type when the caller does not pass `--target-type`.
 const DEFAULT_TARGET_TYPE: &str = "workspace_diff";
+
+/// Human-readable resolution state for a normalized comment. Sources that do
+/// not track resolution print `unknown` rather than claiming a state.
+fn describe_state(resolved: Option<bool>) -> &'static str {
+  match resolved {
+    Some(true) => "resolved",
+    Some(false) => "open",
+    None => "unknown",
+  }
+}
 
 fn require_value(matches: &Matches, name: &str) -> Result<String, String> {
   get_arg_value(matches, name).ok_or_else(|| format!("--{name} is required"))
@@ -50,6 +61,14 @@ pub(super) fn strip_suggestion_fence(text: &str) -> String {
 /// `treq agent-review <action>` — writes local-only review comments straight to
 /// the repo's local DB. No running GUI instance is needed: nothing here touches
 /// a live session, it only records what the review agent found.
+///
+/// `list` is the exception to "local only": it reports everything that already
+/// comments on the target, so an agent can avoid repeating a finding. Its JSON
+/// output is an array of `NormalizedReviewComment` — one object shape for all
+/// three sources, tagged `source: "local-agent" | "local-human" | "github"`,
+/// with `id`, `file_path`, `start_line`, `end_line`, `side`, `body`,
+/// `suggested_replacement` and `resolved` (null when the source does not track
+/// resolution).
 pub(super) fn handle_agent_review_command(matches: &Matches) -> Result<(), String> {
   let format = OutputFormat::parse(get_arg_value(matches, "format").as_deref())?;
   match run_agent_review_action(matches, format) {
@@ -109,7 +128,7 @@ fn run_agent_review_action(matches: &Matches, format: OutputFormat) -> Result<()
       }
     }
     "list" => {
-      let comments = local_db::list_agent_review_comments(
+      let comments = review_aggregate::aggregate_review_comments(
         &repo_path,
         &get_arg_value(matches, "target-type").unwrap_or_else(|| DEFAULT_TARGET_TYPE.to_string()),
         &require_value(matches, "target-id")?,
@@ -122,13 +141,14 @@ fn run_agent_review_action(matches: &Matches, format: OutputFormat) -> Result<()
           }
           for comment in &comments {
             println!(
-              "{} [{}] {}:{}-{} {}",
+              "{} [{}] [{}] {}:{}-{} {}",
               comment.id,
-              comment.status,
+              comment.source,
+              describe_state(comment.resolved),
               comment.file_path,
               comment.start_line,
               comment.end_line,
-              comment.comment_text
+              comment.body
             );
           }
           Ok(())

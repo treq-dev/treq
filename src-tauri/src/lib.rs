@@ -19,6 +19,7 @@ mod open_new_window;
 pub mod pr_status;
 pub mod pty;
 pub mod repo_config;
+pub mod review_aggregate;
 pub mod send_dispatch;
 pub mod telemetry;
 
