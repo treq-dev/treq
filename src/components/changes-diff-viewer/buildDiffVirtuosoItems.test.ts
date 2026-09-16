@@ -84,6 +84,27 @@ describe("buildDiffVirtuosoItems", () => {
     expect(items.at(-1)).toMatchObject({ type: "file-end" });
   });
 
+  it("does not emit an after expansion control after reaching end of file", () => {
+    const path = "a.ts";
+    const { items } = buildDiffVirtuosoItems({
+      actualConflictedFiles: [],
+      allFileHunks: hunks(path, ["+one"]),
+      collapsedFiles: new Set(),
+      committedFileHunks: new Map(),
+      committedFiles: [],
+      conflictLineLookups: new Map(),
+      expandedContext: new Map([[`${path}:0:after`, []]]),
+      expandedLargeDiffs: new Set(),
+      files: [file(path)],
+      pendingComment: null,
+      showCommentInput: false,
+      viewedFiles: new Map(),
+      ...emptyFns,
+    });
+
+    expect(items.some((item) => item.type === "expand-after")).toBe(false);
+  });
+
   it("emits a large-diff placeholder instead of lines when not expanded", () => {
     const path = "big.ts";
     const lines = Array.from({ length: 251 }, (_, i) => `+line ${i}`);
