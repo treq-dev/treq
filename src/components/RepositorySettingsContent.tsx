@@ -18,6 +18,23 @@ export interface RepositorySettingsContentHandle {
   save: () => Promise<void>;
 }
 
+/**
+ * Maps a stored `auto_review_trigger` onto the options this select offers.
+ * `"on-push"` is the name the setting shipped with before anything fired it;
+ * it meant "after remote changes arrive", which is now `"on-pull"`.
+ */
+const normalizeAutoReviewTrigger = (stored: string | null): string => {
+  if (stored === "on-push") return "on-pull";
+  if (
+    stored === "on-commit" ||
+    stored === "on-rebase" ||
+    stored === "on-pull"
+  ) {
+    return stored;
+  }
+  return "off";
+};
+
 export const RepositorySettingsContent = ({
   repoPath,
   onSavingChange,
@@ -73,7 +90,7 @@ export const RepositorySettingsContent = ({
       ignoreGeneratedAgentFiles: ignoreGeneratedSetting === "true",
       reviewPrompt: reviewPromptSetting || "",
       reviewAgent: reviewAgentSetting || "",
-      autoReviewTrigger: autoReviewTriggerSetting || "off",
+      autoReviewTrigger: normalizeAutoReviewTrigger(autoReviewTriggerSetting),
     };
   });
 
@@ -372,11 +389,12 @@ export const RepositorySettingsContent = ({
           >
             <option value="off">Off</option>
             <option value="on-commit">On commit</option>
-            <option value="on-push">On push</option>
+            <option value="on-rebase">On rebase</option>
+            <option value="on-pull">On pull from remote</option>
           </select>
           <p className="text-sm text-muted-foreground mt-1">
-            When a review should start on its own. Stored now; the triggers
-            themselves are not wired up yet.
+            Opens a review terminal on its own after the chosen operation
+            finishes in a workspace of this repository.
           </p>
         </div>
       </div>

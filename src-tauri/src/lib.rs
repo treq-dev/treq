@@ -1,6 +1,7 @@
 mod agent_dispatch;
 mod agent_runtime;
 pub mod auto_rebase;
+pub mod auto_review;
 pub mod binary_paths;
 mod cli;
 mod commands;
@@ -437,6 +438,16 @@ pub fn run() {
 
             // Background PR-status poller (sidebar reads from its cache)
             crate::pr_status::set_app_handle(app.handle().clone());
+
+            // Automatic reviews: jj operations signal, the frontend launches
+            // the review terminal.
+            {
+                use tauri::Emitter;
+                let review_app = app.handle().clone();
+                crate::auto_review::set_emitter(Box::new(move |event| {
+                    let _ = review_app.emit("auto-review-triggered", event);
+                }));
+            }
 
             let (dispatch_listener, dispatch_endpoint) = agent_dispatch::bind_ephemeral_listener()?;
             let dispatch_instance_id = uuid::Uuid::new_v4().to_string();

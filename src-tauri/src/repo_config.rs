@@ -15,8 +15,8 @@ pub struct RepoConfig {
   pub review_prompt: Option<String>,
   /// Agent to launch for reviews, falling back to `default_agent` when unset.
   pub review_agent: Option<String>,
-  /// When reviews fire automatically: `"off"`, `"on-commit"` or `"on-push"`.
-  /// Stored only — the triggers themselves are not wired up yet.
+  /// When reviews fire automatically: `"off"`, `"on-commit"`, `"on-rebase"`
+  /// or `"on-pull"`. Read by `auto_review` after each jj operation.
   pub auto_review_trigger: Option<String>,
 }
 

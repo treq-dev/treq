@@ -21,12 +21,9 @@ import { DiffContentArea } from "./DiffContentArea";
 import { FileSidebar } from "./FileSidebar";
 import { filesEqual } from "./utils";
 import { HOME_MOVE_ENDPOINT } from "../../lib/change-file-drag";
-import { getRepoSetting, stashWorkspaceChanges } from "../../lib/api";
+import { stashWorkspaceChanges } from "../../lib/api";
 import { AGENT_REVIEW_TARGET_WORKSPACE_DIFF } from "../../lib/api-types-review";
-import {
-  buildReviewPrompt,
-  workspaceDiffSummary,
-} from "../../lib/agent-review-prompt";
+import { prepareWorkspaceReview } from "../../lib/agent-review-launch";
 import { invalidateReviewChangeCount } from "../../lib/review-change-count";
 import { invalidateQueries } from "../../lib/swr-cache";
 import type {
@@ -465,24 +462,13 @@ export const ChangesDiffViewer = ({
     if (!onStartAgentReview || !agentReviewTargetId) return;
     setStartingAgentReview(true);
     try {
-      let customPrompt: string | null = null;
-      let reviewAgent: string | null = null;
-      if (repoPath) {
-        try {
-          [customPrompt, reviewAgent] = await Promise.all([
-            getRepoSetting(repoPath, "review_prompt"),
-            getRepoSetting(repoPath, "review_agent"),
-          ]);
-        } catch {
-          // Repo may not be initialized yet — fall back to the built-in prompt.
-        }
-      }
-      const prompt = buildReviewPrompt(customPrompt, {
-        targetType: AGENT_REVIEW_TARGET_WORKSPACE_DIFF,
-        targetId: agentReviewTargetId,
-        diffSummary: workspaceDiffSummary(branchName, files.length),
+      const { prompt, agent } = await prepareWorkspaceReview({
+        repoPath,
+        workspaceId: Number(agentReviewTargetId),
+        branchName,
+        fileCount: files.length,
       });
-      await onStartAgentReview(prompt, reviewAgent || undefined);
+      await onStartAgentReview(prompt, agent);
     } catch (error) {
       addToast({
         description: error instanceof Error ? error.message : String(error),
