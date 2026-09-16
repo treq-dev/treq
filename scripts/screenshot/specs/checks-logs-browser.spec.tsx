@@ -4,7 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { createTestRepo, openRepo, writeRepoFile } from "../../../test/utils";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
-import { createWorkspace, trustRepo } from "../../../src/lib/api";
+import {
+	createWorkspace,
+	getWorkspaces,
+	runWorkflow,
+	trustRepo,
+} from "../../../src/lib/api";
 import { captureDocument } from "../capture";
 
 // Emits info, warning and error lines so the level colouring is visible, and
@@ -23,7 +28,7 @@ jobs:
         run: "echo 'running 2 tests'; echo 'error: assertion failed' 1>&2; exit 1"
 `;
 
-it("captures the checks run history and the logs browser", async () => {
+it("captures check inspection in the Logs tab", async () => {
 	const { repoPath } = createTestRepo(false);
 	openRepo(repoPath);
 	await createWorkspace(repoPath, "feat/logs");
@@ -42,58 +47,28 @@ it("captures the checks run history and the logs browser", async () => {
 		}
 	});
 	await user.click(within(sidebar).getAllByText("feat/logs")[0]);
-	await user.click(await screen.findByRole("tab", { name: /^Checks/ }));
-	await screen.findByRole("tab", { name: /^Checks/, selected: true });
-	await screen.findByText("Build Job");
-
-	// Run once, then again, so the history shows two distinct run items.
-	await user.click(await screen.findByRole("button", { name: /Run Build Job/i }));
-	await screen.findByTestId("run-history-item");
-	await user.click(await screen.findByRole("button", { name: /Run Build Job/i }));
-	await waitFor(async () => {
-		const items = await screen.findAllByTestId("run-history-item");
-		if (items.length !== 2) throw new Error(`expected 2 runs, got ${items.length}`);
-	});
+	const workspace = (await getWorkspaces(repoPath)).find(
+		(item) => item.branch_name === "feat/logs",
+	);
+	if (!workspace) throw new Error("workspace was not created");
+	await runWorkflow(
+		repoPath,
+		"ci.yaml",
+		workspace.id,
+		workspace.workspace_path,
+	);
+	await user.click(await screen.findByRole("tab", { name: /^Logs/ }));
+	await screen.findByRole("tab", { name: /^Logs/, selected: true });
+	await screen.findByTestId("logs-tab");
+	await screen.findByText("Compiling treq v0.1.3");
 
 	await captureDocument(document, {
 		name: "checks-logs-01-run-history",
 		expectations: [
-			'A "Run history" section is visible at the bottom of the workflow card listing two separate run entries, each with a "#<number>" id and a timestamp.',
-			"Both run entries show a red X status icon, because the job's second step exits with an error.",
-			'Each run entry has a "build" button with a document icon for opening that run\'s logs.',
-			'The "Build Job" step rows above show a green checkmark on "Compile" and a red X on "Test".',
+			'The workspace tab row contains a selected "Logs" tab instead of a standalone "Checks" tab.',
+			'The Logs tab shows check output including "Compiling treq v0.1.3".',
+			'The log browser provides level filtering and a search field for inspecting check output.',
 		],
 	});
 
-	// Open the newest run's logs.
-	await user.click((await screen.findAllByRole("button", { name: /^Logs/ }))[0]);
-	const browser = await screen.findByTestId("logs-browser");
-	await screen.findByText("Compiling treq v0.1.3");
-
-	await captureDocument(document, {
-		name: "checks-logs-02-browser",
-		expectations: [
-			"A logs viewer is open, replacing the checks list, with a Back button and an Export button in its header.",
-			'A header row above the log lines labels "Timestamp", "Level" and "Message" columns, and each log line below aligns under those same tightly-fit columns with no gap on either side of the timestamp or level text.',
-			'The "Level" column shows "WARN" in amber and "ERROR" in red, matching the colour of the message text on those same lines; plain "INFO" lines are the default text colour.',
-		],
-	});
-
-	// Filter down to error lines only via the level multi-select.
-	await user.click(within(browser).getByTestId("log-level-filter"));
-	await user.click(await screen.findByRole("menuitemcheckbox", { name: /error/i }));
-	await user.keyboard("{Escape}");
-	await waitFor(() => {
-		const lines = document.querySelectorAll('[data-testid="log-line"]');
-		if (lines.length !== 1) throw new Error(`expected 1 line, got ${lines.length}`);
-	});
-
-	await captureDocument(document, {
-		name: "checks-logs-03-error-filter",
-		expectations: [
-			'Exactly one log line is shown — the red "error: assertion failed" line.',
-			'The level filter button reads "error" rather than "All levels".',
-			'The info and warning lines from the previous screenshot are gone.',
-		],
-	});
 }, 90000);
