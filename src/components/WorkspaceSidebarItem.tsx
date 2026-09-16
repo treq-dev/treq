@@ -257,7 +257,7 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                           aria-hidden="true"
                           className="pointer-events-none absolute inset-y-0 border-l border-border"
                           style={{
-                            left: `${16 + Math.max(node.depth - 2, 0) * 6}px`,
+                            left: `${8 + Math.max(node.depth - 2, 0) * 6}px`,
                           }}
                         />
                       )}
