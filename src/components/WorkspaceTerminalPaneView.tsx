@@ -126,7 +126,7 @@ export const WorkspaceTerminalPaneView: React.FC<
         <div
           data-testid="terminal-pane-controls"
           className={cn(
-            "z-20 flex items-center gap-px rounded-md border border-border/80 bg-background/90 p-0.5 shadow-sm backdrop-blur-sm",
+            "z-50 flex items-center gap-px rounded-md border border-border/80 bg-background/90 p-0.5 shadow-sm backdrop-blur-sm",
             collapsed ? "contents" : "absolute -top-7 right-1.5",
           )}
         >
