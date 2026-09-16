@@ -58,7 +58,7 @@ it("pane expand/control buttons sit in an inset top-right pull", async () => {
     name: "terminal-pane-inset-controls-02-expanded",
     expectations: [
       "The expanded terminal pane has no persistent Terminals title bar.",
-      "Maximize and collapse buttons sit in a small inset pull at the top-right of the terminal pane.",
+      "Maximize and collapse buttons sit in a small pull just above the terminal pane, without overlapping the terminal header.",
       "An agent terminal fills the pane; its header shows the session title and a workspace-name label.",
     ],
   });
