@@ -12,6 +12,7 @@ import {
 } from "../../utils";
 import { TREQ_SEND_EVENT } from "../../../src/lib/treqSend";
 import { useFeaturePreviewStore } from "../../../src/stores/featurePreviewStore";
+import { useTreqSendStore } from "../../../src/stores/treqSendStore";
 
 describe("treq send --browser integration", () => {
   let user: ReturnType<typeof userEvent.setup>;
@@ -24,6 +25,7 @@ describe("treq send --browser integration", () => {
         browser: true,
       },
     });
+    useTreqSendStore.setState({ assets: [] });
   });
 
   it("opens the Browser view and navigates when a browser send event arrives", async () => {
