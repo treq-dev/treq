@@ -11,12 +11,21 @@ import {
   openRepo,
 } from "../../utils";
 import { TREQ_SEND_EVENT } from "../../../src/lib/treqSend";
+import { useFeaturePreviewStore } from "../../../src/stores/featurePreviewStore";
+import { useTreqSendStore } from "../../../src/stores/treqSendStore";
 
 describe("treq send --browser integration", () => {
   let user: ReturnType<typeof userEvent.setup>;
 
   beforeEach(() => {
     user = userEvent.setup();
+    useFeaturePreviewStore.setState({
+      flags: {
+        ...useFeaturePreviewStore.getState().flags,
+        browser: true,
+      },
+    });
+    useTreqSendStore.setState({ assets: [] });
   });
 
   it("opens the Browser view and navigates when a browser send event arrives", async () => {
@@ -71,5 +80,48 @@ describe("treq send --browser integration", () => {
         expect.any(Number),
       );
     });
+  });
+
+  it("ignores browser send events when the Browser feature is disabled", async () => {
+    const { repoPath } = createTestRepo(false);
+    openRepo(repoPath);
+    const workspaceId = await createWorkspace(repoPath, "feat/browser-disabled");
+    const workspace = (await getWorkspaces(repoPath)).find(
+      (item) => item.id === workspaceId,
+    );
+    if (!workspace) throw new Error("workspace not found");
+
+    vi.spyOn(api, "openBrowserWebview").mockResolvedValue(undefined);
+    vi.mocked(api.openBrowserWebview).mockClear();
+    render(<Dashboard />);
+    await user.click(await findSidebarBranchElement(workspace.branch_name));
+    const listenMock = vi.mocked(listen);
+    const call = listenMock.mock.calls.find(
+      ([eventName]) => eventName === TREQ_SEND_EVENT,
+    );
+    expect(call).toBeTruthy();
+    useFeaturePreviewStore.setState({
+      flags: {
+        ...useFeaturePreviewStore.getState().flags,
+        browser: false,
+      },
+    });
+    await waitFor(() => {
+      expect(useFeaturePreviewStore.getState().flags.browser).toBe(false);
+    });
+
+    (call![1] as (event: { payload: unknown }) => void)({
+      payload: {
+        kind: "send",
+        request_id: "send-browser-disabled",
+        repo: repoPath,
+        media_type: "browser",
+        path: "http://localhost:5173/preview",
+        title: "http://localhost:5173/preview",
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.openBrowserWebview).not.toHaveBeenCalled();
   });
 });
