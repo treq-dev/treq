@@ -60,6 +60,8 @@ jobs:
 
       - name: Setup Android SDK/NDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install NDK
         run: sdkmanager --install "ndk;27.0.12077973"
@@ -118,7 +120,7 @@ jobs:
         run: npm run mobile:ios:init
 
       - name: Build unsigned debug app bundle
-        run: npm run mobile:ios:build -- --debug
+        run: npm run mobile:ios:build -- --debug --no-sign
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
