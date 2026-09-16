@@ -2183,8 +2183,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     });
   };
 
-  // Full workspace path -> branch name, used to resolve shell terminal
-  // branches for the sidebar's terminal sessions list.
+  // Full workspace path -> branch name, used to resolve terminal branches
+  // for workspace-level session indicators.
   const workspaceBranchByPath = (() => {
     const map = new Map<string, string>();
     for (const ws of workspaces) {
@@ -2193,34 +2193,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return map;
   })();
 
-  const handleCreateAgentTerminalFromSidebar = () => {
-    terminalPaneRef.current?.createAgentSession();
-  };
-
-  const handleCreateShellTerminalFromSidebar = () => {
-    terminalPaneRef.current?.createShellSession();
-  };
-
   const handleFocusTerminalSession = (id: string) => {
     terminalPaneRef.current?.focusTerminal(id);
-  };
-
-  const handleCloseTerminalSession = (id: string) => {
-    terminalPaneRef.current?.closeTerminal(id);
-  };
-
-  const handleCloseIdleTerminalSessions = () => {
-    terminalPaneRef.current?.closeIdleTerminals();
-  };
-
-  const handleCloseAllTerminalSessions = async () => {
-    const confirmed = await ask(
-      "Close all terminal sessions? This will stop all running agent and shell terminals.",
-      { title: "Close All Terminals", kind: "warning" },
-    );
-    if (confirmed) {
-      terminalPaneRef.current?.closeAllTerminals();
-    }
   };
 
   /**
@@ -2796,12 +2770,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onStartHomeShell={handleStartHomeShellFromSidebar}
             onStackHome={handleStackHomeFromSidebar}
             terminalSessions={terminalSessionSummaries}
-            onFocusTerminalSession={handleFocusTerminalSession}
-            onCloseTerminalSession={handleCloseTerminalSession}
-            onCloseIdleTerminalSessions={handleCloseIdleTerminalSessions}
-            onCloseAllTerminalSessions={handleCloseAllTerminalSessions}
-            onCreateAgentTerminal={handleCreateAgentTerminalFromSidebar}
-            onCreateShellTerminal={handleCreateShellTerminalFromSidebar}
             onDropChangeFiles={handleDropChangeFiles}
             onOpenGitHub={openGitHub}
             onOpenLinear={linearIntegrationEnabled ? openLinear : undefined}
