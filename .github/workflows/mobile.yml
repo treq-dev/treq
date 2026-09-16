@@ -264,6 +264,16 @@ jobs:
             src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
           if-no-files-found: error
 
+      # `keystore.properties` holds the plaintext store/key passwords and,
+      # unlike the keystore binary itself, has to live at this conventional
+      # in-tree Gradle path for the signing config to pick it up. Remove it
+      # once the build is done (even on failure) so it's not left in the
+      # working tree for any later step, artifact upload, or debug log to
+      # touch.
+      - name: Remove keystore.properties
+        if: steps.secrets_check.outputs.configured == 'true' && always()
+        run: rm -f src-tauri/gen/android/keystore.properties
+
   ios-release:
     name: iOS (signed archive)
     runs-on: macos-latest
