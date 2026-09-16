@@ -252,11 +252,13 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                         });
                       }}
                     >
-                      {node.depth > 1 && (
+                      {node.depth > 0 && (
                         <span
                           aria-hidden="true"
                           className="pointer-events-none absolute inset-y-0 border-l border-border/60"
-                          style={{ left: `${16 + (node.depth - 2) * 6}px` }}
+                          style={{
+                            left: `${16 + Math.max(node.depth - 2, 0) * 6}px`,
+                          }}
                         />
                       )}
                       {archiving ? (
