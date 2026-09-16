@@ -17,6 +17,12 @@ on:
       - main
     tags:
       - "v*"
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/mobile.yml"
   workflow_dispatch:
 
 jobs:

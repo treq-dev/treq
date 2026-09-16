@@ -86,6 +86,18 @@ mod mobile_storage {
     }
   }
 
+  /// Formats a keystore error for the given `action` (e.g. "read device key
+  /// from" or "store device key in"), prefixing it with
+  /// [`super::SECURE_STORAGE_UNAVAILABLE_PREFIX`] when the failure indicates
+  /// the platform keystore itself is unavailable.
+  fn wrap_keystore_err(action: &str, e: KeystoreError) -> String {
+    if indicates_keystore_unavailable(&e) {
+      format!("{}{action}: {e}", super::SECURE_STORAGE_UNAVAILABLE_PREFIX)
+    } else {
+      format!("{action}: {e}")
+    }
+  }
+
   fn require_biometrics(app: &tauri::AppHandle) -> Result<(), String> {
     // A failure *calling* `status()` is a plugin/transport error (e.g. the
     // native side didn't respond), not evidence that biometrics/secure
@@ -119,16 +131,7 @@ mod mobile_storage {
         service: KEYSTORE_SERVICE.to_string(),
         user: KEYSTORE_USER.to_string(),
       })
-      .map_err(|e| {
-        if indicates_keystore_unavailable(&e) {
-          format!(
-            "{}failed to read device key from keystore: {e}",
-            super::SECURE_STORAGE_UNAVAILABLE_PREFIX
-          )
-        } else {
-          format!("failed to read device key from keystore: {e}")
-        }
-      })?;
+      .map_err(|e| wrap_keystore_err("failed to read device key from keystore", e))?;
 
     if let Some(openssh) = existing.value {
       return openssh
@@ -143,16 +146,7 @@ mod mobile_storage {
     app
       .keystore()
       .store(StoreRequest { value: openssh })
-      .map_err(|e| {
-        if indicates_keystore_unavailable(&e) {
-          format!(
-            "{}failed to store device key in keystore: {e}",
-            super::SECURE_STORAGE_UNAVAILABLE_PREFIX
-          )
-        } else {
-          format!("failed to store device key in keystore: {e}")
-        }
-      })?;
+      .map_err(|e| wrap_keystore_err("failed to store device key in keystore", e))?;
     Ok(key)
   }
 }
