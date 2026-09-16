@@ -40,9 +40,8 @@ it("shows the Start Review action and a local agent review comment on a diff", a
 		filePath: "example.ts",
 		startLine: 2,
 		side: "new",
-		commentText: "Consider validating that a and b are finite numbers.",
-		suggestedReplacement:
-			"  if (!Number.isFinite(a) || !Number.isFinite(b)) throw new Error('invalid input');\n  return a + b;",
+		commentText: "This looks like it should be subtraction, not addition.",
+		suggestedReplacement: "  return a - b;",
 	});
 
 	const user = userEvent.setup();
