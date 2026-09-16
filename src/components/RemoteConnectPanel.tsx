@@ -18,10 +18,24 @@ type Step =
   | "certificate"
   | "probe"
   | "connected"
-  | "error";
+  | "error"
+  | "secure_storage_unavailable";
 
 const DEVICE_KEY_COMMENT = "treq-mobile-device";
 const LAST_REPO_KEY = "treq-mobile-last-remote-repo";
+
+// Mirrors `SECURE_STORAGE_UNAVAILABLE_PREFIX` in
+// `src-tauri/src/core/remote_device_key.rs`. `ensure_mobile_device_key`
+// prefixes its error string this way when the device's secure key storage
+// (Android Keystore / iOS Keychain, gated on biometrics) isn't usable, so
+// this state can be told apart from a generic connection failure.
+const SECURE_STORAGE_UNAVAILABLE_PREFIX = "secure_storage_unavailable:";
+
+function stripSecureStoragePrefix(message: string): string {
+  return message.startsWith(SECURE_STORAGE_UNAVAILABLE_PREFIX)
+    ? message.slice(SECURE_STORAGE_UNAVAILABLE_PREFIX.length)
+    : message;
+}
 
 /**
  * Mobile connectivity prototype (mobile PRD, Phase 2): registers this
@@ -71,8 +85,14 @@ export function RemoteConnectPanel() {
       setEndpoint(issued.endpoint);
       setStep("connected");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setStep("error");
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith(SECURE_STORAGE_UNAVAILABLE_PREFIX)) {
+        setError(stripSecureStoragePrefix(message));
+        setStep("secure_storage_unavailable");
+      } else {
+        setError(message);
+        setStep("error");
+      }
     }
   }
 
@@ -98,7 +118,7 @@ export function RemoteConnectPanel() {
   return (
     <section className="flex flex-col gap-3 border-t pt-3">
       <h2 className="text-sm font-semibold">Remote instance</h2>
-      {!endpoint && (
+      {!endpoint && step !== "secure_storage_unavailable" && (
         <button
           type="button"
           onClick={connect}
@@ -110,7 +130,32 @@ export function RemoteConnectPanel() {
             : `Connecting (${step.replace("_", " ")})...`}
         </button>
       )}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {step === "secure_storage_unavailable" ? (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
+        >
+          <p className="font-medium text-destructive">
+            Secure storage isn&apos;t set up on this device
+          </p>
+          <p className="text-muted-foreground">
+            Treq stores this device&apos;s connection key in your device&apos;s
+            secure keystore, which requires biometrics (Face ID, Touch ID, or
+            fingerprint unlock) to be enrolled. Set up biometrics in your
+            device settings, then try again.
+          </p>
+          {error && <p className="text-xs text-muted-foreground">{error}</p>}
+          <button
+            type="button"
+            onClick={connect}
+            className="self-start rounded-md border px-3 py-2 text-sm"
+          >
+            Try again
+          </button>
+        </div>
+      ) : (
+        error && <p className="text-sm text-destructive">{error}</p>
+      )}
       {endpoint && (
         <div className="flex flex-col gap-2">
           <p className="text-sm text-muted-foreground">

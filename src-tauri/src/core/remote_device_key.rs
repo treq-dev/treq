@@ -28,6 +28,17 @@ pub struct DeviceKeyInfo {
   pub fingerprint_sha256: String,
 }
 
+/// Machine-checkable prefix on the `Err(String)` this module returns when
+/// secure storage isn't usable on this device (no biometrics enrolled, or
+/// the OS keystore itself is unavailable). Callers - `ensure_mobile_device_key`
+/// and `RemoteConnectPanel` on the JS side - check for this prefix to show a
+/// dedicated "set up biometrics" state instead of a generic connection
+/// error. Kept as a string prefix (not a typed Tauri command error) because
+/// `ensure_device_key`'s `Result<_, String>` signature is shared with other
+/// `remote_*` command error strings that already flow straight to JS as
+/// plain messages; changing that return type is out of scope here.
+pub const SECURE_STORAGE_UNAVAILABLE_PREFIX: &str = "secure_storage_unavailable:";
+
 #[cfg_attr(not(any(mobile, test)), allow(dead_code))]
 fn generate_private_key() -> Result<PrivateKey, String> {
   let mut seed = [0u8; 32];
@@ -63,12 +74,21 @@ mod mobile_storage {
     let status = app
       .biometric()
       .status()
-      .map_err(|e| format!("failed to read biometric status: {e}"))?;
+      .map_err(|e| {
+        format!(
+          "{}failed to read biometric status: {e}",
+          super::SECURE_STORAGE_UNAVAILABLE_PREFIX
+        )
+      })?;
     if !status.is_available {
-      return Err(status.error.unwrap_or_else(|| {
+      let reason = status.error.unwrap_or_else(|| {
         "Biometrics are not set up on this device; the device key cannot be stored securely."
           .to_string()
-      }));
+      });
+      return Err(format!(
+        "{}{reason}",
+        super::SECURE_STORAGE_UNAVAILABLE_PREFIX
+      ));
     }
     Ok(())
   }
@@ -82,7 +102,12 @@ mod mobile_storage {
         service: KEYSTORE_SERVICE.to_string(),
         user: KEYSTORE_USER.to_string(),
       })
-      .map_err(|e| format!("failed to read device key from keystore: {e}"))?;
+      .map_err(|e| {
+        format!(
+          "{}failed to read device key from keystore: {e}",
+          super::SECURE_STORAGE_UNAVAILABLE_PREFIX
+        )
+      })?;
 
     if let Some(openssh) = existing.value {
       return openssh
