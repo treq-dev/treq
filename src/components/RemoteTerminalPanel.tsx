@@ -12,7 +12,7 @@
  * between Detach and Stop. "Stop" additionally asks the VM to kill the
  * session via a `PtyStop` dispatch.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -29,10 +29,10 @@ import {
   remotePtyWrite,
 } from "../lib/api-extra";
 import { dispatchOverSsh } from "../lib/remote-dispatch";
-import type { SshEndpoint } from "../lib/api-types-remote";
+import type { SshEndpoint, PtyLaunchSpec } from "../lib/api-types-remote";
 
-/** Exact command line `core::remote_pty::build_launch_command` builds for `PtyLaunchSpec::Shell`. */
-const DEFAULT_SHELL_COMMAND = '"${SHELL:-/bin/bash}" -l';
+/** Every persistent session this panel opens/reattaches to is a plain login shell. */
+const SHELL_LAUNCH: PtyLaunchSpec = { type: "shell" };
 
 export interface RemoteTerminalTarget {
   endpoint: SshEndpoint;
@@ -48,11 +48,19 @@ export interface RemoteTerminalTarget {
 interface RemoteTerminalPanelProps {
   target: RemoteTerminalTarget;
   onClose: () => void;
+  /**
+   * Optional extra chrome rendered below the terminal, given a `send`
+   * function that writes raw bytes to the remote PTY. Used by mobile's
+   * `RemoteTerminalScreen` to host a touch control-sequence toolbar
+   * (Ctrl/Esc/arrows) without duplicating the session-write wiring.
+   */
+  renderToolbar?: (send: (data: string) => void) => ReactNode;
 }
 
 export const RemoteTerminalPanel = ({
   target,
   onClose,
+  renderToolbar,
 }: RemoteTerminalPanelProps) => {
   const { endpoint, repositoryId, workspaceId, remoteWorkingDirectory, label } =
     target;
@@ -117,7 +125,7 @@ export const RemoteTerminalPanel = ({
             workspaceId,
             label,
             remoteWorkingDirectory,
-            DEFAULT_SHELL_COMMAND,
+            SHELL_LAUNCH,
             cols,
             rows,
           );
@@ -200,6 +208,14 @@ export const RemoteTerminalPanel = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
+  const send = (data: string) => {
+    if (!isReadyRef.current) return;
+    remotePtyWrite(sessionId, data).catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+    });
+    xtermRef.current?.focus();
+  };
+
   const handleStop = async () => {
     setIsStopping(true);
     try {
@@ -276,6 +292,7 @@ export const RemoteTerminalPanel = ({
           </div>
         )}
       </div>
+      {renderToolbar?.(send)}
     </div>
   );
 };

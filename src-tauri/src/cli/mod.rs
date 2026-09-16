@@ -456,7 +456,7 @@ pub(crate) fn parse_remote_command_request(
         workspace: require_workspace()?,
         label: require_target("session label")?,
         remote_dir: payload.remote_dir,
-        command: payload.command,
+        launch: payload.launch,
         cols: payload.cols,
         rows: payload.rows,
         idempotency_key: require_idempotency_key(idempotency_key)?,
@@ -475,7 +475,7 @@ pub(crate) fn parse_remote_command_request(
         workspace: require_workspace()?,
         label: require_target("session label")?,
         remote_dir: payload.remote_dir,
-        command: payload.command,
+        launch: payload.launch,
         cols: payload.cols,
         rows: payload.rows,
       })

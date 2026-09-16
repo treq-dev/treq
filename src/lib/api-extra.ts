@@ -214,7 +214,7 @@ export const remotePtyReattach = (
   workspaceId: string,
   label: string,
   remoteWorkingDirectory: string,
-  command: string,
+  launch: unknown,
   cols: number,
   rows: number,
 ): Promise<void> =>
@@ -226,7 +226,7 @@ export const remotePtyReattach = (
     workspaceId,
     label,
     remoteWorkingDirectory,
-    command,
+    launch,
     cols,
     rows,
   });

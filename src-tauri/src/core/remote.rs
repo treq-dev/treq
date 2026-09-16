@@ -310,7 +310,7 @@ pub enum TreqCommandRequest {
     workspace: String,
     label: String,
     remote_dir: String,
-    command: String,
+    launch: crate::core::remote_pty::PtyLaunchSpec,
     cols: u16,
     rows: u16,
     idempotency_key: String,
@@ -333,7 +333,7 @@ pub enum TreqCommandRequest {
     workspace: String,
     label: String,
     remote_dir: String,
-    command: String,
+    launch: crate::core::remote_pty::PtyLaunchSpec,
     cols: u16,
     rows: u16,
   },
@@ -945,15 +945,20 @@ fn clone_request(request: &TreqCommandRequest) -> TreqCommandRequest {
 #[derive(Serialize, Deserialize)]
 pub struct PtyLaunchPayload {
   pub remote_dir: String,
-  pub command: String,
+  pub launch: crate::core::remote_pty::PtyLaunchSpec,
   pub cols: u16,
   pub rows: u16,
 }
 
-fn pty_launch_payload(remote_dir: &str, command: &str, cols: u16, rows: u16) -> String {
+fn pty_launch_payload(
+  remote_dir: &str,
+  launch: &crate::core::remote_pty::PtyLaunchSpec,
+  cols: u16,
+  rows: u16,
+) -> String {
   serde_json::to_string(&PtyLaunchPayload {
     remote_dir: remote_dir.to_string(),
-    command: command.to_string(),
+    launch: launch.clone(),
     cols,
     rows,
   })
@@ -1281,14 +1286,14 @@ impl TreqCommandRequest {
         workspace,
         label,
         remote_dir,
-        command,
+        launch,
         cols,
         rows,
         idempotency_key,
       } => {
         fields.workspace = Some(workspace);
         fields.target = Some(label);
-        fields.value = Some(pty_launch_payload(remote_dir, command, *cols, *rows));
+        fields.value = Some(pty_launch_payload(remote_dir, launch, *cols, *rows));
         fields.idempotency_key = Some(idempotency_key);
         ("pty-remote", "start", repo)
       }
@@ -1310,13 +1315,13 @@ impl TreqCommandRequest {
         workspace,
         label,
         remote_dir,
-        command,
+        launch,
         cols,
         rows,
       } => {
         fields.workspace = Some(workspace);
         fields.target = Some(label);
-        fields.value = Some(pty_launch_payload(remote_dir, command, *cols, *rows));
+        fields.value = Some(pty_launch_payload(remote_dir, launch, *cols, *rows));
         ("pty-remote", "attach-command", repo)
       }
     };
@@ -2022,7 +2027,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       workspace,
       label,
       remote_dir,
-      command,
+      launch,
       cols,
       rows,
       idempotency_key,
@@ -2036,7 +2041,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
           &remote_dir,
           &workspace,
           &label,
-          &command,
+          &launch,
           cols,
           rows,
         ))
@@ -2054,7 +2059,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       workspace,
       label,
       remote_dir,
-      command,
+      launch,
       cols,
       rows,
       ..
@@ -2062,7 +2067,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       &remote_dir,
       &workspace,
       &label,
-      &command,
+      &launch,
       cols,
       rows,
     )),

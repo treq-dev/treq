@@ -17,7 +17,7 @@ import {
   remoteDispatchMutationOverSsh,
   remoteDispatchOverSsh,
 } from "./api-extra";
-import type { SshEndpoint } from "./api-types-remote";
+import type { SshEndpoint, PtyLaunchSpec } from "./api-types-remote";
 
 /** Mirrors `core::workspaces::HunkSpec` for non-interactive split/move. */
 export interface RemoteHunkSpec {
@@ -254,7 +254,7 @@ export type TreqCommandRequest =
       workspace: string;
       label: string;
       remote_dir: string;
-      command: string;
+      launch: PtyLaunchSpec;
       cols: number;
       rows: number;
       idempotency_key: string;
@@ -267,7 +267,7 @@ export type TreqCommandRequest =
       workspace: string;
       label: string;
       remote_dir: string;
-      command: string;
+      launch: PtyLaunchSpec;
       cols: number;
       rows: number;
     };
