@@ -50,6 +50,21 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 	await user.click(await screen.findByText(BRANCH_NAME));
 	await screen.findByTestId("show-workspace-header");
 
+	// Open an agent terminal before starting the review. Once it is no longer
+	// streaming, this is the existing idle terminal that Edit must reuse.
+	await user.click(await screen.findByLabelText("New agent terminal"));
+	const existingAgentItem = await waitFor(() => {
+		const item = document.querySelector(
+			'[data-testid^="terminal-session-item-claude-"]',
+		);
+		expect(item).not.toBeNull();
+		return item as HTMLElement;
+	});
+	await user.click(existingAgentItem);
+	await waitFor(() => {
+		expect(document.querySelector('[data-terminal-id^="claude-"]')).not.toBeNull();
+	});
+
 	// Open the Changes tab.
 	await user.click(await screen.findByRole("tab", { name: /^Changes/i }));
 	// The file appears in both sidebar and diff header — wait for any occurrence.
@@ -95,13 +110,13 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 	// pick up default_agent=codex and pass agent:"codex" to onSessionCreated.
 	await user.click(await screen.findByRole("button", { name: /^edit$/i }));
 
-	// Wait for the terminal pane to open with the new session. The pane
-	// uncollapse when a session is added, so any terminal-pane element appearing
-	// is the signal we want.
+	// Wait for the already-open terminal to remain mounted. Reusing it must not
+	// create a second Code Review session.
 	await waitFor(
 		async () => {
-			// The session tab for the review session should be present.
-			expect(screen.getAllByText("Code Review").length).toBeGreaterThan(0);
+			expect(
+				document.querySelectorAll('[data-terminal-id^="claude-"]').length,
+			).toBe(1);
 		},
 		{ timeout: 10000 },
 	);
@@ -110,8 +125,8 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 		name: "send-review-codex-02-terminal",
 		expectations: [
 			'The terminal pane at the bottom is open.',
-			'A session tab labelled "Code Review" is visible in the terminal pane.',
-			'The "Code Review" tab has the Codex brand icon (OpenAI knot mark, data-agent-icon="codex") — not the Claude brand icon.',
+			'The existing agent terminal remains the only agent terminal after choosing "Edit".',
+			'The existing terminal is active and focused after receiving the review.',
 		],
 	});
 
@@ -121,8 +136,8 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 		name: "send-review-codex-03-edit-terminal",
 		expectations: [
 			'The terminal pane remains open after choosing "Edit".',
-			'A "Code Review" agent session is visible after the Edit action.',
-			'The review flow returns focus to the terminal area after sending.',
+			'The already-open agent terminal remains visible rather than a new review terminal being created.',
+			'The review flow returns focus to that existing terminal after sending.',
 		],
 	});
 }, 60000);
