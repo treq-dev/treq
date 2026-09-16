@@ -78,3 +78,4 @@ scripts/storybook/.generated/
 .claude/skills/treq*/
 .agents/skills/
 .claude/skills/
+.claude/worktrees/

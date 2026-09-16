@@ -11,6 +11,13 @@ pub struct RepoConfig {
   /// Shell command run once in a new workspace right after it's created.
   /// Checks (`.treq/workflows`) are blocked for that workspace until it finishes.
   pub setup_script: Option<String>,
+  /// Custom prompt for the AI review agent, overriding the built-in default.
+  pub review_prompt: Option<String>,
+  /// Agent to launch for reviews, falling back to `default_agent` when unset.
+  pub review_agent: Option<String>,
+  /// When reviews fire automatically: `"off"`, `"on-commit"`, `"on-rebase"`
+  /// or `"on-pull"`. Read by `auto_review` after each jj operation.
+  pub auto_review_trigger: Option<String>,
 }
 
 pub fn config_path(repo_path: &str) -> PathBuf {
@@ -51,6 +58,18 @@ pub fn sync_to_settings(
   if let Some(ref value) = config.default_agent {
     db.set_repo_setting(repo_path, "default_agent", value)
       .map_err(|e| format!("Failed to sync default_agent: {e}"))?;
+  }
+  if let Some(ref value) = config.review_prompt {
+    db.set_repo_setting(repo_path, "review_prompt", value)
+      .map_err(|e| format!("Failed to sync review_prompt: {e}"))?;
+  }
+  if let Some(ref value) = config.review_agent {
+    db.set_repo_setting(repo_path, "review_agent", value)
+      .map_err(|e| format!("Failed to sync review_agent: {e}"))?;
+  }
+  if let Some(ref value) = config.auto_review_trigger {
+    db.set_repo_setting(repo_path, "auto_review_trigger", value)
+      .map_err(|e| format!("Failed to sync auto_review_trigger: {e}"))?;
   }
   if let Some(ref files) = config.included_copy_files {
     db.set_repo_setting(repo_path, "included_copy_files", &files.join("\n"))
@@ -183,6 +202,9 @@ mod tests {
       target_branch: Some("main".to_string()),
       included_copy_files: Some(vec!["a.env".to_string(), "b.env".to_string()]),
       setup_script: None,
+      review_prompt: None,
+      review_agent: None,
+      auto_review_trigger: None,
     };
 
     sync_to_settings(&db, "/repo/a", &config).expect("sync should succeed");

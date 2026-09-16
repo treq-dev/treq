@@ -134,7 +134,13 @@ function MobileConflictFile({
               ? hunk.conflict_regions.map((region) => (
                   <MobileConflictRegionView key={region.id} region={region} />
                 ))
-              : [<MobileHunkView key={hunk.id} hunk={hunk} />],
+              : [
+                  <MobileHunkView
+                    key={hunk.id}
+                    hunk={hunk}
+                    filePath={filePath}
+                  />,
+                ],
           )}
         </div>
       )}

@@ -92,6 +92,12 @@ import {
   githubListPath,
   stateFilterForPrState,
 } from "../lib/githubRoutes";
+import {
+  autoReviewSummary,
+  normalizeReviewAgent,
+  prepareWorkspaceReview,
+  type AutoReviewEvent,
+} from "../lib/agent-review-launch";
 import { LINEAR_BASE_PATH } from "../lib/linearRoutes";
 import { openRepositoryAtPath as openRepositoryAtPathShared } from "../lib/open-repository";
 import type {
@@ -2216,6 +2222,54 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  /**
+   * Opens an observable agent terminal on a workspace, seeded with a prompt.
+   * Shared by agent deep links and automatic reviews so every agent treq
+   * starts on its own behalf appears the same way a manually started one does.
+   */
+  const launchAgentSession = async ({
+    workspace,
+    prompt,
+    mode,
+    agent,
+    sessionName,
+  }: {
+    workspace: Workspace;
+    prompt?: string;
+    mode?: "plan" | "acceptEdits";
+    agent?: "claude" | "codex" | "cursor" | "copilot";
+    sessionName?: string;
+  }): Promise<number> => {
+    const sessionId = await getOrCreateSession(workspace.id, {
+      forceNew: true,
+      agent,
+      name: sessionName,
+    });
+    setActiveSessionId(sessionId);
+    setSelectedWorkspace(workspace);
+    setViewMode("show-workspace");
+    setPendingSessionData((prev) => {
+      const next = new Map(prev);
+      next.set(sessionId, {
+        pendingPrompt: prompt,
+        permissionMode: mode,
+        agent,
+      });
+      return next;
+    });
+    if (prompt) {
+      addPromptHistory(repoPath, workspace.id, sessionId, prompt, agent)
+        .then(() => {
+          void invalidateQueries(["prompt-history"]);
+          invalidateQueries(["workspace-starting-prompt"]);
+        })
+        .catch((error) => {
+          console.error("Failed to record prompt history:", error);
+        });
+    }
+    return sessionId;
+  };
+
   const handleStartAgentRequest = async (request: AgentDeepLinkRequest) => {
     const workspace = findWorkspaceByBranch(workspaces, request.branch);
     if (!workspace) {
@@ -2233,38 +2287,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     try {
-      const sessionId = await getOrCreateSession(workspace.id, {
-        forceNew: true,
+      await launchAgentSession({
+        workspace,
+        prompt: request.prompt,
+        mode: request.mode,
         agent: request.agent,
       });
-      setActiveSessionId(sessionId);
-      setSelectedWorkspace(workspace);
-      setViewMode("show-workspace");
-      setPendingSessionData((prev) => {
-        const next = new Map(prev);
-        next.set(sessionId, {
-          pendingPrompt: request.prompt,
-          permissionMode: request.mode,
-          agent: request.agent,
-        });
-        return next;
-      });
-      if (request.prompt) {
-        addPromptHistory(
-          repoPath,
-          workspace.id,
-          sessionId,
-          request.prompt,
-          request.agent,
-        )
-          .then(() => {
-            void invalidateQueries(["prompt-history"]);
-            invalidateQueries(["workspace-starting-prompt"]);
-          })
-          .catch((error) => {
-            console.error("Failed to record prompt history:", error);
-          });
-      }
       markProcessedAgentRequest(request.requestId);
       await acknowledgeAgentDispatch(request.requestId, "accepted");
     } catch (error) {
@@ -2274,6 +2302,53 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
   const handleStartAgentRequestRef = useRef(handleStartAgentRequest);
   handleStartAgentRequestRef.current = handleStartAgentRequest;
+
+  /**
+   * Starts a review the backend asked for. The backend has already matched the
+   * repository's `auto_review_trigger` against the operation that ran and has
+   * dropped operations it fired for before, so every event that arrives here
+   * is one to act on.
+   */
+  const handleAutoReviewEvent = async (event: AutoReviewEvent) => {
+    if (event.repo_path !== repoPath) return;
+    const workspace = workspaces.find((w) => w.id === event.workspace_id);
+    if (!workspace) return;
+    try {
+      const { prompt, agent } = await prepareWorkspaceReview({
+        repoPath,
+        workspaceId: event.workspace_id,
+        branchName: workspace.branch_name,
+        diffSummary: autoReviewSummary(event.trigger, workspace.branch_name),
+      });
+      await launchAgentSession({
+        workspace,
+        prompt,
+        mode: "acceptEdits",
+        agent: normalizeReviewAgent(agent),
+        sessionName: "AI Review",
+      });
+    } catch (error) {
+      addToast({
+        title: "Failed to start automatic review",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
+  const handleAutoReviewEventRef = useRef(handleAutoReviewEvent);
+  handleAutoReviewEventRef.current = handleAutoReviewEvent;
+
+  useEffect(() => {
+    const unlistenPromise = listen<AutoReviewEvent>(
+      "auto-review-triggered",
+      (event) => {
+        void handleAutoReviewEventRef.current(event.payload);
+      },
+    );
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, []);
 
   useEffect(() => {
     const setup = async () =>

@@ -569,6 +569,68 @@
             }
           ]
         },
+        "agent-review": {
+          "description": "Local-only review comments left on a diff or file",
+          "args": [
+            {
+              "name": "action",
+              "index": 1,
+              "takesValue": true,
+              "required": true,
+              "description": "Command action: add, list, resolve, delete"
+            },
+            {
+              "name": "target-type",
+              "takesValue": true,
+              "description": "What was reviewed: workspace_diff or file_browser_file"
+            },
+            {
+              "name": "target-id",
+              "takesValue": true,
+              "description": "Identifier within the target type (workspace id, or absolute file path)"
+            },
+            {
+              "name": "file",
+              "takesValue": true,
+              "description": "File path the comment is anchored to"
+            },
+            {
+              "name": "start-line",
+              "takesValue": true,
+              "description": "First line of the anchored range"
+            },
+            {
+              "name": "end-line",
+              "takesValue": true,
+              "description": "Last line of the anchored range (defaults to --start-line)"
+            },
+            {
+              "name": "side",
+              "takesValue": true,
+              "description": "Diff side the range refers to: old or new"
+            },
+            {
+              "name": "comment",
+              "takesValue": true,
+              "description": "Review comment text"
+            },
+            {
+              "name": "suggestion",
+              "takesValue": true,
+              "description": "Suggested replacement text, optionally wrapped in a ```suggestion fence"
+            },
+            {
+              "name": "comment-id",
+              "takesValue": true,
+              "description": "Comment id for resolve and delete"
+            },
+            {
+              "name": "format",
+              "takesValue": true,
+              "description": "Output format: human or json"
+            }
+          ]
+        },
         "pty-remote": {
           "description": "VM-local persistent PTY sessions (tmux/screen-backed) for full terminal streaming and reattach",
           "args": [
@@ -616,9 +678,7 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "treq"
-        ]
+        "schemes": ["treq"]
       }
     }
   },

@@ -706,6 +706,9 @@ export interface RepoYamlConfig {
   default_agent: string | null;
   target_branch: string | null;
   included_copy_files: string[] | null;
+  review_prompt: string | null;
+  review_agent: string | null;
+  auto_review_trigger: string | null;
 }
 
 /**

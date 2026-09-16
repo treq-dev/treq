@@ -1,6 +1,7 @@
 // Command modules
 pub mod agent_chat;
 pub mod agent_dispatch;
+pub mod agent_review;
 pub mod auto_update;
 pub mod binary;
 pub mod browser_review;
@@ -29,6 +30,7 @@ pub mod workspace;
 // Re-export all commands for convenient access
 pub use agent_chat::*;
 pub use agent_dispatch::*;
+pub use agent_review::*;
 pub use auto_update::*;
 pub use binary::*;
 pub use browser_review::*;

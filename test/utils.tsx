@@ -171,6 +171,36 @@ export function setWorkspaceTargetBranchRaw(
   );
 }
 
+export function seedAgentReviewComment(
+  repoPath: string,
+  opts: {
+    workspaceId: number;
+    filePath: string;
+    startLine: number;
+    endLine?: number;
+    side?: "old" | "new";
+    commentText: string;
+    suggestedReplacement?: string;
+  },
+): void {
+  const dbPath = path.join(repoPath, ".treq", "local.db");
+  const id = randomUUID();
+  const esc = (s: string) => s.replace(/'/g, "''");
+  execFileSync(
+    "sqlite3",
+    [
+      dbPath,
+      `INSERT INTO agent_review_comments
+        (id, repo_path, target_type, target_id, file_path, hunk_id, start_line, end_line, side, comment_text, suggested_replacement, status, source, created_at, resolved_at)
+        VALUES ('${id}', '${esc(repoPath)}', 'workspace_diff', '${opts.workspaceId}', '${esc(opts.filePath)}', NULL,
+        ${opts.startLine}, ${opts.endLine ?? opts.startLine}, ${opts.side ? `'${opts.side}'` : "NULL"},
+        '${esc(opts.commentText)}', ${opts.suggestedReplacement ? `'${esc(opts.suggestedReplacement)}'` : "NULL"},
+        'open', 'local-agent', '${new Date().toISOString()}', NULL);`,
+    ],
+    { stdio: "pipe" },
+  );
+}
+
 /**
  * Resolve a revision to its short commit id via jj-lib (no `jj` CLI on PATH required).
  */

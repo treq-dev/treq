@@ -5,6 +5,7 @@ import {
   createTestRepo,
   openRepo,
   resolveWorkspacePath,
+  seedAgentReviewComment,
   writeWorkspaceFile,
 } from "../../../test/utils";
 import {
@@ -49,6 +50,17 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
   // An extra uncommitted change for the Changes tab.
   writeWorkspaceFile(workspacePath, "notes.txt", "a fresh note\n");
 
+  // Seeded before MobileShell mounts: the review-comments hook disables SWR
+  // polling in test mode, so only the diff view's initial fetch on mount will
+  // ever pick up a row inserted this way.
+  seedAgentReviewComment(repoPath, {
+    workspaceId,
+    filePath: "notes.txt",
+    startLine: 1,
+    side: "new",
+    commentText: "Consider adding a timestamp to this note.",
+  });
+
   await setSetting("lastRepoPath", repoPath);
 
   const user = userEvent.setup();
@@ -70,16 +82,19 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
     expectations: [
       "Changes/History/Conflicts tabs are visible with Changes selected.",
       "A file row for notes.txt is listed under the changes.",
+      'A "1 local review comment" indicator with a bot icon is visible above the file list.',
     ],
   });
 
   await user.click(screen.getByText("notes.txt"));
   await screen.findByText(/a fresh note/);
+  await screen.findByTestId("agent-review-comment-card");
   await captureDocument(document, {
     name: "mobile-shell-review-03-changes-expanded",
     expectations: [
       "The notes.txt file row is expanded to show its diff hunk inline.",
       "Added lines are shown with a green/positive background and a leading +.",
+      'A "Local" badged review comment card is shown under the added line, with Resolve and Delete actions.',
     ],
   });
 

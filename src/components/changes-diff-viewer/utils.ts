@@ -146,6 +146,23 @@ export const computeHunkLineNumbers = (
   });
 };
 
+/**
+ * Source text of every line in a hunk, keyed `"<side>:<lineNumber>"` and with
+ * the diff marker stripped. Used to diff a suggested replacement against the
+ * lines it replaces.
+ */
+export const buildHunkLineTexts = (hunk: JjDiffHunk): Map<string, string> => {
+  const lineNumbers = computeHunkLineNumbers(hunk);
+  const texts = new Map<string, string>();
+  hunk.lines.forEach((line, index) => {
+    const content = line.substring(1);
+    const numbers = lineNumbers[index];
+    if (numbers?.new !== undefined) texts.set(`new:${numbers.new}`, content);
+    if (numbers?.old !== undefined) texts.set(`old:${numbers.old}`, content);
+  });
+  return texts;
+};
+
 export const computeHunksHash = (hunks: JjDiffHunk[]): string => {
   const content = hunks
     .map((hunk) => hunk.header + hunk.lines.join(""))
