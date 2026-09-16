@@ -146,6 +146,7 @@ import {
   type RenewalController,
 } from "../lib/managed-ssh-connection";
 import { startManagedCertificateRenewal } from "../lib/remote-cert-lifecycle";
+import { resolveRemoteTerminalTarget } from "../lib/remote-terminal-target";
 import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 import { remoteForceCutoff } from "../lib/api-extra";
 import { RemoteRepositorySelector } from "./remote/RemoteRepositorySelector";
@@ -3298,8 +3299,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
               onOpenChange={setShowRemoteTerminalDialog}
               endpoint={activeSshEndpoint}
               repositoryId={activeRepository.canonicalPath}
-              workspaceId="root"
-              remoteWorkingDirectory={activeRepository.canonicalPath}
+              {...resolveRemoteTerminalTarget(
+                activeRepository.canonicalPath,
+                isRemoteActive ? selectedWorkspace : null,
+              )}
             />
           )}
         </SidebarProvider>
