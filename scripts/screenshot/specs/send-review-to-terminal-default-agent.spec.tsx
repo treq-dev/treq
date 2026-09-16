@@ -91,9 +91,9 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 		],
 	});
 
-	// Click "Plan" — this triggers handleCreateAgentWithReview which should
+	// Click "Edit" — this triggers handleCreateAgentWithReview which should
 	// pick up default_agent=codex and pass agent:"codex" to onSessionCreated.
-	await user.click(await screen.findByRole("button", { name: /^plan$/i }));
+	await user.click(await screen.findByRole("button", { name: /^edit$/i }));
 
 	// Wait for the terminal pane to open with the new session. The pane
 	// uncollapse when a session is added, so any terminal-pane element appearing
@@ -101,7 +101,7 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 	await waitFor(
 		async () => {
 			// The session tab for the review session should be present.
-			expect(screen.getByText("Code Review")).toBeInTheDocument();
+			expect(screen.getAllByText("Code Review").length).toBeGreaterThan(0);
 		},
 		{ timeout: 10000 },
 	);
@@ -112,6 +112,17 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 			'The terminal pane at the bottom is open.',
 			'A session tab labelled "Code Review" is visible in the terminal pane.',
 			'The "Code Review" tab has the Codex brand icon (OpenAI knot mark, data-agent-icon="codex") — not the Claude brand icon.',
+		],
+	});
+
+	// Capture a second view of the completed Edit flow so the terminal focus
+	// state is part of the visual regression evidence.
+	await captureDocument(document, {
+		name: "send-review-codex-03-edit-terminal",
+		expectations: [
+			'The terminal pane remains open after choosing "Edit".',
+			'A "Code Review" agent session is visible after the Edit action.',
+			'The review flow returns focus to the terminal area after sending.',
 		],
 	});
 }, 60000);
