@@ -198,6 +198,7 @@ jobs:
         if: steps.secrets_check.outputs.configured == 'true'
         uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: stable
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
@@ -217,6 +218,8 @@ jobs:
       - name: Setup Android SDK/NDK
         if: steps.secrets_check.outputs.configured == 'true'
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install NDK
         if: steps.secrets_check.outputs.configured == 'true'
@@ -320,6 +323,7 @@ jobs:
         if: steps.secrets_check.outputs.configured == 'true'
         uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: stable
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
 
       - uses: Swatinem/rust-cache@v2
