@@ -120,7 +120,19 @@ jobs:
         run: npm run mobile:ios:init
 
       - name: Build unsigned debug app bundle
-        run: npm run mobile:ios:build -- --debug --no-sign
+        # --no-sign (added in @tauri-apps/cli 2.11+) skips the plain `xcodebuild
+        # build` this job wants and always archives+exports instead, which
+        # needs its own export/signing plumbing and produces an .ipa, not the
+        # .app this job uploads. Keep the plain `build` action (by omitting
+        # --no-sign) and disable signing the way xcodebuild itself supports:
+        # these build settings are read from the process environment when the
+        # generated Xcode project doesn't hardcode them, same as any other
+        # CI-unsigned-iOS-build setup.
+        env:
+          CODE_SIGNING_ALLOWED: "NO"
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGN_IDENTITY: ""
+        run: npm run mobile:ios:build -- --debug
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
