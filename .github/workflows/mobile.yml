@@ -129,9 +129,11 @@ jobs:
         # generated Xcode project doesn't hardcode them, same as any other
         # CI-unsigned-iOS-build setup.
         env:
+          CODE_SIGN_STYLE: Manual
           CODE_SIGNING_ALLOWED: "NO"
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
+          DEVELOPMENT_TEAM: ""
         run: npm run mobile:ios:build -- --debug
 
       - name: Upload app bundle
