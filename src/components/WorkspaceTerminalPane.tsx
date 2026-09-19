@@ -1,6 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState } from "react";
 import { type ConsolidatedTerminalHandle } from "./ConsolidatedTerminal";
 import { ptyClose } from "../lib/api";
+import { ptyWrite } from "../lib/api-extra";
 import { type ClaudeSessionData } from "./terminal/types";
 import { WorkspaceTerminalPaneView } from "./WorkspaceTerminalPaneView";
 import { resolveTerminalWorkspace } from "./workspace-terminal-pane/resolveTerminalWorkspace";
@@ -416,6 +417,12 @@ const WorkspaceTerminalPaneInner = ({
       createShellSession: handleAddShell,
       closeTerminalsForWorkspace,
       focusTerminal: handleFocusTerminalById,
+      sendToTerminal: (id: string, text: string) => {
+        const session = claudeSessions.find((item) => `claude-${item.sessionId}` === id);
+        if (!session) return;
+        void ptyWrite(session.ptySessionId, `${text}\n`);
+        handleFocusTerminalById(id);
+      },
       closeTerminal: handleCloseTerminalById,
       closeIdleTerminals: handleCloseIdleTerminals,
       closeAllTerminals: handleCloseAllTerminals,
@@ -424,6 +431,7 @@ const WorkspaceTerminalPaneInner = ({
       maximized,
       handleCreateAgentSession,
       handleAddShell,
+      claudeSessions,
       closeTerminalsForWorkspace,
       handleFocusTerminalById,
       handleCloseTerminalById,
