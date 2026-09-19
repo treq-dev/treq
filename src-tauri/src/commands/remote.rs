@@ -94,10 +94,10 @@ pub fn read_local_ssh_public_key(
 /// registration and certificate-based SSH auth, generating one on first
 /// use. Returns only public material - see `core::remote_device_key`.
 #[tauri::command]
-pub fn ensure_mobile_device_key(
-  state: State<AppState>,
+pub async fn ensure_mobile_device_key(
+  state: State<'_, AppState>,
   app: tauri::AppHandle,
 ) -> Result<DeviceKeyInfo, String> {
   require_remote_ssh(&state)?;
-  remote_device_key::ensure_device_key(&app)
+  remote_device_key::ensure_device_key(&app).await
 }

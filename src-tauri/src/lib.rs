@@ -32,6 +32,7 @@ use db::Database;
 use pty::PtyManager;
 use std::collections::HashMap;
 use std::sync::Mutex;
+#[cfg(desktop)]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, EventTarget, Manager};
 use tauri_plugin_log::{Target, TargetKind};
@@ -142,6 +143,7 @@ pub fn emit_to_focused<S: serde::Serialize + Clone>(app: &AppHandle, event: &str
 /// one already showing. The target webview is resolved and retained before
 /// the picker steals window focus, and the picker itself is shown after
 /// leaving the AppKit menu-tracking loop.
+#[cfg(desktop)]
 fn schedule_open_repo(app: AppHandle) {
   if !open_new_window::OPEN_REPO_GATE.try_begin() {
     return;
@@ -163,6 +165,7 @@ fn schedule_open_repo(app: AppHandle) {
   });
 }
 
+#[cfg(desktop)]
 fn pick_folder_and_notify(app: AppHandle, label: String) {
   use tauri_plugin_dialog::DialogExt;
 
@@ -191,6 +194,7 @@ fn pick_folder_and_notify(app: AppHandle, label: String) {
     });
 }
 
+#[cfg(desktop)]
 fn schedule_open_repo_in_new_window(app: AppHandle) {
   if !open_new_window::OPEN_NEW_WINDOW_GATE.try_begin() {
     return;
@@ -211,6 +215,7 @@ fn schedule_open_repo_in_new_window(app: AppHandle) {
   });
 }
 
+#[cfg(desktop)]
 fn pick_folder_and_open_new_window(app: AppHandle) {
   use tauri_plugin_dialog::DialogExt;
 
@@ -498,6 +503,11 @@ pub fn run() {
             }
 
             // Create menu
+            //
+            // Native menus (tauri::menu) have no mobile implementation; gate the
+            // whole block so mobile targets (Android/iOS) build.
+            #[cfg(desktop)]
+            {
             #[cfg(target_os = "macos")]
             {
                 use tauri::menu::PredefinedMenuItem;
@@ -764,6 +774,7 @@ pub fn run() {
                 }
                 _ => {}
             });
+            } // #[cfg(desktop)]
 
             Ok(())
         })
