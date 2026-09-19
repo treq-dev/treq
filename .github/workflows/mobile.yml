@@ -77,12 +77,6 @@ jobs:
       - name: Build unsigned debug APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
-          # This job hits `npm error Missing script: "tauri"` from inside
-          # Gradle's rustBuild task. BuildTask.kt picks its own verbosity
-          # for that recursive invocation from this env var (seen unset/0 in
-          # the failing run's process dump) - bump it to see the exact
-          # command/cwd it uses. See PR #495 discussion.
-          TAURI_CLI_VERBOSITY: "2"
         run: npm run mobile:android:build -- --debug
 
       - name: Upload APK
@@ -127,17 +121,16 @@ jobs:
 
       # KNOWN BROKEN as of 2026-09-19: this job cannot currently produce an
       # unsigned .app - xcodebuild refuses with "Signing for treq_iOS requires
-      # a development team" and neither approach tried gets past it:
+      # a development team" on the plain `xcodebuild build` action this job
+      # wants. Neither approach tried gets past it:
       #
       # - `tauri ios build --debug --no-sign` (the CLI's own flag for this,
       #   added in @tauri-apps/cli 2.11+): skips signing fine, but also skips
       #   the plain `xcodebuild build` this job wants and always archives+
       #   exports instead (confirmed against the CLI's build.rs - `build` only
-      #   runs when neither `archive_only` nor `no_sign` is set). That needs
+      #   runs when neither `archive_only` nor `no_sign` is set), which needs
       #   its own export/signing plumbing and produces an .ipa, not the .app
-      #   this job uploads, and separately broke on an unrelated
-      #   `npm error Missing script: "tauri"` inside the archive's own
-      #   "Build Rust Code" run-script phase.
+      #   this job uploads.
       # - CODE_SIGNING_ALLOWED/CODE_SIGNING_REQUIRED/CODE_SIGN_IDENTITY/
       #   CODE_SIGN_STYLE/DEVELOPMENT_TEAM as step-level env vars (the usual
       #   xcodebuild-picks-up-env-as-build-setting-override trick): had zero
@@ -147,10 +140,18 @@ jobs:
       #   Xcode project's automatic-signing requirement is being validated
       #   before build settings from the environment are consulted at all.
       #
-      # Root-causing further needs eyes on the actual generated
-      # gen/apple/treq.xcodeproj and its "Build Rust Code" script, which
-      # needs a real macOS/Xcode environment to reproduce - not available in
-      # the sandbox these fixes were made from. See PR #495 discussion.
+      # (The `npm error Missing script: "tauri"` this used to also hit on the
+      # --no-sign/archive path was a separate, now-fixed bug - see
+      # src-tauri/package.json - not specific to iOS or to archiving: Tauri's
+      # generated native build tooling (this job's "Build Rust Code" script
+      # phase, and Android's Gradle rustBuild task) re-invokes itself via
+      # `npm run tauri` with its cwd resolved to `src-tauri`, and
+      # src-tauri/package.json existed with no `scripts.tauri` entry.)
+      #
+      # The remaining signing blocker needs eyes on the actual generated
+      # gen/apple/treq.xcodeproj, which needs a real macOS/Xcode environment
+      # to reproduce - not available in the sandbox these fixes were made
+      # from. See PR #495 discussion.
       - name: Build unsigned debug app bundle
         run: npm run mobile:ios:build -- --debug
 
