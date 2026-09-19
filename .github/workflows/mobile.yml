@@ -77,6 +77,12 @@ jobs:
       - name: Build unsigned debug APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          # This job hits `npm error Missing script: "tauri"` from inside
+          # Gradle's rustBuild task. BuildTask.kt picks its own verbosity
+          # for that recursive invocation from this env var (seen unset/0 in
+          # the failing run's process dump) - bump it to see the exact
+          # command/cwd it uses. See PR #495 discussion.
+          TAURI_CLI_VERBOSITY: "2"
         run: npm run mobile:android:build -- --debug
 
       - name: Upload APK
