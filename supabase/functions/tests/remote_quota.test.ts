@@ -47,8 +47,8 @@ Deno.test("sprites adapter creates a deterministic sprite without Machines confi
       new Response(
         JSON.stringify({
           id: "sprite-id",
-          name: "treq-user-1",
-          status: "running",
+          name: "dev-treq-user-1",
+          status: "warm",
         }),
         { status: 200 },
       ),
@@ -60,7 +60,7 @@ Deno.test("sprites adapter creates a deterministic sprite without Machines confi
       baseUrl: "https://example.invalid",
       apiToken: "test-token",
     });
-    await provider.createInstance({
+    const instance = await provider.createInstance({
       ownerUserId: "user-1",
       region: "us_east",
       sizePreset: "small",
@@ -71,5 +71,45 @@ Deno.test("sprites adapter creates a deterministic sprite without Machines confi
     globalThis.fetch = originalFetch;
   }
 
-  assertEquals(capturedBodies, [{ name: "treq-user-1" }]);
+  assertEquals(capturedBodies, [{ name: "dev-treq-user-1" }]);
+  assertEquals(instance.state, "ready");
+});
+
+Deno.test("sprites adapter executes argv through the documented HTTP endpoint", async () => {
+  const { SpritesProvider } = await import(
+    "../_shared/remote/sprites-adapter.ts"
+  );
+  const originalFetch = globalThis.fetch;
+  let capturedUrl = "";
+  let capturedMethod = "";
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    capturedUrl = String(input);
+    capturedMethod = init?.method ?? "GET";
+    return Promise.resolve(new Response("installed\n", { status: 200 }));
+  }) as typeof fetch;
+
+  try {
+    const provider = new SpritesProvider({
+      baseUrl: "https://example.invalid",
+      apiToken: "test-token",
+    });
+    const result = await provider.execOnMachine(
+      "treq-user-1",
+      ["bash", "-lc", "echo installed"],
+      20,
+    );
+    assertEquals(result, {
+      exitCode: 0,
+      stdout: "installed\n",
+      stderr: "",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assertEquals(capturedMethod, "POST");
+  assertEquals(
+    capturedUrl,
+    "https://example.invalid/v1/sprites/treq-user-1/exec?cmd=bash&cmd=-lc&cmd=echo+installed&path=bash",
+  );
 });

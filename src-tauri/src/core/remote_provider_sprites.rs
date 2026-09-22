@@ -127,12 +127,12 @@ impl SpritesProvider {
         }
       })
       .collect();
-    format!("treq-{normalized}").chars().take(63).collect()
+    format!("dev-treq-{normalized}").chars().take(63).collect()
   }
   fn normalize(sprite: SpriteResponse) -> ProviderInstance {
     let state = match sprite.status.as_str() {
       "creating" => ManagedInstanceState::Provisioning,
-      "running" => ManagedInstanceState::Ready,
+      "warm" | "running" => ManagedInstanceState::Ready,
       "cold" | "paused" => ManagedInstanceState::Suspended,
       _ => ManagedInstanceState::Degraded,
     };
@@ -272,17 +272,38 @@ mod tests {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
       .and(path("/v1/sprites"))
-      .and(body_json(json!({"name": "treq-user-1"})))
+      .and(body_json(json!({"name": "dev-treq-user-1"})))
       .respond_with(ResponseTemplate::new(201).set_body_json(json!({
-        "name": "treq-user-1", "status": "running"
+        "name": "dev-treq-user-1", "status": "running"
       })))
       .mount(&server)
       .await;
     let provider = SpritesProvider::new(config(server.uri())).unwrap();
     let instance = provider.create_instance(request()).await.unwrap();
-    assert_eq!(instance.provider_resource_id, "treq-user-1");
+    assert_eq!(instance.provider_resource_id, "dev-treq-user-1");
     assert_eq!(instance.state, ManagedInstanceState::Ready);
     assert_eq!(instance.address, None);
+  }
+
+  #[tokio::test]
+  async fn warm_sprite_maps_to_ready() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+      .and(path("/v1/sprites/dev-treq-user-1"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        "name": "dev-treq-user-1", "status": "warm"
+      })))
+      .mount(&server)
+      .await;
+    let provider = SpritesProvider::new(config(server.uri())).unwrap();
+    assert_eq!(
+      provider
+        .get_instance("dev-treq-user-1")
+        .await
+        .unwrap()
+        .state,
+      ManagedInstanceState::Ready
+    );
   }
 
   #[tokio::test]

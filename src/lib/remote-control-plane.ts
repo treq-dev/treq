@@ -8,6 +8,43 @@
 // any response it receives - see the edge functions themselves.
 
 import { supabase } from "./supabase";
+export async function remoteFunctionError(error: unknown): Promise<Error> {
+  const fallback =
+    error instanceof Error ? error.message : "Remote server request failed";
+  const context =
+    typeof error === "object" && error !== null && "context" in error
+      ? (error as { context?: unknown }).context
+      : null;
+  if (!(context instanceof Response)) return new Error(fallback);
+
+  const status = context.status;
+  const payload = (await context
+    .clone()
+    .json()
+    .catch(() => null)) as {
+    error?: unknown;
+    code?: unknown;
+    provider_error?: unknown;
+    correlation_id?: unknown;
+  } | null;
+  const message =
+    typeof payload?.error === "string" ? payload.error : fallback;
+  const code =
+    typeof payload?.code === "string"
+      ? payload.code
+      : typeof payload?.provider_error === "string"
+        ? payload.provider_error
+        : `http_${status}`;
+  const correlationId =
+    typeof payload?.correlation_id === "string"
+      ? payload.correlation_id
+      : context.headers.get("x-correlation-id");
+  const detail = correlationId
+    ? `HTTP ${status} · Correlation ID: ${correlationId}`
+    : `HTTP ${status}`;
+  return new Error(`[${code}] ${message}\n${detail}`);
+}
+
 import type {
   ClientKeyResponse,
   DeleteInstanceRequest,
@@ -34,7 +71,7 @@ async function invokeRemoteInstance<T>(
   const { data, error } = await supabase.functions.invoke("remote-instance", {
     body: { action, ...body },
   });
-  if (error) throw error;
+  if (error) throw await remoteFunctionError(error);
   return data as T;
 }
 
@@ -45,7 +82,7 @@ async function invokeRemoteTrust<T>(
   const { data, error } = await supabase.functions.invoke("remote-ssh-trust", {
     body: { action, ...body },
   });
-  if (error) throw error;
+  if (error) throw await remoteFunctionError(error);
   return data as T;
 }
 
@@ -61,7 +98,7 @@ export async function execManagedSprite<T>(request: {
       body: request,
     },
   );
-  if (error) throw error;
+  if (error) throw await remoteFunctionError(error);
   const result = data as { exit_code: number; stdout: string; stderr: string };
   if (result.exit_code !== 0) {
     throw new Error(result.stderr || `Remote Treq exited ${result.exit_code}`);

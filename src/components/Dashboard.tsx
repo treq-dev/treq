@@ -778,7 +778,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setProvisioningStage("Requesting provisioning...");
     try {
       await ensureInstance({
-        idempotency_key: "provision-managed-sprite",
+        idempotency_key: `provision-managed-sprite-${Date.now()}`,
       });
       const status = await getInstanceStatus();
       setInstanceStatus(status);

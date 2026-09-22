@@ -33,8 +33,20 @@ export function RemoteManagedSetupPanel({
 }: RemoteManagedSetupPanelProps) {
   const [submitting, setSubmitting] = useState(false);
   const [confirmingReprovision, setConfirmingReprovision] = useState(false);
+  const [errorCopied, setErrorCopied] = useState(false);
 
-  const existingInstance = instanceStatus?.instance ?? null;
+  const copyError = async () => {
+    if (!provisioningError) return;
+    await navigator.clipboard.writeText(provisioningError);
+    setErrorCopied(true);
+  };
+
+  const instanceRecord = instanceStatus?.instance ?? null;
+  const existingInstance = instanceRecord?.provider_resource_id
+    ? instanceRecord
+    : null;
+  const creationRetry =
+    instanceRecord?.status === "failed" && !instanceRecord.provider_resource_id;
   const existingEndpoint = instanceStatus?.endpoint ?? null;
   const handleProvision = async () => {
     setSubmitting(true);
@@ -86,9 +98,23 @@ export function RemoteManagedSetupPanel({
           </div>
 
           {provisioningError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              {provisioningError}
-            </p>
+            <div className="rounded-md border border-red-500/40 bg-red-500/5 p-3">
+              <pre
+                role="alert"
+                className="whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-400"
+              >
+                {provisioningError}
+              </pre>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() => void copyError()}
+              >
+                {errorCopied ? "Copied" : "Copy error"}
+              </Button>
+            </div>
           )}
 
           {existingInstance.status === "ready" && (
@@ -175,9 +201,23 @@ export function RemoteManagedSetupPanel({
             <p className="text-sm text-muted-foreground">{provisioningStage}</p>
           )}
           {provisioningError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              {provisioningError}
-            </p>
+            <div className="rounded-md border border-red-500/40 bg-red-500/5 p-3">
+              <pre
+                role="alert"
+                className="whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-400"
+              >
+                {provisioningError}
+              </pre>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() => void copyError()}
+              >
+                {errorCopied ? "Copied" : "Copy error"}
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -188,7 +228,11 @@ export function RemoteManagedSetupPanel({
         </Button>
         {!existingInstance && (
           <Button disabled={submitting} onClick={() => void handleProvision()}>
-            {submitting ? "Creating..." : "Create Sprite"}
+            {submitting
+              ? "Creating..."
+              : creationRetry
+                ? "Retry Sprite creation"
+                : "Create Sprite"}
           </Button>
         )}
       </div>

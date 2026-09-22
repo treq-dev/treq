@@ -191,20 +191,20 @@ Deno.serve(async (req) => {
   } catch (err) {
     if (err instanceof ProviderError) {
       return json(
-        { error: err.message, provider_error: err.kind },
+        { error: err.message, code: err.kind, provider_error: err.kind },
         providerErrorStatus(err),
         correlationId,
       );
     }
     if (err instanceof ValidationErrorWithStatus) {
-      return json({ error: err.message }, err.status, correlationId);
+      return json({ error: err.message, code: "validation_error" }, err.status, correlationId);
     }
     logWithCorrelation(
       correlationId,
       "error",
       `remote-instance action=${action} failed: ${(err as Error).message}`,
     );
-    return json({ error: "Internal error" }, 500, correlationId);
+    return json({ error: "Internal error", code: "internal_error" }, 500, correlationId);
   }
 });
 
@@ -420,7 +420,11 @@ async function handleEnsure(
   }
 
   const existingInstance = await getInstanceForOwner(supabase, ownerUserId);
-  if (existingInstance && existingInstance.status !== "deleted") {
+  if (
+    existingInstance &&
+    existingInstance.status !== "deleted" &&
+    existingInstance.status !== "failed"
+  ) {
     // One managed instance per user (Goal 1): ensure is a no-op once
     // provisioned, regardless of idempotency key, so a second "first open of
     // a managed repo" never provisions a second VM.
@@ -442,12 +446,17 @@ async function handleEnsure(
     );
   }
 
-  const instance = await createProvisioningInstance(supabase, {
-    ownerUserId,
-    region,
-    sizePreset,
-    manifestVersion: CURRENT_MANIFEST_VERSION,
-  });
+  const instance = existingInstance?.status === "failed"
+    ? existingInstance
+    : await createProvisioningInstance(supabase, {
+      ownerUserId,
+      region,
+      sizePreset,
+      manifestVersion: CURRENT_MANIFEST_VERSION,
+    });
+  if (instance.status === "failed") {
+    await updateInstance(supabase, instance.id, { status: "provisioning" });
+  }
 
   const op = await beginOperation(supabase, {
     ownerUserId,

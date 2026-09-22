@@ -5,7 +5,6 @@
 // strings and vendor SDK types must never leave this module.
 
 import type { RegionCode, SizePreset } from "./catalog.ts";
-import { SpritesClient } from "npm:@fly/sprites@0.2.3";
 
 export type ManagedInstanceState =
   | "unprovisioned"
@@ -74,8 +73,8 @@ export interface ManagedComputeProvider {
   wakeInstance(providerId: string): Promise<void>;
   replaceInstance(params: ReplaceInstanceParams): Promise<ProviderInstance>;
   deleteInstance(providerId: string): Promise<void>;
-  // Runs a command inside a Sprite through the official SDK. The provider token
-  // remains server-side.
+  // Runs a command through the documented non-TTY HTTP exec endpoint. The
+  // provider token remains server-side.
   execOnMachine(
     providerId: string,
     command: string[],
@@ -87,6 +86,7 @@ function normalizeState(vendorState: string): ManagedInstanceState {
   switch (vendorState) {
     case "creating":
       return "provisioning";
+    case "warm":
     case "running":
       return "ready";
     case "cold":
@@ -152,24 +152,25 @@ export class SpritesProvider implements ManagedComputeProvider {
     if (command.length === 0) {
       throw new ProviderError("invalid_request", "command is required");
     }
+
+    const url = new URL(`${this.spriteUrl(providerId)}/exec`);
+    for (const arg of command) url.searchParams.append("cmd", arg);
+    url.searchParams.set("path", command[0]);
+
     try {
-      const client = new SpritesClient(this.config.apiToken, {
-        baseURL: this.config.baseUrl.replace(/\/+$/, ""),
-        timeout: timeoutSeconds * 1_000,
+      const response = await fetch(url, {
+        method: "POST",
+        headers: this.headers(),
+        signal: AbortSignal.timeout(timeoutSeconds * 1_000),
       });
-      const result = await client
-        .sprite(providerId)
-        .execFile(command[0], command.slice(1), {
-          timeout: timeoutSeconds * 1_000,
-        });
-      return {
-        exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
-      };
+      if (!response.ok) throw await this.mapErrorResponse(response);
+      return { exitCode: 0, stdout: await response.text(), stderr: "" };
     } catch (err) {
+      if (err instanceof ProviderError) throw err;
       throw new ProviderError(
-        "unavailable",
+        err instanceof DOMException && err.name === "TimeoutError"
+          ? "timeout"
+          : "unavailable",
         `Sprite exec failed: ${(err as Error).message}`,
       );
     }
@@ -205,7 +206,7 @@ export class SpritesProvider implements ManagedComputeProvider {
   async createInstance(
     params: CreateInstanceParams,
   ): Promise<ProviderInstance> {
-    const name = `treq-${params.ownerUserId}`
+    const name = `dev-treq-${params.ownerUserId}`
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, "-")
       .slice(0, 63);

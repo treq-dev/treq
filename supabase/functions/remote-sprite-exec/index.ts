@@ -2,7 +2,7 @@
 // Sprite. The organization token remains inside the Edge Function.
 
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";
-import { SpritesClient } from "npm:@fly/sprites@0.2.3";
+import { SpritesProvider } from "../_shared/remote/sprites-adapter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,14 +75,15 @@ Deno.serve(async (req) => {
       typeof body.timeout_ms === "number"
         ? Math.min(Math.max(body.timeout_ms, 1_000), 120_000)
         : 30_000;
-    const client = new SpritesClient(token, { baseURL, timeout });
-    const result = await client
-      .sprite(instance.provider_resource_id)
-      .execFile(body.argv[0], body.argv.slice(1), {
-        cwd: typeof body.cwd === "string" ? body.cwd : undefined,
-        timeout,
-        maxBuffer: 10 * 1024 * 1024,
-      });
+    const argv = typeof body.cwd === "string"
+      ? ["bash", "-lc", `cd -- "$1" && shift && exec "$@"`, "bash", body.cwd, ...body.argv]
+      : body.argv;
+    const provider = new SpritesProvider({ baseUrl: baseURL, apiToken: token });
+    const result = await provider.execOnMachine(
+      instance.provider_resource_id,
+      argv,
+      Math.ceil(timeout / 1_000),
+    );
     return json({
       exit_code: result.exitCode,
       stdout: result.stdout,
