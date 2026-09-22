@@ -906,6 +906,7 @@ pub fn run() {
             commands::build_explicit_alias_ssh_endpoint,
             commands::ensure_mobile_device_key,
             commands::remote_dispatch_local,
+            commands::remote_build_cli_argv,
             commands::remote_dispatch_over_ssh,
             commands::remote_probe_repo_over_ssh,
             commands::remote_open_repo_over_ssh,

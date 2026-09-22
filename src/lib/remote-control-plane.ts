@@ -49,6 +49,26 @@ async function invokeRemoteTrust<T>(
   return data as T;
 }
 
+export async function execManagedSprite<T>(request: {
+  instance_id: string;
+  argv: string[];
+  cwd?: string;
+  timeout_ms?: number;
+}): Promise<T> {
+  const { data, error } = await supabase.functions.invoke(
+    "remote-sprite-exec",
+    {
+      body: request,
+    },
+  );
+  if (error) throw error;
+  const result = data as { exit_code: number; stdout: string; stderr: string };
+  if (result.exit_code !== 0) {
+    throw new Error(result.stderr || `Remote Treq exited ${result.exit_code}`);
+  }
+  return JSON.parse(result.stdout) as T;
+}
+
 // -- Instance lifecycle (remote-instance) -----------------------------------
 
 export const listRegions = (): Promise<RegionCode[]> =>

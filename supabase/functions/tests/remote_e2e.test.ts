@@ -41,7 +41,7 @@
 // See remote_e2e_README.md (in src-tauri/tests/) for the acceptance-criteria
 // mapping covering both this file and remote_e2e.rs.
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 
 const REQUIRED_VARS = [
   "SUPABASE_TEST_URL",

@@ -60,10 +60,8 @@ import {
 import type { RemoteRepository } from "../lib/api-types";
 import type {
   InstanceStatusResponse,
-  RegionCode,
   RemoteRepoProbe,
   RepositoryInspection,
-  SizePreset,
   SshEndpoint,
 } from "../lib/api-types-remote";
 import { RemoteAmbiguousMutationDialog } from "./remote/RemoteAmbiguousMutationDialog";
@@ -109,8 +107,6 @@ import {
   ensureInstance,
   getInstanceStatus,
   issueCertificate,
-  listRegions,
-  listSizePresets,
   registerClientKey,
   reprovisionInstance,
   revokeClientKey,
@@ -139,7 +135,6 @@ import {
 } from "../lib/remote-repository";
 import {
   connectExistingReadyInstance,
-  connectManagedInstance,
   reauthenticateManagedInstance,
   waitForInstanceReady,
   type ManagedConnectionDeps,
@@ -179,7 +174,6 @@ import { MergePreviewPage } from "./MergePreviewPage";
 import { Onboarding } from "./Onboarding";
 import { PromptHistoryModal } from "./PromptHistoryModal";
 import {
-  type LocalKeyIdentity,
   RemoteSetupDialog,
   type UserManagedFormValues,
 } from "./remote/RemoteSetupDialog";
@@ -368,11 +362,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // -- Phase 6: remote setup flow (managed + user-owned endpoints) ---------
   const [showRemoteSetupDialog, setShowRemoteSetupDialog] = useState(false);
-  const [remoteRegions, setRemoteRegions] = useState<RegionCode[]>([]);
-  const [remoteSizePresets, setRemoteSizePresets] = useState<SizePreset[]>([]);
-  const [localKeyIdentities, setLocalKeyIdentities] = useState<
-    LocalKeyIdentity[]
-  >([]);
   const [instanceStatus, setInstanceStatus] =
     useState<InstanceStatusResponse | null>(null);
   const [provisioningStage, setProvisioningStage] = useState<string>();
@@ -542,10 +531,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setManagedKeyId(key.id);
       return key;
     },
-    ensureInstance: (region, size, idempotencyKey) =>
+    ensureInstance: (_region, _size, idempotencyKey) =>
       ensureInstance({
-        region,
-        size_preset: size,
         idempotency_key: idempotencyKey,
       }),
     getInstanceStatus,
@@ -764,23 +751,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (!useFeaturePreviewStore.getState().flags.remoteSsh) return;
     setProvisioningError(undefined);
     try {
-      const [hosts, identities, regions, sizes, status] = await Promise.all([
+      const [hosts, status] = await Promise.all([
         listSshHosts().catch(() => []),
-        listLocalSshIdentities().catch(() => []),
-        listRegions().catch(() => []),
-        listSizePresets().catch(() => []),
         getInstanceStatus().catch(() => null),
       ]);
       setRemoteSshHosts(hosts.map((h) => h.alias));
-      setLocalKeyIdentities(
-        identities.map((identity) => ({
-          reference: identity.reference,
-          label: identity.label,
-          fingerprint: identity.fingerprint_sha256,
-        })),
-      );
-      setRemoteRegions(regions);
-      setRemoteSizePresets(sizes);
       setInstanceStatus(status);
     } catch {
       // Best-effort: the dialog still opens and shows what it could load.
@@ -799,35 +774,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Full identity -> registration -> certificate -> endpoint sequence (PRD
   // "Managed VM certificate flow"), plus the initial silent-renewal start.
   // See `src/lib/managed-ssh-connection.ts` for the state machine itself.
-  const handleProvisionManaged = async (
-    region: RegionCode,
-    size: SizePreset,
-    keyReference: string,
-  ) => {
+  const handleProvisionManaged = async () => {
     setProvisioningError(undefined);
     setProvisioningStage("Requesting provisioning...");
     try {
-      setProvisioningStage("Registering SSH key...");
-      const result = await connectManagedInstance(managedConnectionDeps(), {
-        region,
-        size,
-        keyReference,
+      await ensureInstance({
+        idempotency_key: "provision-managed-sprite",
       });
       const status = await getInstanceStatus();
       setInstanceStatus(status);
-      if (status.endpoint) {
-        const generation = generationFromEndpoint(
-          status.endpoint,
-          status.instance?.generation ?? 0,
-        );
-        setActiveSshEndpoint(status.endpoint);
-        setActiveEndpointGeneration(generation);
-        setExplicitEndpointRepoConnected(false);
-        setShowRemoteSetupDialog(false);
-        void refreshSavedRemoteRepos(status.endpoint.id, generation);
-      }
-      renewalControllerRef.current = result.renewal;
-      setSelectedKeyReference(keyReference);
     } catch (error) {
       setProvisioningError(
         error instanceof Error ? error.message : String(error),
@@ -841,22 +796,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // "Add a clear Connect action for an existing ready managed instance") -
   // still runs key registration + certificate issuance + renewal, just skips
   // provisioning/readiness polling since the instance is already `ready`.
-  const handleConnectManaged = async (keyReference: string) => {
-    if (!instanceStatus) return;
-    setProvisioningError(undefined);
-    try {
-      const result = await connectExistingReadyInstance(
-        managedConnectionDeps(),
-        { status: instanceStatus, keyReference },
-      );
-      renewalControllerRef.current = result.renewal;
-      setSelectedKeyReference(keyReference);
-      setShowRemoteSetupDialog(false);
-    } catch (error) {
-      setProvisioningError(
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+  const handleConnectManaged = async () => {
+    setShowRemoteSetupDialog(false);
   };
 
   // Wake/reconnect ordering (required behavior): wake, poll readiness,
@@ -921,21 +862,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
-  const handleReprovisionManaged = async (
-    region: RegionCode,
-    size: SizePreset,
-  ) => {
+  const handleReprovisionManaged = async () => {
     const instanceId = instanceStatus?.instance?.instance_id;
     if (!instanceId) return;
     setProvisioningError(undefined);
     try {
       await reprovisionInstance({
         instance_id: instanceId,
-        region,
-        size_preset: size,
         idempotency_key: `reprovision-${instanceId}-${Date.now()}`,
       });
-      setExplicitGenerationTransition(true);
       await refreshInstanceStatus();
     } catch (error) {
       setProvisioningError(
@@ -2674,9 +2609,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     <RemoteSetupDialog
       open={showRemoteSetupDialog}
       onOpenChange={setShowRemoteSetupDialog}
-      regions={remoteRegions}
-      sizePresets={remoteSizePresets}
-      localKeyIdentities={localKeyIdentities}
       sshConfigAliasSuggestions={remoteSshHosts}
       instanceStatus={instanceStatus}
       provisioningStage={provisioningStage}

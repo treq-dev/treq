@@ -269,8 +269,6 @@ export interface OperationResponse {
 }
 
 export interface ProvisionInstanceRequest {
-  region: RegionCode;
-  size_preset: SizePreset;
   idempotency_key: string;
 }
 
@@ -281,8 +279,6 @@ export interface WakeInstanceRequest {
 
 export interface ReprovisionInstanceRequest {
   instance_id: string;
-  region: RegionCode;
-  size_preset: SizePreset;
   idempotency_key: string;
 }
 

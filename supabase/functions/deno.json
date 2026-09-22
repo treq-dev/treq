@@ -1,6 +1,3 @@
 {
-  "nodeModulesDir": "manual",
-  "imports": {
-    "@supabase/supabase-js": "./node_modules/@supabase/supabase-js/dist/index.mjs"
-  }
+  "nodeModulesDir": "auto"
 }
