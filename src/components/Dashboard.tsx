@@ -748,7 +748,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   );
 
   const handleOpenRemoteSetup = async () => {
-    if (!useFeaturePreviewStore.getState().flags.remoteSsh) return;
     setProvisioningError(undefined);
     try {
       const [hosts, status] = await Promise.all([
@@ -2944,6 +2943,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   repoPath={dataRepoPath}
                   onClose={closeSettings}
                   currentBranch={effectiveDefaultBranch}
+                  onOpenRemoteSetup={() => void handleOpenRemoteSetup()}
                 />
               )}
 
@@ -3223,6 +3223,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             workspaceChangeCounts={undefined}
             onSelect={handleOpenSession}
           />
+          {remoteSetupDialog}
           {remoteSshDialog}
           <RemoteAmbiguousMutationDialog />
           {activeSshEndpoint && activeRepository?.canonicalPath && (
