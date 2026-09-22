@@ -27,8 +27,7 @@ export async function remoteFunctionError(error: unknown): Promise<Error> {
     provider_error?: unknown;
     correlation_id?: unknown;
   } | null;
-  const message =
-    typeof payload?.error === "string" ? payload.error : fallback;
+  const message = typeof payload?.error === "string" ? payload.error : fallback;
   const code =
     typeof payload?.code === "string"
       ? payload.code
@@ -47,6 +46,8 @@ export async function remoteFunctionError(error: unknown): Promise<Error> {
 
 import type {
   ClientKeyResponse,
+  CloneManagedRepositoryRequest,
+  CloneManagedRepositoryResponse,
   DeleteInstanceRequest,
   InstanceStatusResponse,
   IssueCertificateRequest,
@@ -63,6 +64,16 @@ import type {
   SizePreset,
   WakeInstanceRequest,
 } from "./api-types-remote";
+export async function cloneManagedGitHubRepository(
+  request: CloneManagedRepositoryRequest,
+): Promise<CloneManagedRepositoryResponse> {
+  const { data, error } = await supabase.functions.invoke(
+    "remote-github-clone",
+    { body: request },
+  );
+  if (error) throw await remoteFunctionError(error);
+  return data as CloneManagedRepositoryResponse;
+}
 
 async function invokeRemoteInstance<T>(
   action: string,

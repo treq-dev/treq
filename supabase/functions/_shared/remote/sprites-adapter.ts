@@ -79,6 +79,7 @@ export interface ManagedComputeProvider {
     providerId: string,
     command: string[],
     timeoutSeconds?: number,
+    environment?: Readonly<Record<string, string>>,
   ): Promise<MachineExecResult>;
 }
 
@@ -148,6 +149,7 @@ export class SpritesProvider implements ManagedComputeProvider {
     providerId: string,
     command: string[],
     timeoutSeconds = 20,
+    environment: Readonly<Record<string, string>> = {},
   ): Promise<MachineExecResult> {
     if (command.length === 0) {
       throw new ProviderError("invalid_request", "command is required");
@@ -155,6 +157,12 @@ export class SpritesProvider implements ManagedComputeProvider {
 
     const url = new URL(`${this.spriteUrl(providerId)}/exec`);
     for (const arg of command) url.searchParams.append("cmd", arg);
+    for (const [name, value] of Object.entries(environment)) {
+      if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) {
+        throw new ProviderError("invalid_request", "invalid environment name");
+      }
+      url.searchParams.append("env", `${name}=${value}`);
+    }
     url.searchParams.set("path", command[0]);
 
     try {
