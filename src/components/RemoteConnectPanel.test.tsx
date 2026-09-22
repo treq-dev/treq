@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RemoteConnectPanel, SECURE_STORAGE_UNAVAILABLE_PREFIX } from "./RemoteConnectPanel";
+import {
+  RemoteConnectPanel,
+  SECURE_STORAGE_UNAVAILABLE_PREFIX,
+} from "./RemoteConnectPanel";
 import * as api from "../lib/api";
 import { render, screen } from "../../test/test-utils";
 
@@ -54,9 +57,7 @@ describe("RemoteConnectPanel", () => {
     expect(alert).toHaveTextContent(
       "Secure storage isn't set up on this device",
     );
-    expect(alert).toHaveTextContent(
-      "Biometrics are not set up on this device",
-    );
+    expect(alert).toHaveTextContent("Biometrics are not set up on this device");
     // The generic connect button is replaced by the dedicated retry action.
     expect(
       screen.queryByRole("button", { name: "Connect to managed instance" }),

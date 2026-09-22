@@ -42,7 +42,11 @@ export function MobileDiffView({ repoPath, workspaceId }: MobileDiffViewProps) {
     targetId: String(workspaceId),
   });
   const handleAgentCommentError = (message: string) =>
-    addToast({ title: "Review comment failed", description: message, type: "error" });
+    addToast({
+      title: "Review comment failed",
+      description: message,
+      type: "error",
+    });
 
   // hunks_by_file only covers committed_files; uncommitted (working-copy)
   // files need their own hunk fetch (see workspace_diff_with_conflict_style

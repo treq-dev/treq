@@ -356,9 +356,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       >
         <span className="sr-only">
           <h2>Command Menu</h2>
-          <p>
-            Command menu
-          </p>
+          <p>Command menu</p>
         </span>
         <div
           data-testid="modal"

@@ -146,8 +146,8 @@ export function RemoteConnectPanel() {
           <p className="text-muted-foreground">
             Treq stores this device&apos;s connection key in your device&apos;s
             secure keystore, which requires biometrics (Face ID, Touch ID, or
-            fingerprint unlock) to be enrolled. Set up biometrics in your
-            device settings, then try again.
+            fingerprint unlock) to be enrolled. Set up biometrics in your device
+            settings, then try again.
           </p>
           {error && <p className="text-xs text-muted-foreground">{error}</p>}
           <button
