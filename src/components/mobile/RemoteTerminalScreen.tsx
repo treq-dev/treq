@@ -32,9 +32,9 @@ export function RemoteTerminalScreen({
   repo: string;
   workspace: string;
 }) {
-  const [sessions, setSessions] = useState<
-    RemotePersistentPtySession[] | null
-  >(null);
+  const [sessions, setSessions] = useState<RemotePersistentPtySession[] | null>(
+    null,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [target, setTarget] = useState<RemoteTerminalTarget | null>(null);
   // The workspace's own checkout directory on the VM, not the repo root -
@@ -81,9 +81,7 @@ export function RemoteTerminalScreen({
         <RemoteTerminalPanel
           target={target}
           onClose={() => setTarget(null)}
-          renderToolbar={(send) => (
-            <RemoteTerminalTouchToolbar onSend={send} />
-          )}
+          renderToolbar={(send) => <RemoteTerminalTouchToolbar onSend={send} />}
         />
       </div>
     );
@@ -109,9 +107,7 @@ export function RemoteTerminalScreen({
               className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {session.label}
-                </p>
+                <p className="truncate text-sm font-medium">{session.label}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {session.running ? "running" : "stopped"}
                 </p>
