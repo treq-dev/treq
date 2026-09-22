@@ -58,7 +58,7 @@ const ContextMenuSubContent = ({
   ref,
   ...props
 }: React.ComponentProps<typeof MenuPrimitive.Popup>) => (
-  <MenuPrimitive.Positioner>
+  <MenuPrimitive.Positioner className="z-50">
     <MenuPrimitive.Popup
       ref={ref}
       className={cn(
@@ -77,7 +77,7 @@ const ContextMenuContent = ({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Popup>) => (
   <ContextMenuPrimitive.Portal>
-    <ContextMenuPrimitive.Positioner>
+    <ContextMenuPrimitive.Positioner className="z-50">
       <ContextMenuPrimitive.Popup
         ref={ref}
         className={cn(
