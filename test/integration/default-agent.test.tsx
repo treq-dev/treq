@@ -91,7 +91,9 @@ describe("default agent configuration", () => {
     expect(fs.readFileSync(gitignorePath, "utf8")).not.toContain(".jj*/");
 
     await user.click(
-      await screen.findByLabelText(/ignore generated Treq paths/i),
+      await screen.findByRole("switch", {
+        name: /ignore generated Treq paths/i,
+      }),
     );
     await user.click(
       await screen.findByRole("button", { name: /save settings/i }),
