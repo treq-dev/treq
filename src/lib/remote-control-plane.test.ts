@@ -13,7 +13,10 @@ describe("remoteFunctionError", () => {
     );
 
     await expect(
-      remoteFunctionError({ message: "Edge Function returned a non-2xx status code", context }),
+      remoteFunctionError({
+        message: "Edge Function returned a non-2xx status code",
+        context,
+      }),
     ).resolves.toEqual(
       new Error(
         "[invalid_request] sprite name must start with 'dev-'\nHTTP 400 · Correlation ID: corr-123",
