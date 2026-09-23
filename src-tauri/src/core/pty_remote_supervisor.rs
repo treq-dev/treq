@@ -181,13 +181,7 @@ pub fn start_session(
     PtyBackend::Screen => {
       let shell_cmd = format!("cd {quoted_dir} && exec {command}");
       let status = Command::new("screen")
-        .args([
-          "-dmS",
-          &name,
-          "bash",
-          "-lc",
-          &shell_cmd,
-        ])
+        .args(["-dmS", &name, "bash", "-lc", &shell_cmd])
         .status()
         .map_err(|e| format!("dependency_error: Failed to spawn screen: {e}"))?;
       if !status.success() {
@@ -330,11 +324,21 @@ pub fn resize_session(workspace: &str, label: &str, cols: u16, rows: u16) -> Res
   match backend {
     PtyBackend::Tmux => {
       let status = Command::new("tmux")
-        .args(["resize-window", "-t", &name, "-x", &cols.to_string(), "-y", &rows.to_string()])
+        .args([
+          "resize-window",
+          "-t",
+          &name,
+          "-x",
+          &cols.to_string(),
+          "-y",
+          &rows.to_string(),
+        ])
         .status()
         .map_err(|e| format!("dependency_error: Failed to resize tmux session: {e}"))?;
       if !status.success() {
-        return Err(format!("dependency_error: tmux resize-window exited with {status}"));
+        return Err(format!(
+          "dependency_error: tmux resize-window exited with {status}"
+        ));
       }
     }
     PtyBackend::Screen => {
@@ -379,9 +383,9 @@ pub fn build_attach_command(
     PtyBackend::Tmux => format!(
       "cd {quoted_dir} && exec tmux new-session -A -s {quoted_name} -x {cols} -y {rows} {command}"
     ),
-    PtyBackend::Screen => format!(
-      "cd {quoted_dir} && exec screen -xRR {quoted_name} bash -lc {command}"
-    ),
+    PtyBackend::Screen => {
+      format!("cd {quoted_dir} && exec screen -xRR {quoted_name} bash -lc {command}")
+    }
   })
 }
 
@@ -483,8 +487,7 @@ mod tests {
     // Ensure a clean slate in case a previous failed run left a session.
     let _ = stop_session(workspace, label);
 
-    let info =
-      start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
+    let info = start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
     assert!(info.running);
     assert_eq!(info.session_name, session_name(workspace, label));
 
@@ -500,7 +503,9 @@ mod tests {
 
     stop_session(workspace, label).unwrap();
     let sessions_after = list_sessions(Some(workspace)).unwrap();
-    assert!(!sessions_after.iter().any(|s| s.session_name == info.session_name));
+    assert!(!sessions_after
+      .iter()
+      .any(|s| s.session_name == info.session_name));
 
     // Stopping again is idempotent.
     stop_session(workspace, label).unwrap();
@@ -518,8 +523,7 @@ mod tests {
     let label = "term";
     let _ = stop_session(workspace, label);
 
-    let info =
-      start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
+    let info = start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
 
     let attach_cmd =
       build_attach_command(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
