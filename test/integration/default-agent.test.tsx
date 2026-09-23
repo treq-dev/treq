@@ -201,6 +201,23 @@ describe("default agent configuration", () => {
     });
   });
 
+  it("opens the agent prompt dialog with the home repo selected on Meta+I", async () => {
+    render(<Dashboard />);
+
+    await user.keyboard("{Meta>}i{/Meta}");
+
+    const promptDialog = (
+      await screen.findByRole("heading", {
+        name: "Start a new agent session",
+      })
+    ).closest('[data-testid="modal"]');
+    if (!promptDialog) throw new Error("Agent prompt dialog was not rendered");
+
+    expect(
+      within(promptDialog).getByPlaceholderText(/describe a task/i),
+    ).toBeTruthy();
+  });
+
   it("terminal pane Agent button uses the configured default_agent, not hardcoded claude", async () => {
     await setSetting("default_agent", "codex");
 

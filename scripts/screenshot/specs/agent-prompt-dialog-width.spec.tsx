@@ -40,3 +40,39 @@ it("captures the agent prompt dialog at cmdk-matching width", async () => {
 		],
 	});
 }, 60000);
+
+it("captures the agent prompt dialog opened with Cmd+I on the home repo", async () => {
+	const { repoPath } = createTestRepo(false);
+	openRepo(repoPath);
+
+	const user = userEvent.setup();
+	render(<Dashboard />);
+
+	await screen.findByTestId("show-workspace-header");
+	await user.keyboard("{Meta>}i{/Meta}");
+
+	const promptDialog = (
+		await screen.findByRole("heading", {
+			name: "Start a new agent session",
+		})
+	).closest('[data-testid="modal"]');
+	expect(promptDialog).toBeTruthy();
+	const workspacePicker = screen
+		.getByRole("heading", { name: "Start a new agent session" })
+		.closest('[data-testid="modal"]');
+	expect(workspacePicker).toBeTruthy();
+	expect(
+		Array.from(workspacePicker?.querySelectorAll("button") ?? []).some(
+			(button) => /branch-/.test(button.textContent ?? ""),
+		),
+	).toBe(true);
+
+	await captureDocument(document, {
+		name: "agent-prompt-dialog-02-cmd-i-home-repo",
+		expectations: [
+			"Cmd+I opens a centered modal titled 'Start a new agent session'.",
+			"The repository picker displays the home repository's current branch by default.",
+			"The task input area is visible below the repository picker.",
+		],
+	});
+}, 60000);
