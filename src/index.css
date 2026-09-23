@@ -68,6 +68,16 @@
 @tailwind utilities;
 
 @layer base {
+  [data-testid="changes-diff-viewer"] ::selection {
+    background: hsl(var(--primary) / 0.35);
+    color: hsl(var(--foreground));
+  }
+
+  .dark [data-testid="changes-diff-viewer"] ::selection {
+    background: hsl(211 100% 35% / 0.8);
+    color: hsl(0 0% 100%);
+  }
+
   :root {
     /* Font tokens — kept in sync with the docs site (web/src/css/custom.css).
 		   Each webfont is followed by its metric-matched fallback face. */
