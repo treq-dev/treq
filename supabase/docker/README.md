@@ -12,10 +12,9 @@ self-hosted treq. **No GoTrue** — there is no `/auth/v1` user login surface.
 
 Process supervision is **OpenRC** (`supervise-daemon`). Runtime image has no
 Python, no Node.js, and no supervisord. Functions import `@supabase/supabase-js`
-via its `npm:` specifier; a build stage pre-warms Deno's npm cache for it so
-the runtime never needs network access to resolve it (no `node_modules`,
-no bundling). `edge-runtime` is stripped and UPX-packed (`upx -9`) in a
-discarded build stage.
+via its `npm:` specifier, resolved by edge-runtime at request time (no
+`node_modules`, no bundling). `edge-runtime` is stripped and UPX-packed
+(`upx -9`) in a discarded build stage.
 
 Postgres is a compose sidecar (`supabase/postgres`). Use `SERVICE_ROLE_KEY` as
 the API credential (bypasses RLS); there are no end-user sessions.

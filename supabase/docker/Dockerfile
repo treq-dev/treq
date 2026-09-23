@@ -10,22 +10,6 @@
 ARG ALPINE_IMAGE=alpine:3.23
 ARG POSTGREST_IMAGE=postgrest/postgrest:v14.12
 ARG EDGE_RUNTIME_IMAGE=supabase/edge-runtime:v1.74.0
-ARG DENO_IMAGE=denoland/deno:alpine-2.1.4
-
-# -----------------------------------------------------------------------------
-# Pre-warm Deno's npm cache for @supabase/supabase-js so functions resolve
-# their npm: import from disk instead of the network at runtime. The DENO_DIR
-# cache layout is a stable Deno interchange format, so populating it with the
-# `deno` CLI here and handing it to edge-runtime later (same DENO_DIR) works
-# without needing edge-runtime itself during the build.
-# -----------------------------------------------------------------------------
-FROM ${DENO_IMAGE} AS npm-cache
-
-ENV DENO_DIR=/deno-cache
-WORKDIR /warm
-RUN printf '%s\n' 'import "npm:@supabase/supabase-js@2.95.3";' > entry.ts \
-  && deno cache entry.ts \
-  && test -d "${DENO_DIR}/npm"
 
 FROM ${POSTGREST_IMAGE} AS postgrest
 FROM ${EDGE_RUNTIME_IMAGE} AS edge
@@ -97,8 +81,7 @@ COPY docker/entrypoint.sh /opt/treq/bin/entrypoint.sh
 COPY docker/apply-treq-migrations.sh /opt/treq/bin/apply-treq-migrations.sh
 COPY docker/merge-queue-cron.sh /opt/treq/bin/merge-queue-cron.sh
 
-# Offline supabase-js: pre-warmed npm cache, no node_modules / no bundling.
-COPY --from=npm-cache /deno-cache /root/.cache/deno
+# @supabase/supabase-js resolves via its npm: specifier at runtime.
 COPY docker/deno.json /home/deno/functions/deno.json
 
 # OpenRC services + wrappers (source /etc/treq/env)
