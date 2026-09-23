@@ -300,6 +300,43 @@ pub enum TreqCommandRequest {
     repo: String,
     workspace: String,
   },
+  // -- Phase 7: VM-local persistent PTY supervisor (`pty-remote`) -----------------
+  /// Starts (or reuses, if already running) a persistent tmux/screen-backed
+  /// PTY session. Does not itself attach — the client attaches over a
+  /// separate SSH PTY channel using `PtyAttachCommand`'s returned command
+  /// line, matching how `core::remote_pty::build_launch_command` is used.
+  PtyStart {
+    repo: String,
+    workspace: String,
+    label: String,
+    remote_dir: String,
+    launch: crate::core::remote_pty::PtyLaunchSpec,
+    cols: u16,
+    rows: u16,
+    idempotency_key: String,
+  },
+  /// Lists persistent PTY sessions, optionally scoped to `workspace`.
+  PtyList {
+    repo: String,
+    workspace: Option<String>,
+  },
+  /// Stops (kills) a persistent PTY session. Idempotent.
+  PtyStop {
+    repo: String,
+    workspace: String,
+    label: String,
+  },
+  /// Returns the literal command line an SSH PTY channel should exec to
+  /// attach (creating first if necessary) to a persistent session.
+  PtyAttachCommand {
+    repo: String,
+    workspace: String,
+    label: String,
+    remote_dir: String,
+    launch: crate::core::remote_pty::PtyLaunchSpec,
+    cols: u16,
+    rows: u16,
+  },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -341,6 +378,8 @@ impl TreqCommandRequest {
       | Self::ProbeRepo { .. }
       | Self::AgentStatus { .. }
       | Self::AgentLogs { .. }
+      | Self::PtyList { .. }
+      | Self::PtyAttachCommand { .. }
       | Self::WorkspaceChangeMarker { .. } => false,
       // -- Mutations -----------------------------------------------------------
       Self::CloneRepo { .. }
@@ -364,7 +403,9 @@ impl TreqCommandRequest {
       | Self::GitPush { .. }
       | Self::AgentStart { .. }
       | Self::AgentInput { .. }
-      | Self::AgentStop { .. } => true,
+      | Self::AgentStop { .. }
+      | Self::PtyStart { .. }
+      | Self::PtyStop { .. } => true,
     }
   }
 
@@ -388,7 +429,8 @@ impl TreqCommandRequest {
       | Self::ResolveConflict { .. }
       | Self::GitPush { .. }
       | Self::AgentStart { .. }
-      | Self::AgentInput { .. } => true,
+      | Self::AgentInput { .. }
+      | Self::PtyStart { .. } => true,
       Self::InspectRepository { .. }
       | Self::RepositoryStatus { .. }
       | Self::ListBranches { .. }
@@ -409,7 +451,10 @@ impl TreqCommandRequest {
       | Self::GitBookmarkTrack { .. }
       | Self::AgentStatus { .. }
       | Self::AgentStop { .. }
-      | Self::AgentLogs { .. } => false,
+      | Self::AgentLogs { .. }
+      | Self::PtyList { .. }
+      | Self::PtyStop { .. }
+      | Self::PtyAttachCommand { .. } => false,
     }
   }
 
@@ -451,6 +496,10 @@ impl TreqCommandRequest {
       Self::AgentStatus { .. } => "AgentStatus",
       Self::AgentStop { .. } => "AgentStop",
       Self::AgentLogs { .. } => "AgentLogs",
+      Self::PtyStart { .. } => "PtyStart",
+      Self::PtyList { .. } => "PtyList",
+      Self::PtyStop { .. } => "PtyStop",
+      Self::PtyAttachCommand { .. } => "PtyAttachCommand",
     }
   }
 
@@ -493,6 +542,10 @@ impl TreqCommandRequest {
     "AgentStatus",
     "AgentStop",
     "AgentLogs",
+    "PtyStart",
+    "PtyList",
+    "PtyStop",
+    "PtyAttachCommand",
   ];
 }
 
@@ -886,6 +939,40 @@ fn clone_request(request: &TreqCommandRequest) -> TreqCommandRequest {
     .expect("TreqCommandRequest round-trips through its own JSON shape")
 }
 
+/// Packs a `pty-remote` launch spec into `--value`'s single string slot as
+/// small JSON, since `CliArgFields` has no dedicated cols/rows/remote_dir
+/// slots. Parsed back by `parse_pty_launch_payload` in `cli::mod`.
+#[derive(Serialize, Deserialize)]
+pub struct PtyLaunchPayload {
+  pub remote_dir: String,
+  pub launch: crate::core::remote_pty::PtyLaunchSpec,
+  pub cols: u16,
+  pub rows: u16,
+}
+
+fn pty_launch_payload(
+  remote_dir: &str,
+  launch: &crate::core::remote_pty::PtyLaunchSpec,
+  cols: u16,
+  rows: u16,
+) -> String {
+  serde_json::to_string(&PtyLaunchPayload {
+    remote_dir: remote_dir.to_string(),
+    launch: launch.clone(),
+    cols,
+    rows,
+  })
+  .expect("PtyLaunchPayload serializes")
+}
+
+/// Parses the `--value` payload `pty_launch_payload` produced. Public so the
+/// CLI dispatch layer (`cli::mod::parse_remote_command_request`) can decode
+/// it without duplicating the JSON shape.
+pub fn parse_pty_launch_payload(value: &str) -> Result<PtyLaunchPayload, String> {
+  serde_json::from_str(value)
+    .map_err(|e| format!("invalid_arguments: malformed pty launch payload: {e}"))
+}
+
 /// Allow-listed argument fields shared by every Phase 5 typed command. Only
 /// commands built from a [`TreqCommandRequest`] variant can populate these —
 /// no frontend-provided raw string is ever assembled into this shape, which
@@ -1193,6 +1280,49 @@ impl TreqCommandRequest {
       Self::AgentLogs { repo, workspace } => {
         fields.workspace = Some(workspace);
         ("agent-remote", "logs", repo)
+      }
+      Self::PtyStart {
+        repo,
+        workspace,
+        label,
+        remote_dir,
+        launch,
+        cols,
+        rows,
+        idempotency_key,
+      } => {
+        fields.workspace = Some(workspace);
+        fields.target = Some(label);
+        fields.value = Some(pty_launch_payload(remote_dir, launch, *cols, *rows));
+        fields.idempotency_key = Some(idempotency_key);
+        ("pty-remote", "start", repo)
+      }
+      Self::PtyList { repo, workspace } => {
+        fields.workspace = workspace.as_deref();
+        ("pty-remote", "list", repo)
+      }
+      Self::PtyStop {
+        repo,
+        workspace,
+        label,
+      } => {
+        fields.workspace = Some(workspace);
+        fields.target = Some(label);
+        ("pty-remote", "stop", repo)
+      }
+      Self::PtyAttachCommand {
+        repo,
+        workspace,
+        label,
+        remote_dir,
+        launch,
+        cols,
+        rows,
+      } => {
+        fields.workspace = Some(workspace);
+        fields.target = Some(label);
+        fields.value = Some(pty_launch_payload(remote_dir, launch, *cols, *rows));
+        ("pty-remote", "attach-command", repo)
       }
     };
     validate_remote_path(repo)?;
@@ -1892,6 +2022,55 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
     TreqCommandRequest::AgentLogs { repo, workspace } => {
       json(crate::core::agent_supervisor::agent_logs(&repo, &workspace))
     }
+    TreqCommandRequest::PtyStart {
+      repo,
+      workspace,
+      label,
+      remote_dir,
+      launch,
+      cols,
+      rows,
+      idempotency_key,
+    } => with_idempotency_key(
+      &repo,
+      "pty.start",
+      Some(idempotency_key.as_str()),
+      request_snapshot.as_ref().expect("PtyStart is a mutation"),
+      || {
+        json(crate::core::pty_remote_supervisor::start_session(
+          &remote_dir,
+          &workspace,
+          &label,
+          &launch,
+          cols,
+          rows,
+        ))
+      },
+    ),
+    TreqCommandRequest::PtyList { workspace, .. } => json(
+      crate::core::pty_remote_supervisor::list_sessions(workspace.as_deref()),
+    ),
+    TreqCommandRequest::PtyStop {
+      workspace, label, ..
+    } => json(crate::core::pty_remote_supervisor::stop_session(
+      &workspace, &label,
+    )),
+    TreqCommandRequest::PtyAttachCommand {
+      workspace,
+      label,
+      remote_dir,
+      launch,
+      cols,
+      rows,
+      ..
+    } => json(crate::core::pty_remote_supervisor::build_attach_command(
+      &remote_dir,
+      &workspace,
+      &label,
+      &launch,
+      cols,
+      rows,
+    )),
   }
 }
 
@@ -3195,7 +3374,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 36);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 40);
   }
 
   #[test]

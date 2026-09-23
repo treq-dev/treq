@@ -7,6 +7,7 @@ import type {
   LineComment as ApiLineComment,
 } from "../../lib/api";
 import type { Workspace } from "../../lib/api-types";
+import type { AgentReviewComment } from "../../lib/api-types-review";
 import type { ParsedFileChange } from "../../lib/git-utils";
 import {
   FILE_COMMENT_HUNK_ID,
@@ -35,6 +36,18 @@ export interface ChangesDiffViewerProps {
   onCreateAgentWithReview?: (
     reviewMarkdown: string,
     mode: "plan" | "acceptEdits",
+  ) => Promise<void>;
+  /**
+   * Launches a review agent terminal seeded with `prompt`, the same way any
+   * other treq terminal agent is launched. `agent` overrides the repo default.
+   */
+  onStartAgentReview?: (prompt: string, agent?: string) => Promise<void>;
+  /**
+   * Opens a fresh agent terminal seeded with one local review comment, asking
+   * the agent to address it.
+   */
+  onSendAgentReviewCommentToAgent?: (
+    comment: AgentReviewComment,
   ) => Promise<void>;
   conflictedFiles?: string[];
   showCommittedChanges?: boolean;

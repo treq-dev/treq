@@ -79,7 +79,7 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
-  fn parse(value: Option<&str>) -> Result<Self, String> {
+  pub(super) fn parse(value: Option<&str>) -> Result<Self, String> {
     match value.unwrap_or("human") {
       "human" => Ok(Self::Human),
       "json" => Ok(Self::Json),
@@ -99,13 +99,13 @@ struct CliErrorDetail {
   message: String,
 }
 
-fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
+pub(super) fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
   let json = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
   println!("{json}");
   Ok(())
 }
 
-fn print_json_error(code: &str, message: &str) {
+pub(super) fn print_json_error(code: &str, message: &str) {
   let body = CliErrorBody {
     error: CliErrorDetail {
       code: code.to_string(),
@@ -117,7 +117,7 @@ fn print_json_error(code: &str, message: &str) {
   }
 }
 
-fn get_arg_value(matches: &Matches, name: &str) -> Option<String> {
+pub(super) fn get_arg_value(matches: &Matches, name: &str) -> Option<String> {
   matches.args.get(name).and_then(|arg| {
     arg
       .value
@@ -133,7 +133,7 @@ fn get_arg_value(matches: &Matches, name: &str) -> Option<String> {
 /// convention, so a code survives the exec-channel/JSON boundary rather than
 /// collapsing to a generic string (PRD: "error codes survive transport
 /// mapping").
-fn classify_cli_error(message: &str) -> &'static str {
+pub(super) fn classify_cli_error(message: &str) -> &'static str {
   const KNOWN_CODES: &[&str] = &[
     "repository_not_found",
     "invalid_repository",
@@ -449,6 +449,37 @@ pub(crate) fn parse_remote_command_request(
       repo,
       workspace: require_workspace()?,
     }),
+    ("pty-remote", "start") => {
+      let payload = core::remote::parse_pty_launch_payload(&require_value("pty launch payload")?)?;
+      Ok(TreqCommandRequest::PtyStart {
+        repo,
+        workspace: require_workspace()?,
+        label: require_target("session label")?,
+        remote_dir: payload.remote_dir,
+        launch: payload.launch,
+        cols: payload.cols,
+        rows: payload.rows,
+        idempotency_key: require_idempotency_key(idempotency_key)?,
+      })
+    }
+    ("pty-remote", "list") => Ok(TreqCommandRequest::PtyList { repo, workspace }),
+    ("pty-remote", "stop") => Ok(TreqCommandRequest::PtyStop {
+      repo,
+      workspace: require_workspace()?,
+      label: require_target("session label")?,
+    }),
+    ("pty-remote", "attach-command") => {
+      let payload = core::remote::parse_pty_launch_payload(&require_value("pty launch payload")?)?;
+      Ok(TreqCommandRequest::PtyAttachCommand {
+        repo,
+        workspace: require_workspace()?,
+        label: require_target("session label")?,
+        remote_dir: payload.remote_dir,
+        launch: payload.launch,
+        cols: payload.cols,
+        rows: payload.rows,
+      })
+    }
     _ => Err(format!("unknown {command} action '{action}'")),
   }
 }
@@ -489,9 +520,11 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
     "resolve" => workspace_handlers::handle_resolve(&subcommand.matches),
     "send" => workspace_handlers::handle_send(&subcommand.matches),
     "repo" => handle_repo_command(&subcommand.matches).is_ok(),
-    "workspace" | "changes" | "file" | "commits" | "conflicts" | "git" | "agent-remote" => {
-      handle_remote_review_command(&subcommand.name, &subcommand.matches).is_ok()
+    "agent-review" => {
+      agent_review_handlers::handle_agent_review_command(&subcommand.matches).is_ok()
     }
+    "workspace" | "changes" | "file" | "commits" | "conflicts" | "git" | "agent-remote"
+    | "pty-remote" => handle_remote_review_command(&subcommand.name, &subcommand.matches).is_ok(),
     "help" => {
       print_cli_help();
       true
@@ -544,6 +577,8 @@ pub(super) fn is_supported_cli_command(name: &str) -> bool {
       | "conflicts"
       | "git"
       | "agent-remote"
+      | "agent-review"
+      | "pty-remote"
       | "help"
   )
 }
@@ -565,6 +600,11 @@ fn print_cli_help() {
   println!("  treq send [path|-]");
   println!("  treq send --browser <path-or-url>");
   println!("  treq repo inspect --repo <path> [--format human|json]");
+  println!(
+        "  treq agent-review add --target-type <type> --target-id <id> --file <path> --start-line <n> [--end-line <n>] [--side old|new] --comment <text> [--suggestion <text>]"
+    );
+  println!("  treq agent-review list --target-type <type> --target-id <id>");
+  println!("  treq agent-review resolve|delete --comment-id <id>");
   println!("  treq help");
 }
 
@@ -734,6 +774,7 @@ fn send_json_dispatch_request<T: serde::Serialize>(
 
 mod workspace_handlers;
 
+mod agent_review_handlers;
 mod status_output;
 
 #[cfg(test)]

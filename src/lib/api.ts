@@ -4,6 +4,7 @@ import type { InstalledSkill, RepoYamlConfig } from "./api-extra";
 import type {
   BookmarkConflictResolutionResult,
   BranchStatus,
+  DeviceKeyInfo,
   EditorAppsResponse,
   GitRemoteInfo,
   HomeRebaseDryRunResult,
@@ -129,6 +130,31 @@ export const setRepoSetting = (
   key: string,
   value: string,
 ): Promise<void> => invoke("set_repo_setting", { repoPath, key, value });
+
+export const listAgentReviewComments = (
+  repoPath: string,
+  targetType: string,
+  targetId: string,
+): Promise<import("./api-types-review").AgentReviewComment[]> =>
+  invoke("list_agent_review_comments", { repoPath, targetType, targetId });
+
+export const resolveAgentReviewComment = (
+  repoPath: string,
+  commentId: string,
+): Promise<void> =>
+  invoke("resolve_agent_review_comment", { repoPath, commentId });
+
+export const deleteAgentReviewComment = (
+  repoPath: string,
+  commentId: string,
+): Promise<void> =>
+  invoke("delete_agent_review_comment", { repoPath, commentId });
+
+export const applyAgentReviewSuggestion = (
+  repoPath: string,
+  commentId: string,
+): Promise<void> =>
+  invoke("apply_agent_review_suggestion", { repoPath, commentId });
 
 export const loadRepoYamlConfig = (repoPath: string): Promise<RepoYamlConfig> =>
   invoke("load_repo_yaml_config", { repoPath });
@@ -584,6 +610,15 @@ export const listLocalSshIdentities = (): Promise<LocalSshIdentity[]> =>
  */
 export const readLocalSshPublicKey = (reference: string): Promise<string> =>
   invoke("read_local_ssh_public_key", { reference });
+
+/**
+ * Generates (on first call) or loads this device's ed25519 keypair for
+ * control-plane registration and certificate-based SSH auth. Mobile-only in
+ * practice - desktop uses the user's existing `~/.ssh` identities via
+ * `listLocalSshIdentities` instead.
+ */
+export const ensureMobileDeviceKey = (): Promise<DeviceKeyInfo> =>
+  invoke("ensure_mobile_device_key");
 
 export const listInstalledSkills = (
   repoPath?: string | null,

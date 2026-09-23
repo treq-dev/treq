@@ -17,7 +17,7 @@ import {
   remoteDispatchMutationOverSsh,
   remoteDispatchOverSsh,
 } from "./api-extra";
-import type { SshEndpoint } from "./api-types-remote";
+import type { SshEndpoint, PtyLaunchSpec } from "./api-types-remote";
 
 /** Mirrors `core::workspaces::HunkSpec` for non-interactive split/move. */
 export interface RemoteHunkSpec {
@@ -69,6 +69,10 @@ export const TREQ_COMMAND_KINDS = [
   "AgentStatus",
   "AgentStop",
   "AgentLogs",
+  "PtyStart",
+  "PtyList",
+  "PtyStop",
+  "PtyAttachCommand",
 ] as const;
 
 export type TreqCommandKind = (typeof TREQ_COMMAND_KINDS)[number];
@@ -243,7 +247,30 @@ export type TreqCommandRequest =
     }
   | { kind: "AgentStatus"; repo: string; workspace: string }
   | { kind: "AgentStop"; repo: string; workspace: string }
-  | { kind: "AgentLogs"; repo: string; workspace: string };
+  | { kind: "AgentLogs"; repo: string; workspace: string }
+  | {
+      kind: "PtyStart";
+      repo: string;
+      workspace: string;
+      label: string;
+      remote_dir: string;
+      launch: PtyLaunchSpec;
+      cols: number;
+      rows: number;
+      idempotency_key: string;
+    }
+  | { kind: "PtyList"; repo: string; workspace?: string | null }
+  | { kind: "PtyStop"; repo: string; workspace: string; label: string }
+  | {
+      kind: "PtyAttachCommand";
+      repo: string;
+      workspace: string;
+      label: string;
+      remote_dir: string;
+      launch: PtyLaunchSpec;
+      cols: number;
+      rows: number;
+    };
 
 /** Compile-time exhaustiveness: adding a Rust variant without TS fails this. */
 export function treqCommandKind(request: TreqCommandRequest): TreqCommandKind {

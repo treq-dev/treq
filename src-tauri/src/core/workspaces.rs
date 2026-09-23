@@ -6,6 +6,7 @@ use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 
 use crate::auto_rebase::{self, WorkspaceBookmarkConflict};
+use crate::auto_review::{self, ReviewTrigger};
 use crate::core::repo::{commit_lock_for_repo, repo_status};
 use crate::jj;
 use crate::local_db;
@@ -2744,8 +2745,15 @@ pub fn pull_workspace_from_remote(
 
   let branch_name = &workspace.branch_name;
 
+  // An automatic review is due only when the fetch actually moved the branch
+  // this workspace tracks, so read its remote tip on both sides of the fetch.
+  let remote_target = format!("{}@origin", branch_name);
+  let target_before = jj::jj_get_commit_id(full_path_str, &remote_target).ok();
+
   // Step 1: Fetch remote changes
   jj::jj_git_fetch(repo_path).map_err(|e| format!("Fetch failed: {}", e))?;
+
+  let target_moved = jj::jj_get_commit_id(full_path_str, &remote_target).ok() != target_before;
 
   // Step 2: Check if bookmark is conflicted (diverged)
   let is_conflicted = jj::jj_is_bookmark_conflicted(full_path_str, branch_name);
@@ -2754,6 +2762,16 @@ pub fn pull_workspace_from_remote(
     // No divergence — try to sync working copy if safe
     let _ = jj::jj_workspace_update_stale(full_path_str);
     let _ = jj::jj_sync_working_copy_if_safe(full_path_str, branch_name);
+
+    if target_moved {
+      auto_review::notify(
+        repo_path,
+        workspace_id,
+        branch_name,
+        full_path_str,
+        ReviewTrigger::Pull,
+      );
+    }
 
     return Ok(PullWorkspaceResult {
       success: true,
@@ -2801,6 +2819,16 @@ pub fn pull_workspace_from_remote(
   sync_home_and_workspace_for_branch(repo_path, branch_name, SyncSource::WorkspaceToHome)?;
 
   let has_conflicts = workspace_pull_has_conflicts(full_path_str, branch_name);
+
+  // A diverged pull rewrites the workspace's own commits onto the remote tip,
+  // so its result is worth reviewing even when the remote tip stood still.
+  auto_review::notify(
+    repo_path,
+    workspace_id,
+    branch_name,
+    full_path_str,
+    ReviewTrigger::Pull,
+  );
 
   Ok(PullWorkspaceResult {
     success: true,
@@ -3222,12 +3250,17 @@ pub fn check_and_rebase_workspaces(
     };
 
     match result {
-      Some(auto_result) => Ok(SingleRebaseResult {
-        rebased: true,
-        success: auto_result.rebase_result.success,
-        message: auto_result.rebase_result.message,
-        bookmark_conflicts: auto_result.bookmark_conflicts,
-      }),
+      Some(auto_result) => {
+        if auto_result.rebase_result.success {
+          notify_auto_review_rebase(repo_path, id);
+        }
+        Ok(SingleRebaseResult {
+          rebased: true,
+          success: auto_result.rebase_result.success,
+          message: auto_result.rebase_result.message,
+          bookmark_conflicts: auto_result.bookmark_conflicts,
+        })
+      }
       None => Ok(SingleRebaseResult {
         rebased: false,
         success: true,
@@ -3237,6 +3270,15 @@ pub fn check_and_rebase_workspaces(
     }
   } else {
     let results = auto_rebase::check_and_rebase_all(repo_path, conflict_style)?;
+
+    // Only the workspaces that actually moved get a review, never the whole repo.
+    for result in results.iter().filter(|r| r.rebase_result.success) {
+      for branch in &result.workspaces_rebased {
+        if let Ok(Some(workspace)) = local_db::get_workspace_by_branch(repo_path, branch) {
+          notify_auto_review_rebase(repo_path, workspace.id);
+        }
+      }
+    }
 
     let rebased_count: usize = results.iter().map(|r| r.workspaces_rebased.len()).sum();
     let all_success = results.iter().all(|r| r.rebase_result.success);
@@ -3269,6 +3311,24 @@ pub fn check_and_rebase_workspaces(
       bookmark_conflicts,
     })
   }
+}
+
+/// Signals a finished rebase of one workspace to the automatic review
+/// triggers. Best-effort: a workspace row that has gone away is skipped.
+fn notify_auto_review_rebase(repo_path: &str, workspace_id: i64) {
+  let Ok(Some(workspace)) = local_db::get_workspace_by_id(repo_path, workspace_id) else {
+    return;
+  };
+  let Ok(workspace_root) = resolve_workspace_root(repo_path, Some(workspace_id)) else {
+    return;
+  };
+  auto_review::notify(
+    repo_path,
+    workspace_id,
+    &workspace.branch_name,
+    &workspace_root,
+    ReviewTrigger::Rebase,
+  );
 }
 
 /// Reads the repo-level "auto_push" setting from the app database.
@@ -3369,6 +3429,16 @@ where
       sync_home_and_workspace_for_branch(repo_path, &committed_branch, SyncSource::HomeToWorkspace)?
     }
   };
+
+  if let Some(id) = workspace_id {
+    auto_review::notify(
+      repo_path,
+      id,
+      &committed_branch,
+      &workspace_root,
+      ReviewTrigger::Commit,
+    );
+  }
 
   Ok(result)
 }

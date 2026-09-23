@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Bot,
   Check,
   Copy,
   MessageSquare,
@@ -49,6 +50,11 @@ interface ReviewActionBarProps {
   handleReloadWithPendingChanges: () => void;
   getAllOutdatedComments: () => LineComment[];
   handleCopyOutdatedComments: () => void;
+  /** Launches a review agent over the current diff. Omitted when unavailable. */
+  handleStartAgentReview?: () => void;
+  startingAgentReview?: boolean;
+  /** Count of unresolved local agent review comments on this diff. */
+  agentReviewCommentCount?: number;
 }
 
 export function ReviewActionBar({
@@ -71,9 +77,43 @@ export function ReviewActionBar({
   handleReloadWithPendingChanges,
   getAllOutdatedComments,
   handleCopyOutdatedComments,
+  handleStartAgentReview,
+  startingAgentReview = false,
+  agentReviewCommentCount = 0,
 }: ReviewActionBarProps) {
+  const startReviewButton = handleStartAgentReview ? (
+    <Button
+      size="sm"
+      variant="outline"
+      className="gap-2"
+      data-testid="start-agent-review"
+      disabled={startingAgentReview}
+      onClick={handleStartAgentReview}
+    >
+      <Bot className="w-3 h-3" />
+      Start Review
+    </Button>
+  ) : null;
+
+  const agentReviewCount =
+    agentReviewCommentCount > 0 ? (
+      <span
+        data-testid="agent-review-comment-count"
+        className="text-xs text-violet-600 dark:text-violet-400"
+      >
+        {agentReviewCommentCount} local review comment
+        {agentReviewCommentCount !== 1 ? "s" : ""}
+      </span>
+    ) : null;
+
   return (
     <>
+      {!showActionBar && startReviewButton && (
+        <div className="sticky top-0 z-10 flex items-center justify-end gap-2 px-4 py-2 bg-muted/80 backdrop-blur-sm border-b border-border">
+          {agentReviewCount}
+          {startReviewButton}
+        </div>
+      )}
       {showActionBar && (
         <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-muted/80 backdrop-blur-sm border-b border-border">
           <div className="flex items-center gap-2 text-sm">
@@ -83,8 +123,10 @@ export function ReviewActionBar({
             <span className="text-muted-foreground">
               {totalComments} comment{totalComments !== 1 ? "s" : ""} pending
             </span>
+            {agentReviewCount}
           </div>
           <div className="flex items-center gap-2">
+            {startReviewButton}
             <Button
               size="sm"
               variant="outline"

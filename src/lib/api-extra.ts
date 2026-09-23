@@ -180,6 +180,57 @@ export const remotePtyListenExit = (
     callback(event.payload),
   );
 
+// -- Persistent `pty-remote` sessions (Phase 8: desktop reattach parity) ---
+//
+// Wraps `remote_pty_list_persistent_sessions`/`remote_pty_reattach` — the
+// VM-local `tmux`/`screen`-backed sessions that outlive any one desktop
+// process's `remote_pty_create` connection, so a desktop client can list
+// what is still running on the VM and reattach to it instead of always
+// starting fresh (mirrors mobile's `pty-remote list`/reattach flow).
+
+/** One persistent `pty-remote` session as reported by the VM's `pty-remote list` (`PtySessionInfo` in Rust). */
+export interface RemotePersistentPtySession {
+  session_name: string;
+  workspace: string;
+  label: string;
+  running: boolean;
+}
+
+export const remotePtyListPersistentSessions = (
+  endpoint: unknown,
+  repo: string,
+  workspaceId?: string | null,
+): Promise<RemotePersistentPtySession[]> =>
+  invoke("remote_pty_list_persistent_sessions", {
+    endpoint,
+    repo,
+    workspaceId: workspaceId ?? null,
+  });
+
+export const remotePtyReattach = (
+  sessionId: string,
+  endpoint: unknown,
+  repositoryId: string,
+  workspaceId: string,
+  label: string,
+  remoteWorkingDirectory: string,
+  launch: unknown,
+  cols: number,
+  rows: number,
+): Promise<void> =>
+  invoke("remote_pty_reattach", {
+    sessionId,
+    windowLabel: currentWindowLabel(),
+    endpoint,
+    repositoryId,
+    workspaceId,
+    label,
+    remoteWorkingDirectory,
+    launch,
+    cols,
+    rows,
+  });
+
 // File System API
 export const readFile = (path: string): Promise<string> =>
   invoke("read_file", { path });
@@ -655,6 +706,9 @@ export interface RepoYamlConfig {
   default_agent: string | null;
   target_branch: string | null;
   included_copy_files: string[] | null;
+  review_prompt: string | null;
+  review_agent: string | null;
+  auto_review_trigger: string | null;
 }
 
 /**

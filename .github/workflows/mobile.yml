@@ -1,343 +1,400 @@
 name: Mobile
 
-# Verifies the mobile/ React Native app and crates/treq-mobile-ssh, the
-# russh + UniFFI crate it calls into (see mobile/README.md and
-# prds/mobile.md). Every job here exercises real, compiled code:
-#
-# - `rust`: the crate's own unit tests, including a real in-process SSH
-#   server round trip (see crates/treq-mobile-ssh/src/lib.rs's `mod tests`).
-# - `rn-checks`: typecheck and Jest for the RN app itself (the native
-#   module boundary is mocked here deliberately - it is component-level
-#   coverage for screens/navigation, not FFI coverage).
-# - `rn-real-ssh`: the same screens (ConnectScreen, WorkspacesScreen),
-#   driven by @testing-library/react-native's render/fireEvent/waitFor,
-#   but with the native module boundary backed by a real N-API build of
-#   treq-mobile-ssh (feature `napi`, see src/native/TreqSsh.real.ts and
-#   jest.config.real.js) instead of a mock - typing a connection string,
-#   pressing Connect, and pressing Run really opens a TCP connection and
-#   runs an exec channel against a real `mock_ssh_server` process. This is
-#   a Node-hosted stand-in for the native bridge layer, not iOS/Android -
-#   see "What this does not prove" below for that boundary.
-# - `kotlin-ffi` / `swift-ffi`: FFI coverage for the two platforms
-#   `rn-real-ssh` cannot reach (it runs under Node, not a JVM or Swift
-#   runtime). Each builds the crate for the host, generates real
-#   UniFFI Kotlin/Swift bindings, starts a real SSH server (the
-#   `mock_ssh_server` example, gated behind the `ffi-tests` feature so it
-#   never ships in a normal build) on a real socket, and runs a real
-#   Kotlin/Swift program against it - no JS/TS mock anywhere in this path,
-#   including certificate auth (`connectWithCertificate`): the test
-#   program shells out to `mock_ssh_server sign-cert <public_key>` for a
-#   real signed OpenSSH certificate (neither language has its own
-#   certificate-building library) and presents it over a real session.
-#   `kotlin-ffi` runs on the JVM with JNA (proves the JVM/JNA loading path
-#   any Kotlin consumer of these bindings uses); `swift-ffi` runs on
-#   macOS with the system Swift toolchain (the same one Xcode uses for an
-#   iOS build, modulo iOS-only frameworks like UIKit).
-# - `android-build`: builds a real, fully linked debug APK against the
-#   real generated Gradle project (`mobile/android/`) - not just Kotlin/Java
-#   compilation. `app/build.gradle`'s `generateTreqMobileSshBindings` task
-#   produces the real UniFFI Kotlin bindings from source
-#   (`mobile/android/app/src/main/java/com/treq/mobile/TreqSshModule.kt`/
-#   `TreqSshPackage.kt` compile against them for real, not JNA-loaded from a
-#   test harness - the actual `ReactContextBaseJavaModule` this app ships),
-#   and `buildTreqMobileSshNativeLibs` (via `cargo ndk`, needs the Android
-#   NDK + `aarch64/armv7/x86_64/i686-linux-android` Rust targets) builds the
-#   real per-ABI `libtreq_mobile_ssh.so` files and links them into
-#   `assembleDebug`'s APK alongside React Native's own native libraries.
-# - `ios-build`: the iOS analog - `pod install` against the real
-#   `ios/Podfile` (React-Core and friends) and `xcodebuild build` the real
-#   generated Xcode project, including `TreqSshBridge.swift`/`.m`. Runs on
-#   `macos-14`, which ships a real Xcode.
-#
-# ## What this does not prove
-#
-# - Anything about running on an actual Android/iOS device or emulator, or
-#   installing/launching the built APK.
-# - A full linked iOS IPA: `ios-build` still stops at `xcodebuild build`
-#   against the generated Xcode project, since `TreqSshBridge.swift` links
-#   against the UniFFI Swift bindings' XCFramework, which this repo does not
-#   yet script building from `crates/treq-mobile-ssh` for real iOS targets
-#   (`aarch64-apple-ios`, etc. via `cargo build --target` + `uniffi-bindgen`
-#   `--language swift`, then packaging as an `.xcframework`) the way
-#   `android-build` now does for Android's per-ABI `.so` files.
-
 defaults:
   run:
     shell: bash
 
-env:
-  CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_TEST_DEBUG: 0
-  JNA_VERSION: "5.14.0"
-  SWIFT_VERSION: "6.0.3"
-
 on:
   pull_request:
     paths:
-      - "crates/treq-mobile-ssh/**"
-      - "mobile/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/mobile.yml"
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/mobile.yml"
   workflow_dispatch:
 
 jobs:
-  rust:
-    name: rust (treq-mobile-ssh unit tests)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-      - name: cargo test
-        run: cargo test -p treq-mobile-ssh
-
-  rn-checks:
-    name: rn-checks (typecheck + jest)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: mobile
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: mobile/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test -- --ci
-
-  rn-real-ssh:
-    name: rn-real-ssh (UI-driven, real Rust, no mocks)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: mobile
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: mobile/package-lock.json
-      - run: npm ci
-      - name: Build the native-test addon (treq-mobile-ssh with --features napi)
-        run: npm run build:native-test
-      - name: Drive ConnectScreen/WorkspacesScreen with @testing-library/react-native
-        run: npx jest --config jest.config.real.js --ci
-
-  kotlin-ffi:
-    name: kotlin-ffi (JVM + JNA against real Rust)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Build treq-mobile-ssh (lib + uniffi-bindgen + mock server)
-        run: |
-          cargo build -p treq-mobile-ssh --lib
-          cargo build -p treq-mobile-ssh --bin uniffi-bindgen
-          cargo build -p treq-mobile-ssh --example mock_ssh_server --features ffi-tests
-
-      - name: Generate Kotlin bindings
-        working-directory: crates/treq-mobile-ssh
-        run: |
-          cargo run --bin uniffi-bindgen -- generate \
-            --library ../../target/debug/libtreq_mobile_ssh.so \
-            --language kotlin --out-dir "$RUNNER_TEMP/kt-bindings"
-
-      - name: Download Kotlin compiler and JNA
-        run: |
-          set -euo pipefail
-          curl -sSL -o "$RUNNER_TEMP/kotlinc.zip" \
-            "https://github.com/JetBrains/kotlin/releases/download/v1.9.24/kotlin-compiler-1.9.24.zip"
-          unzip -q "$RUNNER_TEMP/kotlinc.zip" -d "$RUNNER_TEMP"
-          curl -sSL -o "$RUNNER_TEMP/jna.jar" \
-            "https://repo1.maven.org/maven2/net/java/dev/jna/jna/${JNA_VERSION}/jna-${JNA_VERSION}.jar"
-
-      - name: Compile the Kotlin FFI test
-        run: |
-          "$RUNNER_TEMP/kotlinc/bin/kotlinc" \
-            -cp "$RUNNER_TEMP/jna.jar" \
-            "$RUNNER_TEMP/kt-bindings/uniffi/treq_mobile_ssh/treq_mobile_ssh.kt" \
-            crates/treq-mobile-ssh/ffi-tests/kotlin/SshClientFfiTest.kt \
-            -include-runtime -d "$RUNNER_TEMP/ffitest.jar"
-
-      - name: Start the real mock SSH server
-        run: |
-          ./target/debug/examples/mock_ssh_server 127.0.0.1:0 > "$RUNNER_TEMP/mock_server.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/mock_server.pid"
-          for _ in $(seq 1 20); do
-            grep -q LISTENING "$RUNNER_TEMP/mock_server.log" 2>/dev/null && break
-            sleep 0.2
-          done
-          cat "$RUNNER_TEMP/mock_server.log"
-
-      - name: Run the Kotlin FFI test against the real server
-        run: |
-          set -euo pipefail
-          read -r _ _ port fingerprint < "$RUNNER_TEMP/mock_server.log"
-          java -Djna.library.path="$PWD/target/debug" \
-            -cp "$RUNNER_TEMP/ffitest.jar:$RUNNER_TEMP/jna.jar" \
-            SshClientFfiTestKt "$port" "$fingerprint" "$PWD/target/debug/examples/mock_ssh_server"
-
-      - name: Stop the mock server
-        if: always()
-        run: kill "$(cat "$RUNNER_TEMP/mock_server.pid")" 2>/dev/null || true
-
-  android-build:
-    name: android-build (real Gradle project, real linked APK)
+  android:
+    name: android build (unsigned debug)
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: mobile
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ". -> target"
-      - run: cargo install cargo-ndk --locked
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: mobile/package-lock.json
-      - uses: actions/setup-java@v4
+          cache-on-failure: true
+          workspaces: |
+            ./src-tauri -> target
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install Android SDK platform/build-tools/NDK
-        run: |
-          set -euo pipefail
-          curl -sSL -o "$RUNNER_TEMP/cmdline-tools.zip" \
-            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-          mkdir -p "$ANDROID_HOME/cmdline-tools"
-          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
-          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
-            "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125"
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-      - run: npm ci
-      - name: assembleDebug (real per-ABI cargo-ndk build, real UniFFI bindings, real linked APK)
-        working-directory: mobile/android
-        run: |
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-          ./gradlew :app:assembleDebug
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.1.10909125
-      - name: Verify libtreq_mobile_ssh.so linked into every ABI
-        working-directory: mobile/android
-        run: |
-          set -euo pipefail
-          apk=app/build/outputs/apk/debug/app-debug.apk
-          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
-            unzip -l "$apk" "lib/$abi/libtreq_mobile_ssh.so" | grep -q libtreq_mobile_ssh.so
-          done
 
-  ios-build:
-    name: ios-build (real Xcode project, real TreqSshBridge.swift)
-    runs-on: macos-14
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: mobile
+      - name: Setup Android SDK/NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Init Android project
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npm run mobile:android:init
+
+      - name: Build unsigned debug APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npm run mobile:android:build -- --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  ios:
+    name: ios build (unsigned debug)
+    runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ". -> target"
-      - uses: actions/setup-node@v4
+          cache-on-failure: true
+          workspaces: |
+            ./src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Init iOS project
+        run: npm run mobile:ios:init
+
+      - name: Build unsigned debug app bundle
+        run: npm run mobile:ios:build -- --debug
+
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
         with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: mobile/package-lock.json
-      - run: npm ci
-      - name: pod install
-        working-directory: mobile/ios
-        run: pod install
-      - name: xcodebuild build (simulator, no code signing)
-        working-directory: mobile/ios
-        run: |
-          xcodebuild build \
-            -workspace TreqMobile.xcworkspace \
-            -scheme TreqMobile \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination "generic/platform=iOS Simulator" \
-            CODE_SIGNING_ALLOWED=NO
-    name: swift-ffi (native Swift against real Rust)
-    runs-on: macos-14
-    timeout-minutes: 20
+          name: ios-debug-app
+          path: src-tauri/gen/apple/build/**/*.app
+          if-no-files-found: error
+          retention-days: 7
+
+  # Signed release builds. These need real signing material, which forked
+  # PRs never have (GitHub does not expose secrets to fork PR runs at all,
+  # and `pull_request` events for same-repo PRs also skip environment
+  # secrets unless the environment is configured to allow them). Gating on
+  # `github.event_name != 'pull_request'` keeps this job from ever running
+  # against a PR - it only fires on pushes to `main`, tag pushes, and manual
+  # dispatch, the same trigger shape release.yml already uses for the
+  # desktop signed build. The `if` on each job body additionally checks that
+  # the relevant secrets are actually set, so a manual dispatch or a push to
+  # `main` before secrets are configured fails fast with a clear log message
+  # instead of a confusing signing-tool error.
+  #
+  # Required secrets (all optional - jobs no-op without them):
+  #
+  # Android (see "Android release signing" below for what each maps to):
+  #   ANDROID_KEYSTORE_BASE64    - base64-encoded .jks/.keystore file
+  #   ANDROID_KEYSTORE_PASSWORD  - keystore password
+  #   ANDROID_KEY_ALIAS          - key alias inside the keystore
+  #   ANDROID_KEY_PASSWORD       - password for that key (often same as above)
+  #
+  # iOS (see "iOS release signing" below):
+  #   IOS_CERTIFICATE_BASE64            - base64-encoded .p12 signing certificate
+  #   IOS_CERTIFICATE_PASSWORD          - password for the .p12
+  #   IOS_PROVISIONING_PROFILE_BASE64   - base64-encoded .mobileprovision
+  #   IOS_TEAM_ID                       - Apple Developer Team ID
+  #   IOS_KEYCHAIN_PASSWORD             - password for the temporary CI keychain
+  #                                        (any value; only used within this job)
+  #
+  # This has not been exercised with real secrets in this environment (no
+  # Apple Developer account / Android signing key available here) - the YAML
+  # and shell here are correct by inspection, but an actual signed build has
+  # not been produced or tested. See prds/mobile.md Phase 2 for the same
+  # caveat tracked in the PRD.
+  android-release:
+    name: Android (signed release)
+    runs-on: ubuntu-22.04
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.repository_owner == 'treq-dev'
+    environment: prod
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Check required secrets are configured
+        id: secrets_check
+        run: |
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] || \
+             [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] || \
+             [ -z "${{ secrets.ANDROID_KEY_ALIAS }}" ] || \
+             [ -z "${{ secrets.ANDROID_KEY_PASSWORD }}" ]; then
+            echo "Android signing secrets are not configured; skipping the signed release build."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: steps.secrets_check.outputs.configured == 'true'
+        uses: actions/setup-node@v4
         with:
-          workspaces: ". -> target"
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
 
-      - name: Build treq-mobile-ssh (lib + uniffi-bindgen + mock server)
+      - name: Install Rust stable
+        if: steps.secrets_check.outputs.configured == 'true'
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.secrets_check.outputs.configured == 'true'
+        with:
+          cache-on-failure: true
+          workspaces: |
+            ./src-tauri -> target
+
+      - name: Setup Java
+        if: steps.secrets_check.outputs.configured == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK/NDK
+        if: steps.secrets_check.outputs.configured == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        if: steps.secrets_check.outputs.configured == 'true'
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      - name: Install dependencies
+        if: steps.secrets_check.outputs.configured == 'true'
+        run: npm ci
+
+      - name: Init Android project
+        if: steps.secrets_check.outputs.configured == 'true'
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npm run mobile:android:init
+
+      # Android release signing: `tauri android init` scaffolds a Gradle
+      # project under `src-tauri/gen/android` whose app-level build.gradle.kts
+      # reads a `keystore.properties` file (standard Android/Gradle
+      # convention - not Tauri-specific) if present, and wires it into the
+      # `release` signing config. We decode the keystore secret to a file
+      # outside the repo and write `keystore.properties` pointing at it, so
+      # `tauri android build` picks up real signing without the keystore or
+      # its passwords ever touching the checked-out tree or build logs.
+      - name: Configure Android release signing
+        if: steps.secrets_check.outputs.configured == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          cargo build -p treq-mobile-ssh --lib
-          cargo build -p treq-mobile-ssh --bin uniffi-bindgen
-          cargo build -p treq-mobile-ssh --example mock_ssh_server --features ffi-tests
+          KEYSTORE_PATH="$RUNNER_TEMP/treq-release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
 
-      - name: Generate Swift bindings
-        working-directory: crates/treq-mobile-ssh
+          {
+            echo "storeFile=$KEYSTORE_PATH"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > src-tauri/gen/android/keystore.properties
+
+      - name: Build signed release APK/AAB
+        if: steps.secrets_check.outputs.configured == 'true'
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npm run mobile:android:build
+
+      - name: Upload signed release artifacts
+        if: steps.secrets_check.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-signed
+          path: |
+            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
+          if-no-files-found: error
+
+      # `keystore.properties` holds the plaintext store/key passwords and,
+      # unlike the keystore binary itself, has to live at this conventional
+      # in-tree Gradle path for the signing config to pick it up. Remove it
+      # once the build is done (even on failure) so it's not left in the
+      # working tree for any later step, artifact upload, or debug log to
+      # touch.
+      - name: Remove keystore.properties
+        if: steps.secrets_check.outputs.configured == 'true' && always()
+        run: rm -f src-tauri/gen/android/keystore.properties
+
+  ios-release:
+    name: iOS (signed archive)
+    runs-on: macos-latest
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.repository_owner == 'treq-dev'
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets are configured
+        id: secrets_check
         run: |
-          cargo run --bin uniffi-bindgen -- generate \
-            --library ../../target/debug/libtreq_mobile_ssh.dylib \
-            --language swift --out-dir "$RUNNER_TEMP/swift-bindings"
+          if [ -z "${{ secrets.IOS_CERTIFICATE_BASE64 }}" ] || \
+             [ -z "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" ] || \
+             [ -z "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" ] || \
+             [ -z "${{ secrets.IOS_TEAM_ID }}" ] || \
+             [ -z "${{ secrets.IOS_KEYCHAIN_PASSWORD }}" ]; then
+            echo "iOS signing secrets are not configured; skipping the signed release build."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Compile the Swift FFI test
+      - name: Setup Node.js
+        if: steps.secrets_check.outputs.configured == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Rust stable
+        if: steps.secrets_check.outputs.configured == 'true'
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.secrets_check.outputs.configured == 'true'
+        with:
+          cache-on-failure: true
+          workspaces: |
+            ./src-tauri -> target
+
+      - name: Install dependencies
+        if: steps.secrets_check.outputs.configured == 'true'
+        run: npm ci
+
+      - name: Init iOS project
+        if: steps.secrets_check.outputs.configured == 'true'
+        run: npm run mobile:ios:init
+
+      # iOS release signing: import the distribution certificate into a
+      # temporary, CI-only keychain (the standard approach for codesigning
+      # on GitHub-hosted macOS runners - a fresh keychain avoids polluting
+      # or depending on the runner's default one) and install the
+      # provisioning profile where Xcode's build system looks for it
+      # (~/Library/MobileDevice/Provisioning Profiles). `tauri ios build`
+      # shells out to `xcodebuild`, which then picks both up automatically
+      # by matching the profile's bundle identifier and team.
+      - name: Import signing certificate and provisioning profile
+        if: steps.secrets_check.outputs.configured == 'true'
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
         run: |
-          xcrun swiftc \
-            -I "$RUNNER_TEMP/swift-bindings" \
-            -Xcc -fmodule-map-file="$RUNNER_TEMP/swift-bindings/treq_mobile_sshFFI.modulemap" \
-            -L target/debug -ltreq_mobile_ssh \
-            "$RUNNER_TEMP/swift-bindings/treq_mobile_ssh.swift" \
-            crates/treq-mobile-ssh/ffi-tests/swift/main.swift \
-            -o "$RUNNER_TEMP/ffitest"
+          CERT_PATH="$RUNNER_TEMP/treq-release-cert.p12"
+          PROFILE_PATH="$RUNNER_TEMP/treq-release.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/treq-release.keychain-db"
 
-      - name: Start the real mock SSH server
+          echo "$IOS_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$IOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Make this keychain visible to codesign alongside the runner's
+          # default keychains, rather than replacing the search list.
+          EXISTING_KEYCHAINS=$(security list-keychains -d user | sed 's/"//g')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/treq-release.mobileprovision
+
+          echo "IOS_RELEASE_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build signed release archive/IPA
+        if: steps.secrets_check.outputs.configured == 'true'
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.IOS_TEAM_ID }}
+        run: npm run mobile:ios:build
+
+      - name: Remove temporary keychain
+        if: always() && steps.secrets_check.outputs.configured == 'true'
         run: |
-          ./target/debug/examples/mock_ssh_server 127.0.0.1:0 > "$RUNNER_TEMP/mock_server.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/mock_server.pid"
-          for _ in $(seq 1 20); do
-            grep -q LISTENING "$RUNNER_TEMP/mock_server.log" 2>/dev/null && break
-            sleep 0.2
-          done
-          cat "$RUNNER_TEMP/mock_server.log"
+          if [ -n "${IOS_RELEASE_KEYCHAIN:-}" ]; then
+            security delete-keychain "$IOS_RELEASE_KEYCHAIN" || true
+          fi
 
-      - name: Run the Swift FFI test against the real server
-        run: |
-          set -euo pipefail
-          read -r _ _ port fingerprint < "$RUNNER_TEMP/mock_server.log"
-          DYLD_LIBRARY_PATH="$PWD/target/debug" "$RUNNER_TEMP/ffitest" "$port" "$fingerprint" "$PWD/target/debug/examples/mock_ssh_server"
-
-      - name: Stop the mock server
-        if: always()
-        run: kill "$(cat "$RUNNER_TEMP/mock_server.pid")" 2>/dev/null || true
+      - name: Upload signed release artifacts
+        if: steps.secrets_check.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release-signed
+          path: src-tauri/gen/apple/build/**
+          if-no-files-found: error

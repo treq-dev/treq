@@ -12,21 +12,6 @@ env:
 
 on:
   pull_request:
-    paths:
-      - "src/**"
-      - "src-tauri/**"
-      - "crates/tauri-test-macros/**"
-      - "supabase/**"
-      - "web/**"
-      - "test/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "package.json"
-      - "package-lock.json"
-      - "vitest*.config.ts"
-      - "eslint.config.ts"
-      - "knip.json"
-      - ".github/workflows/ci.yml"
 
 jobs:
   detect-windows-changes:
@@ -73,65 +58,60 @@ jobs:
               - "Cargo.toml"
               - "Cargo.lock"
 
-  ci:
-    needs: detect-rust-changes
+  verify-js:
     timeout-minutes: ${{ matrix.timeout-minutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: ubuntu-22.04
-            kind: verify-js
             task: check
             timeout-minutes: 15
           - platform: ubuntu-22.04
-            kind: verify-js
             task: check:format
             timeout-minutes: 15
           - platform: ubuntu-22.04
-            kind: verify-js
             task: lint
             timeout-minutes: 15
           - platform: ubuntu-22.04
-            kind: verify-js
             task: knip
             timeout-minutes: 15
-          - platform: ubuntu-22.04
-            kind: verify-rust
-            task: fmt
-            timeout-minutes: 15
-          - platform: ubuntu-22.04
-            kind: verify-rust
-            task: check
-            timeout-minutes: 15
-          - platform: ubuntu-22.04
-            kind: verify-rust
-            task: clippy
-            timeout-minutes: 15
+    name: verify-js / ${{ matrix.task }} / ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run JS task
+        run: npm run ${{ matrix.task }}
+
+  test-js:
+    timeout-minutes: ${{ matrix.timeout-minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           # Unit tests: mocked Tauri, no NAPI/jj. Parallel file execution.
           - platform: ubuntu-22.04
-            kind: js
             task: test:unit
             timeout-minutes: 15
           # Integration tests: NAPI + real jj repos. Serial file execution.
           - platform: ubuntu-22.04
-            kind: js
             task: test:integration
             timeout-minutes: 30
-          - platform: ubuntu-22.04
-            kind: rust
-            task: test
-            timeout-minutes: 15
-          - platform: macos-latest
-            kind: rust
-            task: test
-            timeout-minutes: 15
           - platform: windows-latest
-            kind: js
             task: test:unit
             timeout-minutes: 15
-
-    name: ${{ matrix.kind }} / ${{ matrix.task }} / ${{ matrix.platform }}
+    name: test-js / ${{ matrix.task }} / ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -162,31 +142,19 @@ jobs:
       - name: Install Rust stable
         # Unit JS tests never need Rust. Integration skips the toolchain when
         # the prebuilt .node addon was restored from cache.
-        if: >
-          matrix.kind == 'rust' ||
-          matrix.kind == 'verify-rust' ||
-          (matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true')
+        if: matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@v1
         with:
           components: rustfmt, clippy
           toolchain: stable
 
-      - name: Install cargo-nextest
-        if: matrix.kind == 'rust'
-        uses: taiki-e/install-action@nextest
-
       # Cold apt install of WebKit/GTK is ~30–60s per job; restore from Actions
       # cache on subsequent runs. execute_install_scripts is required so dpkg
       # postinst (ldconfig, alternatives) still runs on restore.
       - name: install dependencies (ubuntu only)
-        # WebKit/GTK is needed to *link* treq/tauri (verify, rust, NAPI miss) and
-        # to *dlopen* libtreq_lib.so in integration tests even on a NAPI cache hit.
-        if: >
-          matrix.platform == 'ubuntu-22.04' && (
-            matrix.kind == 'rust' ||
-            matrix.kind == 'verify-rust' ||
-            matrix.task == 'test:integration'
-          )
+        # WebKit/GTK is needed to *dlopen* libtreq_lib.so in integration tests
+        # even on a NAPI cache hit.
+        if: matrix.platform == 'ubuntu-22.04' && matrix.task == 'test:integration'
         uses: awalsh128/cache-apt-pkgs-action@v1.6.1
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -197,7 +165,7 @@ jobs:
       # release binary (macOS brew of git/jj/gh was ~40s every run).
       - name: Resolve jj release tag
         id: jj
-        if: matrix.task == 'test:integration' || matrix.kind == 'rust'
+        if: matrix.task == 'test:integration'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -209,16 +177,14 @@ jobs:
 
       - name: Restore jj CLI cache
         id: jj-cache
-        if: matrix.task == 'test:integration' || matrix.kind == 'rust'
+        if: matrix.task == 'test:integration'
         uses: actions/cache/restore@v4
         with:
           path: .ci-bin
           key: jj-${{ runner.os }}-${{ runner.arch }}-${{ steps.jj.outputs.tag }}
 
       - name: Install jj CLI
-        if: >
-          (matrix.task == 'test:integration' || matrix.kind == 'rust') &&
-          steps.jj-cache.outputs.cache-hit != 'true'
+        if: matrix.task == 'test:integration' && steps.jj-cache.outputs.cache-hit != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           JJ_TAG: ${{ steps.jj.outputs.tag }}
@@ -260,9 +226,7 @@ jobs:
           fi
 
       - name: Save jj CLI cache
-        if: >
-          (matrix.task == 'test:integration' || matrix.kind == 'rust') &&
-          steps.jj-cache.outputs.cache-hit != 'true'
+        if: matrix.task == 'test:integration' && steps.jj-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -270,11 +234,11 @@ jobs:
           key: ${{ steps.jj-cache.outputs.cache-primary-key }}
 
       - name: Add jj to PATH
-        if: matrix.task == 'test:integration' || matrix.kind == 'rust'
+        if: matrix.task == 'test:integration'
         run: echo "$GITHUB_WORKSPACE/.ci-bin" >> "$GITHUB_PATH"
 
       - name: Verify tool versions
-        if: matrix.task == 'test:integration' || matrix.kind == 'rust'
+        if: matrix.task == 'test:integration'
         run: |
           git --version
           jj --version
@@ -284,10 +248,7 @@ jobs:
         run: npm ci
 
       - uses: Swatinem/rust-cache@v2
-        if: >
-          matrix.kind == 'rust' ||
-          matrix.kind == 'verify-rust' ||
-          (matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true')
+        if: matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true'
         with:
           cache-on-failure: true
           workspaces: |
@@ -311,7 +272,6 @@ jobs:
           key: ${{ steps.napi-cache.outputs.cache-primary-key }}
 
       - name: Run JS task
-        if: matrix.kind == 'js' || matrix.kind == 'verify-js'
         run: |
           if [ "${{ matrix.task }}" = "test:integration" ]; then
             npm run test:integration:run
@@ -319,8 +279,53 @@ jobs:
             npm run ${{ matrix.task }}
           fi
 
+  verify-rust:
+    needs: detect-rust-changes
+    if: needs.detect-rust-changes.outputs.rust_changed == 'true'
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [fmt, check, clippy]
+    name: verify-rust / ${{ matrix.task }} / ubuntu-22.04
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+          toolchain: stable
+
+      # Cold apt install of WebKit/GTK is ~30–60s per job; restore from Actions
+      # cache on subsequent runs. execute_install_scripts is required so dpkg
+      # postinst (ldconfig, alternatives) still runs on restore.
+      - name: install dependencies (ubuntu only)
+        # WebKit/GTK is needed to *link* treq/tauri.
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.1
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: webkit-4.1-1
+          execute_install_scripts: true
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            ./src-tauri -> target
+
       - name: Run Rust task
-        if: matrix.kind == 'rust' || matrix.kind == 'verify-rust'
         working-directory: src-tauri
         env:
           RUST_BACKTRACE: 1
@@ -335,10 +340,143 @@ jobs:
             clippy)
               cargo clippy --locked --all-targets --all-features -- -D warnings
               ;;
+          esac
+
+  test-rust:
+    needs: detect-rust-changes
+    if: needs.detect-rust-changes.outputs.rust_changed == 'true'
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-22.04, macos-latest]
+    name: test-rust / test / ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+          toolchain: stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      # Cold apt install of WebKit/GTK is ~30–60s per job; restore from Actions
+      # cache on subsequent runs. execute_install_scripts is required so dpkg
+      # postinst (ldconfig, alternatives) still runs on restore.
+      - name: install dependencies (ubuntu only)
+        # WebKit/GTK is needed to *link* treq/tauri and to *dlopen*
+        # libtreq_lib.so in tests.
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.1
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: webkit-4.1-1
+          execute_install_scripts: true
+
+      # Runners already ship git + gh. Only jj needs installing; cache the
+      # release binary (macOS brew of git/jj/gh was ~40s every run).
+      - name: Resolve jj release tag
+        id: jj
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/jj-vcs/jj/releases/latest | jq -r .tag_name)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Restore jj CLI cache
+        id: jj-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-bin
+          key: jj-${{ runner.os }}-${{ runner.arch }}-${{ steps.jj.outputs.tag }}
+
+      - name: Install jj CLI
+        if: steps.jj-cache.outputs.cache-hit != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JJ_TAG: ${{ steps.jj.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-bin
+          case "${{ runner.os }}-${{ runner.arch }}" in
+            Linux-X64)   target=x86_64-unknown-linux-musl ;;
+            macOS-ARM64) target=aarch64-apple-darwin ;;
+            macOS-X64)   target=x86_64-apple-darwin ;;
+            Windows-X64) target=x86_64-pc-windows-msvc ;;
             *)
-              cargo nextest run --locked --no-fail-fast
+              echo "unsupported runner: ${{ runner.os }}-${{ runner.arch }}"
+              exit 1
               ;;
           esac
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            asset="jj-${JJ_TAG}-${target}.zip"
+            tmp=$(mktemp -d)
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -L "https://github.com/jj-vcs/jj/releases/download/${JJ_TAG}/${asset}" \
+              -o "$tmp/jj.zip"
+            unzip -q "$tmp/jj.zip" -d "$tmp"
+            jj_bin=$(find "$tmp" -type f -name jj.exe | head -n 1)
+            test -n "$jj_bin"
+            install -m 755 "$jj_bin" .ci-bin/jj.exe
+          else
+            asset="jj-${JJ_TAG}-${target}.tar.gz"
+            tmp=$(mktemp -d)
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -L "https://github.com/jj-vcs/jj/releases/download/${JJ_TAG}/${asset}" \
+              | tar -xz -C "$tmp"
+            # tarball may nest the binary; find it
+            jj_bin=$(find "$tmp" -type f -name jj | head -n 1)
+            test -n "$jj_bin"
+            install -m 755 "$jj_bin" .ci-bin/jj
+          fi
+
+      - name: Save jj CLI cache
+        if: steps.jj-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .ci-bin
+          key: ${{ steps.jj-cache.outputs.cache-primary-key }}
+
+      - name: Add jj to PATH
+        run: echo "$GITHUB_WORKSPACE/.ci-bin" >> "$GITHUB_PATH"
+
+      - name: Verify tool versions
+        run: |
+          git --version
+          jj --version
+          gh --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            ./src-tauri -> target
+
+      - name: Run Rust task
+        working-directory: src-tauri
+        env:
+          RUST_BACKTRACE: 1
+        run: cargo nextest run --locked --no-fail-fast
 
   # Windows rust tests are slow (45m) and only ever catch bugs in code that
   # branches on the Windows target, so they're gated on detect-windows-changes

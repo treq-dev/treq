@@ -99,6 +99,34 @@ pub struct PendingReview {
   pub updated_at: String,
 }
 
+/// A local-only review comment anchored to a line range of some reviewed
+/// target. These are never pushed to GitHub and are structurally distinct from
+/// the read-only `GhReviewThread`/`GhReviewComment` types on the frontend.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AgentReviewComment {
+  pub id: String,
+  pub repo_path: String,
+  /// What was reviewed, e.g. `"workspace_diff"` or `"file_browser_file"`.
+  pub target_type: String,
+  /// Identifier within `target_type`, e.g. a workspace id or an absolute path.
+  pub target_id: String,
+  pub file_path: String,
+  pub hunk_id: Option<String>,
+  pub start_line: i64,
+  pub end_line: i64,
+  /// `"old"` or `"new"`, matching the frontend's `LineComment.line_side`.
+  pub side: Option<String>,
+  pub comment_text: String,
+  /// Raw suggested text, without the ```suggestion fence.
+  pub suggested_replacement: Option<String>,
+  /// `"open"` or `"resolved"`.
+  pub status: String,
+  /// Where the comment came from; always `"local-agent"` today.
+  pub source: String,
+  pub created_at: String,
+  pub resolved_at: Option<String>,
+}
+
 /// Pending review session for the FileBrowser, kept separate from `PendingReview`
 /// (the Review/Changes-tab session) — see `file_browser_reviews` table.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -443,6 +471,56 @@ pub fn init_local_db(repo_path: &str) -> Result<PathBuf, String> {
         [],
     )
     .map_err(|e| format!("Failed to create file_browser_reviews workspace index: {}", e))?;
+
+  // Local-only review comments left by a review agent. Deliberately never
+  // synced to GitHub — `source` records where a row came from so other local
+  // producers can be added later, and `target_type`/`target_id` keep the table
+  // generic over what was reviewed (a workspace diff, a FileBrowser file, and
+  // later other content types).
+  conn
+    .execute(
+      "CREATE TABLE IF NOT EXISTS agent_review_comments (
+            id TEXT PRIMARY KEY,
+            repo_path TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            hunk_id TEXT,
+            start_line INTEGER NOT NULL,
+            end_line INTEGER NOT NULL,
+            side TEXT,
+            comment_text TEXT NOT NULL,
+            suggested_replacement TEXT,
+            status TEXT NOT NULL,
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        )",
+      [],
+    )
+    .map_err(|e| format!("Failed to create agent_review_comments table: {}", e))?;
+
+  // Migration: add `source` to agent_review_comments if missing (covers DBs
+  // created before other local comment producers were anticipated).
+  let has_agent_review_source_column: Result<i64, _> = conn.query_row(
+    "SELECT COUNT(*) FROM pragma_table_info('agent_review_comments') WHERE name = 'source'",
+    [],
+    |row| row.get(0),
+  );
+  if matches!(has_agent_review_source_column, Ok(0)) {
+    conn
+      .execute(
+        "ALTER TABLE agent_review_comments ADD COLUMN source TEXT NOT NULL DEFAULT 'local-agent'",
+        [],
+      )
+      .map_err(|e| format!("Failed to add agent_review_comments source column: {}", e))?;
+  }
+
+  conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_review_comments_target ON agent_review_comments(repo_path, target_type, target_id)",
+        [],
+    )
+    .map_err(|e| format!("Failed to create agent_review_comments target index: {}", e))?;
 
   // Separate pending-review session for the in-app browser's page-review flow —
   // one row per workspace, keyed independently of pending_reviews/file_browser_reviews.
@@ -1785,6 +1863,159 @@ pub fn clear_pending_review(repo_path: &str, workspace_id: i64) -> Result<(), St
       [workspace_id],
     )
     .map_err(|e| format!("Failed to clear pending review: {}", e))?;
+  Ok(())
+}
+
+// Agent Review Comment Functions
+
+const AGENT_REVIEW_COMMENT_SELECT: &str =
+  "SELECT id, repo_path, target_type, target_id, file_path, hunk_id, start_line, end_line, side,
+            comment_text, suggested_replacement, status, source, created_at, resolved_at
+     FROM agent_review_comments";
+
+fn agent_review_comment_from_row(row: &Row<'_>) -> rusqlite::Result<AgentReviewComment> {
+  Ok(AgentReviewComment {
+    id: row.get(0)?,
+    repo_path: row.get(1)?,
+    target_type: row.get(2)?,
+    target_id: row.get(3)?,
+    file_path: row.get(4)?,
+    hunk_id: row.get(5)?,
+    start_line: row.get(6)?,
+    end_line: row.get(7)?,
+    side: row.get(8)?,
+    comment_text: row.get(9)?,
+    suggested_replacement: row.get(10)?,
+    status: row.get(11)?,
+    source: row.get(12)?,
+    created_at: row.get(13)?,
+    resolved_at: row.get(14)?,
+  })
+}
+
+/// Insert one local review comment. Returns the stored row.
+#[allow(clippy::too_many_arguments)]
+pub fn create_agent_review_comment(
+  repo_path: &str,
+  target_type: &str,
+  target_id: &str,
+  file_path: &str,
+  hunk_id: Option<&str>,
+  start_line: i64,
+  end_line: i64,
+  side: Option<&str>,
+  comment_text: &str,
+  suggested_replacement: Option<&str>,
+  source: &str,
+) -> Result<AgentReviewComment, String> {
+  let conn = get_connection(repo_path)?;
+  let comment = AgentReviewComment {
+    id: uuid::Uuid::new_v4().to_string(),
+    repo_path: repo_path.to_string(),
+    target_type: target_type.to_string(),
+    target_id: target_id.to_string(),
+    file_path: file_path.to_string(),
+    hunk_id: hunk_id.map(|s| s.to_string()),
+    start_line,
+    end_line,
+    side: side.map(|s| s.to_string()),
+    comment_text: comment_text.to_string(),
+    suggested_replacement: suggested_replacement.map(|s| s.to_string()),
+    status: "open".to_string(),
+    source: source.to_string(),
+    created_at: Utc::now().to_rfc3339(),
+    resolved_at: None,
+  };
+
+  conn.execute(
+        "INSERT INTO agent_review_comments (id, repo_path, target_type, target_id, file_path, hunk_id, start_line, end_line, side, comment_text, suggested_replacement, status, source, created_at, resolved_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        params![
+            comment.id,
+            comment.repo_path,
+            comment.target_type,
+            comment.target_id,
+            comment.file_path,
+            comment.hunk_id,
+            comment.start_line,
+            comment.end_line,
+            comment.side,
+            comment.comment_text,
+            comment.suggested_replacement,
+            comment.status,
+            comment.source,
+            comment.created_at,
+            comment.resolved_at,
+        ],
+    )
+    .map_err(|e| format!("Failed to insert agent review comment: {}", e))?;
+
+  Ok(comment)
+}
+
+/// All local review comments for one reviewed target, oldest first.
+pub fn list_agent_review_comments(
+  repo_path: &str,
+  target_type: &str,
+  target_id: &str,
+) -> Result<Vec<AgentReviewComment>, String> {
+  let conn = get_connection(repo_path)?;
+  let mut stmt = conn
+    .prepare(&format!(
+      "{AGENT_REVIEW_COMMENT_SELECT}
+             WHERE repo_path = ?1 AND target_type = ?2 AND target_id = ?3
+             ORDER BY file_path ASC, start_line ASC, created_at ASC"
+    ))
+    .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+  let comments = stmt
+    .query_map(params![repo_path, target_type, target_id], |row| {
+      agent_review_comment_from_row(row)
+    })
+    .map_err(|e| format!("Failed to list agent review comments: {}", e))?
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .map_err(|e| format!("Failed to read agent review comments: {}", e))?;
+
+  Ok(comments)
+}
+
+/// Fetch one local review comment by id.
+pub fn get_agent_review_comment(
+  repo_path: &str,
+  id: &str,
+) -> Result<Option<AgentReviewComment>, String> {
+  let conn = get_connection(repo_path)?;
+  let mut stmt = conn
+    .prepare(&format!("{AGENT_REVIEW_COMMENT_SELECT} WHERE id = ?1"))
+    .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+  let comment = stmt
+    .query_row([id], |row| agent_review_comment_from_row(row))
+    .optional()
+    .map_err(|e| format!("Failed to get agent review comment: {}", e))?;
+
+  Ok(comment)
+}
+
+/// Mark one local review comment resolved. No-op if it is already resolved.
+pub fn resolve_agent_review_comment(repo_path: &str, id: &str) -> Result<(), String> {
+  let conn = get_connection(repo_path)?;
+  let now = Utc::now().to_rfc3339();
+  conn
+    .execute(
+      "UPDATE agent_review_comments SET status = 'resolved', resolved_at = ?2 WHERE id = ?1",
+      params![id, now],
+    )
+    .map_err(|e| format!("Failed to resolve agent review comment: {}", e))?;
+  Ok(())
+}
+
+/// Delete one local review comment.
+pub fn delete_agent_review_comment(repo_path: &str, id: &str) -> Result<(), String> {
+  let conn = get_connection(repo_path)?;
+  conn
+    .execute("DELETE FROM agent_review_comments WHERE id = ?1", [id])
+    .map_err(|e| format!("Failed to delete agent review comment: {}", e))?;
   Ok(())
 }
 
