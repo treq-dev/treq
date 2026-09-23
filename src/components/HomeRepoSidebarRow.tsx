@@ -100,17 +100,9 @@ export function HomeRepoSidebarRow({
                     });
                   }}
                 >
-                  <Home
-                    className={`w-3 h-3 mr-1 shrink-0 ${
-                      isHomeSelected ? "text-primary" : "text-muted-foreground"
-                    }`}
-                  />
+                  <Home className="w-3 h-3 mr-1 shrink-0 text-sidebar-foreground" />
                   <span
-                    className={`flex-1 min-w-0 truncate font-mono ${
-                      isHomeSelected
-                        ? "text-primary font-medium"
-                        : "text-muted-foreground"
-                    }`}
+                    className="flex-1 min-w-0 truncate font-mono text-sidebar-foreground"
                     title={homeRepoDisplayRef || "…"}
                   >
                     {homeRepoDisplayRef || "…"}
