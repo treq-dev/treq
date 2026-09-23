@@ -88,6 +88,9 @@ describe("default agent configuration", () => {
     await user.click(await screen.findByLabelText("Settings"));
 
     const gitignorePath = path.join(repoPath, ".gitignore");
+    await waitFor(() =>
+      expect(fs.readFileSync(gitignorePath, "utf8")).toContain(".treq/"),
+    );
     expect(fs.readFileSync(gitignorePath, "utf8")).not.toContain(".jj*/");
 
     await user.click(
