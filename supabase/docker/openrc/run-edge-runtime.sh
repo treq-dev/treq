@@ -2,7 +2,8 @@
 set -eu
 # shellcheck disable=SC1091
 . /etc/treq/env
-# deno.json remaps esm.sh/@supabase/supabase-js to the offline vendor bundle.
+# npm: imports resolve from the pre-warmed DENO_DIR cache (no network, no
+# node_modules); deno.json only pins nodeModulesDir to "none".
 cd /home/deno/functions
 exec /usr/local/bin/edge-runtime start \
   --main-service /home/deno/functions/main \
