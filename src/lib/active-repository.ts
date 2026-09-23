@@ -24,7 +24,7 @@ export function workspaceIdentityKey(identity: WorkspaceIdentity): string {
 export function canCombineWorkspaceIdentities(
   identities: readonly WorkspaceIdentity[],
 ): boolean {
-  const first = identities[0];
+  const [first] = identities;
   if (!first) return true;
   return identities.every(
     (identity) =>

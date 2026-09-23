@@ -17,7 +17,7 @@ export async function remoteFunctionError(error: unknown): Promise<Error> {
       : null;
   if (!(context instanceof Response)) return new Error(fallback);
 
-  const status = context.status;
+  const { status } = context;
   const payload = (await context
     .clone()
     .json()
@@ -46,35 +46,18 @@ export async function remoteFunctionError(error: unknown): Promise<Error> {
 
 import type {
   ClientKeyResponse,
-  CloneManagedRepositoryRequest,
-  CloneManagedRepositoryResponse,
   DeleteInstanceRequest,
   InstanceStatusResponse,
   IssueCertificateRequest,
   IssueCertificateResponse,
-  ListRegionsResponse,
-  ListSizePresetsResponse,
   OperationResponse,
   ProvisionInstanceRequest,
-  RegionCode,
   RegisterClientKeyRequest,
   RegisterClientKeyResponse,
   ReprovisionInstanceRequest,
   RevokeClientKeyRequest,
-  SizePreset,
   WakeInstanceRequest,
 } from "./api-types-remote";
-export async function cloneManagedGitHubRepository(
-  request: CloneManagedRepositoryRequest,
-): Promise<CloneManagedRepositoryResponse> {
-  const { data, error } = await supabase.functions.invoke(
-    "remote-github-clone",
-    { body: request },
-  );
-  if (error) throw await remoteFunctionError(error);
-  return data as CloneManagedRepositoryResponse;
-}
-
 async function invokeRemoteInstance<T>(
   action: string,
   body: object = {},
@@ -118,16 +101,6 @@ export async function execManagedSprite<T>(request: {
 }
 
 // -- Instance lifecycle (remote-instance) -----------------------------------
-
-export const listRegions = (): Promise<RegionCode[]> =>
-  invokeRemoteInstance<ListRegionsResponse>("list_regions").then(
-    (r) => r.regions,
-  );
-
-export const listSizePresets = (): Promise<SizePreset[]> =>
-  invokeRemoteInstance<ListSizePresetsResponse>("list_sizes").then(
-    (r) => r.presets,
-  );
 
 export const getInstanceStatus = (): Promise<InstanceStatusResponse> =>
   invokeRemoteInstance<InstanceStatusResponse>("status");
