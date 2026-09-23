@@ -22,6 +22,7 @@ import {
   pushWorkspaceToRemote,
 } from "../../../lib/api";
 import type { Workspace } from "../../../lib/api-types";
+import { deriveConventionalPrTitle } from "../../../lib/github-pr";
 import { invalidateReviewChangeCount } from "../../../lib/review-change-count";
 import type { useToast } from "../../ui/toast";
 import type { CommitAction, DiffLineSelection, FileHunksData } from "../types";
@@ -349,7 +350,7 @@ export function useFileActions({
       await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
       return ghCreatePr(
         remoteInfo.full_name,
-        workspace.title || workspace.branch_name,
+        deriveConventionalPrTitle(commitMsg, workspace.branch_name),
         workspace.description ?? "",
         baseBranch,
         workspace.branch_name,

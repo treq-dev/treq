@@ -63,10 +63,7 @@ describe("WorkspaceDetailScreen mutations", () => {
     );
 
     await screen.findByText("ws1");
-    await user.type(
-      screen.getByPlaceholderText("Rebase onto branch"),
-      "main",
-    );
+    await user.type(screen.getByPlaceholderText("Rebase onto branch"), "main");
 
     const rebaseButton = screen.getByRole("button", { name: "Rebase" });
     await user.click(rebaseButton);
@@ -75,7 +72,10 @@ describe("WorkspaceDetailScreen mutations", () => {
     await user.click(screen.getByRole("button", { name: "Confirm rebase" }));
     expect(remoteDispatch.dispatchMutationOverSsh).toHaveBeenCalledWith(
       endpoint,
-      expect.objectContaining({ kind: "RebaseWorkspace", target_branch: "main" }),
+      expect.objectContaining({
+        kind: "RebaseWorkspace",
+        target_branch: "main",
+      }),
     );
   });
 });

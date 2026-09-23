@@ -1227,6 +1227,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setShowCommandPalette(true);
   });
 
+  useKeyboardShortcut("i", true, () => {
+    setShowAgentPromptDialog(true);
+  });
+
   useKeyboardShortcut("p", true, () => {
     setShowFilePicker(true);
   });

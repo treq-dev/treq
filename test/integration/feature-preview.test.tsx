@@ -54,9 +54,9 @@ describe("feature preview settings", () => {
   it("hides Logs, Checks, and the Diff/Browser switcher when disabled", async () => {
     await createWorkspace(repoPath, "feat/hidden-previews");
     await openFeaturePreview();
-    await user.click(screen.getByLabelText("Logs"));
-    await user.click(screen.getByLabelText("Checks"));
-    await user.click(screen.getByLabelText("Browser"));
+    await user.click(screen.getByRole("switch", { name: "Logs" }));
+    await user.click(screen.getByRole("switch", { name: "Checks" }));
+    await user.click(screen.getByRole("switch", { name: "Browser" }));
     await user.click(screen.getByRole("button", { name: "Close" }));
 
     expect(screen.queryByRole("tab", { name: /^Logs/ })).toBeNull();
@@ -72,14 +72,18 @@ describe("feature preview settings", () => {
   it("hides the Skills tab when skills installation is off", async () => {
     await openFeaturePreview();
     expect(screen.getByRole("tab", { name: /skills/i })).toBeVisible();
-    await user.click(screen.getByLabelText("Skills installation"));
+    await user.click(
+      screen.getByRole("switch", { name: "Skills installation" }),
+    );
     expect(screen.queryByRole("tab", { name: /^skills$/i })).toBeNull();
   });
 
   it("hides the Schedule button when workspace scheduling is off", async () => {
     await createWorkspace(repoPath, "feat/preview");
     await openFeaturePreview();
-    await user.click(screen.getByLabelText("Workspace scheduling"));
+    await user.click(
+      screen.getByRole("switch", { name: "Workspace scheduling" }),
+    );
     await user.click(screen.getByRole("button", { name: "Close" }));
     const { findSidebarBranchElement } = await import("../utils");
     await user.click(await findSidebarBranchElement("feat/preview"));
