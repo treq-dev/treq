@@ -72,14 +72,18 @@ describe("feature preview settings", () => {
   it("hides the Skills tab when skills installation is off", async () => {
     await openFeaturePreview();
     expect(screen.getByRole("tab", { name: /skills/i })).toBeVisible();
-    await user.click(screen.getByRole("switch", { name: "Skills installation" }));
+    await user.click(
+      screen.getByRole("switch", { name: "Skills installation" }),
+    );
     expect(screen.queryByRole("tab", { name: /^skills$/i })).toBeNull();
   });
 
   it("hides the Schedule button when workspace scheduling is off", async () => {
     await createWorkspace(repoPath, "feat/preview");
     await openFeaturePreview();
-    await user.click(screen.getByRole("switch", { name: "Workspace scheduling" }));
+    await user.click(
+      screen.getByRole("switch", { name: "Workspace scheduling" }),
+    );
     await user.click(screen.getByRole("button", { name: "Close" }));
     const { findSidebarBranchElement } = await import("../utils");
     await user.click(await findSidebarBranchElement("feat/preview"));
