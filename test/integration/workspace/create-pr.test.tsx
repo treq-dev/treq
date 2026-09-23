@@ -373,6 +373,14 @@ describe("ShowWorkspace - Create PR", () => {
       },
       { timeout: 15_000 },
     );
+    expect(ghCreatePr).toHaveBeenCalledWith(
+      "acme/treq",
+      "feat: Add feature",
+      expect.any(String),
+      expect.any(String),
+      "feat/commit-create-pr",
+      false,
+    );
     expect(
       await within(header).findByRole("button", { name: /view pr.*open/i }),
     ).toBeVisible();

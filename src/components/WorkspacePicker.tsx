@@ -47,9 +47,7 @@ export const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
     >
       <span className="sr-only">
         <h2>Go to Workspace</h2>
-        <p>
-          Go to workspace
-        </p>
+        <p>Go to workspace</p>
       </span>
       <div
         data-testid="modal"
