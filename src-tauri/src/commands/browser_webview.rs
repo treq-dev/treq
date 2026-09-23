@@ -100,8 +100,35 @@ fn parse_allowed_url(url: &str) -> Result<Url, String> {
 /// at the given position/size, overlaying a placeholder in the React
 /// `BrowserPanel`. Creating a child webview must happen on the main thread,
 /// hence `async` (matches Tauri's own documented pattern for this API).
+///
+/// Desktop-only: the child-webview APIs used below (`Webview::set_position`/
+/// `set_size`/`close`, `Window::add_child`) have no mobile implementation in
+/// Tauri. Mobile has no in-app browser-preview panel to back. Dispatches to
+/// a cfg-gated helper rather than being cfg-gated itself (with a mobile-stub
+/// twin of the same name) because this crate's `#[tauri::command]`-scanning
+/// test tooling (`tauri-test-macros`) works off the source text and doesn't
+/// evaluate `#[cfg]`, so two same-named command functions read as a
+/// duplicate to it even though only one is ever compiled.
 #[tauri::command]
 pub async fn open_browser_webview(
+  app: AppHandle,
+  url: String,
+  x: f64,
+  y: f64,
+  width: f64,
+  height: f64,
+) -> Result<(), String> {
+  #[cfg(not(desktop))]
+  {
+    let _ = (app, url, x, y, width, height);
+    return Err("Browser preview is not available on mobile".to_string());
+  }
+  #[cfg(desktop)]
+  open_browser_webview_desktop(app, url, x, y, width, height).await
+}
+
+#[cfg(desktop)]
+async fn open_browser_webview_desktop(
   app: AppHandle,
   url: String,
   x: f64,
@@ -160,15 +187,28 @@ pub async fn open_browser_webview(
 
 #[tauri::command]
 pub fn navigate_browser_webview(app: AppHandle, url: String) -> Result<(), String> {
-  let parsed = parse_allowed_url(&url)?;
-  let webview = app
-    .get_webview(BROWSER_WEBVIEW_LABEL)
-    .ok_or_else(|| "Browser preview is not open".to_string())?;
-  webview.navigate(parsed).map_err(|e| e.to_string())
+  #[cfg(not(desktop))]
+  {
+    let _ = (app, url);
+    return Err("Browser preview is not available on mobile".to_string());
+  }
+  #[cfg(desktop)]
+  {
+    let parsed = parse_allowed_url(&url)?;
+    let webview = app
+      .get_webview(BROWSER_WEBVIEW_LABEL)
+      .ok_or_else(|| "Browser preview is not open".to_string())?;
+    webview.navigate(parsed).map_err(|e| e.to_string())
+  }
 }
 
 #[tauri::command]
 pub fn close_browser_webview(app: AppHandle) -> Result<(), String> {
+  #[cfg(not(desktop))]
+  {
+    let _ = app;
+  }
+  #[cfg(desktop)]
   if let Some(webview) = app.get_webview(BROWSER_WEBVIEW_LABEL) {
     webview.close().map_err(|e| e.to_string())?;
   }
@@ -177,12 +217,20 @@ pub fn close_browser_webview(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_browser_select_mode(app: AppHandle, enabled: bool) -> Result<(), String> {
-  let webview = app
-    .get_webview(BROWSER_WEBVIEW_LABEL)
-    .ok_or_else(|| "Browser preview is not open".to_string())?;
-  webview
-    .eval(format!("window.__treqSelectMode = {enabled};"))
-    .map_err(|e| e.to_string())
+  #[cfg(not(desktop))]
+  {
+    let _ = (app, enabled);
+    return Err("Browser preview is not available on mobile".to_string());
+  }
+  #[cfg(desktop)]
+  {
+    let webview = app
+      .get_webview(BROWSER_WEBVIEW_LABEL)
+      .ok_or_else(|| "Browser preview is not open".to_string())?;
+    webview
+      .eval(format!("window.__treqSelectMode = {enabled};"))
+      .map_err(|e| e.to_string())
+  }
 }
 
 #[tauri::command]
@@ -193,15 +241,23 @@ pub fn sync_browser_webview_bounds(
   width: f64,
   height: f64,
 ) -> Result<(), String> {
-  let webview = app
-    .get_webview(BROWSER_WEBVIEW_LABEL)
-    .ok_or_else(|| "Browser preview is not open".to_string())?;
-  webview
-    .set_position(LogicalPosition::new(x, y))
-    .map_err(|e| e.to_string())?;
-  webview
-    .set_size(LogicalSize::new(width, height))
-    .map_err(|e| e.to_string())
+  #[cfg(not(desktop))]
+  {
+    let _ = (app, x, y, width, height);
+    return Err("Browser preview is not available on mobile".to_string());
+  }
+  #[cfg(desktop)]
+  {
+    let webview = app
+      .get_webview(BROWSER_WEBVIEW_LABEL)
+      .ok_or_else(|| "Browser preview is not open".to_string())?;
+    webview
+      .set_position(LogicalPosition::new(x, y))
+      .map_err(|e| e.to_string())?;
+    webview
+      .set_size(LogicalSize::new(width, height))
+      .map_err(|e| e.to_string())
+  }
 }
 
 #[cfg(test)]

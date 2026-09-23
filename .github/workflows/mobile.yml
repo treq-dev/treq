@@ -60,6 +60,8 @@ jobs:
 
       - name: Setup Android SDK/NDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install NDK
         run: sdkmanager --install "ndk;27.0.12077973"
@@ -117,8 +119,21 @@ jobs:
       - name: Init iOS project
         run: npm run mobile:ios:init
 
-      - name: Build unsigned debug app bundle
-        run: npm run mobile:ios:build -- --debug
+      # Device builds (the default target) always hit "Signing for treq_iOS
+      # requires a development team" - xcodebuild validates automatic
+      # signing before any build-setting override (env var or --no-sign)
+      # gets a chance to matter, and --no-sign separately forces an
+      # archive+export flow that produces an .ipa instead of the .app this
+      # job uploads. See PR #495 for the full trail of what was tried.
+      #
+      # The Simulator SDK has no such requirement - it never needs a
+      # development team, a certificate, or a provisioning profile - so
+      # build for the simulator instead. That's a legitimate "unsigned
+      # debug" build for this job's purpose (CI verification that the app
+      # still builds for iOS), just not one that can install on a physical
+      # device.
+      - name: Build unsigned debug app bundle (simulator)
+        run: npm run mobile:ios:build -- --debug --target aarch64-sim
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
@@ -216,6 +231,8 @@ jobs:
       - name: Setup Android SDK/NDK
         if: steps.secrets_check.outputs.configured == 'true'
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install NDK
         if: steps.secrets_check.outputs.configured == 'true'

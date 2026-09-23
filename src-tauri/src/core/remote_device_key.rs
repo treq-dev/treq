@@ -67,8 +67,7 @@ mod mobile_storage {
   use tauri_plugin_biometric::BiometricExt;
   use tauri_plugin_keystore::{Error as KeystoreError, KeystoreExt, RetrieveRequest, StoreRequest};
 
-  const KEYSTORE_SERVICE: &str = "com.treq.mobile-device-key";
-  const KEYSTORE_USER: &str = "device-key";
+  const KEYSTORE_KEY: &str = "com.treq.mobile-device-key/device-key";
 
   /// Whether a keystore-plugin error genuinely indicates the OS-native
   /// keystore/keychain is unavailable on this device, as opposed to some
@@ -122,15 +121,16 @@ mod mobile_storage {
     Ok(())
   }
 
-  pub fn load_or_create(app: &tauri::AppHandle) -> Result<PrivateKey, String> {
+  pub async fn load_or_create(app: &tauri::AppHandle) -> Result<PrivateKey, String> {
     require_biometrics(app)?;
 
     let existing = app
       .keystore()
       .retrieve(RetrieveRequest {
-        service: KEYSTORE_SERVICE.to_string(),
-        user: KEYSTORE_USER.to_string(),
+        key: KEYSTORE_KEY.to_string(),
+        prompt: None,
       })
+      .await
       .map_err(|e| wrap_keystore_err("failed to read device key from keystore", e))?;
 
     if let Some(openssh) = existing.value {
@@ -145,7 +145,12 @@ mod mobile_storage {
       .map_err(|e| format!("failed to encode device key: {e}"))?;
     app
       .keystore()
-      .store(StoreRequest { value: openssh })
+      .store(StoreRequest {
+        key: KEYSTORE_KEY.to_string(),
+        value: openssh.to_string(),
+        prompt: None,
+      })
+      .await
       .map_err(|e| wrap_keystore_err("failed to store device key in keystore", e))?;
     Ok(key)
   }
@@ -160,13 +165,13 @@ mod mobile_storage {
 /// on desktop rather than shipping the upstream keystore plugin's
 /// unfinished desktop fallback (see module docs).
 #[cfg(mobile)]
-pub fn ensure_device_key(app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
-  let key = mobile_storage::load_or_create(app)?;
+pub async fn ensure_device_key(app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
+  let key = mobile_storage::load_or_create(app).await?;
   device_key_info(&key)
 }
 
 #[cfg(not(mobile))]
-pub fn ensure_device_key(_app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
+pub async fn ensure_device_key(_app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
   Err(
     "Device key storage is only available on mobile builds; desktop uses local SSH identities \
      instead (see list_local_ssh_identities)."
