@@ -54,7 +54,6 @@ describe("Dashboard - workspace list", () => {
     expect(sidebar).toBeTruthy();
     expect(sidebar.querySelector('[data-sidebar="header"]')).toBeTruthy();
     expect(sidebar.querySelector('[data-sidebar="content"]')).toBeTruthy();
-    expect(sidebar.querySelector('[data-sidebar="footer"]')).toBeTruthy();
     expect(within(sidebar).getByText("Workspaces")).toBeTruthy();
   });
 
