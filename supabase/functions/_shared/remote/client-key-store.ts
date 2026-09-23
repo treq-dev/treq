@@ -2,7 +2,7 @@
 // used by the remote-ssh-trust Edge Function. Only public key material and
 // metadata are ever written here (PRD "Client key policy").
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 
 export interface ClientKeyRow {
   id: string;

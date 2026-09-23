@@ -14,9 +14,11 @@
 
 import {
   remoteDispatchLocal,
+  remoteBuildCliArgv,
   remoteDispatchMutationOverSsh,
   remoteDispatchOverSsh,
 } from "./api-extra";
+import { execManagedSprite } from "./remote-control-plane";
 import type { SshEndpoint, PtyLaunchSpec } from "./api-types-remote";
 
 /** Mirrors `core::workspaces::HunkSpec` for non-interactive split/move. */
@@ -288,6 +290,15 @@ export function dispatchOverSsh<T = unknown>(
   request: TreqCommandRequest,
 ): Promise<T> {
   return remoteDispatchOverSsh<T>(endpoint, request);
+}
+
+/** Runs an allow-listed typed command in the current user's managed Sprite. */
+export async function dispatchOverManagedSprite<T = unknown>(
+  instanceId: string,
+  request: TreqCommandRequest,
+): Promise<T> {
+  const argv = await remoteBuildCliArgv(request);
+  return execManagedSprite<T>({ instance_id: instanceId, argv });
 }
 
 /** Dispatches locally or over SSH depending on whether an endpoint is given. */

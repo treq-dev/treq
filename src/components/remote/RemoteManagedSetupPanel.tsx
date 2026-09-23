@@ -1,44 +1,25 @@
 import { useState } from "react";
 import { Button } from "../ui/button";
-import type {
-  InstanceStatusResponse,
-  RegionCode,
-  SizePreset,
-} from "../../lib/api-types-remote";
-import {
-  REGION_LABELS,
-  SIZE_LABELS,
-  STAGE_LABELS,
-  type LocalKeyIdentity,
-} from "./remoteSetupLabels";
+import type { InstanceStatusResponse } from "../../lib/api-types-remote";
+import { STAGE_LABELS } from "./remoteSetupLabels";
 
 export interface RemoteManagedSetupPanelProps {
-  regions: RegionCode[];
-  sizePresets: SizePreset[];
-  localKeyIdentities: LocalKeyIdentity[];
   instanceStatus: InstanceStatusResponse | null;
   provisioningStage?: string;
   provisioningError?: string;
   onBack: () => void;
-  onProvisionManaged: (
-    region: RegionCode,
-    size: SizePreset,
-    keyReference: string,
-  ) => Promise<void>;
+  onProvisionManaged: () => Promise<void>;
   onWake: () => Promise<void>;
-  onReprovision: (region: RegionCode, size: SizePreset) => Promise<void>;
+  onReprovision: () => Promise<void>;
   onDeleteInstance: () => Promise<void>;
   onRevokeKey: (keyReference: string) => Promise<void>;
   onOpenRepositories?: () => void;
   /** Connect action for an existing `ready` managed instance. */
-  onConnectManaged: (keyReference: string) => Promise<void>;
+  onConnectManaged: () => Promise<void>;
 }
 
-/** Treq-managed VM setup and lifecycle screen (region/size/identity picker, or lifecycle actions once provisioned). */
+/** Treq-managed Sprite setup and lifecycle screen. */
 export function RemoteManagedSetupPanel({
-  regions,
-  sizePresets,
-  localKeyIdentities,
   instanceStatus,
   provisioningStage,
   provisioningError,
@@ -47,47 +28,48 @@ export function RemoteManagedSetupPanel({
   onWake,
   onReprovision,
   onDeleteInstance,
-  onRevokeKey,
   onOpenRepositories,
   onConnectManaged,
 }: RemoteManagedSetupPanelProps) {
-  const [region, setRegion] = useState<RegionCode | "">("");
-  const [size, setSize] = useState<SizePreset | "">("");
-  const [keyReference, setKeyReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [confirmingReprovision, setConfirmingReprovision] = useState(false);
+  const [errorCopied, setErrorCopied] = useState(false);
 
-  const existingInstance = instanceStatus?.instance ?? null;
+  const copyError = async () => {
+    if (!provisioningError) return;
+    await navigator.clipboard.writeText(provisioningError);
+    setErrorCopied(true);
+  };
+
+  const instanceRecord = instanceStatus?.instance ?? null;
+  const existingInstance = instanceRecord?.provider_resource_id
+    ? instanceRecord
+    : null;
+  const creationRetry =
+    instanceRecord?.status === "failed" && !instanceRecord.provider_resource_id;
   const existingEndpoint = instanceStatus?.endpoint ?? null;
-  const selectedKey = localKeyIdentities.find(
-    (identity) => identity.reference === keyReference,
-  );
-
   const handleProvision = async () => {
-    if (!region || !size || !keyReference) return;
     setSubmitting(true);
     try {
-      await onProvisionManaged(region, size, keyReference);
+      await onProvisionManaged();
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleConnect = async () => {
-    if (!keyReference) return;
     setSubmitting(true);
     try {
-      await onConnectManaged(keyReference);
+      await onConnectManaged();
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleReprovisionConfirmed = async () => {
-    if (!region || !size) return;
     setSubmitting(true);
     try {
-      await onReprovision(region, size);
+      await onReprovision();
       setConfirmingReprovision(false);
     } finally {
       setSubmitting(false);
@@ -104,9 +86,7 @@ export function RemoteManagedSetupPanel({
                 {STAGE_LABELS[existingInstance.status]}
               </span>
               <span className="text-muted-foreground">
-                {REGION_LABELS[existingInstance.region]} ·{" "}
-                {SIZE_LABELS[existingInstance.size_preset]} · gen{" "}
-                {existingInstance.generation}
+                Sprite · gen {existingInstance.generation}
               </span>
             </div>
             {existingEndpoint && (
@@ -118,43 +98,36 @@ export function RemoteManagedSetupPanel({
           </div>
 
           {provisioningError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              {provisioningError}
-            </p>
+            <div className="rounded-md border border-red-500/40 bg-red-500/5 p-3">
+              <pre
+                role="alert"
+                className="whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-400"
+              >
+                {provisioningError}
+              </pre>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() => void copyError()}
+              >
+                {errorCopied ? "Copied" : "Copy error"}
+              </Button>
+            </div>
           )}
 
-          {existingInstance.status === "ready" &&
-            localKeyIdentities.length > 0 && (
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium">SSH identity</span>
-                  <select
-                    value={keyReference}
-                    onChange={(e) => setKeyReference(e.target.value)}
-                    className="rounded-md border border-border/60 bg-background px-2 py-1.5"
-                  >
-                    <option value="" disabled>
-                      Choose a key
-                    </option>
-                    {localKeyIdentities.map((identity) => (
-                      <option
-                        key={identity.reference}
-                        value={identity.reference}
-                      >
-                        {identity.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Button
-                  size="sm"
-                  disabled={!keyReference || submitting}
-                  onClick={() => void handleConnect()}
-                >
-                  Connect
-                </Button>
-              </div>
-            )}
+          {existingInstance.status === "ready" && (
+            <div className="flex flex-wrap items-end gap-2">
+              <Button
+                size="sm"
+                disabled={submitting}
+                onClick={() => void handleConnect()}
+              >
+                Connect
+              </Button>
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-2">
             {existingEndpoint &&
@@ -180,77 +153,31 @@ export function RemoteManagedSetupPanel({
               disabled={submitting}
               onClick={() => setConfirmingReprovision(true)}
             >
-              Reprovision
+              Repair setup
             </Button>
-            {keyReference && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={submitting}
-                onClick={() => void onRevokeKey(keyReference)}
-              >
-                Revoke key
-              </Button>
-            )}
             <Button
               size="sm"
               variant="destructive"
               disabled={submitting}
               onClick={() => void onDeleteInstance()}
             >
-              Delete VM
+              Delete Sprite
             </Button>
           </div>
 
           {confirmingReprovision && (
             <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
               <p>
-                Reprovisioning replaces this VM and increments its generation.
-                Repository preservation depends on the provider&apos;s storage
-                behavior - export anything you need first. This does not migrate
-                to a different region.
+                Repair reruns Treq setup in the existing Sprite. The Sprite and
+                its filesystem are preserved.
               </p>
               <div className="mt-3 flex gap-2">
-                <label className="flex items-center gap-1">
-                  Region
-                  <select
-                    value={region}
-                    onChange={(e) => setRegion(e.target.value as RegionCode)}
-                    className="rounded border border-border/60 bg-background px-1 py-0.5"
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {regions.map((code) => (
-                      <option key={code} value={code}>
-                        {REGION_LABELS[code]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex items-center gap-1">
-                  Size
-                  <select
-                    value={size}
-                    onChange={(e) => setSize(e.target.value as SizePreset)}
-                    className="rounded border border-border/60 bg-background px-1 py-0.5"
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {sizePresets.map((preset) => (
-                      <option key={preset} value={preset}>
-                        {SIZE_LABELS[preset]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <Button
                   size="sm"
-                  disabled={!region || !size || submitting}
+                  disabled={submitting}
                   onClick={() => void handleReprovisionConfirmed()}
                 >
-                  Confirm reprovision
+                  Confirm repair
                 </Button>
                 <Button
                   size="sm"
@@ -265,83 +192,32 @@ export function RemoteManagedSetupPanel({
         </div>
       ) : (
         <div className="mt-4 space-y-4">
-          <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium">Region</span>
-            <select
-              value={region}
-              onChange={(e) => setRegion(e.target.value as RegionCode)}
-              className="rounded-md border border-border/60 bg-background px-2 py-1.5"
-            >
-              <option value="" disabled>
-                Choose a region
-              </option>
-              {regions.map((code) => (
-                <option key={code} value={code}>
-                  {REGION_LABELS[code]}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium">Size</span>
-            <select
-              value={size}
-              onChange={(e) => setSize(e.target.value as SizePreset)}
-              className="rounded-md border border-border/60 bg-background px-2 py-1.5"
-            >
-              <option value="" disabled>
-                Choose a size
-              </option>
-              {sizePresets.map((preset) => (
-                <option key={preset} value={preset}>
-                  {SIZE_LABELS[preset]}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium">SSH identity</span>
-            {localKeyIdentities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No local SSH key was found. Create or import one outside Treq,
-                then reopen this dialog. Treq never generates a private key for
-                you.
-              </p>
-            ) : (
-              <select
-                value={keyReference}
-                onChange={(e) => setKeyReference(e.target.value)}
-                className="rounded-md border border-border/60 bg-background px-2 py-1.5"
-              >
-                <option value="" disabled>
-                  Choose a key
-                </option>
-                {localKeyIdentities.map((identity) => (
-                  <option key={identity.reference} value={identity.reference}>
-                    {identity.label}
-                  </option>
-                ))}
-              </select>
-            )}
-            {selectedKey && (
-              <p
-                data-testid="selected-key-fingerprint"
-                className="text-xs text-muted-foreground"
-              >
-                Fingerprint: {selectedKey.fingerprint}
-              </p>
-            )}
-          </label>
+          <p className="text-sm text-muted-foreground">
+            Treq creates one Sprite for your account. Sprites manage location,
+            CPU, memory, and persistent storage automatically.
+          </p>
 
           {provisioningStage && (
             <p className="text-sm text-muted-foreground">{provisioningStage}</p>
           )}
           {provisioningError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              {provisioningError}
-            </p>
+            <div className="rounded-md border border-red-500/40 bg-red-500/5 p-3">
+              <pre
+                role="alert"
+                className="whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-400"
+              >
+                {provisioningError}
+              </pre>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() => void copyError()}
+              >
+                {errorCopied ? "Copied" : "Copy error"}
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -351,11 +227,12 @@ export function RemoteManagedSetupPanel({
           Back
         </Button>
         {!existingInstance && (
-          <Button
-            disabled={!region || !size || !keyReference || submitting}
-            onClick={() => void handleProvision()}
-          >
-            {submitting ? "Provisioning..." : "Provision VM"}
+          <Button disabled={submitting} onClick={() => void handleProvision()}>
+            {submitting
+              ? "Creating..."
+              : creationRetry
+                ? "Retry Sprite creation"
+                : "Create Sprite"}
           </Button>
         )}
       </div>

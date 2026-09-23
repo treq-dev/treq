@@ -11,7 +11,6 @@ import type {
 } from "./api-types";
 import type { WorkspaceChangeMarker } from "./api-types-remote";
 import {
-  isRemoteRepository,
   matchesActiveCanonicalPath,
   peekActiveRepository,
   type ActiveRepository,
@@ -19,6 +18,7 @@ import {
 import {
   dispatch,
   dispatchMutation,
+  dispatchOverManagedSprite,
   type TreqCommandRequest,
 } from "./remote-dispatch";
 import { applyMutationDispatchResult } from "./remote-mutation-ui";
@@ -31,7 +31,7 @@ function workspaceArg(workspaceId: number | null | undefined): string | null {
 
 function activeForPath(repoPath: string): ActiveRepository | null {
   const active = peekActiveRepository();
-  if (!isRemoteRepository(active)) return null;
+  if (!active || active.transport.type === "local") return null;
   if (!matchesActiveCanonicalPath(active, repoPath)) return null;
   return active;
 }
@@ -54,6 +54,10 @@ async function remoteDispatch<T>(
   repo: ActiveRepository,
   request: TreqCommandRequest,
 ): Promise<T> {
+  if (repo.transport.type === "managed_sprite") {
+    return dispatchOverManagedSprite<T>(repo.transport.instanceId, request);
+  }
+
   try {
     return await dispatch<T>(repo.endpoint, request);
   } catch (error) {
