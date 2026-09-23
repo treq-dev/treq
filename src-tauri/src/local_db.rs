@@ -1990,7 +1990,7 @@ pub fn get_agent_review_comment(
     .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
   let comment = stmt
-    .query_row([id], |row| agent_review_comment_from_row(row))
+    .query_row([id], agent_review_comment_from_row)
     .optional()
     .map_err(|e| format!("Failed to get agent review comment: {}", e))?;
 
