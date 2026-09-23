@@ -98,7 +98,9 @@ export function RemoteAgentScreen({
         idempotency_key: `agent-input:${workspace}:${Date.now()}`,
       });
       if (result.status === "ambiguous") {
-        setActionError(`Could not confirm the input was sent: ${result.reason}`);
+        setActionError(
+          `Could not confirm the input was sent: ${result.reason}`,
+        );
       } else {
         setInput("");
       }

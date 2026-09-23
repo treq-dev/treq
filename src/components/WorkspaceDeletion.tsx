@@ -76,9 +76,7 @@ export const WorkspaceDeletion: React.FC<WorkspaceDeletionProps> = ({
     >
       <span className="sr-only">
         <h2>Delete Workspace</h2>
-        <p>
-          Delete workspace
-        </p>
+        <p>Delete workspace</p>
       </span>
       <div
         data-testid="modal"

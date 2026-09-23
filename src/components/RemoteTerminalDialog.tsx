@@ -81,7 +81,10 @@ export const RemoteTerminalDialog = ({
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-4xl h-[70vh] p-0 flex flex-col overflow-hidden">
-          <RemoteTerminalPanel target={target} onClose={() => onOpenChange(false)} />
+          <RemoteTerminalPanel
+            target={target}
+            onClose={() => onOpenChange(false)}
+          />
         </DialogContent>
       </Dialog>
     );
@@ -108,9 +111,7 @@ export const RemoteTerminalDialog = ({
             </div>
           )}
 
-          {loadError && (
-            <p className="text-sm text-red-500">{loadError}</p>
-          )}
+          {loadError && <p className="text-sm text-red-500">{loadError}</p>}
 
           {sessions && sessions.length > 0 && (
             <div className="flex flex-col gap-2">
