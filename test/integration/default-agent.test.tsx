@@ -218,21 +218,19 @@ describe("default agent configuration", () => {
     ).toBeTruthy();
   });
 
-  it("terminal pane Agent button uses the configured default_agent, not hardcoded claude", async () => {
+  it("new agent terminal shortcut uses the configured default_agent, not hardcoded claude", async () => {
     await setSetting("default_agent", "codex");
 
     await createWorkspace(repoPath, "feat/agent-pane-button-test");
 
-    const { container } = render(<Dashboard />);
+    render(<Dashboard />);
 
     await user.click(
       await findSidebarBranchElement("feat/agent-pane-button-test"),
     );
 
-    const agentButton = await within(container).findByRole("button", {
-      name: "New agent terminal",
-    });
-    await user.click(agentButton);
+    await screen.findByTestId("workspace-terminal-pane");
+    await user.keyboard("{Meta>}]{/Meta}");
 
     await waitFor(async () => {
       const sessions = await getSessions(repoPath);
