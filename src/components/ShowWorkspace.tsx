@@ -140,6 +140,7 @@ import { ViewPrButton } from "./ViewPrButton";
 import { WorkspaceBookmarkConflictModal } from "./WorkspaceBookmarkConflictModal";
 import { ScheduleWorkspaceDialog } from "./ScheduleWorkspaceDialog";
 import { WorkspaceStackPanel } from "./WorkspaceStackPanel";
+import type { TerminalSessionSummary } from "./terminal/types";
 
 interface ShowWorkspaceProps {
   repositoryPath?: string;
@@ -149,6 +150,8 @@ interface ShowWorkspaceProps {
   onDeleteWorkspace?: (workspace: Workspace) => void;
   onOpenFilePicker?: () => void;
   onSessionCreated?: (session: SessionCreationInfo) => void;
+  idleAgentSession?: TerminalSessionSummary;
+  onSendToIdleAgent?: (sessionId: number, prompt: string) => void;
   /** Called when the user clicks "View full prompt" on the workspace's starting prompt */
   onViewFullPrompt?: (promptId: number) => void;
   taskInputFocusRequest?: number;
@@ -216,6 +219,8 @@ export const ShowWorkspace = ({
   onDeleteWorkspace,
   onOpenFilePicker,
   onSessionCreated,
+  idleAgentSession,
+  onSendToIdleAgent,
   onViewFullPrompt,
   taskInputFocusRequest,
   onOpenMergePreview,
@@ -1167,6 +1172,18 @@ export const ShowWorkspace = ({
           ? `\nSuggested change:\n\`\`\`\n${comment.suggested_replacement}\n\`\`\`\n`
           : "";
       const formattedComment = `Please address this review comment.\n\n${lineRef}\n> ${comment.comment_text}\n${suggestion}`;
+      if (idleAgentSession && onSendToIdleAgent) {
+        onSendToIdleAgent(
+          Number(idleAgentSession.id.replace("claude-", "")),
+          formattedComment,
+        );
+        addToast({
+          title: "Comment sent to agent",
+          description: "Sent review comment to the idle agent",
+          type: "success",
+        });
+        return;
+      }
       const sessionName = "Review Comment";
 
       const dbSessionId = await createSession(
@@ -1207,6 +1224,19 @@ export const ShowWorkspace = ({
     agentOverride?: string,
   ) => {
     try {
+      if (idleAgentSession && onSendToIdleAgent) {
+        onSendToIdleAgent(
+          Number(idleAgentSession.id.replace("claude-", "")),
+          reviewMarkdown,
+        );
+        addToast({
+          title: "Review sent to agent",
+          description: "Sent review to the idle agent",
+          type: "success",
+        });
+        return;
+      }
+
       // Resolve the default agent from repo-level then app-level settings,
       // so "send review to terminal" honours the configured default agent.
       let resolvedAgent: "claude" | "codex" | "cursor" | "copilot" | undefined;

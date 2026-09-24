@@ -2828,6 +2828,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         });
                       }}
                       onSessionCreated={handleSessionCreated}
+                      idleAgentSession={terminalSessionSummaries.find(
+                        (session) =>
+                          session.kind === "agent" &&
+                          session.branchName ===
+                            selectedWorkspace?.branch_name &&
+                          !session.isStreaming,
+                      )}
+                      onSendToIdleAgent={(sessionId, prompt) => {
+                        terminalPaneRef.current?.sendToTerminal(
+                          `claude-${sessionId}`,
+                          prompt,
+                        );
+                      }}
                       onViewFullPrompt={handleViewFullPrompt}
                     />
                   </ErrorBoundary>
