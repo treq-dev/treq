@@ -5,14 +5,33 @@ import { parseHunkHeader } from "./utils";
 import { cn } from "../../lib/utils";
 import { getLanguageFromPath } from "../../lib/syntax-highlight";
 
-export function HunkHeaderRow({ hunk }: { hunk: JjDiffHunk }) {
+export function HunkHeaderRow({
+  hunk,
+  onExpandBefore,
+}: {
+  hunk: JjDiffHunk;
+  onExpandBefore?: () => void;
+}) {
   return (
-    <div className={cn("flex items-stretch font-mono text-sm", "bg-muted/60")}>
+    <div
+      className={cn(
+        "flex items-stretch font-mono text-sm",
+        "bg-muted/60",
+        onExpandBefore && "cursor-pointer hover:bg-muted/80",
+      )}
+      onClick={onExpandBefore}
+    >
       <div className="w-24 flex-shrink-0 border-r border-border/40" />
       <div className="w-6 flex-shrink-0" />
       <div className="w-5 flex-shrink-0" />
       <div className="flex-1 flex items-center px-[8px] py-[2px]">
+        {onExpandBefore && <ChevronUp className="w-3 h-3 mr-1" />}
         <span className="text-muted-foreground truncate">{hunk.header}</span>
+        {onExpandBefore && (
+          <span className="text-muted-foreground text-xs ml-2">
+            Show more lines above
+          </span>
+        )}
       </div>
     </div>
   );
