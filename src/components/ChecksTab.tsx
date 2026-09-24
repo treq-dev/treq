@@ -60,11 +60,7 @@ function RunStatusIcon({ status }: { status: string }) {
   );
 }
 
-export function ChecksTab({
-  repoPath,
-  workspaceId,
-  workspacePath,
-}: Props) {
+export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
   const [runningJobs, setRunningJobs] = useState<Set<string>>(new Set());
   const [runningWorkflows, setRunningWorkflows] = useState<Set<string>>(
     new Set(),
@@ -408,8 +404,7 @@ function WorkflowCard({
                     {formatRunTime(run.started_at)}
                   </span>
                 </div>
-                <div className="flex items-center gap-1">
-                </div>
+                <div className="flex items-center gap-1"></div>
               </div>
             ))}
           </div>

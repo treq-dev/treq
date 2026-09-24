@@ -195,16 +195,3 @@ pub async fn rerun_workspace_setup_script(
   .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn export_run_logs(
-  repo_path: String,
-  run_id: i64,
-  job_id: String,
-  dest_path: String,
-) -> Result<String, String> {
-  tauri::async_runtime::spawn_blocking(move || {
-    crate::core::export_run_logs_sync(&repo_path, run_id, &job_id, &dest_path)
-  })
-  .await
-  .map_err(|e| e.to_string())?
-}
