@@ -353,7 +353,12 @@ export function DiffVirtuosoRow({ item }: { item: DiffVirtuosoItem }) {
           hunk={hunk}
           onExpandBefore={
             item.canExpandBefore
-              ? () => ctx.handleExpandContext(item.filePath, item.hunkIndex, "before")
+              ? () =>
+                  ctx.handleExpandContext(
+                    item.filePath,
+                    item.hunkIndex,
+                    "before",
+                  )
               : undefined
           }
         />,
@@ -364,11 +369,7 @@ export function DiffVirtuosoRow({ item }: { item: DiffVirtuosoItem }) {
         <HunkExpandControl
           direction="after"
           onExpand={() =>
-            ctx.handleExpandContext(
-              item.filePath,
-              item.hunkIndex,
-              "after",
-            )
+            ctx.handleExpandContext(item.filePath, item.hunkIndex, "after")
           }
         />,
       );
