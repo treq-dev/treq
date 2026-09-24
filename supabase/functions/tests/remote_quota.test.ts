@@ -9,7 +9,11 @@
 //
 // Run with: `deno test --allow-env supabase/functions/tests/remote_quota.test.ts`
 
-import { assert, assertEquals, assertFalse } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assert,
+  assertEquals,
+  assertFalse,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   BASE_ALLOCATION,
   BASE_DISK_QUOTA_BYTES,
@@ -31,14 +35,10 @@ Deno.test("only the small preset is within the base allocation", () => {
   assertFalse(isBaseAllocationPreset("large" as SizePreset));
 });
 
-// Provisioning must always request exactly the base allocation from the
-// vendor, regardless of which preset was selected - add-on purchase does
-// not exist yet, so nothing above base can ever leave this process bound
-// for the provider. Exercised by intercepting the outgoing `fetch` call the
-// adapter makes to the Fly Machines API and inspecting the request body it
-// actually sent.
-Deno.test("sprites adapter always requests the base allocation guest spec, regardless of preset", async () => {
-  const { SpritesProvider } = await import("../_shared/remote/sprites-adapter.ts");
+Deno.test("sprites adapter creates a deterministic sprite without Machines configuration", async () => {
+  const { SpritesProvider } = await import(
+    "../_shared/remote/sprites-adapter.ts"
+  );
   const originalFetch = globalThis.fetch;
   const capturedBodies: unknown[] = [];
   globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
@@ -46,11 +46,9 @@ Deno.test("sprites adapter always requests the base allocation guest spec, regar
     return Promise.resolve(
       new Response(
         JSON.stringify({
-          id: "test-machine",
-          state: "started",
-          region: "iad",
-          private_ip: "fdaa::1",
-          config: { guest: { memory_mb: 2048 } },
+          id: "sprite-id",
+          name: "dev-treq-user-1",
+          status: "warm",
         }),
         { status: 200 },
       ),
@@ -61,30 +59,57 @@ Deno.test("sprites adapter always requests the base allocation guest spec, regar
     const provider = new SpritesProvider({
       baseUrl: "https://example.invalid",
       apiToken: "test-token",
-      appName: "treq-test",
     });
-
-    for (const sizePreset of ["small", "medium", "large"] as SizePreset[]) {
-      await provider.createInstance({
-        ownerUserId: "user-1",
-        region: "us_east",
-        sizePreset,
-        manifestVersion: 1,
-        idempotencyKey: `idem-${sizePreset}`,
-      });
-    }
+    const instance = await provider.createInstance({
+      ownerUserId: "user-1",
+      region: "us_east",
+      sizePreset: "small",
+      manifestVersion: 1,
+      idempotencyKey: "idem-create",
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
 
-  assertEquals(capturedBodies.length, 3);
-  for (const body of capturedBodies) {
-    // deno-lint-ignore no-explicit-any
-    const guest = (body as any).config.guest;
-    assertEquals(guest.cpus, BASE_ALLOCATION.vcpu);
-    assertEquals(guest.memory_mb, BASE_ALLOCATION.ramGb * 1024);
-    // deno-lint-ignore no-explicit-any
-    const mounts = (body as any).config.mounts;
-    assertEquals(mounts[0].size_gb, BASE_ALLOCATION.diskGb);
+  assertEquals(capturedBodies, [{ name: "dev-treq-user-1" }]);
+  assertEquals(instance.state, "ready");
+});
+
+Deno.test("sprites adapter executes argv through the documented HTTP endpoint", async () => {
+  const { SpritesProvider } = await import(
+    "../_shared/remote/sprites-adapter.ts"
+  );
+  const originalFetch = globalThis.fetch;
+  let capturedUrl = "";
+  let capturedMethod = "";
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    capturedUrl = String(input);
+    capturedMethod = init?.method ?? "GET";
+    return Promise.resolve(new Response("installed\n", { status: 200 }));
+  }) as typeof fetch;
+
+  try {
+    const provider = new SpritesProvider({
+      baseUrl: "https://example.invalid",
+      apiToken: "test-token",
+    });
+    const result = await provider.execOnMachine(
+      "treq-user-1",
+      ["bash", "-lc", "echo installed"],
+      20,
+    );
+    assertEquals(result, {
+      exitCode: 0,
+      stdout: "installed\n",
+      stderr: "",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
   }
+
+  assertEquals(capturedMethod, "POST");
+  assertEquals(
+    capturedUrl,
+    "https://example.invalid/v1/sprites/treq-user-1/exec?cmd=bash&cmd=-lc&cmd=echo+installed&path=bash",
+  );
 });

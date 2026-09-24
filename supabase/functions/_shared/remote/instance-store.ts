@@ -7,7 +7,7 @@
 // (owner_user_id, idempotency_key) returns the existing operation rather
 // than invoking the provider again.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import { BASE_ALLOCATION, type RegionCode, type SizePreset } from "./catalog.ts";
 
 export type OperationType =

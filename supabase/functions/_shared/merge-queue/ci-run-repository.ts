@@ -1,7 +1,7 @@
 // CI run persistence. Lane membership is owned by ci_run_entries; the
 // legacy ci_runs.entry_ids array is still written for compatibility reads.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import type { CiRunStatus } from "./state-machine.ts";
 
 export interface CiRunRow {

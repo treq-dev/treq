@@ -79,3 +79,5 @@ scripts/storybook/.generated/
 .agents/skills/
 .claude/skills/
 .claude/worktrees/
+
+*.pem

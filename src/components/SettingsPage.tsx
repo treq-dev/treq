@@ -49,12 +49,14 @@ interface SettingsPageProps {
   repoPath: string;
   onClose: () => void;
   currentBranch?: string | null;
+  onOpenRemoteSetup?: () => void;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   repoPath,
   onClose,
   currentBranch,
+  onOpenRemoteSetup,
 }) => {
   const [currentTab, setCurrentTab] = useState<TabValue>("repository");
   const [modelDraft, setModelDraft] = useState<string | null>(null);
@@ -414,7 +416,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </TabsContent>
 
                 <TabsContent value="account">
-                  <AccountSettings />
+                  <AccountSettings onOpenRemoteSetup={onOpenRemoteSetup} />
                 </TabsContent>
                 <TabsContent value="integrations">
                   <div className="space-y-12">

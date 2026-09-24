@@ -88,10 +88,15 @@ describe("default agent configuration", () => {
     await user.click(await screen.findByLabelText("Settings"));
 
     const gitignorePath = path.join(repoPath, ".gitignore");
+    await waitFor(() =>
+      expect(fs.readFileSync(gitignorePath, "utf8")).toContain(".treq/"),
+    );
     expect(fs.readFileSync(gitignorePath, "utf8")).not.toContain(".jj*/");
 
     await user.click(
-      await screen.findByLabelText(/ignore generated Treq paths/i),
+      await screen.findByRole("switch", {
+        name: /ignore generated Treq paths/i,
+      }),
     );
     await user.click(
       await screen.findByRole("button", { name: /save settings/i }),
@@ -199,21 +204,36 @@ describe("default agent configuration", () => {
     });
   });
 
-  it("terminal pane Agent button uses the configured default_agent, not hardcoded claude", async () => {
+  it("opens the agent prompt dialog with the home repo selected on Meta+I", async () => {
+    render(<Dashboard />);
+
+    await user.keyboard("{Meta>}i{/Meta}");
+
+    const promptDialog = (
+      await screen.findByRole("heading", {
+        name: "Start a new agent session",
+      })
+    ).closest('[data-testid="modal"]');
+    if (!promptDialog) throw new Error("Agent prompt dialog was not rendered");
+
+    expect(
+      within(promptDialog).getByPlaceholderText(/describe a task/i),
+    ).toBeTruthy();
+  });
+
+  it("new agent terminal shortcut uses the configured default_agent, not hardcoded claude", async () => {
     await setSetting("default_agent", "codex");
 
     await createWorkspace(repoPath, "feat/agent-pane-button-test");
 
-    const { container } = render(<Dashboard />);
+    render(<Dashboard />);
 
     await user.click(
       await findSidebarBranchElement("feat/agent-pane-button-test"),
     );
 
-    const agentButton = await within(container).findByRole("button", {
-      name: "New agent terminal",
-    });
-    await user.click(agentButton);
+    await screen.findByTestId("workspace-terminal-pane");
+    await user.keyboard("{Meta>}]{/Meta}");
 
     await waitFor(async () => {
       const sessions = await getSessions(repoPath);

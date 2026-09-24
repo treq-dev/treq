@@ -21,7 +21,7 @@
       "webUrl": "http://localhost:3001",
       "supabase": {
         "url": "http://127.0.0.1:54321",
-        "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+        "anonKey": "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH"
       }
     },
     "prod": {
@@ -129,7 +129,7 @@
     "@storybook/addon-docs": "^10.5.4",
     "@storybook/react-vite": "^10.5.4",
     "@tailwindcss/typography": "^0.5.19",
-    "@tauri-apps/cli": "^2.10.0",
+    "@tauri-apps/cli": "^2.11.4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
