@@ -85,7 +85,10 @@ describe("treq send --browser integration", () => {
   it("ignores browser send events when the Browser feature is disabled", async () => {
     const { repoPath } = createTestRepo(false);
     openRepo(repoPath);
-    const workspaceId = await createWorkspace(repoPath, "feat/browser-disabled");
+    const workspaceId = await createWorkspace(
+      repoPath,
+      "feat/browser-disabled",
+    );
     const workspace = (await getWorkspaces(repoPath)).find(
       (item) => item.id === workspaceId,
     );
