@@ -5,6 +5,52 @@ import type {
 } from "./api-types-remote";
 import { remoteRepoIdentity } from "./remote-query-keys";
 
+export type WorkspaceSource = "local" | "sprite";
+
+export interface WorkspaceIdentity {
+  source: WorkspaceSource;
+  repositoryId: string;
+  workspaceId: number | null;
+}
+
+export function workspaceIdentityKey(identity: WorkspaceIdentity): string {
+  return JSON.stringify([
+    identity.source,
+    identity.repositoryId,
+    identity.workspaceId,
+  ]);
+}
+
+export function canCombineWorkspaceIdentities(
+  identities: readonly WorkspaceIdentity[],
+): boolean {
+  const [first] = identities;
+  if (!first) return true;
+  return identities.every(
+    (identity) =>
+      identity.source === first.source &&
+      identity.repositoryId === first.repositoryId,
+  );
+}
+
+export type RepositoryTransport =
+  | { type: "local" }
+  | { type: "ssh"; endpoint: SshEndpoint }
+  | {
+      type: "managed_sprite";
+      instanceId: string;
+      spriteName: string;
+      registrationId: string;
+    };
+
+export interface ManagedSpriteRepositoryInput {
+  instanceId: string;
+  spriteName: string;
+  canonicalPath: string;
+  registrationId: string;
+  displayName: string;
+}
+
 /**
  * Transport-aware descriptor for the repository the desktop UI is showing.
  * Local and SSH repositories share this shape so cache keys, adapters, and
@@ -18,6 +64,7 @@ export interface ActiveRepository {
   endpointGeneration: number;
   canonicalPath: string;
   displayName: string;
+  transport: RepositoryTransport;
 }
 
 export function isRemoteRepository(
@@ -35,18 +82,42 @@ export function localActiveRepository(path: string): ActiveRepository {
     endpoint: null,
     endpointId: null,
     endpointGeneration: 0,
+    transport: { type: "local" },
     canonicalPath: path,
     displayName: path,
   };
 }
 
 export function repositoryCacheKey(repo: ActiveRepository): string {
+  if (repo.transport.type === "managed_sprite") {
+    return `sprite:${repo.transport.instanceId}:${repo.transport.registrationId}:${repo.canonicalPath}`;
+  }
   return remoteRepoIdentity(repo.location, {
     endpointGeneration: repo.endpointGeneration,
     endpointId: repo.endpointId ?? repo.endpoint?.id ?? null,
   });
 }
 
+export function managedSpriteActiveRepository(
+  input: ManagedSpriteRepositoryInput,
+): ActiveRepository {
+  return {
+    id: input.registrationId,
+    location: { type: "local", path: input.canonicalPath },
+    endpoint: null,
+    endpointId: null,
+    endpointGeneration: 0,
+    canonicalPath: input.canonicalPath,
+    displayName: input.displayName,
+    transport: {
+      type: "managed_sprite",
+
+      instanceId: input.instanceId,
+      spriteName: input.spriteName,
+      registrationId: input.registrationId,
+    },
+  };
+}
 export type PersistedRemoteRepository = RemoteRepository & {
   endpoint?: SshEndpoint | null;
   endpoint_id?: string | null;
@@ -85,6 +156,9 @@ export function activeRepositoryFromRemote(
     endpointGeneration: generation ?? 0,
     canonicalPath,
     displayName: saved.display_name,
+    transport: sshEndpoint
+      ? { type: "ssh", endpoint: sshEndpoint }
+      : { type: "local" },
   };
 }
 

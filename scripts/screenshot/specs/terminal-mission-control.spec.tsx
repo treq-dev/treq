@@ -87,10 +87,7 @@ it("captures Terminal Mission Control open, select, and close", async () => {
 	await user.click(await screen.findByLabelText("New shell terminal"));
 	await user.click(await screen.findByLabelText("New agent terminal"));
 	await waitFor(() => {
-		expect(
-			document.querySelectorAll('[data-testid^="terminal-session-item-"]')
-				.length,
-		).toBeGreaterThanOrEqual(3);
+		expect(document.querySelectorAll("[data-terminal-id]").length).toBeGreaterThanOrEqual(3);
 	});
 
 	const shellIds = [
@@ -106,7 +103,7 @@ it("captures Terminal Mission Control open, select, and close", async () => {
 		name: "terminal-mission-control-01-before",
 		expectations: [
 			"The main workspace view is visible with no Mission Control overlay covering it.",
-			"The sidebar Sessions list shows multiple terminal rows for the open shell and agent sessions.",
+			"Workspace rows remain visible with session activity represented by their inline indicators.",
 		],
 	});
 

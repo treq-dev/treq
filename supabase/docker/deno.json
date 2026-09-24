@@ -1,6 +1,3 @@
 {
-  "imports": {
-    "@supabase/supabase-js": "./_vendor/supabase-js.mjs",
-    "https://esm.sh/@supabase/supabase-js@2": "./_vendor/supabase-js.mjs"
-  }
+  "nodeModulesDir": "none"
 }

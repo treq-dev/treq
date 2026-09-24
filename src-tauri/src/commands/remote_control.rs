@@ -52,6 +52,16 @@ pub async fn remote_dispatch_local(
     .map_err(|e| format!("Failed to join remote_dispatch_local task: {e}"))?
 }
 
+/// Converts an allow-listed typed request into the exact argv accepted by
+/// the remote Treq CLI. Managed Sprite execution uses this before sending
+/// argv to the authenticated control-plane exec endpoint.
+#[tauri::command]
+pub fn remote_build_cli_argv(request: TreqCommandRequest) -> Result<Vec<String>, String> {
+  let mut argv = vec!["treq".to_string()];
+  argv.extend(request.cli_args()?);
+  Ok(argv)
+}
+
 /// Runs a typed request against a real `SshEndpoint` over the pooled native
 /// SSH transport, returning the raw JSON result. Errors preserve the CLI's
 /// own structured code where available (see `RemoteCommandError`).

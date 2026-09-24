@@ -11,7 +11,7 @@
 //   - entries stuck in 'merging' beyond the lease TTL → drive (the drive
 //     handler re-runs merge with operation-key idempotency)
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import { publishMergeQueueCommand } from "../_shared/merge-queue/commands-queue.ts";
 import type { MergeQueueCommand } from "../_shared/merge-queue/messages.ts";
 

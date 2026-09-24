@@ -721,6 +721,9 @@ export const remoteDispatchLocal = <T = unknown>(
   request: unknown,
 ): Promise<T> => invoke("remote_dispatch_local", { request });
 
+export const remoteBuildCliArgv = (request: unknown): Promise<string[]> =>
+  invoke("remote_build_cli_argv", { request });
+
 /** Same as {@link remoteDispatchLocal}, but runs over the SSH exec channel for `endpoint`. */
 export const remoteDispatchOverSsh = <T = unknown>(
   endpoint: unknown,

@@ -32,13 +32,11 @@ import { usePreviewFeature } from "../stores/featurePreviewStore";
 import { HomeRepoSidebarRow } from "./HomeRepoSidebarRow";
 import { HiddenWorkspacesToggle } from "./HiddenWorkspacesToggle";
 import { RenameWorkspaceDialog } from "./RenameWorkspaceDialog";
-import { TerminalSessionsSidebar } from "./TerminalSessionsSidebar";
 import type { TerminalSessionSummary } from "./terminal/types";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -87,12 +85,6 @@ interface WorkspaceSidebarProps {
   onStartHomeShell?: () => void;
   onStackHome?: () => void;
   terminalSessions?: TerminalSessionSummary[];
-  onFocusTerminalSession?: (id: string) => void;
-  onCloseTerminalSession?: (id: string) => void;
-  onCloseIdleTerminalSessions?: () => void;
-  onCloseAllTerminalSessions?: () => void;
-  onCreateAgentTerminal?: () => void;
-  onCreateShellTerminal?: () => void;
   onDropChangeFiles?: (request: ChangeFilesMoveRequest) => void;
 }
 
@@ -123,12 +115,6 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   onStartHomeShell,
   onStackHome,
   terminalSessions,
-  onFocusTerminalSession,
-  onCloseTerminalSession,
-  onCloseIdleTerminalSessions,
-  onCloseAllTerminalSessions,
-  onCreateAgentTerminal,
-  onCreateShellTerminal,
   onDropChangeFiles,
 }) => {
   const cacheKey = useRepositoryCacheKey(repoPath);
@@ -491,17 +477,6 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
-        <SidebarFooter className="p-0">
-          <TerminalSessionsSidebar
-            sessions={terminalSessions ?? []}
-            onFocus={onFocusTerminalSession}
-            onClose={onCloseTerminalSession}
-            onCloseIdle={onCloseIdleTerminalSessions}
-            onCloseAll={onCloseAllTerminalSessions}
-            onCreateAgent={onCreateAgentTerminal}
-            onCreateShell={onCreateShellTerminal}
-          />
-        </SidebarFooter>
         <WorkspaceSidebarResizeHandle />
       </Sidebar>
       {renameTarget && repoPath && (

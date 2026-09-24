@@ -35,7 +35,7 @@
 // user's own self-service actions, recording the operator action rather than
 // attributing it to the affected user.
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import { recordAuditEvent } from "../_shared/remote/audit.ts";
 import { correlationIdFromRequest, logWithCorrelation } from "../_shared/remote/correlation.ts";
 

@@ -213,6 +213,24 @@ export interface ManagedInstanceRecord {
   ram_quota_gb: number;
 }
 
+export interface ManagedRepositoryRegistration {
+  id: string;
+  remote_path: string;
+  display_name: string;
+}
+
+export interface CloneManagedRepositoryRequest {
+  instance_id: string;
+  repo_full_name: string;
+}
+
+export interface CloneManagedRepositoryResponse {
+  status: "ready";
+  repository: ManagedRepositoryRegistration;
+  inspection?: RepositoryInspection;
+  correlation_id: string;
+}
+
 export interface TrustedHostKey {
   algorithm: string;
   fingerprint_sha256: string;
@@ -269,8 +287,6 @@ export interface OperationResponse {
 }
 
 export interface ProvisionInstanceRequest {
-  region: RegionCode;
-  size_preset: SizePreset;
   idempotency_key: string;
 }
 
@@ -281,8 +297,6 @@ export interface WakeInstanceRequest {
 
 export interface ReprovisionInstanceRequest {
   instance_id: string;
-  region: RegionCode;
-  size_preset: SizePreset;
   idempotency_key: string;
 }
 
