@@ -8,16 +8,17 @@ import { Dashboard } from "../../src/components/Dashboard";
 
 describe("home row context menu does not lock sidebar clicks after branch switch", () => {
   let repoPath: string;
+  let user: ReturnType<typeof userEvent.setup>;
 
   beforeEach(async () => {
     ({ repoPath } = createTestRepo(false));
     openRepo(repoPath);
     await createWorkspace(repoPath, "feat/alpha");
     await createWorkspace(repoPath, "feat/beta");
+    user = userEvent.setup();
   });
 
   it("switches the home branch via Switch Branch... and still allows clicking a workspace row afterward", async () => {
-    const user = userEvent.setup();
     render(<Dashboard />);
 
     const homeRepoElement = await screen.findByTestId("home-repo-row");

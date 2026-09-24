@@ -1,6 +1,9 @@
 import { useState } from "react";
 import useSWR from "swr";
-import { dispatchOverSsh, dispatchMutationOverSsh } from "../lib/remote-dispatch";
+import {
+  dispatchOverSsh,
+  dispatchMutationOverSsh,
+} from "../lib/remote-dispatch";
 import type { SshEndpoint } from "../lib/api-types-remote";
 import type { WorkspaceStatus, JjFileChange } from "../lib/api-types";
 import {
@@ -118,9 +121,7 @@ export function WorkspaceDetailScreen({
       )}
 
       <div className="flex flex-col gap-2 rounded-md border px-3 py-2">
-        <p className="text-xs font-semibold text-muted-foreground">
-          Mutations
-        </p>
+        <p className="text-xs font-semibold text-muted-foreground">Mutations</p>
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={targetBranch}
@@ -149,7 +150,9 @@ export function WorkspaceDetailScreen({
                 }
                 refreshAll();
               } catch (err) {
-                setRebaseError(err instanceof Error ? err.message : String(err));
+                setRebaseError(
+                  err instanceof Error ? err.message : String(err),
+                );
               }
             }}
           />
@@ -187,7 +190,9 @@ export function WorkspaceDetailScreen({
                 setCommitMessage("");
                 refreshAll();
               } catch (err) {
-                setCommitError(err instanceof Error ? err.message : String(err));
+                setCommitError(
+                  err instanceof Error ? err.message : String(err),
+                );
               }
             }}
           />

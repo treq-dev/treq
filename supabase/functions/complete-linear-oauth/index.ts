@@ -2,7 +2,7 @@
 // to the authenticated user, exchanges the authorization code for an access token,
 // queries Linear for the workspace name, stores the token, and consumes the intent.
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

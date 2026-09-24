@@ -3,7 +3,7 @@
 // real GitHub App. PR head SHAs are resolved from merge_queue_entries so
 // merge preconditions match the SHAs used when the PR was enqueued.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import type { GitHubAdapter, PullRequestSnapshot } from "./github-adapter.ts";
 
 const BASE_SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

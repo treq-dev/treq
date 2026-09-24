@@ -9,7 +9,7 @@
 //
 // All queue orchestration happens in the merge-queue-worker function.
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 import { publishMergeQueueCommand } from "../_shared/merge-queue/commands-queue.ts";
 import { applyInstallationFacts, commandsForEvent } from "./webhook-handlers.ts";
 

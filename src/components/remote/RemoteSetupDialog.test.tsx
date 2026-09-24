@@ -32,40 +32,76 @@ describe("RemoteSetupDialog", () => {
   it("presents the two-choice entry point", async () => {
     render(<RemoteSetupDialog {...baseProps()} />);
     expect(
-      await screen.findByRole("button", { name: /Treq-managed VM/ }),
+      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Your own VM/ }),
     ).toBeInTheDocument();
   });
 
-  it("shows region and size pickers and the key fingerprint for managed setup", async () => {
+  it("provisions one managed Sprite without region, size, or SSH identity", async () => {
     const user = userEvent.setup();
     const props = baseProps();
     render(<RemoteSetupDialog {...props} />);
 
     await user.click(
-      await screen.findByRole("button", { name: /Treq-managed VM/ }),
+      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
     );
 
-    const regionSelect = await screen.findByLabelText("Region");
-    await user.selectOptions(regionSelect, "us_east");
-    const sizeSelect = await screen.findByLabelText("Size");
-    await user.selectOptions(sizeSelect, "small");
+    expect(screen.queryByLabelText("Region")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Size")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("SSH identity")).not.toBeInTheDocument();
 
-    const keySelect = await screen.findByLabelText("SSH identity");
-    await user.selectOptions(keySelect, "/home/me/.ssh/id_ed25519.pub");
+    await user.click(screen.getByRole("button", { name: "Create Sprite" }));
+    expect(props.onProvisionManaged).toHaveBeenCalledWith();
+  });
 
+  it("retries creation when the failed record has no provider resource", async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...baseProps(),
+      instanceStatus: {
+        instance: {
+          instance_id: "instance-1",
+          status: "failed",
+          provider_resource_id: null,
+          generation: 0,
+        },
+        endpoint: null,
+      } as never,
+    };
+    render(<RemoteSetupDialog {...props} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Retry Sprite creation" }),
+    );
+
+    expect(props.onProvisionManaged).toHaveBeenCalledOnce();
     expect(
-      await screen.findByTestId("selected-key-fingerprint"),
-    ).toHaveTextContent("SHA256:abc123");
+      screen.queryByRole("button", { name: "Repair setup" }),
+    ).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Provision VM" }));
-    expect(props.onProvisionManaged).toHaveBeenCalledWith(
-      "us_east",
-      "small",
-      "/home/me/.ssh/id_ed25519.pub",
+  it("shows a copyable structured server error", async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...baseProps(),
+      provisioningError:
+        "[invalid_request] Bad Sprite name\nHTTP 400 · Correlation ID: corr-123",
+    };
+    render(<RemoteSetupDialog {...props} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
     );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("corr-123");
+    expect(
+      screen.getByRole("button", { name: "Copy error" }),
+    ).toBeInTheDocument();
   });
 
   it("requires host-trust confirmation before registering a user-managed endpoint", async () => {

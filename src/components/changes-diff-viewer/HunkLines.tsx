@@ -117,6 +117,7 @@ export const HunkDiffLine: React.FC<HunkLinesProps & { lineIndex: number }> = (
           "group flex items-stretch",
           getLineTypeClass(line),
           selected && "!bg-blue-500/10",
+          selected && "dark:!bg-blue-500/25",
         )}
         onMouseEnter={() =>
           !isConflictedFile &&

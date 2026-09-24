@@ -2,7 +2,7 @@
 // owns message claiming, lease acquisition, retry/dead-letter policy and
 // archival; this module owns the domain logic of each command type.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import type {
   CiCompletedCommand,
   EntryDequeueCommand,

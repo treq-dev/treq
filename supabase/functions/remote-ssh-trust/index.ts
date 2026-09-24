@@ -20,7 +20,7 @@
 // (REMOTE_SSH_CA_ED25519_SEED_BASE64) - it is read to sign a certificate and
 // never included in any response or database write.
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import { recordAuditEvent, startTimer } from "../_shared/remote/audit.ts";
 import { correlationIdFromRequest, logWithCorrelation } from "../_shared/remote/correlation.ts";
 import {

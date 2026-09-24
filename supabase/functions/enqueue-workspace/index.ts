@@ -4,7 +4,7 @@
 // POST body: { repo_full_name: string; branch_name: string; action: "enqueue" | "dequeue" }
 // Auth: user JWT in Authorization header (passed automatically by supabase.functions.invoke)
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 import { getInstallationToken } from "../_shared/merge-queue/github-adapter.ts";
 
 const corsHeaders = {

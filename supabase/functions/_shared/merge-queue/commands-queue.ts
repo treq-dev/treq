@@ -2,7 +2,7 @@
 // service-role-only SECURITY DEFINER wrappers created in migration 005 —
 // the pgmq schema itself is never exposed to PostgREST clients.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import type { DeadLetter, MergeQueueCommand } from "./messages.ts";
 import { COMMAND_QUEUE, DEAD_LETTER_QUEUE } from "./messages.ts";
 

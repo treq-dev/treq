@@ -111,7 +111,7 @@ export const WorkspaceTerminalPaneView: React.FC<
         "relative flex flex-col flex-shrink-0",
         collapsed
           ? "self-end m-1.5 overflow-visible"
-          : "border-t bg-background overflow-hidden",
+          : "border-t bg-background overflow-visible",
       )}
       style={
         collapsed
@@ -126,8 +126,8 @@ export const WorkspaceTerminalPaneView: React.FC<
         <div
           data-testid="terminal-pane-controls"
           className={cn(
-            "z-20 flex items-center gap-px rounded-md border border-border/80 bg-background/90 p-0.5 shadow-sm backdrop-blur-sm",
-            collapsed ? "relative" : "absolute top-1.5 right-1.5",
+            "z-50 flex items-center gap-px rounded-md border border-border/80 bg-background/90 p-0.5 shadow-sm backdrop-blur-sm",
+            collapsed ? "contents" : "absolute -top-7 right-1.5",
           )}
         >
           {collapsed && (
@@ -136,6 +136,7 @@ export const WorkspaceTerminalPaneView: React.FC<
               tooltip="Expand"
               shortcut="⌘ + J"
               onClick={() => setCollapsed(false)}
+              className="absolute bottom-1.5 right-1.5"
             >
               <ChevronUp className="w-3 h-3" />
             </PaneControlButton>
@@ -289,12 +290,14 @@ function PaneControlButton({
   tooltip,
   shortcut,
   onClick,
+  className,
   children,
 }: {
   ariaLabel: string;
   tooltip: string;
   shortcut: string;
   onClick: () => void;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -304,7 +307,7 @@ function PaneControlButton({
           type="button"
           onClick={onClick}
           variant="ghost"
-          className="h-5 w-5 rounded-sm p-0"
+          className={cn("h-5 w-5 rounded-sm p-0", className)}
           aria-label={ariaLabel}
         >
           {children}

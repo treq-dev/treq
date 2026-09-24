@@ -4,7 +4,7 @@
 //
 // A browser-supplied installation_id alone never determines ownership.
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 import { getInstallation } from "../_shared/merge-queue/github-adapter.ts";
 
 const corsHeaders = {

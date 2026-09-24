@@ -28,6 +28,17 @@ pub struct DeviceKeyInfo {
   pub fingerprint_sha256: String,
 }
 
+/// Machine-checkable prefix on the `Err(String)` this module returns when
+/// secure storage isn't usable on this device (no biometrics enrolled, or
+/// the OS keystore itself is unavailable). Callers - `ensure_mobile_device_key`
+/// and `RemoteConnectPanel` on the JS side - check for this prefix to show a
+/// dedicated "set up biometrics" state instead of a generic connection
+/// error. Kept as a string prefix (not a typed Tauri command error) because
+/// `ensure_device_key`'s `Result<_, String>` signature is shared with other
+/// `remote_*` command error strings that already flow straight to JS as
+/// plain messages; changing that return type is out of scope here.
+pub const SECURE_STORAGE_UNAVAILABLE_PREFIX: &str = "secure_storage_unavailable:";
+
 #[cfg_attr(not(any(mobile, test)), allow(dead_code))]
 fn generate_private_key() -> Result<PrivateKey, String> {
   let mut seed = [0u8; 32];
@@ -54,35 +65,73 @@ fn device_key_info(key: &PrivateKey) -> Result<DeviceKeyInfo, String> {
 mod mobile_storage {
   use super::{generate_private_key, PrivateKey};
   use tauri_plugin_biometric::BiometricExt;
-  use tauri_plugin_keystore::{KeystoreExt, RetrieveRequest, StoreRequest};
+  use tauri_plugin_keystore::{Error as KeystoreError, KeystoreExt, RetrieveRequest, StoreRequest};
 
-  const KEYSTORE_SERVICE: &str = "com.treq.mobile-device-key";
-  const KEYSTORE_USER: &str = "device-key";
+  const KEYSTORE_KEY: &str = "com.treq.mobile-device-key/device-key";
+
+  /// Whether a keystore-plugin error genuinely indicates the OS-native
+  /// keystore/keychain is unavailable on this device, as opposed to some
+  /// unrelated I/O failure. The plugin's `Error` type (see its `error.rs`)
+  /// only has two variants: `Io`, for local filesystem/serialization
+  /// problems that have nothing to do with device capability, and (on
+  /// mobile) `PluginInvoke`, which wraps a rejection from the native
+  /// Android/iOS side actually trying to use the platform keystore. Only
+  /// the latter should surface as "secure storage unavailable" to the UI.
+  fn indicates_keystore_unavailable(err: &KeystoreError) -> bool {
+    match err {
+      KeystoreError::Io(_) => false,
+      #[cfg(mobile)]
+      KeystoreError::PluginInvoke(_) => true,
+    }
+  }
+
+  /// Formats a keystore error for the given `action` (e.g. "read device key
+  /// from" or "store device key in"), prefixing it with
+  /// [`super::SECURE_STORAGE_UNAVAILABLE_PREFIX`] when the failure indicates
+  /// the platform keystore itself is unavailable.
+  fn wrap_keystore_err(action: &str, e: KeystoreError) -> String {
+    if indicates_keystore_unavailable(&e) {
+      format!("{}{action}: {e}", super::SECURE_STORAGE_UNAVAILABLE_PREFIX)
+    } else {
+      format!("{action}: {e}")
+    }
+  }
 
   fn require_biometrics(app: &tauri::AppHandle) -> Result<(), String> {
+    // A failure *calling* `status()` is a plugin/transport error (e.g. the
+    // native side didn't respond), not evidence that biometrics/secure
+    // storage are unavailable - that case is reported via `is_available`
+    // below, once the call actually succeeds. Don't prefix it as
+    // `SECURE_STORAGE_UNAVAILABLE_PREFIX`, or transient errors unrelated to
+    // biometric enrollment would show the "set up biometrics" UI.
     let status = app
       .biometric()
       .status()
       .map_err(|e| format!("failed to read biometric status: {e}"))?;
     if !status.is_available {
-      return Err(status.error.unwrap_or_else(|| {
+      let reason = status.error.unwrap_or_else(|| {
         "Biometrics are not set up on this device; the device key cannot be stored securely."
           .to_string()
-      }));
+      });
+      return Err(format!(
+        "{}{reason}",
+        super::SECURE_STORAGE_UNAVAILABLE_PREFIX
+      ));
     }
     Ok(())
   }
 
-  pub fn load_or_create(app: &tauri::AppHandle) -> Result<PrivateKey, String> {
+  pub async fn load_or_create(app: &tauri::AppHandle) -> Result<PrivateKey, String> {
     require_biometrics(app)?;
 
     let existing = app
       .keystore()
       .retrieve(RetrieveRequest {
-        service: KEYSTORE_SERVICE.to_string(),
-        user: KEYSTORE_USER.to_string(),
+        key: KEYSTORE_KEY.to_string(),
+        prompt: None,
       })
-      .map_err(|e| format!("failed to read device key from keystore: {e}"))?;
+      .await
+      .map_err(|e| wrap_keystore_err("failed to read device key from keystore", e))?;
 
     if let Some(openssh) = existing.value {
       return openssh
@@ -96,8 +145,13 @@ mod mobile_storage {
       .map_err(|e| format!("failed to encode device key: {e}"))?;
     app
       .keystore()
-      .store(StoreRequest { value: openssh })
-      .map_err(|e| format!("failed to store device key in keystore: {e}"))?;
+      .store(StoreRequest {
+        key: KEYSTORE_KEY.to_string(),
+        value: openssh.to_string(),
+        prompt: None,
+      })
+      .await
+      .map_err(|e| wrap_keystore_err("failed to store device key in keystore", e))?;
     Ok(key)
   }
 }
@@ -111,13 +165,13 @@ mod mobile_storage {
 /// on desktop rather than shipping the upstream keystore plugin's
 /// unfinished desktop fallback (see module docs).
 #[cfg(mobile)]
-pub fn ensure_device_key(app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
-  let key = mobile_storage::load_or_create(app)?;
+pub async fn ensure_device_key(app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
+  let key = mobile_storage::load_or_create(app).await?;
   device_key_info(&key)
 }
 
 #[cfg(not(mobile))]
-pub fn ensure_device_key(_app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
+pub async fn ensure_device_key(_app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
   Err(
     "Device key storage is only available on mobile builds; desktop uses local SSH identities \
      instead (see list_local_ssh_identities)."
