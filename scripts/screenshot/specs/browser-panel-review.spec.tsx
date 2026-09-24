@@ -9,7 +9,7 @@ import {
 	findSidebarBranchElement,
 	openRepo,
 } from "../../../test/utils";
-import { render, screen } from "../../../test/test-utils";
+import { render, screen, waitFor } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import * as api from "../../../src/lib/api";
 import {
@@ -17,6 +17,7 @@ import {
 	type PickedElement,
 } from "../../../src/lib/api";
 import { captureDocument } from "../capture";
+import { useFeaturePreviewStore } from "../../../src/stores/featurePreviewStore";
 
 // A real static HTML fixture, written to disk and addressed via a real
 // file:// URL, matching this feature's explicit scope (localhost dev
@@ -99,6 +100,7 @@ it("captures the in-app browser page review flow", async () => {
 		pickedCallback = callback;
 		return Promise.resolve(() => {});
 	});
+
 	vi.spyOn(api, "listenBrowserUrlChanged").mockImplementation(() =>
 		Promise.resolve(() => {}),
 	);
@@ -216,3 +218,34 @@ it("captures the in-app browser page review flow", async () => {
 
 	fs.unlinkSync(fixturePath);
 }, 60000);
+
+it("captures the Changes view without the Browser dropdown when disabled", async () => {
+	const { repoPath } = createTestRepo(false);
+	openRepo(repoPath);
+	await createWorkspace(repoPath, "feat/browser-disabled");
+
+	const user = userEvent.setup();
+	render(<Dashboard />);
+	await user.click(await findSidebarBranchElement("feat/browser-disabled"));
+	await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
+	await screen.findByRole("tab", { name: /^Changes/, selected: true });
+
+	useFeaturePreviewStore.setState({
+		flags: {
+			...useFeaturePreviewStore.getState().flags,
+			browser: false,
+		},
+	});
+	await waitFor(() => {
+		expect(
+			screen.queryByRole("button", { name: /switch review view/i }),
+		).toBeNull();
+	});
+
+	await captureDocument(document, {
+		name: "browser-feature-flag-01-dropdown-hidden",
+		expectations: [
+			'The Changes tab is active and the review view-switcher dropdown is not visible when the Browser feature flag is disabled.',
+		],
+	});
+});

@@ -355,6 +355,7 @@ export const ShowWorkspace = ({
   const treqSendAssets = useTreqSendStore((s) => s.assets);
   const dismissTreqSendAsset = useTreqSendStore((s) => s.dismissAsset);
   useEffect(() => {
+    if (!browserEnabled) return;
     const browserAsset = treqSendAssets.find(
       (asset) => asset.mediaType === "browser",
     );
@@ -363,7 +364,7 @@ export const ShowWorkspace = ({
     setReviewSubView("browser");
     setBrowserOpenRequest({ id: browserAsset.id, url: browserAsset.path });
     dismissTreqSendAsset(browserAsset.id);
-  }, [treqSendAssets, dismissTreqSendAsset]);
+  }, [browserEnabled, treqSendAssets, dismissTreqSendAsset]);
 
   const handleChangedFilesUpdate = (parsedFiles: ParsedFileChange[]) => {
     const map = new Map<string, ParsedFileChange>();
