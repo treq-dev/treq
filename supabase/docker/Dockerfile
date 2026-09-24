@@ -10,25 +10,6 @@
 ARG ALPINE_IMAGE=alpine:3.23
 ARG POSTGREST_IMAGE=postgrest/postgrest:v14.12
 ARG EDGE_RUNTIME_IMAGE=supabase/edge-runtime:v1.74.0
-ARG NODE_IMAGE=node:22-alpine
-
-# -----------------------------------------------------------------------------
-# Vendor @supabase/supabase-js → single ESM file (Node discarded after this).
-# -----------------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS vendor
-
-WORKDIR /build
-RUN npm init -y >/dev/null 2>&1 \
-  && npm install --no-fund --no-audit @supabase/supabase-js@2.95.3 esbuild@0.25 \
-  && printf '%s\n' "export { createClient, SupabaseClient } from '@supabase/supabase-js';" > entry.ts \
-  && ./node_modules/.bin/esbuild entry.ts \
-       --bundle \
-       --format=esm \
-       --platform=browser \
-       --target=es2022 \
-       --minify \
-       --outfile=/supabase-js.mjs \
-  && test -s /supabase-js.mjs
 
 FROM ${POSTGREST_IMAGE} AS postgrest
 FROM ${EDGE_RUNTIME_IMAGE} AS edge
@@ -100,8 +81,7 @@ COPY docker/entrypoint.sh /opt/treq/bin/entrypoint.sh
 COPY docker/apply-treq-migrations.sh /opt/treq/bin/apply-treq-migrations.sh
 COPY docker/merge-queue-cron.sh /opt/treq/bin/merge-queue-cron.sh
 
-# Offline supabase-js: esbuild bundle + import map (no node_modules / no Node).
-COPY --from=vendor /supabase-js.mjs /home/deno/functions/_vendor/supabase-js.mjs
+# @supabase/supabase-js resolves via its npm: specifier at runtime.
 COPY docker/deno.json /home/deno/functions/deno.json
 
 # OpenRC services + wrappers (source /etc/treq/env)

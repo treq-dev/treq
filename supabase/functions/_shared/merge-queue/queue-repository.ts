@@ -1,7 +1,7 @@
 // All merge-queue domain reads and writes (queues, entries, configs, repos).
 // No GitHub calls and no scheduling policy live here.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import type { EntryStatus } from "./state-machine.ts";
 
 export interface QueueRow {

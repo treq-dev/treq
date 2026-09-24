@@ -11,7 +11,7 @@
 // message exclusive while in flight, and the per-queue execution lease
 // serializes all mutations of a given merge queue.
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import {
   archiveCommand,
   publishDeadLetter,

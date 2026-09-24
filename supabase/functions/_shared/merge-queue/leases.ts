@@ -2,7 +2,7 @@
 // while its worker holds the queue's lease; the lease is persisted (not an
 // advisory lock) because orchestration spans GitHub network calls.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 import { LeaseContentionError } from "./errors.ts";
 
 export const LEASE_TTL_SECONDS = 120;

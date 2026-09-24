@@ -4,7 +4,7 @@
 // fields (region, size, generation, manifest version, provider request ids,
 // readiness stage).
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.95.3";
 
 export type RemoteAuditEventType =
   | "instance_create_requested"

@@ -161,7 +161,9 @@ impl Visit for MessageVisitor {
     if field.name() == "message" {
       self.message = rendered;
     } else {
-      self.fields.push((field.name().to_string(), Value::String(rendered)));
+      self
+        .fields
+        .push((field.name().to_string(), Value::String(rendered)));
     }
   }
 }

@@ -2,7 +2,7 @@
 // The client sends a GraphQL query/mutation, and this function forwards it
 // using the stored access token from linear_oauth_tokens.
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

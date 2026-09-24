@@ -5,8 +5,6 @@
 // strings and vendor SDK types must never leave this module.
 
 import type { RegionCode, SizePreset } from "./catalog.ts";
-import { BASE_ALLOCATION, REGION_TO_FLY_SLUG } from "./catalog.ts";
-import { bootstrapCommand } from "./boot-manifest.ts";
 
 export type ManagedInstanceState =
   | "unprovisioned"
@@ -75,146 +73,122 @@ export interface ManagedComputeProvider {
   wakeInstance(providerId: string): Promise<void>;
   replaceInstance(params: ReplaceInstanceParams): Promise<ProviderInstance>;
   deleteInstance(providerId: string): Promise<void>;
-  // Runs a command inside a running machine (Fly Machines `/exec`), used to
-  // install CA trust and authorized_keys onto an already-booted managed VM.
-  execOnMachine(providerId: string, command: string[], timeoutSeconds?: number): Promise<MachineExecResult>;
+  // Runs a command through the documented non-TTY HTTP exec endpoint. The
+  // provider token remains server-side.
+  execOnMachine(
+    providerId: string,
+    command: string[],
+    timeoutSeconds?: number,
+    environment?: Readonly<Record<string, string>>,
+  ): Promise<MachineExecResult>;
 }
-
-// PRD "Resource quotas": every user's managed instance is enforced at the
-// fixed base allocation (5 GB disk / 1 vCPU / 2 GB RAM) at provisioning
-// time, regardless of `preset` - purchasing more as a plan add-on is
-// explicitly out of scope for this delivery, so the vendor request never
-// asks for more than the base allocation. `remote-instance/index.ts`
-// rejects a non-base `size_preset` before this is ever called, but this
-// stays unconditional so the guest spec sent to the vendor can never exceed
-// the quota even if a caller is added later that skips that guard.
-function sizeToGuest(_preset: SizePreset) {
-  return {
-    cpu_kind: "shared",
-    cpus: BASE_ALLOCATION.vcpu,
-    memory_mb: BASE_ALLOCATION.ramGb * 1024,
-  };
-}
-
-// Disk allocation requested alongside the guest spec: a persistent volume
-// sized to exactly the base disk quota. Kept in its own helper (rather than
-// folded into `sizeToGuest`) because Fly Machines expresses disk as a
-// separate `volumes` attachment, not part of `guest`.
-function baseVolumeSizeGb(): number {
-  return BASE_ALLOCATION.diskGb;
-}
-
-function guestToSize(memoryMb: number): SizePreset {
-  if (memoryMb <= 2048) return "small";
-  if (memoryMb <= 4096) return "medium";
-  return "large";
-}
-
-const SLUG_TO_REGION: Record<string, RegionCode> = Object.fromEntries(
-  Object.entries(REGION_TO_FLY_SLUG).map(([region, slug]) => [slug, region as RegionCode]),
-);
 
 function normalizeState(vendorState: string): ManagedInstanceState {
   switch (vendorState) {
-    case "created":
-    case "starting":
+    case "creating":
       return "provisioning";
-    case "started":
+    case "warm":
+    case "running":
       return "ready";
-    case "stopping":
-    case "stopped":
-    case "suspended":
+    case "cold":
+    case "paused":
       return "suspended";
-    case "replacing":
-      return "reprovisioning";
-    case "destroying":
-      return "deleting";
-    case "destroyed":
-      return "deleted";
     default:
       return "degraded";
   }
 }
 
 // deno-lint-ignore no-explicit-any
-function normalizeInstance(machine: any): ProviderInstance {
+function normalizeInstance(sprite: any): ProviderInstance {
   return {
-    providerResourceId: machine.id,
-    state: normalizeState(machine.state),
-    region: SLUG_TO_REGION[machine.region] ?? "us_east",
-    sizePreset: guestToSize(machine.config?.guest?.memory_mb ?? 2048),
-    address: machine.private_ip ?? null,
+    // Sprite names, rather than opaque UUIDs, address every lifecycle and
+    // exec endpoint in the public API.
+    providerResourceId: sprite.name,
+    state: normalizeState(sprite.status),
+    // Retained only while the provider-neutral database fields are migrated
+    // to optional capabilities. Sprites does not accept either setting.
+    region: "us_east",
+    sizePreset: "small",
+    address: null,
   };
 }
-
-const SPRITES_BASE_IMAGE = "registry.fly.io/treq-remote-base:latest";
 
 export interface SpritesConfig {
   baseUrl: string;
   apiToken: string;
-  appName: string;
 }
 
 /// Reads Fly Sprites configuration from Edge Function secrets. Never logged;
 /// never returned to a client.
 export function spritesConfigFromEnv(): SpritesConfig {
-  const baseUrl = Deno.env.get("FLY_SPRITES_API_BASE_URL");
-  const apiToken = Deno.env.get("FLY_SPRITES_API_TOKEN");
-  const appName = Deno.env.get("FLY_SPRITES_APP_NAME");
-  if (!baseUrl || !apiToken || !appName) {
+  const baseUrl =
+    Deno.env.get("SPRITES_API_URL") ?? Deno.env.get("FLY_SPRITES_API_BASE_URL");
+  const apiToken =
+    Deno.env.get("SPRITES_API_TOKEN") ?? Deno.env.get("FLY_SPRITES_API_TOKEN");
+  if (!baseUrl || !apiToken) {
     throw new ProviderError(
       "invalid_request",
-      "FLY_SPRITES_API_BASE_URL, FLY_SPRITES_API_TOKEN, and FLY_SPRITES_APP_NAME must be set",
+      "SPRITES_API_URL and SPRITES_API_TOKEN must be set",
     );
   }
-  return { baseUrl, apiToken, appName };
+  return { baseUrl, apiToken };
 }
 
 export class SpritesProvider implements ManagedComputeProvider {
   constructor(private readonly config: SpritesConfig) {}
 
-  private machinesUrl(): string {
-    return `${this.config.baseUrl.replace(/\/+$/, "")}/apps/${this.config.appName}/machines`;
+  private spritesUrl(): string {
+    return `${this.config.baseUrl.replace(/\/+$/, "")}/v1/sprites`;
   }
 
-  private machineUrl(id: string): string {
-    return `${this.machinesUrl()}/${id}`;
+  private spriteUrl(name: string): string {
+    return `${this.spritesUrl()}/${encodeURIComponent(name)}`;
   }
 
-  // Runs a command inside a running machine via the Fly Machines `/exec`
-  // endpoint. This is how server-side config (CA trust, authorized_keys) is
-  // pushed onto an already-booted managed VM without a native SSH client -
-  // the same mechanism `init.exec` uses at boot, just invoked after the fact.
-  async execOnMachine(providerId: string, command: string[], timeoutSeconds = 20): Promise<MachineExecResult> {
-    let response: Response;
+  async execOnMachine(
+    providerId: string,
+    command: string[],
+    timeoutSeconds = 20,
+    environment: Readonly<Record<string, string>> = {},
+  ): Promise<MachineExecResult> {
+    if (command.length === 0) {
+      throw new ProviderError("invalid_request", "command is required");
+    }
+
+    const url = new URL(`${this.spriteUrl(providerId)}/exec`);
+    for (const arg of command) url.searchParams.append("cmd", arg);
+    for (const [name, value] of Object.entries(environment)) {
+      if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) {
+        throw new ProviderError("invalid_request", "invalid environment name");
+      }
+      url.searchParams.append("env", `${name}=${value}`);
+    }
+    url.searchParams.set("path", command[0]);
+
     try {
-      response = await fetch(`${this.machineUrl(providerId)}/exec`, {
+      const response = await fetch(url, {
         method: "POST",
         headers: this.headers(),
-        body: JSON.stringify({ cmd: command, timeout: timeoutSeconds }),
+        signal: AbortSignal.timeout(timeoutSeconds * 1_000),
       });
+      if (!response.ok) throw await this.mapErrorResponse(response);
+      return { exitCode: 0, stdout: await response.text(), stderr: "" };
     } catch (err) {
-      throw new ProviderError("unavailable", `could not reach Fly Machines API: ${(err as Error).message}`);
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError(
+        err instanceof DOMException && err.name === "TimeoutError"
+          ? "timeout"
+          : "unavailable",
+        `Sprite exec failed: ${(err as Error).message}`,
+      );
     }
-    if (!response.ok) throw await this.mapErrorResponse(response);
-    const body = await response.json();
-    return {
-      exitCode: typeof body.exit_code === "number" ? body.exit_code : -1,
-      stdout: typeof body.stdout === "string" ? body.stdout : "",
-      stderr: typeof body.stderr === "string" ? body.stderr : "",
-    };
   }
 
-  private headers(idempotencyKey?: string): HeadersInit {
-    const headers: Record<string, string> = {
+  private headers(): HeadersInit {
+    return {
       Authorization: `Bearer ${this.config.apiToken}`,
       "Content-Type": "application/json",
     };
-    if (idempotencyKey) {
-      headers["Idempotency-Key"] = idempotencyKey;
-      headers["Fly-Idempotency-Key"] = idempotencyKey;
-    }
-    return headers;
   }
 
   private async mapErrorResponse(response: Response): Promise<ProviderError> {
@@ -231,44 +205,40 @@ export class SpritesProvider implements ManagedComputeProvider {
       case 422:
         return new ProviderError("invalid_request", truncated);
       default:
-        if (response.status >= 500) return new ProviderError("unavailable", truncated);
+        if (response.status >= 500)
+          return new ProviderError("unavailable", truncated);
         return new ProviderError("other", truncated);
     }
   }
 
-  async createInstance(params: CreateInstanceParams): Promise<ProviderInstance> {
-    const body = {
-      name: `treq-${params.ownerUserId}`,
-      region: REGION_TO_FLY_SLUG[params.region],
-      config: {
-        image: SPRITES_BASE_IMAGE,
-        guest: sizeToGuest(params.sizePreset),
-        // Disk allocation is capped at the base quota (PRD "Resource
-        // quotas"); see `baseVolumeSizeGb`.
-        mounts: [{ path: "/home/treq", size_gb: baseVolumeSizeGb() }],
-        env: { TREQ_BOOT_MANIFEST_VERSION: String(params.manifestVersion) },
-        init: { exec: bootstrapCommand(params.manifestVersion) },
-      },
-    };
+  async createInstance(
+    params: CreateInstanceParams,
+  ): Promise<ProviderInstance> {
+    const name = `dev-treq-${params.ownerUserId}`
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .slice(0, 63);
+    const body = { name };
 
     let response: Response;
     try {
-      response = await fetch(this.machinesUrl(), {
+      response = await fetch(this.spritesUrl(), {
         method: "POST",
-        headers: this.headers(params.idempotencyKey),
+        headers: this.headers(),
         body: JSON.stringify(body),
       });
     } catch (err) {
-      throw new ProviderError("unavailable", `could not reach Fly Machines API: ${(err as Error).message}`);
+      throw new ProviderError(
+        "unavailable",
+        `could not reach Sprites API: ${(err as Error).message}`,
+      );
     }
 
     if (response.status === 409) {
       // A repeated create with the same idempotency key/machine name: treat
       // the vendor's existing-resource response as success rather than an
       // error, so create stays idempotent for the caller.
-      const machine = await response.json().catch(() => null);
-      if (machine) return normalizeInstance(machine);
-      throw new ProviderError("already_exists", "instance already exists");
+      return await this.getInstance(name);
     }
     if (!response.ok) throw await this.mapErrorResponse(response);
     return normalizeInstance(await response.json());
@@ -277,61 +247,46 @@ export class SpritesProvider implements ManagedComputeProvider {
   async getInstance(providerId: string): Promise<ProviderInstance> {
     let response: Response;
     try {
-      response = await fetch(this.machineUrl(providerId), { headers: this.headers() });
+      response = await fetch(this.spriteUrl(providerId), {
+        headers: this.headers(),
+      });
     } catch (err) {
-      throw new ProviderError("unavailable", `could not reach Fly Machines API: ${(err as Error).message}`);
+      throw new ProviderError(
+        "unavailable",
+        `could not reach Sprites API: ${(err as Error).message}`,
+      );
     }
     if (!response.ok) throw await this.mapErrorResponse(response);
     return normalizeInstance(await response.json());
   }
 
   async wakeInstance(providerId: string): Promise<void> {
-    let response: Response;
-    try {
-      response = await fetch(`${this.machineUrl(providerId)}/start`, {
-        method: "POST",
-        headers: this.headers(),
-      });
-    } catch (err) {
-      throw new ProviderError("unavailable", `could not reach Fly Machines API: ${(err as Error).message}`);
-    }
-    if (response.ok) return;
-    const text = await response.text().catch(() => "");
-    if (response.status === 400 && text.toLowerCase().includes("already")) return;
-    throw await this.mapErrorResponse(new Response(text, { status: response.status }));
+    // Sprites wake on the first API operation. A GET is the cheapest
+    // idempotent operation and also proves the resource still exists.
+    await this.getInstance(providerId);
   }
 
-  async replaceInstance(params: ReplaceInstanceParams): Promise<ProviderInstance> {
-    const body = {
-      image: SPRITES_BASE_IMAGE,
-      guest: sizeToGuest(params.sizePreset),
-      mounts: [{ path: "/home/treq", size_gb: baseVolumeSizeGb() }],
-      env: { TREQ_BOOT_MANIFEST_VERSION: String(params.manifestVersion) },
-      init: { exec: bootstrapCommand(params.manifestVersion) },
-    };
-    let response: Response;
-    try {
-      response = await fetch(`${this.machineUrl(params.providerResourceId)}/update`, {
-        method: "POST",
-        headers: this.headers(params.idempotencyKey),
-        body: JSON.stringify(body),
-      });
-    } catch (err) {
-      throw new ProviderError("unavailable", `could not reach Fly Machines API: ${(err as Error).message}`);
-    }
-    if (!response.ok) throw await this.mapErrorResponse(response);
-    return normalizeInstance(await response.json());
+  async replaceInstance(
+    params: ReplaceInstanceParams,
+  ): Promise<ProviderInstance> {
+    // Sprites are durable user environments. Repairing the Treq bootstrap
+    // preserves the Sprite and its filesystem; deletion remains an explicit
+    // user action handled by deleteInstance.
+    return await this.getInstance(params.providerResourceId);
   }
 
   async deleteInstance(providerId: string): Promise<void> {
     let response: Response;
     try {
-      response = await fetch(`${this.machineUrl(providerId)}?force=true`, {
+      response = await fetch(this.spriteUrl(providerId), {
         method: "DELETE",
         headers: this.headers(),
       });
     } catch (err) {
-      throw new ProviderError("unavailable", `could not reach Fly Machines API: ${(err as Error).message}`);
+      throw new ProviderError(
+        "unavailable",
+        `could not reach Sprites API: ${(err as Error).message}`,
+      );
     }
     if (response.ok || response.status === 404) return;
     throw await this.mapErrorResponse(response);

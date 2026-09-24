@@ -1182,7 +1182,7 @@ pub fn ensure_optional_gitignore_entries(repo_path: &str) -> Result<(), JjError>
 fn append_gitignore_entries(gitignore_path: &Path, entries_to_add: &[&str]) -> Result<(), JjError> {
   // Read existing .gitignore content
   let existing_content = if gitignore_path.exists() {
-    fs::read_to_string(&gitignore_path)
+    fs::read_to_string(gitignore_path)
       .map_err(|e| JjError::InitFailed(format!("Failed to read .gitignore: {}", e)))?
   } else {
     String::new()
@@ -1206,7 +1206,7 @@ fn append_gitignore_entries(gitignore_path: &Path, entries_to_add: &[&str]) -> R
   let mut file = OpenOptions::new()
     .create(true)
     .append(true)
-    .open(&gitignore_path)
+    .open(gitignore_path)
     .map_err(|e| JjError::InitFailed(format!("Failed to open .gitignore: {}", e)))?;
 
   // Add a newline before our entries if file doesn't end with newline
@@ -2288,8 +2288,8 @@ pub fn list_all_workspace_names(repo_path: &str) -> Result<Vec<String>, JjError>
   let mut names: Vec<String> = repo
     .view()
     .wc_commit_ids()
-    .iter()
-    .map(|(name, _)| name.as_str().to_string())
+    .keys()
+    .map(|name| name.as_str().to_string())
     .collect();
   names.sort();
   Ok(names)

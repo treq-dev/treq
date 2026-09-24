@@ -4,6 +4,7 @@ import {
   ExternalLink,
   Loader2,
   LogOut,
+  Server,
   User,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -15,7 +16,13 @@ import { useState } from "react";
 
 const isDev = import.meta.env.DEV;
 
-export const AccountSettings: React.FC = () => {
+interface AccountSettingsProps {
+  onOpenRemoteSetup?: () => void;
+}
+
+export const AccountSettings: React.FC<AccountSettingsProps> = ({
+  onOpenRemoteSetup,
+}) => {
   const { user, loading, subscription, signIn, signOut, exchangeToken } =
     useAuthStore();
   const [callbackUrl, setCallbackUrl] = useState("");
@@ -186,6 +193,26 @@ export const AccountSettings: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {onOpenRemoteSetup && (
+        <div className="border border-border rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Server className="w-4 h-4" />
+            <span className="font-medium">Remote control</span>
+          </div>
+          <p className="text-sm text-muted-foreground mb-4">
+            Create or manage the persistent Sprite used for remote development.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={onOpenRemoteSetup}
+          >
+            Manage remote environment
+          </Button>
+        </div>
+      )}
 
       {/* Sign Out */}
       <Button

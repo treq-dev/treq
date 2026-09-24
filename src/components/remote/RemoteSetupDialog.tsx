@@ -6,11 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import type {
-  InstanceStatusResponse,
-  RegionCode,
-  SizePreset,
-} from "../../lib/api-types-remote";
+import type { InstanceStatusResponse } from "../../lib/api-types-remote";
 import { RemoteManagedSetupPanel } from "./RemoteManagedSetupPanel";
 import { RemoteUserManagedSetupPanel } from "./RemoteUserManagedSetupPanel";
 import type {
@@ -26,9 +22,6 @@ export interface RemoteSetupDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 
-  regions: RegionCode[];
-  sizePresets: SizePreset[];
-  localKeyIdentities: LocalKeyIdentity[];
   /** Autocomplete-only suggestions read from `~/.ssh/config` (Goal 15 / Phase 1). Selecting one only fills the field. */
   sshConfigAliasSuggestions: string[];
 
@@ -36,16 +29,12 @@ export interface RemoteSetupDialogProps {
   provisioningStage?: string;
   provisioningError?: string;
 
-  onProvisionManaged: (
-    region: RegionCode,
-    size: SizePreset,
-    keyReference: string,
-  ) => Promise<void>;
+  onProvisionManaged: () => Promise<void>;
   onWake: () => Promise<void>;
-  onReprovision: (region: RegionCode, size: SizePreset) => Promise<void>;
+  onReprovision: () => Promise<void>;
   onDeleteInstance: () => Promise<void>;
   onRevokeKey: (keyReference: string) => Promise<void>;
-  onConnectManaged: (keyReference: string) => Promise<void>;
+  onConnectManaged: () => Promise<void>;
 
   onRegisterUserManaged: (values: UserManagedFormValues) => Promise<void>;
   /** Open repositories on the existing managed instance without provisioning another. */
@@ -63,9 +52,6 @@ export interface RemoteSetupDialogProps {
 export function RemoteSetupDialog({
   open,
   onOpenChange,
-  regions,
-  sizePresets,
-  localKeyIdentities,
   sshConfigAliasSuggestions,
   instanceStatus,
   provisioningStage,
@@ -102,10 +88,10 @@ export function RemoteSetupDialog({
                 className="rounded-lg border border-border/60 p-4 text-left hover:border-primary/60 hover:bg-muted/40"
                 onClick={() => setMode("managed")}
               >
-                <div className="font-medium">Treq-managed VM</div>
+                <div className="font-medium">Treq-managed Sprite</div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Treq provisions and maintains a development VM for you. Pick a
-                  region and size; no server to set up.
+                  Treq provisions and maintains one persistent development
+                  Sprite for your account.
                 </p>
               </button>
               <button
@@ -126,16 +112,13 @@ export function RemoteSetupDialog({
         {mode === "managed" && (
           <>
             <DialogHeader>
-              <DialogTitle>Treq-managed VM</DialogTitle>
+              <DialogTitle>Treq-managed Sprite</DialogTitle>
               <DialogDescription>
-                Treq owns provisioning and lifecycle for this VM. You keep full
-                owner access over SSH.
+                Treq manages lifecycle and runs typed commands through the
+                authenticated Sprites API.
               </DialogDescription>
             </DialogHeader>
             <RemoteManagedSetupPanel
-              regions={regions}
-              sizePresets={sizePresets}
-              localKeyIdentities={localKeyIdentities}
               instanceStatus={instanceStatus}
               provisioningStage={provisioningStage}
               provisioningError={provisioningError}
