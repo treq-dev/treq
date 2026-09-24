@@ -418,7 +418,9 @@ const WorkspaceTerminalPaneInner = ({
       closeTerminalsForWorkspace,
       focusTerminal: handleFocusTerminalById,
       sendToTerminal: (id: string, text: string) => {
-        const session = claudeSessions.find((item) => `claude-${item.sessionId}` === id);
+        const session = claudeSessions.find(
+          (item) => `claude-${item.sessionId}` === id,
+        );
         if (!session) return;
         void ptyWrite(session.ptySessionId, `${text}\n`);
         handleFocusTerminalById(id);

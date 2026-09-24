@@ -2831,7 +2831,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       idleAgentSession={terminalSessionSummaries.find(
                         (session) =>
                           session.kind === "agent" &&
-                          session.branchName === selectedWorkspace?.branch_name &&
+                          session.branchName ===
+                            selectedWorkspace?.branch_name &&
                           !session.isStreaming,
                       )}
                       onSendToIdleAgent={(sessionId, prompt) => {
