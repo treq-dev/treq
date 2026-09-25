@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Dashboard } from "../../../src/components/Dashboard";
 import {
   createWorkspace,
+  getWorkspaces,
   recordAgentChatScreen,
   recordAgentChatUserMessage,
   registerAgentChat,
+  runWorkflow,
   trustRepo,
 } from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../test-utils";
@@ -42,13 +44,16 @@ async function seedLogs(repoPath: string, branch: string) {
   await writeRepoFile(repoPath, ".treq/workflows/ci.yaml", LOGGING_WORKFLOW);
   await trustRepo(repoPath);
 
-  render(<Dashboard />);
-  await user.click(await findSidebarBranchElement(branch));
-  await user.click(await screen.findByRole("tab", { name: /^Checks/ }));
-  await user.click(
-    await screen.findByRole("button", { name: /Run Build Job/i }),
+  const workspace = (await getWorkspaces(repoPath)).find(
+    (item) => item.branch_name === branch,
   );
-  await screen.findByTestId("run-history-item");
+  if (!workspace) throw new Error("workspace was not created");
+  await runWorkflow(
+    repoPath,
+    "ci.yaml",
+    workspace.id,
+    workspace.workspace_path,
+  );
 }
 
 describe("Home repo Logs tab", () => {
@@ -65,16 +70,15 @@ describe("Home repo Logs tab", () => {
     await screen.findByText(/No check logs recorded yet/i);
   });
 
-  it("is not offered inside a workspace", async () => {
+  it("is offered inside a workspace too", async () => {
     const { repoPath } = createTestRepo(false);
     openRepo(repoPath);
     await createWorkspace(repoPath, "logs-scope");
 
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement("logs-scope"));
-    await screen.findByRole("tab", { name: /^Checks/ });
 
-    expect(screen.queryByRole("tab", { name: /^Logs/ })).toBeNull();
+    expect(await screen.findByRole("tab", { name: /^Logs/ })).toBeTruthy();
   });
 
   it("browses log lines across runs with run and job ids", async () => {

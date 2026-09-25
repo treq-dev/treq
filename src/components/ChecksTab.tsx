@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   CircleDot,
-  FileText,
   Loader2,
   Play,
   ShieldCheck,
@@ -23,21 +22,10 @@ import {
   trustRepo,
 } from "../lib/api";
 import type { JobResult, RunSummary, WorkflowInfo } from "../lib/api-types";
-import { LogsBrowser } from "./LogsBrowser";
-
-const SETUP_RUN_JOB_ID = "setup";
-
 interface Props {
   repoPath: string;
   workspaceId: number;
   workspacePath: string;
-  onSendToAgent?: (prompt: string) => void;
-}
-
-interface LogTarget {
-  runId: number;
-  jobId: string;
-  stepIndex?: number;
 }
 
 function formatRunTime(ts: string): string {
@@ -72,23 +60,16 @@ function RunStatusIcon({ status }: { status: string }) {
   );
 }
 
-export function ChecksTab({
-  repoPath,
-  workspaceId,
-  workspacePath,
-  onSendToAgent,
-}: Props) {
+export function ChecksTab({ repoPath, workspaceId, workspacePath }: Props) {
   const [runningJobs, setRunningJobs] = useState<Set<string>>(new Set());
   const [runningWorkflows, setRunningWorkflows] = useState<Set<string>>(
     new Set(),
   );
   const [jobResults, setJobResults] = useState<Record<string, JobResult>>({});
-  const [logTarget, setLogTarget] = useState<LogTarget | null>(null);
 
   // Results and any open log view belong to the workspace they were run in.
   useEffect(() => {
     setJobResults({});
-    setLogTarget(null);
   }, [workspaceId]);
 
   const { data: isTrusted, isLoading: trustLoading } = useSWR(
@@ -189,19 +170,6 @@ export function ChecksTab({
     }
   }
 
-  if (logTarget) {
-    return (
-      <LogsBrowser
-        repoPath={repoPath}
-        runId={logTarget.runId}
-        jobId={logTarget.jobId}
-        initialStepIndex={logTarget.stepIndex}
-        onBack={() => setLogTarget(null)}
-        onSendToAgent={onSendToAgent}
-      />
-    );
-  }
-
   if (trustLoading || workflowsLoading) {
     return (
       <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
@@ -266,22 +234,6 @@ export function ChecksTab({
             </span>
           </div>
           <div className="flex items-center gap-2 ml-4 shrink-0">
-            {setupStatus?.run_id !== null &&
-              setupStatus?.run_id !== undefined && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    setLogTarget({
-                      runId: setupStatus.run_id as number,
-                      jobId: SETUP_RUN_JOB_ID,
-                    })
-                  }
-                >
-                  <FileText className="h-3 w-3 mr-1" />
-                  Logs
-                </Button>
-              )}
             <Button
               size="sm"
               variant="outline"
@@ -312,7 +264,6 @@ export function ChecksTab({
           jobKey={jobKey}
           onRunWorkflow={handleRunWorkflow}
           onRunJob={handleRunJob}
-          onOpenLogs={setLogTarget}
         />
       ))}
     </div>
@@ -330,7 +281,6 @@ interface CardProps {
   jobKey: (filename: string, jobId: string) => string;
   onRunWorkflow: (wf: WorkflowInfo) => void;
   onRunJob: (wf: WorkflowInfo, jobId: string) => void;
-  onOpenLogs: (target: LogTarget) => void;
 }
 
 function WorkflowCard({
@@ -344,7 +294,6 @@ function WorkflowCard({
   jobKey,
   onRunWorkflow,
   onRunJob,
-  onOpenLogs,
 }: CardProps) {
   const { data: runs = [] } = useSWR(
     ["workflow-runs", repoPath, workspaceId, wf.filename],
@@ -389,18 +338,6 @@ function WorkflowCard({
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium">{job.name}</span>
                 <div className="flex items-center gap-1">
-                  {latestRun && runJob?.has_logs && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        onOpenLogs({ runId: latestRun.id, jobId: job.id })
-                      }
-                    >
-                      <FileText className="h-3 w-3 mr-1" />
-                      Logs
-                    </Button>
-                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -420,21 +357,10 @@ function WorkflowCard({
               <div className="flex flex-col gap-1 ml-2">
                 {job.steps.map((step, idx) => {
                   const stepResult = result?.steps[idx] ?? runJob?.steps[idx];
-                  const canOpenStepLogs = !!(latestRun && runJob?.has_logs);
                   return (
-                    <button
+                    <div
                       key={step.name}
-                      type="button"
-                      disabled={!canOpenStepLogs}
-                      onClick={() =>
-                        latestRun &&
-                        onOpenLogs({
-                          runId: latestRun.id,
-                          jobId: job.id,
-                          stepIndex: idx,
-                        })
-                      }
-                      className="flex items-center gap-2 text-sm text-left rounded px-1 -mx-1 enabled:hover:bg-muted disabled:cursor-default"
+                      className="flex items-center gap-2 text-sm"
                     >
                       {stepResult === undefined ? (
                         <CircleDot className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -450,7 +376,7 @@ function WorkflowCard({
                         />
                       )}
                       <span>{step.name}</span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -478,23 +404,7 @@ function WorkflowCard({
                     {formatRunTime(run.started_at)}
                   </span>
                 </div>
-                <div className="flex items-center gap-1">
-                  {run.jobs
-                    .filter((j) => j.has_logs)
-                    .map((j) => (
-                      <Button
-                        key={j.job_id}
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                          onOpenLogs({ runId: run.id, jobId: j.job_id })
-                        }
-                      >
-                        <FileText className="h-3 w-3 mr-1" />
-                        {j.job_id}
-                      </Button>
-                    ))}
-                </div>
+                <div className="flex items-center gap-1"></div>
               </div>
             ))}
           </div>

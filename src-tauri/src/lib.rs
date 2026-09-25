@@ -977,7 +977,6 @@ pub fn run() {
             commands::get_workspace_setup_status,
             commands::rerun_workspace_setup_script,
             commands::get_run_logs,
-            commands::export_run_logs,
             commands::get_repo_logs,
             commands::run_logs_sql,
             commands::get_log_timeseries,
