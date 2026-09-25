@@ -70,16 +70,15 @@ describe("Home repo Logs tab", () => {
     await screen.findByText(/No check logs recorded yet/i);
   });
 
-  it("is not offered inside a workspace", async () => {
+  it("is offered inside a workspace too", async () => {
     const { repoPath } = createTestRepo(false);
     openRepo(repoPath);
     await createWorkspace(repoPath, "logs-scope");
 
     render(<Dashboard />);
     await user.click(await findSidebarBranchElement("logs-scope"));
-    await screen.findByRole("tab", { name: /^Code/ });
 
-    expect(screen.queryByRole("tab", { name: /^Logs/ })).toBeNull();
+    expect(await screen.findByRole("tab", { name: /^Logs/ })).toBeTruthy();
   });
 
   it("browses log lines across runs with run and job ids", async () => {
