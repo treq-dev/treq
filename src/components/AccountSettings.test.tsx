@@ -163,16 +163,18 @@ describe("AccountSettings", () => {
     ).toHaveAttribute("aria-valuenow", "36");
   });
 
-  it("says usage is unavailable when the cloud workspace cannot report it", () => {
+  it("shows the error when usage cannot be loaded", () => {
     render(
       <AccountSettings
         cloudWorkspace={controls({
           instanceStatus: statusWith("ready"),
-          usage: null,
+          usageError: "[http_502] exec failed",
         })}
       />,
     );
 
-    expect(screen.getByText(/Usage unavailable/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Couldn't load usage: [http_502] exec failed"),
+    ).toBeInTheDocument();
   });
 });

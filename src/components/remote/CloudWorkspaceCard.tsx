@@ -33,11 +33,10 @@ export interface CloudWorkspaceCardProps {
   onRepair: () => Promise<void>;
   onDelete: () => Promise<void>;
   onOpenRepositories?: () => void;
-  /**
-   * Usage reported by the cloud workspace: `undefined` while loading or not
-   * yet requested, `null` when the machine could not report it.
-   */
-  usage?: MachineUsageReport | null;
+  /** Usage reported by the cloud workspace; unset while loading. */
+  usage?: MachineUsageReport;
+  /** Why usage could not be loaded, if it failed. */
+  usageError?: string;
 }
 
 /** States where Treq detected a problem that Repair can fix in place. */
@@ -66,20 +65,22 @@ function plural(count: number, singular: string, pluralForm: string): string {
 
 function CloudWorkspaceUsage({
   usage,
+  usageError,
   diskQuotaGb,
 }: {
-  usage: MachineUsageReport | null | undefined;
+  usage: MachineUsageReport | undefined;
+  usageError: string | undefined;
   diskQuotaGb: number;
 }) {
-  if (usage === undefined) {
-    return <p className="text-muted-foreground">Loading usage...</p>;
-  }
-  if (usage === null) {
+  if (usageError) {
     return (
-      <p className="text-muted-foreground">
-        Usage unavailable. Repair updates Treq on the cloud workspace.
+      <p className="truncate text-xs text-red-600 dark:text-red-400">
+        {`Couldn't load usage: ${usageError.split("\n")[0]}`}
       </p>
     );
+  }
+  if (!usage) {
+    return <p className="text-muted-foreground">Loading usage...</p>;
   }
   const percent = Math.min(
     100,
@@ -125,6 +126,7 @@ export function CloudWorkspaceCard({
   onDelete,
   onOpenRepositories,
   usage,
+  usageError,
 }: CloudWorkspaceCardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -214,6 +216,7 @@ export function CloudWorkspaceCard({
           {instance.status === "ready" && (
             <CloudWorkspaceUsage
               usage={usage}
+              usageError={usageError}
               diskQuotaGb={instance.disk_quota_gb}
             />
           )}
