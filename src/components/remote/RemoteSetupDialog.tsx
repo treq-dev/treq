@@ -6,7 +6,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import type { InstanceStatusResponse } from "../../lib/api-types-remote";
+import type {
+  InstanceStatusResponse,
+  MachineUsageReport,
+} from "../../lib/api-types-remote";
 import { Button } from "../ui/button";
 import { CloudWorkspaceCard } from "./CloudWorkspaceCard";
 import { RemoteUserManagedSetupPanel } from "./RemoteUserManagedSetupPanel";
@@ -29,6 +32,7 @@ export interface RemoteSetupDialogProps {
   instanceStatus: InstanceStatusResponse | null;
   provisioningStage?: string;
   provisioningError?: string;
+  cloudUsage?: MachineUsageReport | null;
 
   onProvisionManaged: () => Promise<void>;
   onWake: () => Promise<void>;
@@ -56,6 +60,7 @@ export function RemoteSetupDialog({
   instanceStatus,
   provisioningStage,
   provisioningError,
+  cloudUsage,
   onProvisionManaged,
   onWake,
   onReprovision,
@@ -126,6 +131,7 @@ export function RemoteSetupDialog({
                 onRepair={onReprovision}
                 onDelete={onDeleteInstance}
                 onOpenRepositories={onOpenManagedRepositories}
+                usage={cloudUsage}
               />
             </div>
             <div className="mt-6">

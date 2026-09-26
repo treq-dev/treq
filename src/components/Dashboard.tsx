@@ -60,6 +60,7 @@ import {
 import type { RemoteRepository } from "../lib/api-types";
 import type {
   InstanceStatusResponse,
+  MachineUsageReport,
   RemoteRepoProbe,
   RepositoryInspection,
   SshEndpoint,
@@ -106,6 +107,7 @@ import {
   deleteInstance as deleteManagedInstance,
   ensureInstance,
   getInstanceStatus,
+  MANAGED_REPOSITORIES_ROOT,
   issueCertificate,
   registerClientKey,
   reprovisionInstance,
@@ -122,6 +124,7 @@ import {
 } from "../lib/remote-endpoints";
 import {
   dispatchMutationOverSsh,
+  dispatchOverManagedSprite,
   dispatchOverSsh,
 } from "../lib/remote-dispatch";
 import {
@@ -366,6 +369,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     useState<InstanceStatusResponse | null>(null);
   const [provisioningStage, setProvisioningStage] = useState<string>();
   const [provisioningError, setProvisioningError] = useState<string>();
+  // `undefined` while loading, `null` when the cloud workspace can't report.
+  const [cloudUsage, setCloudUsage] = useState<MachineUsageReport | null>();
   // Explicit user-managed or managed endpoints carry a native SSH identity.
   // Alias-backed repositories still use the same workspace tree; they
   // dispatch through `remote_dispatch_local` until an endpoint with a
@@ -756,6 +761,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       ]);
       setRemoteSshHosts(hosts.map((h) => h.alias));
       setInstanceStatus(status);
+      void loadCloudUsage(status);
     } catch {
       // Best-effort: the dialog still opens and shows what it could load.
     }
@@ -768,6 +774,32 @@ export const Dashboard: React.FC<DashboardProps> = ({
     } catch {
       // Leave the last-known status in place; the banner reflects staleness.
     }
+  };
+
+  // Usage is computed on the machine itself, so it is only asked for once
+  // the cloud workspace is ready. Older Treq builds there do not know the
+  // command; that surfaces as "unavailable" rather than an error.
+  const loadCloudUsage = async (status: InstanceStatusResponse | null) => {
+    const instance = status?.instance;
+    if (instance?.status !== "ready") return;
+    setCloudUsage(undefined);
+    try {
+      setCloudUsage(
+        await dispatchOverManagedSprite<MachineUsageReport>(
+          instance.instance_id,
+          { kind: "MachineUsage", root: MANAGED_REPOSITORIES_ROOT },
+        ),
+      );
+    } catch {
+      setCloudUsage(null);
+    }
+  };
+
+  const refreshCloudWorkspace = async () => {
+    setProvisioningError(undefined);
+    const status = await getInstanceStatus().catch(() => null);
+    if (status) setInstanceStatus(status);
+    await loadCloudUsage(status);
   };
 
   // Full identity -> registration -> certificate -> endpoint sequence (PRD
@@ -2589,6 +2621,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       instanceStatus={instanceStatus}
       provisioningStage={provisioningStage}
       provisioningError={provisioningError}
+      cloudUsage={cloudUsage}
       onProvisionManaged={handleProvisionManaged}
       onWake={handleWakeManaged}
       onReprovision={handleReprovisionManaged}
@@ -2930,10 +2963,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     instanceStatus,
                     provisioningStage,
                     provisioningError,
-                    onRefreshStatus: async () => {
-                      setProvisioningError(undefined);
-                      await refreshInstanceStatus();
-                    },
+                    usage: cloudUsage,
+                    onRefreshStatus: refreshCloudWorkspace,
                     onProvision: handleProvisionManaged,
                     onWake: () => handleWakeManaged(),
                     onRepair: handleReprovisionManaged,

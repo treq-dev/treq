@@ -25,6 +25,7 @@ function statusWith(status: ManagedInstanceState): InstanceStatusResponse {
       provider_resource_id: "res-1",
       status,
       generation: 1,
+      disk_quota_gb: 5,
     },
     endpoint: null,
   } as never;
@@ -137,5 +138,41 @@ describe("AccountSettings", () => {
     );
 
     expect(cloudWorkspace.onDelete).toHaveBeenCalledOnce();
+  });
+
+  it("shows workspace count and disk usage against the quota", () => {
+    render(
+      <AccountSettings
+        cloudWorkspace={controls({
+          instanceStatus: statusWith("ready"),
+          usage: {
+            repository_count: 3,
+            workspace_count: 7,
+            disk_used_bytes: 1.8 * 1024 ** 3,
+          },
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByText("7 workspaces across 3 repositories"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1.8 GB of 5 GB")).toBeInTheDocument();
+    expect(
+      screen.getByRole("progressbar", { name: "Disk usage" }),
+    ).toHaveAttribute("aria-valuenow", "36");
+  });
+
+  it("says usage is unavailable when the cloud workspace cannot report it", () => {
+    render(
+      <AccountSettings
+        cloudWorkspace={controls({
+          instanceStatus: statusWith("ready"),
+          usage: null,
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/Usage unavailable/)).toBeInTheDocument();
   });
 });

@@ -154,6 +154,12 @@ pub enum TreqCommandRequest {
     repo: String,
     workspace: Option<String>,
   },
+  /// Totals for every repository under `root` on the machine: repository
+  /// and workspace counts plus the bytes they occupy (the same figure the
+  /// disk quota is enforced against). See [`MachineUsageReport`].
+  MachineUsage {
+    root: String,
+  },
   // -- Phase 5: probe/clone/init as typed commands ---------------------------
   ProbeRepo {
     repo: String,
@@ -380,7 +386,8 @@ impl TreqCommandRequest {
       | Self::AgentLogs { .. }
       | Self::PtyList { .. }
       | Self::PtyAttachCommand { .. }
-      | Self::WorkspaceChangeMarker { .. } => false,
+      | Self::WorkspaceChangeMarker { .. }
+      | Self::MachineUsage { .. } => false,
       // -- Mutations -----------------------------------------------------------
       Self::CloneRepo { .. }
       | Self::InitRepo { .. }
@@ -442,6 +449,7 @@ impl TreqCommandRequest {
       | Self::ListCommits { .. }
       | Self::ListConflicts { .. }
       | Self::WorkspaceChangeMarker { .. }
+      | Self::MachineUsage { .. }
       | Self::ProbeRepo { .. }
       | Self::UpdateWorkspace { .. }
       | Self::DeleteWorkspace { .. }
@@ -471,6 +479,7 @@ impl TreqCommandRequest {
       Self::ListCommits { .. } => "ListCommits",
       Self::ListConflicts { .. } => "ListConflicts",
       Self::WorkspaceChangeMarker { .. } => "WorkspaceChangeMarker",
+      Self::MachineUsage { .. } => "MachineUsage",
       Self::ProbeRepo { .. } => "ProbeRepo",
       Self::CloneRepo { .. } => "CloneRepo",
       Self::InitRepo { .. } => "InitRepo",
@@ -517,6 +526,7 @@ impl TreqCommandRequest {
     "ListCommits",
     "ListConflicts",
     "WorkspaceChangeMarker",
+    "MachineUsage",
     "ProbeRepo",
     "CloneRepo",
     "InitRepo",
@@ -997,6 +1007,7 @@ impl TreqCommandRequest {
       Self::RepositoryStatus { repo } => ("repo", "status", repo),
       Self::ListBranches { repo } => ("repo", "branches", repo),
       Self::ProbeRepo { repo } => ("repo", "probe", repo),
+      Self::MachineUsage { root } => ("repo", "usage", root),
       Self::InitRepo {
         repo,
         idempotency_key,
@@ -1574,6 +1585,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
     TreqCommandRequest::ListWorkspaces { repo } => {
       json(crate::core::workspaces::list_workspaces(&repo))
     }
+    TreqCommandRequest::MachineUsage { root } => json(machine_usage(&root)),
     TreqCommandRequest::InspectWorkspace { repo, workspace } => json(
       crate::core::workspaces::workspace_status(&repo, workspace_id(Some(&workspace))?),
     ),
@@ -2115,6 +2127,71 @@ fn directory_usage_bytes(root: &Path) -> u64 {
     }
   }
   total
+}
+
+/// Machine-wide usage returned by [`TreqCommandRequest::MachineUsage`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineUsageReport {
+  pub repository_count: usize,
+  pub workspace_count: usize,
+  pub disk_used_bytes: u64,
+}
+
+/// Repositories sit at most two levels below the root
+/// (`<root>/<owner>/<name>` for managed clones, `<root>/<name>` otherwise).
+const MACHINE_USAGE_REPO_DEPTH: usize = 2;
+
+fn is_repository_dir(path: &Path) -> bool {
+  path.join(".jj").is_dir() || path.join(".git").exists()
+}
+
+fn find_repositories(root: &Path) -> Vec<PathBuf> {
+  let mut repositories = Vec::new();
+  let mut stack = vec![(root.to_path_buf(), 0usize)];
+  while let Some((dir, depth)) = stack.pop() {
+    if depth > 0 && is_repository_dir(&dir) {
+      repositories.push(dir);
+      continue;
+    }
+    if depth == MACHINE_USAGE_REPO_DEPTH {
+      continue;
+    }
+    let Ok(entries) = fs::read_dir(&dir) else {
+      continue;
+    };
+    for entry in entries.flatten() {
+      if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+        stack.push((entry.path(), depth + 1));
+      }
+    }
+  }
+  repositories
+}
+
+/// Counts repositories and their Treq workspaces under `root` and measures
+/// the bytes they use. A missing root reports zero usage rather than an
+/// error, since a fresh machine has no repositories directory yet.
+fn machine_usage(root: &str) -> Result<MachineUsageReport, String> {
+  validate_remote_path(root)?;
+  let root = Path::new(root.trim());
+  if !root.is_dir() {
+    return Ok(MachineUsageReport::default());
+  }
+  let repositories = find_repositories(root);
+  let workspace_count = repositories
+    .iter()
+    .filter_map(|repo| repo.to_str())
+    .map(|repo| {
+      crate::core::workspaces::list_workspaces(repo)
+        .map(|workspaces| workspaces.len())
+        .unwrap_or(0)
+    })
+    .sum();
+  Ok(MachineUsageReport {
+    repository_count: repositories.len(),
+    workspace_count,
+    disk_used_bytes: directory_usage_bytes(root),
+  })
 }
 
 /// Enforces the base disk quota (PRD "Resource quotas") before a
@@ -3368,13 +3445,79 @@ mod tests {
       .contains("idempotency key is required"));
   }
 
+  fn seed_repo_with_workspaces(root: &Path, owner: &str, name: &str, workspaces: &[&str]) -> String {
+    let repo = root.join(owner).join(name);
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    let repo_path = repo.to_str().unwrap().to_string();
+    for workspace in workspaces {
+      crate::local_db::add_workspace(
+        &repo_path,
+        workspace.to_string(),
+        format!("{repo_path}/.treq/workspaces/{workspace}"),
+        format!("feat/{workspace}"),
+        None,
+        None,
+        None,
+      )
+      .unwrap();
+    }
+    repo_path
+  }
+
+  #[test]
+  fn machine_usage_counts_repositories_workspaces_and_bytes_under_root() {
+    let root = tempfile::tempdir().unwrap();
+    seed_repo_with_workspaces(root.path(), "acme", "api", &["one", "two"]);
+    let web = seed_repo_with_workspaces(root.path(), "acme", "web", &["three"]);
+    fs::write(Path::new(&web).join("README.md"), vec![b'x'; 4096]).unwrap();
+    // A plain directory that is not a repository is not counted.
+    fs::create_dir_all(root.path().join("acme").join("notes")).unwrap();
+
+    let value = execute_local_request(TreqCommandRequest::MachineUsage {
+      root: root.path().to_str().unwrap().to_string(),
+    })
+    .unwrap();
+    let usage: MachineUsageReport = serde_json::from_value(value).unwrap();
+
+    assert_eq!(usage.repository_count, 2);
+    assert_eq!(usage.workspace_count, 3);
+    assert!(usage.disk_used_bytes >= 4096);
+  }
+
+  #[test]
+  fn machine_usage_returns_zero_when_root_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("repos");
+
+    let value = execute_local_request(TreqCommandRequest::MachineUsage {
+      root: missing.to_str().unwrap().to_string(),
+    })
+    .unwrap();
+    let usage: MachineUsageReport = serde_json::from_value(value).unwrap();
+
+    assert_eq!(usage, MachineUsageReport::default());
+  }
+
+  #[test]
+  fn machine_usage_is_a_read_only_repo_cli_command() {
+    let request = TreqCommandRequest::MachineUsage {
+      root: "/home/sprite/repos".into(),
+    };
+
+    assert!(!request.is_mutation());
+    assert_eq!(
+      request.cli_args().unwrap(),
+      vec!["repo", "usage", "--repo", "/home/sprite/repos"]
+    );
+  }
+
   #[test]
   fn kind_names_match_serde_kind_tags() {
     let sample = TreqCommandRequest::GitFetch { repo: "/r".into() };
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 40);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 41);
   }
 
   #[test]

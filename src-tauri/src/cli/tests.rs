@@ -772,6 +772,19 @@ fn parses_every_newly_exposed_remote_mutation_at_the_cli_boundary() {
 }
 
 #[test]
+fn parses_repo_usage_into_machine_usage_request() {
+  let request =
+    parse_remote_command_request("repo", &remote_matches(&[("action", "usage"), ("repo", "/srv/repos")]))
+      .unwrap();
+  assert_eq!(
+    request,
+    crate::core::remote::TreqCommandRequest::MachineUsage {
+      root: "/srv/repos".into()
+    }
+  );
+}
+
+#[test]
 fn rejects_unknown_remote_action_and_arbitrary_command_kinds() {
   let error = parse_remote_command_request(
     "repo",
