@@ -15,7 +15,7 @@ function useGithubPagedList<T>(opts: {
   currentFilter: GitHubStateFilter;
 }) {
   const { enabled, keyPrefix, fetcher, repoFullName, currentFilter } = opts;
-  const { data, isLoading, isValidating, size, setSize, mutate } =
+  const { data, error, isLoading, isValidating, size, setSize, mutate } =
     useSWRInfinite(
       (pageIndex, previousPageData: GhListPage<T> | null) => {
         if (!enabled || !repoFullName) return null;
@@ -27,6 +27,7 @@ function useGithubPagedList<T>(opts: {
     );
   return {
     items: data?.flatMap((page) => page.items) ?? [],
+    error: error as unknown,
     isLoading,
     fetchingNext: isValidating && size > 1,
     hasNextPage: Boolean(data?.at(-1)?.hasMore),

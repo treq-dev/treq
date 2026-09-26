@@ -481,4 +481,43 @@ describe("GitHubPanel", () => {
       2,
     );
   });
+
+  it("shows the gh error instead of an empty list when PRs fail to load", async () => {
+    api.ghListPrs.mockRejectedValue(
+      "gh: You are not logged into any GitHub hosts. Run gh auth login.",
+    );
+
+    render(<GitHubPanel repoPath="/tmp/repo" />);
+    await user.click(screen.getByRole("tab", { name: /pull requests/i }));
+
+    expect(
+      await screen.findByText("Could not load pull requests"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "gh: You are not logged into any GitHub hosts. Run gh auth login.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("No pull requests found."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retries a failed issue list load", async () => {
+    api.ghListIssues
+      .mockRejectedValueOnce(new Error("gh: HTTP 502"))
+      .mockResolvedValue({
+        items: [makeIssue(1, "Back again")],
+        hasMore: false,
+      });
+
+    render(<GitHubPanel repoPath="/tmp/repo" />);
+
+    expect(await screen.findByText("Could not load issues")).toBeVisible();
+    expect(screen.getByText("gh: HTTP 502")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /try again/i }));
+
+    expect(await screen.findByText("Back again")).toBeVisible();
+    expect(screen.queryByText("Could not load issues")).not.toBeInTheDocument();
+  });
 });
