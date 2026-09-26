@@ -79,8 +79,10 @@ export function useMutation<TData, TVariables = void>(options: {
     }
   };
 
+  // Fire-and-forget: the error already lands in `error` and `onError`, so
+  // swallowing the rejection here keeps it from surfacing as unhandled.
   const mutate = (variables: TVariables) => {
-    void mutateAsync(variables);
+    mutateAsync(variables).catch(() => {});
   };
 
   return {

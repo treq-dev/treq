@@ -35,6 +35,7 @@ import {
   LabelChip,
   OpenInWebButton,
   StateChip,
+  useGhErrorToast,
 } from "./shared";
 
 /** Branch glyph (Lucide GitBranch, upright — not the sidebar's Y-flipped form). */
@@ -69,6 +70,7 @@ export function PrDetailPanel({
   onOpenWorkspace?: (workspaceId: number) => void;
 }) {
   const { addToast } = useToast();
+  const ghErrorToast = useGhErrorToast();
   const [commentBody, setCommentBody] = useState("");
 
   const { data: pr, isLoading } = useSWR(
@@ -124,6 +126,7 @@ export function PrDetailPanel({
       setCommentBody("");
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
     },
+    onError: ghErrorToast("Failed to post comment"),
   });
 
   const closePr = useMutation({
@@ -132,6 +135,7 @@ export function PrDetailPanel({
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
     },
+    onError: ghErrorToast("Failed to close pull request"),
   });
 
   const reopenPr = useMutation({
@@ -140,6 +144,7 @@ export function PrDetailPanel({
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
     },
+    onError: ghErrorToast("Failed to reopen pull request"),
   });
 
   const setDraft = useMutation({
@@ -149,6 +154,12 @@ export function PrDetailPanel({
       void invalidateQueries(["gh-prs", repoFullName]);
       void invalidateQueries(["pr-info-gh"]);
     },
+    onError: (error, draft) =>
+      ghErrorToast(
+        draft
+          ? "Failed to convert to draft"
+          : "Failed to mark ready for review",
+      )(error),
   });
 
   return (

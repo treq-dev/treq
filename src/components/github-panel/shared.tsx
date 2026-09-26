@@ -20,6 +20,7 @@ import {
   formatCheckDuration,
 } from "../../lib/ci-status";
 import { Button } from "../ui/button";
+import { useToast } from "../ui/toast";
 
 export function formatDate(iso: string) {
   try {
@@ -247,3 +248,14 @@ export function EmptyState({
 }
 
 export { CircleDot, GitPullRequest };
+
+/** Returns an `onError` factory that reports a failed gh action as an error toast. */
+export function useGhErrorToast() {
+  const { addToast } = useToast();
+  return (title: string) => (error: unknown) =>
+    addToast({
+      title,
+      description: error instanceof Error ? error.message : String(error),
+      type: "error",
+    });
+}

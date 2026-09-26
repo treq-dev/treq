@@ -8,7 +8,9 @@ import { render, screen, waitFor } from "../test-utils";
 const api = vi.hoisted(() => ({
   ghViewIssue: vi.fn(),
   ghCreateIssueComment: vi.fn(),
+  ghCloseIssue: vi.fn(),
   ghViewPr: vi.fn(),
+  ghCreatePrComment: vi.fn(),
   ghSetPrDraft: vi.fn(),
   ghClosePr: vi.fn(),
   getWorkspaces: vi.fn(),
@@ -21,7 +23,9 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
     ...original,
     ghViewIssue: api.ghViewIssue,
     ghCreateIssueComment: api.ghCreateIssueComment,
+    ghCloseIssue: api.ghCloseIssue,
     ghViewPr: api.ghViewPr,
+    ghCreatePrComment: api.ghCreatePrComment,
     ghSetPrDraft: api.ghSetPrDraft,
     ghClosePr: api.ghClosePr,
     getWorkspaces: api.getWorkspaces,
@@ -216,5 +220,88 @@ describe("PrDetailPanel close PR", () => {
     await waitFor(() => {
       expect(api.ghClosePr).toHaveBeenCalledWith("acme/treq", 42);
     });
+  });
+});
+
+describe("GitHub detail action failures", () => {
+  let user: ReturnType<typeof userEvent.setup>;
+
+  beforeEach(() => {
+    user = userEvent.setup();
+    api.getWorkspaces.mockResolvedValue([]);
+    api.ghViewPr.mockResolvedValue(makeDetailPr({}));
+    api.ghViewIssue.mockResolvedValue({
+      number: 7,
+      title: "Broken thing",
+      state: "OPEN",
+      url: "https://github.com/acme/treq/issues/7",
+      body: null,
+      author: { login: "alice" },
+      created_at: "2026-01-01T00:00:00Z",
+      labels: [],
+      comments: null,
+    });
+    api.ghClosePr.mockReset();
+    api.ghCreatePrComment.mockReset();
+    api.ghCloseIssue.mockReset();
+  });
+
+  function renderPr() {
+    render(
+      <PrDetailPanel
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        prNumber={42}
+        onClose={() => {}}
+      />,
+    );
+  }
+
+  it("shows the gh error when closing a PR fails", async () => {
+    api.ghClosePr.mockRejectedValue(
+      "gh: Resource not accessible by integration",
+    );
+    renderPr();
+
+    await user.click(await screen.findByRole("button", { name: /close pr/i }));
+
+    expect(
+      await screen.findByText("Failed to close pull request"),
+    ).toBeVisible();
+    expect(
+      screen.getByText("gh: Resource not accessible by integration"),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: /close pr/i })).toBeEnabled();
+  });
+
+  it("keeps the draft and shows the gh error when a PR comment fails", async () => {
+    api.ghCreatePrComment.mockRejectedValue("gh: HTTP 502");
+    renderPr();
+
+    const textarea = await screen.findByPlaceholderText(/leave a comment/i);
+    await user.type(textarea, "Needs a test");
+    await user.click(screen.getByRole("button", { name: /^comment$/i }));
+
+    expect(await screen.findByText("Failed to post comment")).toBeVisible();
+    expect(screen.getByText("gh: HTTP 502")).toBeVisible();
+    expect(textarea).toHaveValue("Needs a test");
+  });
+
+  it("shows the gh error when closing an issue fails", async () => {
+    api.ghCloseIssue.mockRejectedValue(new Error("gh: issue is locked"));
+    render(
+      <IssueDetailPanel
+        repoFullName="acme/treq"
+        issueNumber={7}
+        onClose={() => {}}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: /close issue/i }),
+    );
+
+    expect(await screen.findByText("Failed to close issue")).toBeVisible();
+    expect(screen.getByText("gh: issue is locked")).toBeVisible();
   });
 });
