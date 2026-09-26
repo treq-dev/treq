@@ -133,6 +133,13 @@ export async function captureDocument(
       }
     }
   }
+  // Same for checkboxes and radios: `checked` is a property, so innerHTML
+  // would paint every box unchecked.
+  for (const input of doc.querySelectorAll<HTMLInputElement>(
+    'input[type="checkbox"], input[type="radio"]',
+  )) {
+    input.toggleAttribute("checked", input.checked);
+  }
 
   const htmlClass = doc.documentElement.className;
   const bodyHtml = doc.body.innerHTML;
