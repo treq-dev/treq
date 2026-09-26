@@ -193,7 +193,7 @@ const DropdownMenuRadioItem = ({
   >
     <span className="absolute left-2 flex h-4 w-4 items-center justify-center">
       <DropdownMenuPrimitive.RadioItemIndicator>
-        <span className="h-2 w-2 rounded-full bg-current" />
+        <span className="block h-2 w-2 rounded-full bg-current" />
       </DropdownMenuPrimitive.RadioItemIndicator>
     </span>
     {children}

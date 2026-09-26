@@ -104,7 +104,6 @@ export const LinearIssuesSection: React.FC<{
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [standardView, setStandardView] = useState<StandardView>("all");
   const [filters, setFilters] = useState<IssueFilters>(EMPTY_FILTERS);
-  const kickoffIssueId = null;
 
   const { data: viewer } = useSWR(
     repoPath ? ["linear-viewer", repoPath] : null,
@@ -123,7 +122,7 @@ export const LinearIssuesSection: React.FC<{
     { revalidateOnFocus: false },
   );
 
-  const handleKickoff = async (issueId: string, hasSubissues: boolean) => {
+  const handleKickoff = (issueId: string, hasSubissues: boolean) => {
     const issue = issues.find((candidate) => candidate.id === issueId);
     if (issue)
       onStartPromptFromIssue?.({ ...issue, includeSubissues: hasSubissues });
@@ -298,6 +297,7 @@ export const LinearIssuesSection: React.FC<{
               repoPath={repoPath}
               issues={rootIssues}
               subissuesMap={issuesByState.subissues}
+              onKickoff={handleKickoff}
             />
           )}
 
@@ -309,7 +309,6 @@ export const LinearIssuesSection: React.FC<{
               issues={rootIssues}
               subissuesMap={issuesByState.subissues}
               issuesByState={issuesByState.byState}
-              kickoffIssueId={kickoffIssueId}
               onKickoff={handleKickoff}
             />
           )}

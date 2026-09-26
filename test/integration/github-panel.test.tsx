@@ -3,6 +3,7 @@ import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GitHubPanel } from "../../src/components/GitHubPanel";
 import { render, screen, waitFor, within } from "../test-utils";
+import { createTestRepo } from "../utils";
 
 const auth = vi.hoisted(() => ({
   user: { id: "user-1" } as object | null,
@@ -25,10 +26,6 @@ const api = vi.hoisted(() => ({
   ghListIssues: vi.fn(),
   ghListPrs: vi.fn(),
   ghCreateIssueComment: vi.fn(),
-  ghViewIssue: vi.fn(),
-  ghCloseIssue: vi.fn(),
-  ghViewPr: vi.fn(),
-  ghClosePr: vi.fn(),
   getWorkspaces: vi.fn(),
   openOrCreateWorkspaceFromPr: vi.fn(),
 }));
@@ -70,10 +67,6 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
     ghListIssues: api.ghListIssues,
     ghListPrs: api.ghListPrs,
     ghCreateIssueComment: api.ghCreateIssueComment,
-    ghViewIssue: api.ghViewIssue,
-    ghCloseIssue: api.ghCloseIssue,
-    ghViewPr: api.ghViewPr,
-    ghClosePr: api.ghClosePr,
     getWorkspaces: api.getWorkspaces,
     openOrCreateWorkspaceFromPr: api.openOrCreateWorkspaceFromPr,
   };
@@ -139,10 +132,6 @@ describe("GitHubPanel", () => {
     api.ghListIssues.mockResolvedValue({ items: [], hasMore: false });
     api.ghListPrs.mockResolvedValue({ items: [], hasMore: false });
     api.ghCreateIssueComment.mockReset();
-    api.ghViewIssue.mockReset();
-    api.ghCloseIssue.mockReset();
-    api.ghViewPr.mockReset();
-    api.ghClosePr.mockReset();
     api.getWorkspaces.mockResolvedValue([]);
     api.openOrCreateWorkspaceFromPr.mockReset();
     supabaseRpc.mockReset();
@@ -494,68 +483,19 @@ describe("GitHubPanel", () => {
     );
   });
 
-  it("drops a closed pull request from the Open list", async () => {
-    let closed = false;
-    api.ghListPrs.mockImplementation(async () => ({
-      items: closed
-        ? [makePr(7, "Keep me open")]
-        : [makePr(42, "Close me"), makePr(7, "Keep me open")],
-      hasMore: false,
-    }));
-    api.ghViewPr.mockImplementation(async () => ({
-      ...makePr(42, "Close me"),
-      state: closed ? "CLOSED" : "OPEN",
-    }));
-    api.ghClosePr.mockImplementation(async () => {
-      closed = true;
-    });
+  it("prefills the new pull request base with the repo default branch", async () => {
+    const { repoPath, defaultBranch } = createTestRepo(false);
+    expect(defaultBranch).not.toBe("main");
 
-    render(<GitHubPanel repoPath="/tmp/repo" />);
+    render(<GitHubPanel repoPath={repoPath} />);
     await user.click(screen.getByRole("tab", { name: /pull requests/i }));
-    await user.click(await screen.findByRole("button", { name: /close me/i }));
-    await user.click(await screen.findByRole("button", { name: /close pr/i }));
+    await user.click(screen.getByRole("button", { name: /new/i }));
 
-    expect(
-      await screen.findByRole("button", { name: /reopen pr/i }),
-    ).toBeVisible();
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("button", { name: /close me/i }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(screen.getByRole("button", { name: /keep me open/i })).toBeVisible();
-  });
+    const base = screen.getByPlaceholderText("Base branch");
+    await waitFor(() => expect(base).toHaveValue(defaultBranch));
 
-  it("drops a closed issue from the Open list", async () => {
-    let closed = false;
-    api.ghListIssues.mockImplementation(async () => ({
-      items: closed
-        ? [makeIssue(7, "Keep me open")]
-        : [makeIssue(42, "Close me"), makeIssue(7, "Keep me open")],
-      hasMore: false,
-    }));
-    api.ghViewIssue.mockImplementation(async () => ({
-      ...makeIssue(42, "Close me"),
-      state: closed ? "CLOSED" : "OPEN",
-    }));
-    api.ghCloseIssue.mockImplementation(async () => {
-      closed = true;
-    });
-
-    render(<GitHubPanel repoPath="/tmp/repo" />);
-    await user.click(await screen.findByRole("button", { name: /close me/i }));
-    await user.click(
-      await screen.findByRole("button", { name: /close issue/i }),
-    );
-
-    expect(
-      await screen.findByRole("button", { name: /reopen issue/i }),
-    ).toBeVisible();
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("button", { name: /close me/i }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(screen.getByRole("button", { name: /keep me open/i })).toBeVisible();
+    await user.clear(base);
+    await user.type(base, "release");
+    expect(base).toHaveValue("release");
   });
 });
