@@ -1,5 +1,5 @@
 // TDD: written before `managed-ssh-connection.ts` exists. Covers the gap
-// described in prds/remote-ssh.md ("Managed VM certificate flow") that the
+// described in prds/remote-development.md ("Managed VM certificate flow") that the
 // old `RemoteManagedSetupPanel`/`Dashboard` wiring left open: the selected
 // local SSH identity's public key was never registered, no certificate was
 // ever issued, and no managed `SshEndpoint` was ever activated.
