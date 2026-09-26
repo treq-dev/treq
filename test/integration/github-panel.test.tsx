@@ -2,7 +2,8 @@ import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GitHubPanel } from "../../src/components/GitHubPanel";
-import { render, screen, within } from "../test-utils";
+import { render, screen, waitFor, within } from "../test-utils";
+import { createTestRepo } from "../utils";
 
 const auth = vi.hoisted(() => ({
   user: { id: "user-1" } as object | null,
@@ -480,5 +481,21 @@ describe("GitHubPanel", () => {
       expect.any(Number),
       2,
     );
+  });
+
+  it("prefills the new pull request base with the repo default branch", async () => {
+    const { repoPath, defaultBranch } = createTestRepo(false);
+    expect(defaultBranch).not.toBe("main");
+
+    render(<GitHubPanel repoPath={repoPath} />);
+    await user.click(screen.getByRole("tab", { name: /pull requests/i }));
+    await user.click(screen.getByRole("button", { name: /new/i }));
+
+    const base = screen.getByPlaceholderText("Base branch");
+    await waitFor(() => expect(base).toHaveValue(defaultBranch));
+
+    await user.clear(base);
+    await user.type(base, "release");
+    expect(base).toHaveValue("release");
   });
 });

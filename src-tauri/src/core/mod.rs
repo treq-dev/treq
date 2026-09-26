@@ -24,6 +24,7 @@ pub mod remote_ssh_config;
 pub mod remote_ssh_transport;
 pub mod repo;
 pub mod resolve;
+pub mod sessions;
 pub mod skills;
 pub mod stash;
 pub mod submodules;

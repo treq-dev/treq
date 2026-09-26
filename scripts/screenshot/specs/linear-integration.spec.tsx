@@ -37,17 +37,9 @@ it("captures the Linear panel opened from the sidebar", async () => {
     ],
   });
 
-  const teamSelector = await screen.findByTestId("linear-team-selector");
-  await user.click(teamSelector);
-  await screen.findByText("Teams");
-
-  await captureDocument(document, {
-    name: "linear-integration-04-team-selector",
-    expectations: [
-      "A dropdown menu is open below the team selector button, labeled 'Teams'.",
-      "An 'All Teams' option is visible in the dropdown (no per-team options since no issues/teams could be fetched without an API key).",
-    ],
-  });
+  // The team selector dropdown is captured in
+  // linear-views-filtering-projects.spec.tsx: inside the full Dashboard, jsdom
+  // gives Base UI a zero-size anchor, so the popup lands under the sidebar.
 }, 60000);
 
 it("captures the Linear integration settings", async () => {

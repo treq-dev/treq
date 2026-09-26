@@ -56,4 +56,36 @@ describe("LinearPanel issue kickoff", () => {
     });
     expect(api.linearOpenOrCreateWorkspaceFromIssue).not.toHaveBeenCalled();
   });
+
+  it("kicks off from a list row, including sub-issues when it has any", async () => {
+    const user = userEvent.setup();
+    const onStartPromptFromIssue = vi.fn();
+    const parent = { ...issue, sub_issue_ids: ["child-id"] };
+    const child: LinearIssue = {
+      ...issue,
+      id: "child-id",
+      identifier: "TREQ-282",
+      title: "Child issue",
+      parent_id: parent.id,
+    };
+    api.linearListIssues.mockResolvedValue([parent, child]);
+    render(
+      <LinearPanel
+        repoPath="/repo"
+        onStartPromptFromIssue={onStartPromptFromIssue}
+      />,
+    );
+
+    await screen.findByText("Child issue");
+    const [parentKickoff] = screen.getAllByRole("button", {
+      name: "Kick off",
+    });
+    await user.click(parentKickoff!);
+
+    expect(onStartPromptFromIssue).toHaveBeenCalledWith({
+      ...parent,
+      includeSubissues: true,
+    });
+    expect(screen.queryByTestId("linear-issue-expanded")).toBeNull();
+  });
 });

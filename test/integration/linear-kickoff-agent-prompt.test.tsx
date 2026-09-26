@@ -1,0 +1,65 @@
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Dashboard } from "../../src/components/Dashboard";
+import type { LinearIssue } from "../../src/lib/api-linear";
+import { render, screen, within } from "../test-utils";
+import { createTestRepo, openRepo } from "../utils";
+
+const linearApi = vi.hoisted(() => ({
+  linearListIssues: vi.fn(),
+  linearListTeams: vi.fn(),
+  linearGetViewer: vi.fn(),
+}));
+
+vi.mock("../../src/lib/api-linear", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/api-linear")>()),
+  ...linearApi,
+}));
+
+const issue: LinearIssue = {
+  id: "issue-id",
+  identifier: "TREQ-281",
+  title: "Linear integration should CRUD issues",
+  description: "Implement the issue workflow",
+  state: { name: "Todo", type: "unstarted" },
+  labels: [],
+  branch_name: "ty/treq-281-linear-integration",
+  parent_id: null,
+  sub_issue_ids: [],
+  url: "https://linear.app/treq/issue/TREQ-281",
+};
+
+describe("Linear issue kickoff", () => {
+  let user: ReturnType<typeof userEvent.setup>;
+
+  beforeEach(() => {
+    const { repoPath } = createTestRepo(false);
+    openRepo(repoPath);
+    user = userEvent.setup();
+    linearApi.linearListTeams.mockResolvedValue([]);
+    linearApi.linearListIssues.mockResolvedValue([issue]);
+    linearApi.linearGetViewer.mockResolvedValue({
+      id: "viewer-id",
+      name: "Viewer",
+    });
+  });
+
+  it("opens the agent prompt dialog with the Linear issue attached", async () => {
+    render(<Dashboard />);
+
+    await user.click(await screen.findByTestId("linear-sidebar-item"));
+    await user.click(await screen.findByRole("tab", { name: "Kanban" }));
+    await user.click(await screen.findByRole("button", { name: "Kick off" }));
+
+    const dialog = (
+      await screen.findByRole("heading", { name: "Start a new agent session" })
+    ).closest('[data-testid="modal"]') as HTMLElement;
+    expect(dialog).toBeTruthy();
+
+    const chip = await within(dialog).findByTestId("linear-issue-chip");
+    expect(chip).toHaveTextContent("TREQ-281");
+    expect(
+      within(dialog).getByRole("button", { name: /^edit$/i }),
+    ).toBeEnabled();
+  }, 60000);
+});
