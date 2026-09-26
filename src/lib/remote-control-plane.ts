@@ -1,5 +1,5 @@
 // Client for the `remote-instance` and `remote-ssh-trust` Supabase Edge
-// Functions (prds/remote-ssh.md, Phases 2-3). This is the only place the
+// Functions (prds/remote-development.md, Phases 2-3). This is the only place the
 // frontend talks to the managed-VM control plane; UI components go through
 // the hooks in `src/hooks/useRemoteInstance.ts` instead of calling these
 // directly, so caching/query-key rules stay in one place.

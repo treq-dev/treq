@@ -5,7 +5,7 @@
 // the normal, supported way to depend on a package in a lone Deno script.
 //
 // Scheduled/standalone cleanup for leaked Remote SSH e2e test resources
-// (prds/remote-ssh.md, Phase 8: "A scheduled cleanup job removes leaked test
+// (prds/remote-development.md, Phase 8: "A scheduled cleanup job removes leaked test
 // resources after a safety window.").
 //
 // Usage:

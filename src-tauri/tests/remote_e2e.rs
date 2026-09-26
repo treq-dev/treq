@@ -1,5 +1,5 @@
 //! Phase 8 real-API end-to-end tests for the Remote SSH control plane
-//! (prds/remote-ssh.md, "Phase 8: Test infrastructure against real APIs").
+//! (prds/remote-development.md, "Phase 8: Test infrastructure against real APIs").
 //!
 //! Everything in this file talks to *real* vendor/control-plane APIs -
 //! nothing here is mocked. That is the entire point of this file: it is the
