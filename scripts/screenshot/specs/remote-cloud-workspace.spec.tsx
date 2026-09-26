@@ -242,6 +242,8 @@ it("captures creating and managing a cloud workspace from account settings", asy
     "usage",
     "--repo",
     "/home/sprite/repos",
+    "--format",
+    "json",
   ]);
   await captureDocument(document, {
     name: "remote-cloud-workspace-05-ready-usage",

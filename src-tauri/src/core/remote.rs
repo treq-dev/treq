@@ -3507,7 +3507,7 @@ mod tests {
     assert!(!request.is_mutation());
     assert_eq!(
       request.cli_args().unwrap(),
-      vec!["repo", "usage", "--repo", "/home/sprite/repos"]
+      vec!["repo", "usage", "--repo", "/home/sprite/repos", "--format", "json"]
     );
   }
 
