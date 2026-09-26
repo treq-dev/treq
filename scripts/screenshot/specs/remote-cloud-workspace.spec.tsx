@@ -22,6 +22,7 @@ const { server, auth } = vi.hoisted(() => ({
     nextEnsure: "fail" as "fail" | "defer",
     releaseEnsure: null as null | (() => void),
     actions: [] as string[],
+    execArgv: [] as string[][],
   },
   auth: {
     user: {
@@ -77,7 +78,25 @@ vi.mock("../../../src/lib/supabase", () => ({
     }),
     functions: {
       invoke: vi.fn(
-        async (_fn: string, { body }: { body: { action: string } }) => {
+        async (
+          fn: string,
+          { body }: { body: { action: string; argv?: string[] } },
+        ) => {
+          if (fn === "remote-sprite-exec") {
+            server.execArgv.push(body.argv ?? []);
+            return {
+              data: {
+                exit_code: 0,
+                stdout: JSON.stringify({
+                  repository_count: 3,
+                  workspace_count: 7,
+                  disk_used_bytes: 1.8 * 1024 ** 3,
+                }),
+                stderr: "",
+              },
+              error: null,
+            };
+          }
           server.actions.push(body.action);
           if (body.action === "status") {
             return { data: server.status, error: null };
@@ -204,6 +223,35 @@ it("captures creating and managing a cloud workspace from account settings", asy
     ],
   });
 
+  // Setup finishes; revisiting the Account tab reloads status and usage.
+  server.status = {
+    instance: cloudInstance({
+      status: "ready",
+      ready_at: "2026-09-26T00:05:00Z",
+      disk_quota_gb: 5,
+    }),
+    endpoint: null,
+  };
+  await user.click(screen.getByRole("tab", { name: /repository/i }));
+  await user.click(screen.getByRole("tab", { name: /account/i }));
+  await screen.findByText("7 workspaces across 3 repositories");
+  expect(screen.getByText("1.8 GB of 5 GB")).toBeTruthy();
+  expect(server.execArgv.at(-1)).toEqual([
+    "treq",
+    "repo",
+    "usage",
+    "--repo",
+    "/home/sprite/repos",
+  ]);
+  await captureDocument(document, {
+    name: "remote-cloud-workspace-05-ready-usage",
+    expectations: [
+      "The card status reads 'Ready' with no Repair button; only the trash icon is at the right of the header.",
+      "Below the status, '7 workspaces across 3 repositories' is on the left and '1.8 GB of 5 GB' on the right.",
+      "A thin usage bar under that line is filled about a third of the way.",
+    ],
+  });
+
   // An issue is detected; revisiting the Account tab reloads status.
   server.status = {
     instance: cloudInstance({ status: "degraded" }),
@@ -219,7 +267,7 @@ it("captures creating and managing a cloud workspace from account settings", asy
     "Re-run Treq setup on this cloud workspace. Files and repositories are kept.",
   );
   await captureDocument(document, {
-    name: "remote-cloud-workspace-05-repair",
+    name: "remote-cloud-workspace-06-repair",
     expectations: [
       "The card status reads 'Degraded'.",
       "A 'Repair' button with a wrench icon sits right-aligned in the card header, next to the trash icon.",
@@ -235,7 +283,7 @@ it("captures creating and managing a cloud workspace from account settings", asy
   });
   expect(server.actions).not.toContain("delete");
   await captureDocument(document, {
-    name: "remote-cloud-workspace-06-delete-confirm",
+    name: "remote-cloud-workspace-07-delete-confirm",
     expectations: [
       "A confirmation dialog titled 'Delete cloud workspace?' warns that all data on the cloud machine is permanently deleted.",
       "The dialog has 'Cancel' and a red 'Delete' button.",

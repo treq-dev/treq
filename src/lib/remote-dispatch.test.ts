@@ -19,6 +19,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "ListCommits",
       "ListConflicts",
       "WorkspaceChangeMarker",
+      "MachineUsage",
       "ProbeRepo",
       "CloneRepo",
       "InitRepo",
@@ -53,7 +54,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "CommitFileDiff",
       "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(44);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(45);
   });
 
   it("is exhaustive over the request union", () => {
@@ -74,6 +75,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       { kind: "ListCommits", repo: "/r" },
       { kind: "ListConflicts", repo: "/r" },
       { kind: "WorkspaceChangeMarker", repo: "/r" },
+      { kind: "MachineUsage", root: "/home/sprite/repos" },
       { kind: "ProbeRepo", repo: "/r" },
       {
         kind: "CloneRepo",

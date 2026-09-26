@@ -2,6 +2,7 @@ import { Cloud, Loader2, Trash2, Wrench } from "lucide-react";
 import { useState } from "react";
 import type {
   InstanceStatusResponse,
+  MachineUsageReport,
   ManagedInstanceState,
 } from "../../lib/api-types-remote";
 import {
@@ -32,6 +33,11 @@ export interface CloudWorkspaceCardProps {
   onRepair: () => Promise<void>;
   onDelete: () => Promise<void>;
   onOpenRepositories?: () => void;
+  /**
+   * Usage reported by the cloud workspace: `undefined` while loading or not
+   * yet requested, `null` when the machine could not report it.
+   */
+  usage?: MachineUsageReport | null;
 }
 
 /** States where Treq detected a problem that Repair can fix in place. */
@@ -45,6 +51,70 @@ const REPAIRABLE_STATES: ReadonlySet<ManagedInstanceState> = new Set([
  * state, and repair or delete it. Rendered inline on the account settings
  * page and inside the remote setup dialog.
  */
+const GIB = 1024 ** 3;
+const MIB = 1024 ** 2;
+
+function formatBytes(bytes: number): string {
+  return bytes >= GIB
+    ? `${(bytes / GIB).toFixed(1)} GB`
+    : `${Math.round(bytes / MIB)} MB`;
+}
+
+function plural(count: number, singular: string, pluralForm: string): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function CloudWorkspaceUsage({
+  usage,
+  diskQuotaGb,
+}: {
+  usage: MachineUsageReport | null | undefined;
+  diskQuotaGb: number;
+}) {
+  if (usage === undefined) {
+    return <p className="text-muted-foreground">Loading usage...</p>;
+  }
+  if (usage === null) {
+    return (
+      <p className="text-muted-foreground">
+        Usage unavailable. Repair updates Treq on the cloud workspace.
+      </p>
+    );
+  }
+  const percent = Math.min(
+    100,
+    Math.round((usage.disk_used_bytes / (diskQuotaGb * GIB)) * 100),
+  );
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-muted-foreground">
+        <span>
+          {plural(usage.workspace_count, "workspace", "workspaces")} across{" "}
+          {plural(usage.repository_count, "repository", "repositories")}
+        </span>
+        <span>
+          {formatBytes(usage.disk_used_bytes)} of {diskQuotaGb} GB
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Disk usage"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        className="h-1.5 overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className={
+            percent >= 90 ? "h-full bg-destructive" : "h-full bg-primary"
+          }
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function CloudWorkspaceCard({
   instanceStatus,
   provisioningStage,
@@ -54,6 +124,7 @@ export function CloudWorkspaceCard({
   onRepair,
   onDelete,
   onOpenRepositories,
+  usage,
 }: CloudWorkspaceCardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -140,6 +211,12 @@ export function CloudWorkspaceCard({
               </p>
             )}
           </div>
+          {instance.status === "ready" && (
+            <CloudWorkspaceUsage
+              usage={usage}
+              diskQuotaGb={instance.disk_quota_gb}
+            />
+          )}
           {(instance.status === "ready" && endpoint && onOpenRepositories) ||
           instance.status === "suspended" ||
           instance.status === "waking" ? (
