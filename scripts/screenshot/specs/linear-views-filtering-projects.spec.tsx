@@ -208,7 +208,7 @@ it("filters issues by standard view and AND-combined filters, and browses projec
     name: "linear-views-filtering-01-issues-default",
     expectations: [
       'The Issues tab is active with standard-view subtabs "All Issues", "Active", "My Issues", "Backlog" visible above a row that combines the List/Kanban toggle with the team and filter dropdowns.',
-      "All three issues (ENG-101, ENG-102, ENG-103) are visible in the list, each without a Kick off button.",
+      "All three issues (ENG-101, ENG-102, ENG-103) are visible in the list, each with a right-aligned outline Kick off button.",
     ],
   });
 
@@ -218,7 +218,7 @@ it("filters issues by standard view and AND-combined filters, and browses projec
   await captureDocument(document, {
     name: "linear-views-filtering-01b-issue-expanded",
     expectations: [
-      "Clicking issue ENG-101 expanded an inline panel below it showing an \"Activity\" section.",
+      'Clicking issue ENG-101 expanded an inline panel below it showing an "Activity" section.',
       'The activity panel shows a comment from "Ty" with bolded text "p95 is 800ms".',
     ],
   });

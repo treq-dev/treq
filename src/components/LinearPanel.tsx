@@ -19,7 +19,6 @@ import { LinearProjectsSection } from "./LinearProjectsPanel";
 
 interface LinearPanelProps {
   repoPath: string;
-  onOpenWorkspace?: (workspaceId: number) => void;
   onStartPromptFromIssue?: (issue: LinearIssueAttachment) => void;
 }
 
