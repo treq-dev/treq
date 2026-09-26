@@ -369,8 +369,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     useState<InstanceStatusResponse | null>(null);
   const [provisioningStage, setProvisioningStage] = useState<string>();
   const [provisioningError, setProvisioningError] = useState<string>();
-  // `undefined` while loading, `null` when the cloud workspace can't report.
-  const [cloudUsage, setCloudUsage] = useState<MachineUsageReport | null>();
+  const [cloudUsage, setCloudUsage] = useState<MachineUsageReport>();
+  const [cloudUsageError, setCloudUsageError] = useState<string>();
   // Explicit user-managed or managed endpoints carry a native SSH identity.
   // Alias-backed repositories still use the same workspace tree; they
   // dispatch through `remote_dispatch_local` until an endpoint with a
@@ -777,12 +777,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   // Usage is computed on the machine itself, so it is only asked for once
-  // the cloud workspace is ready. Older Treq builds there do not know the
-  // command; that surfaces as "unavailable" rather than an error.
+  // the cloud workspace is ready.
   const loadCloudUsage = async (status: InstanceStatusResponse | null) => {
     const instance = status?.instance;
     if (instance?.status !== "ready") return;
     setCloudUsage(undefined);
+    setCloudUsageError(undefined);
     try {
       setCloudUsage(
         await dispatchOverManagedSprite<MachineUsageReport>(
@@ -790,8 +790,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
           { kind: "MachineUsage", root: MANAGED_REPOSITORIES_ROOT },
         ),
       );
-    } catch {
-      setCloudUsage(null);
+    } catch (error) {
+      setCloudUsageError(
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
 
@@ -2622,6 +2624,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       provisioningStage={provisioningStage}
       provisioningError={provisioningError}
       cloudUsage={cloudUsage}
+      cloudUsageError={cloudUsageError}
       onProvisionManaged={handleProvisionManaged}
       onWake={handleWakeManaged}
       onReprovision={handleReprovisionManaged}
@@ -2964,6 +2967,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     provisioningStage,
                     provisioningError,
                     usage: cloudUsage,
+                    usageError: cloudUsageError,
                     onRefreshStatus: refreshCloudWorkspace,
                     onProvision: handleProvisionManaged,
                     onWake: () => handleWakeManaged(),

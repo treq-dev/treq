@@ -32,7 +32,8 @@ export interface RemoteSetupDialogProps {
   instanceStatus: InstanceStatusResponse | null;
   provisioningStage?: string;
   provisioningError?: string;
-  cloudUsage?: MachineUsageReport | null;
+  cloudUsage?: MachineUsageReport;
+  cloudUsageError?: string;
 
   onProvisionManaged: () => Promise<void>;
   onWake: () => Promise<void>;
@@ -61,6 +62,7 @@ export function RemoteSetupDialog({
   provisioningStage,
   provisioningError,
   cloudUsage,
+  cloudUsageError,
   onProvisionManaged,
   onWake,
   onReprovision,
@@ -132,6 +134,7 @@ export function RemoteSetupDialog({
                 onDelete={onDeleteInstance}
                 onOpenRepositories={onOpenManagedRepositories}
                 usage={cloudUsage}
+                usageError={cloudUsageError}
               />
             </div>
             <div className="mt-6">
