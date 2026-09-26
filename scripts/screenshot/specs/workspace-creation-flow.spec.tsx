@@ -48,11 +48,15 @@ it("captures the workspace creation flow from the home repo", async () => {
     name: "Create Workspace",
   });
   expect(submit).toBeDisabled();
+  const moveToggle = within(dialog).getByRole("button", {
+    name: "Move to workspace",
+  });
+  expect(moveToggle).toHaveAttribute("aria-expanded", "false");
   await captureDocument(document, {
     name: "workspace-creation-flow-02-dialog-empty",
     expectations: [
-      "A 'Stack a new Workspace' dialog is open with Title, Description, Advanced and Branch Name fields on the left.",
-      "The right panel shows commits/changes for the home repo; the uncommitted dark-mode.css change is listed under Changes if that tab is shown.",
+      "A single-column 'Stack a new Workspace' dialog shows Title, a two-row Description, Advanced and Branch Name fields.",
+      "Below the fields, a collapsed 'Move to workspace' row with a right-pointing chevron; no Commits/Changes tabs are visible.",
       "The 'Create Workspace' button is disabled (greyed) because no branch name is set.",
     ],
   });
@@ -60,7 +64,7 @@ it("captures the workspace creation flow from the home repo", async () => {
   await user.type(within(dialog).getByLabelText("Title (optional)"), TITLE);
   await user.type(
     within(dialog).getByLabelText("Description (optional)"),
-    "Add dark mode to settings",
+    "Add dark mode to settings.{Enter}Cover the header, sidebar and dialogs.{Enter}Respect the OS theme by default.{Enter}Persist the choice per user.",
   );
   const branchInput = within(dialog).getByLabelText("Branch Name");
   await waitFor(() => expect(branchInput).toHaveValue(EXPECTED_BRANCH));
@@ -71,17 +75,34 @@ it("captures the workspace creation flow from the home repo", async () => {
     name: "workspace-creation-flow-03-filled",
     expectations: [
       `The Branch Name field is auto-filled with '${EXPECTED_BRANCH}' derived from the title, with a green check (new branch).`,
-      "The tree preview shows the new workspace on top of the default branch.",
+      "The Description box has grown to show all four typed lines with no scrollbar or clipped text.",
       "The 'Create Workspace' button is enabled.",
     ],
   });
 
+  await user.click(moveToggle);
+  await within(dialog).findByRole("tab", { name: /^Changes/ });
+  await user.click(within(dialog).getByRole("tab", { name: /^Changes/ }));
+  await within(dialog).findByText("dark-mode.css");
+  await captureDocument(document, {
+    name: "workspace-creation-flow-03b-move-expanded",
+    expectations: [
+      "The 'Move to workspace' row now has a down chevron and shows Commits/Changes tabs beneath the form fields, full dialog width.",
+      "The Changes tab is active and lists dark-mode.css.",
+      "The footer (Cancel / Create Workspace) is still visible; the body scrolls if content is taller than the viewport.",
+    ],
+  });
+  await user.click(moveToggle);
+
   await user.click(within(dialog).getByRole("button", { name: "Advanced" }));
-  await within(dialog).findByLabelText(/Sparse paths/);
+  await user.type(
+    await within(dialog).findByLabelText(/Sparse paths/),
+    "src/settings{Enter}src/theme{Enter}src/components/ui",
+  );
   await captureDocument(document, {
     name: "workspace-creation-flow-04-advanced",
     expectations: [
-      "The Advanced section is expanded, showing 'Sparse paths' and 'Symlink from home repo' textareas.",
+      "The Advanced section is expanded; the Sparse paths box has grown to show all three typed lines.",
       "The dialog still fits the viewport without clipped fields or footer buttons.",
     ],
   });

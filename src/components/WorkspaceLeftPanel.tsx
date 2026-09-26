@@ -21,7 +21,6 @@ import { appendPathSuggestion } from "../lib/workspaceMetadata";
 import { Button } from "./ui/button";
 
 export interface WorkspaceLeftPanelProps {
-  showRightPanel: boolean;
   sourceWorkspace: Workspace | null;
   hasSourceWorkspace: boolean;
   isStackOnRoot: boolean;
@@ -56,7 +55,6 @@ export interface WorkspaceLeftPanelProps {
 }
 
 export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
-  showRightPanel,
   sourceWorkspace,
   hasSourceWorkspace,
   isStackOnRoot,
@@ -91,12 +89,7 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-3",
-        showRightPanel ? "w-[280px] flex-shrink-0" : "w-full",
-      )}
-    >
+    <div className="flex flex-col gap-3 w-full">
       {/* Stacking On - always show */}
       <div className="grid gap-1.5">
         <Label className="text-xs">Stacking On</Label>
@@ -252,7 +245,8 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
             onChange={(e) => onSetDescription(e.target.value)}
             placeholder="e.g., Add dark mode to settings"
             rows={2}
-            className="resize-none text-sm"
+            autoResize
+            className="text-sm min-h-[58px]"
             autoFocus={!hasSourceWorkspace}
             tabIndex={1}
           />
@@ -286,7 +280,8 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
                   onChange={(e) => onSetSparsePaths(e.target.value)}
                   placeholder={"e.g., src/api\ndocs"}
                   rows={2}
-                  className="resize-none text-sm"
+                  autoResize
+                  className="text-sm min-h-[58px]"
                 />
               </div>
               <div className="grid gap-1.5">
@@ -299,7 +294,8 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
                   onChange={(e) => onSetSymlinkedDirs(e.target.value)}
                   placeholder={"e.g., node_modules\ntarget"}
                   rows={2}
-                  className="resize-none text-sm"
+                  autoResize
+                  className="text-sm min-h-[58px]"
                 />
                 <p className="text-xs text-muted-foreground">
                   Heavy dirs are linked instead of copied so each workspace
