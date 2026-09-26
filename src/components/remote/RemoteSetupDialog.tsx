@@ -119,8 +119,8 @@ export function RemoteSetupDialog({
             <DialogHeader>
               <DialogTitle>Treq-managed cloud workspace</DialogTitle>
               <DialogDescription>
-                Treq manages the machine lifecycle and runs typed commands on
-                it through an authenticated API.
+                Treq manages the machine lifecycle and runs typed commands on it
+                through an authenticated API.
               </DialogDescription>
             </DialogHeader>
             <div className="mt-4">

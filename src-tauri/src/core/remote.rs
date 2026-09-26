@@ -3445,7 +3445,12 @@ mod tests {
       .contains("idempotency key is required"));
   }
 
-  fn seed_repo_with_workspaces(root: &Path, owner: &str, name: &str, workspaces: &[&str]) -> String {
+  fn seed_repo_with_workspaces(
+    root: &Path,
+    owner: &str,
+    name: &str,
+    workspaces: &[&str],
+  ) -> String {
     let repo = root.join(owner).join(name);
     fs::create_dir_all(repo.join(".git")).unwrap();
     let repo_path = repo.to_str().unwrap().to_string();
@@ -3507,7 +3512,14 @@ mod tests {
     assert!(!request.is_mutation());
     assert_eq!(
       request.cli_args().unwrap(),
-      vec!["repo", "usage", "--repo", "/home/sprite/repos", "--format", "json"]
+      vec![
+        "repo",
+        "usage",
+        "--repo",
+        "/home/sprite/repos",
+        "--format",
+        "json"
+      ]
     );
   }
 
