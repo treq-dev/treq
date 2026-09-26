@@ -96,6 +96,7 @@ import {
   type AutoReviewEvent,
 } from "../lib/agent-review-launch";
 import { LINEAR_BASE_PATH } from "../lib/linearRoutes";
+import { useLinearAutoKickoff } from "../hooks/useLinearAutoKickoff";
 import { openRepositoryAtPath as openRepositoryAtPathShared } from "../lib/open-repository";
 import type {
   GitHubIssueAttachment,
@@ -731,6 +732,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     ? repositoryCacheKey(activeRepository)
     : repoPath;
   const remoteCaps = capabilitiesFor(Boolean(isRemoteActive));
+  useLinearAutoKickoff(
+    dataRepoPath,
+    linearIntegrationEnabled && !isRemoteActive,
+  );
   const cutoffReason = useRemoteCutoffStore((s) =>
     activeRepository?.endpointId
       ? s.cutoffs[activeRepository.endpointId]
