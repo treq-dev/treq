@@ -1,4 +1,4 @@
-import type { Workspace, WorkspaceNode, WorkspaceSidebarStatus } from "./api";
+import type { Workspace, WorkspaceSidebarStatus } from "./api";
 
 /**
  * WorkspaceSidebarStatus plus git detail only populated for workspaces with
@@ -284,260 +284,6 @@ export function getEntireStack(
 
 // Tree preview helpers for split/stack dialogs
 
-export interface TreeLine {
-  depth: number;
-  label: string;
-  isCurrent: boolean;
-  isNew: boolean;
-}
-
-/**
- * Build a tree preview from DAG nodes (used in split dialog).
- * Shows how the new workspace will be positioned relative to the current workspace.
- */
-export function buildTreePreview(
-  dagNodes: WorkspaceNode[],
-  currentWorkspace: Workspace,
-  { position, newLabel }: { position: "before" | "after"; newLabel: string },
-): TreeLine[] {
-  const lines: TreeLine[] = [];
-
-  const rootTarget =
-    currentWorkspace.target_branch ??
-    dagNodes.find((node) => node.depth === 0)?.status.current.branch_name ??
-    "main";
-
-  const rootNode = [...dagNodes]
-    .sort((nodeA, nodeB) => nodeA.depth - nodeB.depth)
-    .find((node) => node.depth === 0);
-  const rootLabel = rootNode?.status.current.branch_name ?? rootTarget;
-  const currentIsRoot = rootLabel === currentWorkspace.branch_name;
-
-  const currentNode = dagNodes.find(
-    (node) => node.status.current.id === currentWorkspace.id,
-  );
-  const currentDepth = currentIsRoot ? 0 : (currentNode?.depth ?? 1);
-
-  const children = dagNodes.filter(
-    (node) =>
-      node.parent_id === currentWorkspace.id &&
-      node.status.current.id !== currentWorkspace.id,
-  );
-
-  if (position === "before") {
-    lines.push({ depth: 0, isCurrent: false, isNew: false, label: rootLabel });
-    if (!currentIsRoot && currentDepth > 1) {
-      lines.push({ depth: 1, isCurrent: false, isNew: false, label: "..." });
-    }
-    const newDepth = currentIsRoot ? 1 : currentDepth;
-    lines.push({
-      depth: newDepth,
-      isCurrent: false,
-      isNew: true,
-      label: newLabel,
-    });
-    lines.push({
-      depth: newDepth + 1,
-      isCurrent: true,
-      isNew: false,
-      label: currentWorkspace.branch_name,
-    });
-    for (const child of children) {
-      lines.push({
-        depth: newDepth + 2,
-        isCurrent: false,
-        isNew: false,
-        label: child.status.current.branch_name,
-      });
-    }
-  } else {
-    lines.push({
-      depth: 0,
-      isCurrent: currentIsRoot,
-      isNew: false,
-      label: rootLabel,
-    });
-    if (!currentIsRoot) {
-      if (currentDepth > 1) {
-        lines.push({ depth: 1, isCurrent: false, isNew: false, label: "..." });
-      }
-      lines.push({
-        depth: currentDepth,
-        isCurrent: true,
-        isNew: false,
-        label: currentWorkspace.branch_name,
-      });
-    }
-    lines.push({
-      depth: currentDepth + 1,
-      isCurrent: false,
-      isNew: true,
-      label: newLabel,
-    });
-    for (const child of children) {
-      lines.push({
-        depth: currentDepth + 1,
-        isCurrent: false,
-        isNew: false,
-        label: child.status.current.branch_name,
-      });
-    }
-  }
-
-  return lines;
-}
-
-/**
- * Build a tree preview from the workspace list (used in stack dialog).
- * Shows the full workspace hierarchy — no truncation.
- */
-export function buildStackTreePreview(
-  workspaces: Workspace[],
-  parentWorkspace: Workspace | null,
-  {
-    newLabel,
-    parentBranch,
-    position,
-  }: { newLabel: string; parentBranch: string; position: "before" | "after" },
-): TreeLine[] {
-  const parent =
-    parentWorkspace ??
-    workspaces.find((workspace) => workspace.branch_name === parentBranch) ??
-    null;
-
-  // Build ancestor chain from parent up to root (reversed: root first)
-  const ancestorBranches: string[] = [];
-  if (parent) {
-    let current: Workspace | undefined = parent;
-    const visited = new Set<string>([parent.branch_name]);
-    while (current?.target_branch) {
-      if (visited.has(current.target_branch)) break;
-      visited.add(current.target_branch);
-      ancestorBranches.unshift(current.target_branch);
-      current = workspaces.find(
-        (workspace) => workspace.branch_name === current!.target_branch,
-      );
-    }
-    // If the top ancestor's target_branch is not in workspace list, it's an external root (e.g. "main")
-    if (
-      ancestorBranches.length === 0 &&
-      parent.target_branch &&
-      !workspaces.some(
-        (workspace) => workspace.branch_name === parent.target_branch,
-      )
-    ) {
-      ancestorBranches.unshift(parent.target_branch);
-    } else if (ancestorBranches.length === 0 && !parent.target_branch) {
-      ancestorBranches.unshift("main");
-    }
-  }
-
-  // Children of parent workspace
-  const children = parent
-    ? workspaces.filter(
-        (workspace) => workspace.target_branch === parent.branch_name,
-      )
-    : [];
-
-  const lines: TreeLine[] = [];
-
-  // Render ancestor chain (root at depth 0)
-  const topRoot =
-    ancestorBranches.length > 0
-      ? ancestorBranches[0]
-      : (parent?.branch_name ?? "main");
-  const isExternalRoot = !workspaces.some(
-    (workspace) => workspace.branch_name === topRoot,
-  );
-
-  let depth = 0;
-  if (isExternalRoot) {
-    // External root like "main" — not a workspace, just a label
-    lines.push({ depth: 0, isCurrent: false, isNew: false, label: topRoot });
-    depth = 1;
-    // Render workspace ancestors (skip the external root)
-    for (let idx = 1; idx < ancestorBranches.length; idx++) {
-      const branch = ancestorBranches[idx];
-      lines.push({ depth, isCurrent: false, isNew: false, label: branch });
-      depth++;
-    }
-  } else {
-    // Root is a workspace
-    for (const branch of ancestorBranches) {
-      lines.push({ depth, isCurrent: false, isNew: false, label: branch });
-      depth++;
-    }
-  }
-
-  const parentDepth = depth;
-
-  if (position === "before" && parent) {
-    // [new] inserted before parent, parent pushed down
-    lines.push({
-      depth: parentDepth,
-      isCurrent: false,
-      isNew: true,
-      label: newLabel,
-    });
-    lines.push({
-      depth: parentDepth + 1,
-      isCurrent: true,
-      isNew: false,
-      label: parent.branch_name,
-    });
-    for (const child of children) {
-      lines.push({
-        depth: parentDepth + 2,
-        isCurrent: false,
-        isNew: false,
-        label: child.branch_name,
-      });
-    }
-  } else {
-    // parent -> [new] + children
-    if (parent) {
-      const parentIsAlreadyRendered = ancestorBranches.includes(
-        parent.branch_name,
-      );
-      if (!parentIsAlreadyRendered) {
-        lines.push({
-          depth: parentDepth,
-          isCurrent: true,
-          isNew: false,
-          label: parent.branch_name,
-        });
-      } else {
-        // Mark the already-rendered parent line as current
-        const parentLine = lines.find(
-          (line) => line.label === parent.branch_name,
-        );
-        if (parentLine) parentLine.isCurrent = true;
-      }
-    }
-    const newDepth = parent
-      ? ancestorBranches.includes(parent.branch_name)
-        ? parentDepth
-        : parentDepth + 1
-      : parentDepth;
-    lines.push({
-      depth: newDepth,
-      isCurrent: false,
-      isNew: true,
-      label: newLabel,
-    });
-    for (const child of children) {
-      lines.push({
-        depth: newDepth,
-        isCurrent: false,
-        isNew: false,
-        label: child.branch_name,
-      });
-    }
-  }
-
-  return lines;
-}
-
 export interface StackedWorkspaceEntry {
   workspace: Workspace;
   isCurrent: boolean;
@@ -626,4 +372,48 @@ export function getValidTargets(
   }
 
   return validTargets;
+}
+
+export type NewWorkspaceChainEntry =
+  | { kind: "new" }
+  | { kind: "branch"; branch: string; workspace: Workspace | null };
+
+/**
+ * Build the linear chain (tip-first) that a new workspace will join, for the
+ * stack card in the create dialog. The chain runs from the tip down to, but
+ * not including, `defaultBranch`. "after" puts the new workspace on top of
+ * `parentBranch`; "before" inserts it between `parentBranch` and its target.
+ */
+export function buildNewWorkspaceChain(
+  workspaces: Workspace[],
+  {
+    parentBranch,
+    position,
+    defaultBranch,
+  }: {
+    parentBranch: string;
+    position: "before" | "after";
+    defaultBranch: string;
+  },
+): NewWorkspaceChainEntry[] {
+  const workspaceByBranch = new Map(
+    workspaces.map((workspace) => [workspace.branch_name, workspace]),
+  );
+
+  const below: NewWorkspaceChainEntry[] = [];
+  const visited = new Set<string>();
+  let branch: string | null = parentBranch;
+  while (branch && branch !== defaultBranch && !visited.has(branch)) {
+    visited.add(branch);
+    const workspace: Workspace | null = workspaceByBranch.get(branch) ?? null;
+    below.push({ kind: "branch", branch, workspace });
+    // A branch that is not a workspace yet sits on the default branch.
+    branch = workspace?.target_branch ?? null;
+  }
+
+  const newEntry: NewWorkspaceChainEntry = { kind: "new" };
+  if (position === "before" && below.length > 0) {
+    return [below[0], newEntry, ...below.slice(1)];
+  }
+  return [newEntry, ...below];
 }

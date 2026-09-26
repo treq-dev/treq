@@ -8,22 +8,18 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Button } from "./ui/button";
-import { Loader2 } from "lucide-react";
-import { cn } from "../lib/utils";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import {
   type BranchStatus,
   type JjDiffHunk,
   type JjFileChange,
   type Workspace,
   type WorkspaceStatus,
+  getRepoDefaultBranch,
   listGitignoredPathSuggestions,
 } from "../lib/api";
 import type { BranchListItem } from "./TargetBranchSelector";
-import {
-  type TreeLine,
-  buildStackTreePreview,
-  buildTreePreview,
-} from "../lib/workspace-tree";
+import { buildNewWorkspaceChain } from "../lib/workspace-tree";
 import { WorkspaceLeftPanel } from "./WorkspaceLeftPanel";
 import { WorkspaceRightPanel } from "./WorkspaceRightPanel";
 import { useWorkspaceDialogEffects } from "../hooks/useWorkspaceDialogEffects";
@@ -116,6 +112,9 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
   );
   const [dataLoading, setDataLoading] = useState(false);
   const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
+
+  // ── "Move to workspace" collapsible ─────────────────────────────────────
+  const [moveSectionOpen, setMoveSectionOpen] = useState(false);
 
   // ── move to existing workspace ────────────────────────────────────────────
   const [moveToExisting, setMoveToExisting] = useState(false);
@@ -235,31 +234,21 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
         (w) => w.branch_name === sourceWorkspace.target_branch,
       ));
 
-  // ── tree preview ─────────────────────────────────────────────────────────
-  const treePreview: TreeLine[] = (() => {
-    if (sourceWorkspace) {
-      if (workspaceStatus) {
-        return buildTreePreview(
-          workspaceStatus.dag_nodes ?? [],
-          sourceWorkspace,
-          { position, newLabel: branchName || "[New Workspace]" },
-        );
-      }
-      return buildStackTreePreview(allWorkspaces, sourceWorkspace, {
-        newLabel: branchName || "[New Workspace]",
-        parentBranch: sourceWorkspace.branch_name,
-        position,
-      });
-    }
-    if (targetBranch) {
-      return buildStackTreePreview(allWorkspaces, null, {
-        newLabel: branchName || "[New Workspace]",
-        parentBranch: targetBranch,
-        position,
-      });
-    }
-    return [];
-  })();
+  // ── stack card ───────────────────────────────────────────────────────────
+  const { data: defaultBranch } = useSWR(
+    open ? ["repo-default-branch", repoPath] : null,
+    () => getRepoDefaultBranch(repoPath),
+  );
+  const parentBranch =
+    sourceWorkspace?.branch_name ?? targetBranch ?? defaultBranch ?? null;
+  const stackChain =
+    defaultBranch && parentBranch
+      ? buildNewWorkspaceChain(allWorkspaces, {
+          parentBranch,
+          position,
+          defaultBranch,
+        })
+      : [];
 
   // ── canSubmit ────────────────────────────────────────────────────────────
   const canSubmit = (() => {
@@ -313,13 +302,25 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     () => listGitignoredPathSuggestions(repoPath),
   );
 
-  // Reset advanced overlay fields when the dialog closes/reopens.
+  // Reset advanced overlay fields when the dialog closes/reopens. The move
+  // section starts collapsed unless the caller opened the dialog to move
+  // something specific, so the user can see what is selected.
   useEffect(() => {
     if (open) {
       setSparsePaths("");
       setSymlinkedDirs("");
+      setMoveSectionOpen(
+        (defaults.preSelectedCommits?.length ?? 0) > 0 ||
+          (defaults.preSelectedFiles?.length ?? 0) > 0 ||
+          applyStashId != null,
+      );
     }
   }, [open]);
+
+  // Moving into an existing workspace needs a selection from the move section.
+  useEffect(() => {
+    if (moveToExisting) setMoveSectionOpen(true);
+  }, [moveToExisting]);
 
   // ── effects (extracted to hook) ──────────────────────────────────────────
   useWorkspaceDialogEffects({
@@ -407,12 +408,7 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={cn(
-          "overflow-hidden",
-          showRightPanel
-            ? "md:min-w-[800px] md:max-w-[900px]"
-            : "md:min-w-[500px]",
-        )}
+        className="overflow-hidden md:min-w-[560px] md:max-w-[640px]"
         onKeyDown={handleKeyDown}
       >
         <DialogHeader>
@@ -426,14 +422,8 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div
-          className={cn(
-            "flex gap-4 mt-2",
-            showRightPanel ? "min-h-[320px]" : "",
-          )}
-        >
+        <div className="flex flex-col gap-3 mt-2 max-h-[calc(100vh-14rem)] overflow-y-auto -mx-1 px-1">
           <WorkspaceLeftPanel
-            showRightPanel={showRightPanel}
             sourceWorkspace={sourceWorkspace}
             hasSourceWorkspace={hasSourceWorkspace}
             isStackOnRoot={isStackOnRoot}
@@ -443,7 +433,8 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
             onSelectTargetBranch={setTargetBranch}
             position={position}
             onSetPosition={setPosition}
-            treePreview={treePreview}
+            stackChain={stackChain}
+            baseBranch={defaultBranch ?? null}
             moveToExisting={moveToExisting}
             onSetMoveToExisting={setMoveToExisting}
             otherWorkspaces={otherWorkspaces}
@@ -468,30 +459,47 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
           />
 
           {showRightPanel && (
-            <WorkspaceRightPanel
-              dataLoading={dataLoading}
-              activeRightTab={activeRightTab}
-              onTabChange={setActiveRightTab}
-              workspaceStatus={workspaceStatus}
-              changedFiles={changedFiles}
-              fileHunksMap={fileHunksMap}
-              expandedFiles={expandedFiles}
-              selectedHunks={selectedHunks}
-              selectedCommits={selectedCommits}
-              onToggleCommit={toggleCommit}
-              onSelectAllCommits={() =>
-                setSelectedCommits(new Set(commitsAhead.map((c) => c.hash)))
-              }
-              onClearCommits={() => setSelectedCommits(new Set())}
-              onToggleFileExpand={handleToggleFileExpand}
-              onToggleFileHunks={toggleFileHunks}
-              onToggleHunk={toggleHunk}
-              onSelectAllHunks={selectAllHunks}
-              onClearHunks={() => setSelectedHunks(new Set())}
-              getFileSelectionState={getFileSelectionState}
-              hunkKey={hunkKey}
-              lockedStashCommit={applyStashCommit}
-            />
+            <div className="grid gap-2 border-t border-border/50 pt-3">
+              <button
+                type="button"
+                aria-expanded={moveSectionOpen}
+                onClick={() => setMoveSectionOpen(!moveSectionOpen)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
+              >
+                {moveSectionOpen ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+                <span>Move to workspace</span>
+              </button>
+              {moveSectionOpen && (
+                <WorkspaceRightPanel
+                  dataLoading={dataLoading}
+                  activeRightTab={activeRightTab}
+                  onTabChange={setActiveRightTab}
+                  workspaceStatus={workspaceStatus}
+                  changedFiles={changedFiles}
+                  fileHunksMap={fileHunksMap}
+                  expandedFiles={expandedFiles}
+                  selectedHunks={selectedHunks}
+                  selectedCommits={selectedCommits}
+                  onToggleCommit={toggleCommit}
+                  onSelectAllCommits={() =>
+                    setSelectedCommits(new Set(commitsAhead.map((c) => c.hash)))
+                  }
+                  onClearCommits={() => setSelectedCommits(new Set())}
+                  onToggleFileExpand={handleToggleFileExpand}
+                  onToggleFileHunks={toggleFileHunks}
+                  onToggleHunk={toggleHunk}
+                  onSelectAllHunks={selectAllHunks}
+                  onClearHunks={() => setSelectedHunks(new Set())}
+                  getFileSelectionState={getFileSelectionState}
+                  hunkKey={hunkKey}
+                  lockedStashCommit={applyStashCommit}
+                />
+              )}
+            </div>
           )}
         </div>
 
