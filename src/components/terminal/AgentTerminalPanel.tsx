@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { useAgentMessageQueue } from "../../hooks/useAgentMessageQueue";
 import {
+  formatAgentMessageForPty,
   looksLikeAgentUserQuestion,
   looksLikeShellPrompt,
 } from "../../lib/agentMessageQueue";
@@ -19,6 +20,7 @@ import {
   setSessionModel,
 } from "../../lib/api";
 import { cn } from "../../lib/utils";
+import { usePreviewFeature } from "../../stores/featurePreviewStore";
 import {
   ConsolidatedTerminal,
   type ConsolidatedTerminalHandle,
@@ -161,6 +163,13 @@ export const AgentTerminalPanel = ({
     terminalRefs,
   ]);
 
+  const messageQueueEnabled = usePreviewFeature("agentMessageQueue");
+  const writeAgentMessage = async (sessionId: string, data: string) => {
+    const text = data.replace(/\r$/, "");
+    await chatRecorderRef.current?.userMessage(text);
+    await ptyWrite(sessionId, data);
+  };
+
   const {
     messages: queuedMessages,
     enqueue: enqueueMessage,
@@ -171,11 +180,7 @@ export const AgentTerminalPanel = ({
     clear: clearQueuedMessages,
   } = useAgentMessageQueue({
     ptySessionId: sessionData.ptySessionId,
-    write: async (sessionId, data) => {
-      const text = data.replace(/\r$/, "");
-      await chatRecorderRef.current?.userMessage(text);
-      await ptyWrite(sessionId, data);
-    },
+    write: writeAgentMessage,
   });
 
   const handleEnqueueMessage = (text: string) => {
@@ -183,6 +188,12 @@ export const AgentTerminalPanel = ({
     setQueuePopoverOpen(true);
   };
 
+  // With the queue preview off, reviews go straight to the agent.
+  const handleSendReview = (text: string) => {
+    if (messageQueueEnabled) return handleEnqueueMessage(text);
+    const data = formatAgentMessageForPty(text);
+    writeAgentMessage(sessionData.ptySessionId, data).catch(console.error);
+  };
   // Handle terminal output — agent is busy while streaming process output.
   const handleTerminalOutput = (output: string, fromProcess?: boolean) => {
     if (fromProcess !== false) {
@@ -334,15 +345,17 @@ export const AgentTerminalPanel = ({
           />
         </div>
         <div className="flex items-center gap-1">
-          <AgentMessageQueue
-            messages={queuedMessages}
-            onEnqueue={handleEnqueueMessage}
-            onRemove={removeQueuedMessage}
-            onUpdate={updateQueuedMessage}
-            open={queuePopoverOpen}
-            onOpenChange={setQueuePopoverOpen}
-            overlayContainer={terminalBodyEl}
-          />
+          {messageQueueEnabled && (
+            <AgentMessageQueue
+              messages={queuedMessages}
+              onEnqueue={handleEnqueueMessage}
+              onRemove={removeQueuedMessage}
+              onUpdate={updateQueuedMessage}
+              open={queuePopoverOpen}
+              onOpenChange={setQueuePopoverOpen}
+              overlayContainer={terminalBodyEl}
+            />
+          )}
           {/* Model selector — Claude only */}
           {sessionData.agent !== "codex" &&
             sessionData.agent !== "cursor" &&
@@ -468,7 +481,7 @@ export const AgentTerminalPanel = ({
               <TerminalSendPreviews
                 ptySessionId={sessionData.ptySessionId}
                 isActive={!!isActive}
-                onSendReview={handleEnqueueMessage}
+                onSendReview={handleSendReview}
                 onInsertIntoTerminal={(text) => {
                   ptyWrite(sessionData.ptySessionId, text).catch(console.error);
                 }}

@@ -71,9 +71,6 @@ export const LinearIntegrationSettings: React.FC<
       const label = await getLinearAutoKickoffLabel(repoPath!);
       setAutoKickoffLabel(label);
       setAutoKickoffLabelEditing(false);
-      if (label) {
-        void linearStartAutoKickoffPolling(repoPath!);
-      }
     },
     { revalidateOnFocus: false, dedupingInterval: 0 },
   );

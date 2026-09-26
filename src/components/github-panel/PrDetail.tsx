@@ -32,6 +32,7 @@ import { ChecksTab } from "../ChecksTab";
 import { compareCiChecksBySeverity } from "../../lib/ci-status";
 import {
   CheckEntryRow,
+  ErrorState,
   formatDate,
   LabelChip,
   OpenInWebButton,
@@ -72,9 +73,12 @@ export function PrDetailPanel({
   const { addToast } = useToast();
   const [commentBody, setCommentBody] = useState("");
 
-  const { data: pr, isLoading } = useSWR(
-    ["gh-pr", repoFullName, prNumber],
-    () => ghViewPr(repoFullName, prNumber),
+  const {
+    data: pr,
+    error: prError,
+    isLoading,
+  } = useSWR(["gh-pr", repoFullName, prNumber], () =>
+    ghViewPr(repoFullName, prNumber),
   );
 
   const { data: workspaces = [] } = useSWR(
@@ -172,6 +176,13 @@ export function PrDetailPanel({
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </div>
+      )}
+
+      {prError && !pr && (
+        <ErrorState
+          title={`Could not load pull request #${prNumber}`}
+          error={prError}
+        />
       )}
 
       {pr && (
