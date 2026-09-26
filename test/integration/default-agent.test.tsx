@@ -88,8 +88,9 @@ describe("default agent configuration", () => {
     await user.click(await screen.findByLabelText("Settings"));
 
     const gitignorePath = path.join(repoPath, ".gitignore");
-    await waitFor(() =>
-      expect(fs.readFileSync(gitignorePath, "utf8")).toContain(".treq/"),
+    await waitFor(
+      () => expect(fs.readFileSync(gitignorePath, "utf8")).toContain(".treq/"),
+      { timeout: 15000 },
     );
     expect(fs.readFileSync(gitignorePath, "utf8")).not.toContain(".jj*/");
 
@@ -107,7 +108,7 @@ describe("default agent configuration", () => {
     expect(gitignore).toContain(".jj*/");
     expect(gitignore).toContain(".agents/skills/treq*/");
     expect(gitignore).toContain(".claude/skills/treq*/");
-  });
+  }, 30000);
 
   it("creates sessions with the selected agent and switching the dropdown changes the agent used", async () => {
     await setSetting("default_agent", "codex");

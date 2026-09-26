@@ -1838,6 +1838,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     agent?: "claude" | "codex" | "cursor" | "copilot";
   }) => {
     void invalidateQueries(["sessions"]);
+    // The session may have created its own workspace (a Linear kickoff does),
+    // so refresh the list when it points at a workspace we don't know yet.
+    if (
+      sessionData.workspaceId != null &&
+      !workspaces.some((ws) => ws.id === sessionData.workspaceId)
+    ) {
+      void invalidateQueries(["workspaces", queryRepoKey]);
+    }
     setActiveSessionId(sessionData.sessionId);
     if (
       sessionData.pendingPrompt ||
