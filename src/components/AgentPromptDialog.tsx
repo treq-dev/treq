@@ -45,6 +45,9 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
     null,
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  // A Linear issue always runs in its own workspace (opened or created from
+  // the issue's branch), so the picker is hidden while one is attached.
+  const [linearIssue, setLinearIssue] = useState(initialLinearIssue);
   // Bump on every closed -> open transition so TaskInput remounts with a
   // fresh initialPrompt instead of keeping stale text from a prior open.
   const [taskInputKey, setTaskInputKey] = useState(0);
@@ -57,10 +60,11 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
           ? (workspaces.find((ws) => ws.id === initialWorkspaceId) ?? null)
           : null,
       );
+      setLinearIssue(initialLinearIssue);
       setTaskInputKey((key) => key + 1);
     }
     wasOpenRef.current = open;
-  }, [open, initialWorkspaceId, workspaces]);
+  }, [open, initialWorkspaceId, initialLinearIssue, workspaces]);
 
   const selectableWorkspaces = workspaces.filter(
     (ws) => ws.branch_name !== defaultBranch,
@@ -78,56 +82,45 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
           <DialogTitle>Start a new agent session</DialogTitle>
         </DialogHeader>
 
-        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              aria-expanded={pickerOpen}
-              className="w-fit min-w-[240px] max-w-full justify-between"
+        {linearIssue ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <GitBranch className="h-4 w-4 shrink-0" />
+            Opens a workspace for {linearIssue.identifier}
+            {linearIssue.includeSubissues ? " and its sub-issues" : ""}
+          </p>
+        ) : (
+          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={pickerOpen}
+                className="w-fit min-w-[240px] max-w-full justify-between"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <GitBranch className="h-4 w-4" />
+                  {selectedName}
+                </span>
+                <ChevronsUpDown className="h-4 w-4 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="min-w-[240px] max-w-[400px] p-0"
+              align="start"
             >
-              <span className="flex items-center gap-2 truncate">
-                <GitBranch className="h-4 w-4" />
-                {selectedName}
-              </span>
-              <ChevronsUpDown className="h-4 w-4 opacity-50" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            className="min-w-[240px] max-w-[400px] p-0"
-            align="start"
-          >
-            <Command>
-              <Command.Input
-                placeholder="Search workspaces..."
-                className="h-10 w-full border-b bg-transparent px-3 text-sm outline-none"
-              />
-              <Command.List className="max-h-64 overflow-y-auto p-1">
-                <Command.Empty className="p-4 text-center text-sm text-muted-foreground">
-                  No workspaces found
-                </Command.Empty>
-                <Command.Item
-                  value={defaultBranch}
-                  onSelect={() => {
-                    setSelectedWorkspace(null);
-                    setPickerOpen(false);
-                  }}
-                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 aria-selected:bg-accent"
-                >
-                  <Check
-                    className={cn(
-                      "h-4 w-4",
-                      selectedWorkspace === null ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  {defaultBranch}
-                </Command.Item>
-                {selectableWorkspaces.map((workspace) => (
+              <Command>
+                <Command.Input
+                  placeholder="Search workspaces..."
+                  className="h-10 w-full border-b bg-transparent px-3 text-sm outline-none"
+                />
+                <Command.List className="max-h-64 overflow-y-auto p-1">
+                  <Command.Empty className="p-4 text-center text-sm text-muted-foreground">
+                    No workspaces found
+                  </Command.Empty>
                   <Command.Item
-                    key={workspace.id}
-                    value={workspace.branch_name}
+                    value={defaultBranch}
                     onSelect={() => {
-                      setSelectedWorkspace(workspace);
+                      setSelectedWorkspace(null);
                       setPickerOpen(false);
                     }}
                     className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 aria-selected:bg-accent"
@@ -135,18 +128,39 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
                     <Check
                       className={cn(
                         "h-4 w-4",
-                        selectedWorkspace?.id === workspace.id
+                        selectedWorkspace === null
                           ? "opacity-100"
                           : "opacity-0",
                       )}
                     />
-                    {workspace.branch_name}
+                    {defaultBranch}
                   </Command.Item>
-                ))}
-              </Command.List>
-            </Command>
-          </PopoverContent>
-        </Popover>
+                  {selectableWorkspaces.map((workspace) => (
+                    <Command.Item
+                      key={workspace.id}
+                      value={workspace.branch_name}
+                      onSelect={() => {
+                        setSelectedWorkspace(workspace);
+                        setPickerOpen(false);
+                      }}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 aria-selected:bg-accent"
+                    >
+                      <Check
+                        className={cn(
+                          "h-4 w-4",
+                          selectedWorkspace?.id === workspace.id
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                      {workspace.branch_name}
+                    </Command.Item>
+                  ))}
+                </Command.List>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        )}
 
         <TaskInput
           key={taskInputKey}
@@ -157,6 +171,7 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
           initialText={initialPrompt}
           initialGitHubIssue={initialGitHubIssue}
           initialLinearIssue={initialLinearIssue}
+          onLinearIssueChange={setLinearIssue}
         />
       </DialogContent>
     </Dialog>
