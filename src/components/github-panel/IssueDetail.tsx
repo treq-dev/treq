@@ -15,7 +15,13 @@ import {
 } from "../../lib/api";
 import type { GitHubIssueAttachment } from "../../lib/promptAttachments";
 import { MarkdownContent } from "../MarkdownContent";
-import { formatDate, LabelChip, OpenInWebButton, StateChip } from "./shared";
+import {
+  ErrorState,
+  formatDate,
+  LabelChip,
+  OpenInWebButton,
+  StateChip,
+} from "./shared";
 
 export function IssueDetailPanel({
   repoFullName,
@@ -30,9 +36,12 @@ export function IssueDetailPanel({
 }) {
   const [commentBody, setCommentBody] = useState("");
 
-  const { data: issue, isLoading } = useSWR(
-    ["gh-issue", repoFullName, issueNumber],
-    () => ghViewIssue(repoFullName, issueNumber),
+  const {
+    data: issue,
+    error: issueError,
+    isLoading,
+  } = useSWR(["gh-issue", repoFullName, issueNumber], () =>
+    ghViewIssue(repoFullName, issueNumber),
   );
 
   const addComment = useMutation({
@@ -80,6 +89,13 @@ export function IssueDetailPanel({
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </div>
+      )}
+
+      {issueError && !issue && (
+        <ErrorState
+          title={`Could not load issue #${issueNumber}`}
+          error={issueError}
+        />
       )}
 
       {issue && (

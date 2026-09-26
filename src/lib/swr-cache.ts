@@ -1,4 +1,4 @@
-import { type ReactNode, useLayoutEffect } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
 import { mutate as defaultMutate, type Key, useSWRConfig } from "swr";
 
 type ScopedMutate = typeof defaultMutate;
@@ -25,12 +25,43 @@ export function keyMatchesPrefix(
   return prefix.every((part, i) => Object.is(key[i], part));
 }
 
+type InfiniteQuery = { key: readonly unknown[]; revalidate: () => unknown };
+
+const infiniteQueries = new Set<InfiniteQuery>();
+
+/**
+ * SWR's filter form of `mutate` skips `useSWRInfinite` keys, so
+ * `invalidateQueries` cannot reach them on its own. An infinite list calls
+ * this with its key parts and its own `mutate` to be revalidated too.
+ */
+export function useInfiniteQueryInvalidation(
+  key: readonly unknown[],
+  revalidate: () => unknown,
+) {
+  const revalidateRef = useRef(revalidate);
+  revalidateRef.current = revalidate;
+  const serializedKey = JSON.stringify(key);
+  useEffect(() => {
+    const entry: InfiniteQuery = {
+      key: JSON.parse(serializedKey) as unknown[],
+      revalidate: () => revalidateRef.current(),
+    };
+    infiniteQueries.add(entry);
+    return () => {
+      infiniteQueries.delete(entry);
+    };
+  }, [serializedKey]);
+}
+
 /** Revalidate SWR keys whose array form starts with `prefix`. Omit prefix to revalidate all. */
 export function invalidateQueries(prefix?: readonly unknown[]) {
-  if (!prefix) {
-    return scopedMutate(() => true);
-  }
-  return scopedMutate((key) => keyMatchesPrefix(key, prefix));
+  const infinite = [...infiniteQueries]
+    .filter((q) => !prefix || keyMatchesPrefix(q.key as unknown[], prefix))
+    .map((q) => q.revalidate());
+  const regular = prefix
+    ? scopedMutate((key) => keyMatchesPrefix(key, prefix))
+    : scopedMutate(() => true);
+  return Promise.all([regular, ...infinite]);
 }
 
 export function setQueryData<T>(key: unknown[], data: T) {

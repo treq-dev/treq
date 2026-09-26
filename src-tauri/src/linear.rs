@@ -274,63 +274,102 @@ pub async fn linear_list_teams_impl(api_key: &str) -> Result<Vec<LinearTeam>, St
   )
 }
 
+// Caller-supplied values (team keys, entity IDs) always travel as GraphQL
+// variables. Splicing them into the query text lets a quote end the string
+// literal and inject query syntax.
+const ISSUE_FIELDS: &str = r#"
+  id
+  identifier
+  title
+  description
+  state { name type }
+  labels(first: 50) { nodes { name } }
+  branchName
+  parent { id }
+  children(first: 50) { nodes { id } }
+  url
+  assignee { id name }
+  priority
+  priorityLabel
+  project { id name }
+"#;
+
+fn list_issues_body(team_filter: Option<&str>) -> serde_json::Value {
+  match team_filter {
+    Some(team) => serde_json::json!({
+      "query": format!(
+        "query($team: String!) {{ issues(first: 100, filter: {{ team: {{ key: {{ eq: $team }} }} }}) {{ nodes {{ {ISSUE_FIELDS} }} }} }}"
+      ),
+      "variables": { "team": team },
+    }),
+    None => serde_json::json!({
+      "query": format!("query {{ issues(first: 100) {{ nodes {{ {ISSUE_FIELDS} }} }} }}"),
+    }),
+  }
+}
+
+fn get_issue_body(issue_id: &str) -> serde_json::Value {
+  serde_json::json!({
+    "query": format!("query($id: String!) {{ issue(id: $id) {{ {ISSUE_FIELDS} }} }}"),
+    "variables": { "id": issue_id },
+  })
+}
+
+fn project_documents_body(project_id: &str) -> serde_json::Value {
+  serde_json::json!({
+    "query": r#"query($id: String!) {
+      project(id: $id) {
+        documents(first: 100) {
+          nodes {
+            id
+            title
+            content
+            url
+            updatedAt
+          }
+        }
+      }
+    }"#,
+    "variables": { "id": project_id },
+  })
+}
+
+#[derive(Clone, Copy)]
+enum CommentEntity {
+  Issue,
+  Project,
+  Document,
+}
+
+impl CommentEntity {
+  fn field(self) -> &'static str {
+    match self {
+      CommentEntity::Issue => "issue",
+      CommentEntity::Project => "project",
+      CommentEntity::Document => "document",
+    }
+  }
+}
+
+fn entity_comments_body(entity: CommentEntity, entity_id: &str) -> serde_json::Value {
+  let field = entity.field();
+  serde_json::json!({
+    "query": format!(
+      "query($id: String!) {{ {field}(id: $id) {{ comments(first: 100) {{ nodes {{ id body user {{ id name }} createdAt quotedText }} }} }} }}"
+    ),
+    "variables": { "id": entity_id },
+  })
+}
+
 pub async fn linear_list_issues_impl(
   api_key: &str,
   team_filter: Option<&str>,
 ) -> Result<Vec<LinearIssue>, String> {
-  let query = if let Some(team) = team_filter {
-    format!(
-      r#"query {{
-        issues(first: 100, filter: {{team: {{key: "{}"}}}}) {{
-          nodes {{
-            id
-            identifier
-            title
-            description
-            state {{ name type }}
-            labels(first: 50) {{ nodes {{ name }} }}
-            branchName
-            parent {{ id }}
-            children(first: 50) {{ nodes {{ id }} }}
-            url
-            assignee {{ id name }}
-            priority
-            priorityLabel
-            project {{ id name }}
-          }}
-        }}
-      }}"#,
-      team
-    )
-  } else {
-    r#"query {
-      issues(first: 100) {
-        nodes {
-          id
-          identifier
-          title
-          description
-          state { name type }
-          labels(first: 50) { nodes { name } }
-          branchName
-          parent { id }
-          children(first: 50) { nodes { id } }
-          url
-          assignee { id name }
-          priority
-          priorityLabel
-          project { id name }
-        }
-      }
-    }"#
-      .to_string()
-  };
-
   let client = reqwest::Client::new();
   let response = client
     .post("https://api.linear.app/graphql")
     .header("Authorization", api_key)
-    .json(&serde_json::json!({ "query": query }))
+    .json(&list_issues_body(team_filter))
     .send()
     .await
     .map_err(|e| format!("Failed to fetch Linear issues: {e}"))?;
@@ -387,33 +426,11 @@ fn map_issue_node(node: LinearIssueNode) -> LinearIssue {
 }
 
 pub async fn linear_get_issue_impl(api_key: &str, issue_id: &str) -> Result<LinearIssue, String> {
-  let query = format!(
-    r#"query {{
-      issue(id: "{}") {{
-        id
-        identifier
-        title
-        description
-        state {{ name type }}
-        labels(first: 50) {{ nodes {{ name }} }}
-        branchName
-        parent {{ id }}
-        children(first: 50) {{ nodes {{ id }} }}
-        url
-        assignee {{ id name }}
-        priority
-        priorityLabel
-        project {{ id name }}
-      }}
-    }}"#,
-    issue_id
-  );
-
   let client = reqwest::Client::new();
   let response = client
     .post("https://api.linear.app/graphql")
     .header("Authorization", api_key)
-    .json(&serde_json::json!({ "query": query }))
+    .json(&get_issue_body(issue_id))
     .send()
     .await
     .map_err(|e| format!("Failed to fetch Linear issue: {e}"))?;
@@ -588,23 +605,6 @@ pub async fn linear_list_project_documents_impl(
   api_key: &str,
   project_id: &str,
 ) -> Result<Vec<LinearDocument>, String> {
-  let query = format!(
-    r#"query {{
-      project(id: "{}") {{
-        documents(first: 100) {{
-          nodes {{
-            id
-            title
-            content
-            url
-            updatedAt
-          }}
-        }}
-      }}
-    }}"#,
-    project_id
-  );
-
   #[derive(Deserialize)]
   struct ProjectDocumentsData {
     project: Option<ProjectDocumentsNode>,
@@ -634,7 +634,7 @@ pub async fn linear_list_project_documents_impl(
   let response = client
     .post("https://api.linear.app/graphql")
     .header("Authorization", api_key)
-    .json(&serde_json::json!({ "query": query }))
+    .json(&project_documents_body(project_id))
     .send()
     .await
     .map_err(|e| format!("Failed to fetch Linear documents: {e}"))?;
@@ -710,25 +710,10 @@ fn map_comment_node(node: CommentNode) -> LinearComment {
 
 async fn fetch_comments_for_entity(
   api_key: &str,
-  entity_field: &str,
+  entity: CommentEntity,
   entity_id: &str,
 ) -> Result<Vec<LinearComment>, String> {
-  let query = format!(
-    r#"query {{
-      {entity_field}(id: "{entity_id}") {{
-        comments(first: 100) {{
-          nodes {{
-            id
-            body
-            user {{ id name }}
-            createdAt
-            quotedText
-          }}
-        }}
-      }}
-    }}"#
-  );
-
+  let entity_field = entity.field();
   #[derive(Deserialize)]
   struct EntityCommentsData {
     #[serde(flatten)]
@@ -744,7 +729,7 @@ async fn fetch_comments_for_entity(
   let response = client
     .post("https://api.linear.app/graphql")
     .header("Authorization", api_key)
-    .json(&serde_json::json!({ "query": query }))
+    .json(&entity_comments_body(entity, entity_id))
     .send()
     .await
     .map_err(|e| format!("Failed to fetch Linear comments: {e}"))?;
@@ -788,21 +773,21 @@ pub async fn linear_list_issue_comments_impl(
   api_key: &str,
   issue_id: &str,
 ) -> Result<Vec<LinearComment>, String> {
-  fetch_comments_for_entity(api_key, "issue", issue_id).await
+  fetch_comments_for_entity(api_key, CommentEntity::Issue, issue_id).await
 }
 
 pub async fn linear_list_project_comments_impl(
   api_key: &str,
   project_id: &str,
 ) -> Result<Vec<LinearComment>, String> {
-  fetch_comments_for_entity(api_key, "project", project_id).await
+  fetch_comments_for_entity(api_key, CommentEntity::Project, project_id).await
 }
 
 pub async fn linear_list_document_comments_impl(
   api_key: &str,
   document_id: &str,
 ) -> Result<Vec<LinearComment>, String> {
-  fetch_comments_for_entity(api_key, "document", document_id).await
+  fetch_comments_for_entity(api_key, CommentEntity::Document, document_id).await
 }
 
 const KICKOFF_POLL_INTERVAL: Duration = Duration::from_secs(60);
@@ -942,38 +927,95 @@ fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
     tokio::runtime::Runtime::new().map_err(|e| format!("Failed to create async runtime: {e}"))?;
 
   let issues = rt.block_on(linear_list_issues_impl(&api_key, None))?;
+  let labeled_ids: Vec<String> = issues
+    .into_iter()
+    .filter(|issue| issue.labels.contains(&label))
+    .map(|issue| issue.id)
+    .collect();
 
-  let handled_json = db
-    .get_repo_setting(repo_path, "linear_handled_issue_ids")
-    .map_err(|e| format!("Failed to read linear_handled_issue_ids: {e}"))?;
-
-  let mut handled: std::collections::HashSet<String> = handled_json
-    .as_ref()
-    .and_then(|s| serde_json::from_str(s).ok())
-    .unwrap_or_default();
-
-  for issue in issues {
-    if !issue.labels.contains(&label) || handled.contains(&issue.id) {
-      continue;
-    }
-
+  let mut ledger = KickoffLedger::load(&db, repo_path)?;
+  for issue_id in ledger.due(&labeled_ids) {
     match rt.block_on(kickoff_linear_issue_internal(
-      &db, repo_path, &api_key, &issue.id, false,
+      &db, repo_path, &api_key, &issue_id, false,
     )) {
-      Ok(_) => {
-        handled.insert(issue.id);
-      }
+      Ok(_) => ledger.record_success(&issue_id),
       Err(e) => {
-        log::warn!("linear-kickoff: failed to kickoff {}: {}", issue.id, e);
-        handled.insert(issue.id);
+        let attempts = ledger.record_failure(&issue_id);
+        log::warn!(
+          "linear-kickoff: attempt {attempts}/{MAX_KICKOFF_ATTEMPTS} failed for {issue_id}: {e}"
+        );
       }
     }
   }
+  ledger.save(&db, repo_path)
+}
 
-  let handled_json = serde_json::to_string(&handled)
-    .map_err(|e| format!("Failed to serialize handled issues: {e}"))?;
-  db.set_repo_setting(repo_path, "linear_handled_issue_ids", &handled_json)
-    .map_err(|e| format!("Failed to save linear_handled_issue_ids: {e}"))
+const MAX_KICKOFF_ATTEMPTS: u32 = 3;
+
+/// Per-repo record of which labeled issues were kicked off and which keep
+/// failing. Failures retry on later polls up to `MAX_KICKOFF_ATTEMPTS`.
+/// Removing and re-adding the label resets an issue.
+#[derive(Default)]
+struct KickoffLedger {
+  handled: std::collections::HashSet<String>,
+  failures: HashMap<String, u32>,
+}
+
+impl KickoffLedger {
+  const HANDLED_KEY: &'static str = "linear_handled_issue_ids";
+  const FAILURES_KEY: &'static str = "linear_kickoff_failures";
+
+  fn load(db: &crate::db::Database, repo_path: &str) -> Result<Self, String> {
+    let read = |key: &str| {
+      db.get_repo_setting(repo_path, key)
+        .map_err(|e| format!("Failed to read {key}: {e}"))
+    };
+    Ok(Self {
+      handled: read(Self::HANDLED_KEY)?
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default(),
+      failures: read(Self::FAILURES_KEY)?
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default(),
+    })
+  }
+
+  fn save(&self, db: &crate::db::Database, repo_path: &str) -> Result<(), String> {
+    let write = |key: &str, json: Result<String, serde_json::Error>| {
+      let json = json.map_err(|e| format!("Failed to serialize {key}: {e}"))?;
+      db.set_repo_setting(repo_path, key, &json)
+        .map_err(|e| format!("Failed to save {key}: {e}"))
+    };
+    write(Self::HANDLED_KEY, serde_json::to_string(&self.handled))?;
+    write(Self::FAILURES_KEY, serde_json::to_string(&self.failures))
+  }
+
+  /// Returns the labeled issues still owed an attempt. Entries for issues no
+  /// longer labeled are dropped, which keeps the stored sets bounded.
+  fn due(&mut self, labeled_ids: &[String]) -> Vec<String> {
+    let labeled: std::collections::HashSet<&str> = labeled_ids.iter().map(String::as_str).collect();
+    self.handled.retain(|id| labeled.contains(id.as_str()));
+    self.failures.retain(|id, _| labeled.contains(id.as_str()));
+    labeled_ids
+      .iter()
+      .filter(|id| {
+        !self.handled.contains(*id)
+          && self.failures.get(*id).copied().unwrap_or(0) < MAX_KICKOFF_ATTEMPTS
+      })
+      .cloned()
+      .collect()
+  }
+
+  fn record_success(&mut self, issue_id: &str) {
+    self.failures.remove(issue_id);
+    self.handled.insert(issue_id.to_string());
+  }
+
+  fn record_failure(&mut self, issue_id: &str) -> u32 {
+    let attempts = self.failures.entry(issue_id.to_string()).or_insert(0);
+    *attempts += 1;
+    *attempts
+  }
 }
 
 async fn kickoff_linear_issue_internal(
@@ -1095,5 +1137,86 @@ mod tests {
 
     let node: LinearIssueNode = serde_json::from_value(json).unwrap();
     assert_eq!(node.parent_id.unwrap().id, "ENG-1");
+  }
+
+  // Spliced into query text, this would close the string literal and inject syntax.
+  const HOSTILE: &str = r#"ENG"}) { nodes { id } } #"#;
+
+  #[test]
+  fn list_issues_body_passes_team_as_variable() {
+    let body = list_issues_body(Some(HOSTILE));
+    assert!(!body["query"].as_str().unwrap().contains(HOSTILE));
+    assert_eq!(body["variables"]["team"], HOSTILE);
+  }
+
+  #[test]
+  fn list_issues_body_omits_team_filter_when_unset() {
+    let body = list_issues_body(None);
+    assert!(!body["query"].as_str().unwrap().contains("$team"));
+  }
+
+  #[test]
+  fn get_issue_body_passes_id_as_variable() {
+    let body = get_issue_body(HOSTILE);
+    assert!(!body["query"].as_str().unwrap().contains(HOSTILE));
+    assert_eq!(body["variables"]["id"], HOSTILE);
+  }
+
+  #[test]
+  fn project_documents_body_passes_id_as_variable() {
+    let body = project_documents_body(HOSTILE);
+    assert!(!body["query"].as_str().unwrap().contains(HOSTILE));
+    assert_eq!(body["variables"]["id"], HOSTILE);
+  }
+
+  #[test]
+  fn entity_comments_body_passes_id_as_variable() {
+    let body = entity_comments_body(CommentEntity::Document, HOSTILE);
+    let query = body["query"].as_str().unwrap();
+    assert!(!query.contains(HOSTILE));
+    assert!(query.contains("document(id: $id)"));
+    assert_eq!(body["variables"]["id"], HOSTILE);
+  }
+
+  fn ids(values: &[&str]) -> Vec<String> {
+    values.iter().map(|v| v.to_string()).collect()
+  }
+
+  #[test]
+  fn kickoff_ledger_skips_handled_issues() {
+    let mut ledger = KickoffLedger::default();
+    ledger.record_success("a");
+    assert_eq!(ledger.due(&ids(&["a", "b"])), ids(&["b"]));
+  }
+
+  #[test]
+  fn kickoff_ledger_retries_failures_until_attempt_cap() {
+    let mut ledger = KickoffLedger::default();
+    for _ in 1..MAX_KICKOFF_ATTEMPTS {
+      ledger.record_failure("a");
+      assert_eq!(ledger.due(&ids(&["a"])), ids(&["a"]));
+    }
+    ledger.record_failure("a");
+    assert!(ledger.due(&ids(&["a"])).is_empty());
+  }
+
+  #[test]
+  fn kickoff_ledger_success_clears_failure_count() {
+    let mut ledger = KickoffLedger::default();
+    ledger.record_failure("a");
+    ledger.record_success("a");
+    assert!(!ledger.failures.contains_key("a"));
+  }
+
+  #[test]
+  fn kickoff_ledger_forgets_issues_that_lost_the_label() {
+    let mut ledger = KickoffLedger::default();
+    ledger.record_success("a");
+    for _ in 0..MAX_KICKOFF_ATTEMPTS {
+      ledger.record_failure("b");
+    }
+    assert!(ledger.due(&ids(&["c"])) == ids(&["c"]));
+    assert!(ledger.handled.is_empty());
+    assert!(ledger.failures.is_empty());
   }
 }
