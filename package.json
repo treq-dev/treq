@@ -14,7 +14,8 @@
     "linearIntegration": false,
     "logs": false,
     "checks": false,
-    "browser": false
+    "browser": false,
+    "agentMessageQueue": false
   },
   "env": {
     "dev": {

@@ -218,3 +218,41 @@ describe("PrDetailPanel close PR", () => {
     });
   });
 });
+
+describe("GitHub detail load failures", () => {
+  it("shows the gh error when a PR fails to load", async () => {
+    api.getWorkspaces.mockResolvedValue([]);
+    api.ghViewPr.mockRejectedValue("gh: Could not resolve to a PullRequest");
+
+    render(
+      <PrDetailPanel
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        prNumber={404}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Could not load pull request #404"),
+    ).toBeVisible();
+    expect(
+      screen.getByText("gh: Could not resolve to a PullRequest"),
+    ).toBeVisible();
+  });
+
+  it("shows the gh error when an issue fails to load", async () => {
+    api.ghViewIssue.mockRejectedValue(new Error("gh: HTTP 404"));
+
+    render(
+      <IssueDetailPanel
+        repoFullName="acme/treq"
+        issueNumber={404}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText("Could not load issue #404")).toBeVisible();
+    expect(screen.getByText("gh: HTTP 404")).toBeVisible();
+  });
+});

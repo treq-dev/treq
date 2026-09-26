@@ -927,38 +927,95 @@ fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
     tokio::runtime::Runtime::new().map_err(|e| format!("Failed to create async runtime: {e}"))?;
 
   let issues = rt.block_on(linear_list_issues_impl(&api_key, None))?;
+  let labeled_ids: Vec<String> = issues
+    .into_iter()
+    .filter(|issue| issue.labels.contains(&label))
+    .map(|issue| issue.id)
+    .collect();
 
-  let handled_json = db
-    .get_repo_setting(repo_path, "linear_handled_issue_ids")
-    .map_err(|e| format!("Failed to read linear_handled_issue_ids: {e}"))?;
-
-  let mut handled: std::collections::HashSet<String> = handled_json
-    .as_ref()
-    .and_then(|s| serde_json::from_str(s).ok())
-    .unwrap_or_default();
-
-  for issue in issues {
-    if !issue.labels.contains(&label) || handled.contains(&issue.id) {
-      continue;
-    }
-
+  let mut ledger = KickoffLedger::load(&db, repo_path)?;
+  for issue_id in ledger.due(&labeled_ids) {
     match rt.block_on(kickoff_linear_issue_internal(
-      &db, repo_path, &api_key, &issue.id, false,
+      &db, repo_path, &api_key, &issue_id, false,
     )) {
-      Ok(_) => {
-        handled.insert(issue.id);
-      }
+      Ok(_) => ledger.record_success(&issue_id),
       Err(e) => {
-        log::warn!("linear-kickoff: failed to kickoff {}: {}", issue.id, e);
-        handled.insert(issue.id);
+        let attempts = ledger.record_failure(&issue_id);
+        log::warn!(
+          "linear-kickoff: attempt {attempts}/{MAX_KICKOFF_ATTEMPTS} failed for {issue_id}: {e}"
+        );
       }
     }
   }
+  ledger.save(&db, repo_path)
+}
 
-  let handled_json = serde_json::to_string(&handled)
-    .map_err(|e| format!("Failed to serialize handled issues: {e}"))?;
-  db.set_repo_setting(repo_path, "linear_handled_issue_ids", &handled_json)
-    .map_err(|e| format!("Failed to save linear_handled_issue_ids: {e}"))
+const MAX_KICKOFF_ATTEMPTS: u32 = 3;
+
+/// Per-repo record of which labeled issues were kicked off and which keep
+/// failing. Failures retry on later polls up to `MAX_KICKOFF_ATTEMPTS`.
+/// Removing and re-adding the label resets an issue.
+#[derive(Default)]
+struct KickoffLedger {
+  handled: std::collections::HashSet<String>,
+  failures: HashMap<String, u32>,
+}
+
+impl KickoffLedger {
+  const HANDLED_KEY: &'static str = "linear_handled_issue_ids";
+  const FAILURES_KEY: &'static str = "linear_kickoff_failures";
+
+  fn load(db: &crate::db::Database, repo_path: &str) -> Result<Self, String> {
+    let read = |key: &str| {
+      db.get_repo_setting(repo_path, key)
+        .map_err(|e| format!("Failed to read {key}: {e}"))
+    };
+    Ok(Self {
+      handled: read(Self::HANDLED_KEY)?
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default(),
+      failures: read(Self::FAILURES_KEY)?
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default(),
+    })
+  }
+
+  fn save(&self, db: &crate::db::Database, repo_path: &str) -> Result<(), String> {
+    let write = |key: &str, json: Result<String, serde_json::Error>| {
+      let json = json.map_err(|e| format!("Failed to serialize {key}: {e}"))?;
+      db.set_repo_setting(repo_path, key, &json)
+        .map_err(|e| format!("Failed to save {key}: {e}"))
+    };
+    write(Self::HANDLED_KEY, serde_json::to_string(&self.handled))?;
+    write(Self::FAILURES_KEY, serde_json::to_string(&self.failures))
+  }
+
+  /// Returns the labeled issues still owed an attempt. Entries for issues no
+  /// longer labeled are dropped, which keeps the stored sets bounded.
+  fn due(&mut self, labeled_ids: &[String]) -> Vec<String> {
+    let labeled: std::collections::HashSet<&str> = labeled_ids.iter().map(String::as_str).collect();
+    self.handled.retain(|id| labeled.contains(id.as_str()));
+    self.failures.retain(|id, _| labeled.contains(id.as_str()));
+    labeled_ids
+      .iter()
+      .filter(|id| {
+        !self.handled.contains(*id)
+          && self.failures.get(*id).copied().unwrap_or(0) < MAX_KICKOFF_ATTEMPTS
+      })
+      .cloned()
+      .collect()
+  }
+
+  fn record_success(&mut self, issue_id: &str) {
+    self.failures.remove(issue_id);
+    self.handled.insert(issue_id.to_string());
+  }
+
+  fn record_failure(&mut self, issue_id: &str) -> u32 {
+    let attempts = self.failures.entry(issue_id.to_string()).or_insert(0);
+    *attempts += 1;
+    *attempts
+  }
 }
 
 async fn kickoff_linear_issue_internal(
@@ -1119,5 +1176,47 @@ mod tests {
     assert!(!query.contains(HOSTILE));
     assert!(query.contains("document(id: $id)"));
     assert_eq!(body["variables"]["id"], HOSTILE);
+  }
+
+  fn ids(values: &[&str]) -> Vec<String> {
+    values.iter().map(|v| v.to_string()).collect()
+  }
+
+  #[test]
+  fn kickoff_ledger_skips_handled_issues() {
+    let mut ledger = KickoffLedger::default();
+    ledger.record_success("a");
+    assert_eq!(ledger.due(&ids(&["a", "b"])), ids(&["b"]));
+  }
+
+  #[test]
+  fn kickoff_ledger_retries_failures_until_attempt_cap() {
+    let mut ledger = KickoffLedger::default();
+    for _ in 1..MAX_KICKOFF_ATTEMPTS {
+      ledger.record_failure("a");
+      assert_eq!(ledger.due(&ids(&["a"])), ids(&["a"]));
+    }
+    ledger.record_failure("a");
+    assert!(ledger.due(&ids(&["a"])).is_empty());
+  }
+
+  #[test]
+  fn kickoff_ledger_success_clears_failure_count() {
+    let mut ledger = KickoffLedger::default();
+    ledger.record_failure("a");
+    ledger.record_success("a");
+    assert!(!ledger.failures.contains_key("a"));
+  }
+
+  #[test]
+  fn kickoff_ledger_forgets_issues_that_lost_the_label() {
+    let mut ledger = KickoffLedger::default();
+    ledger.record_success("a");
+    for _ in 0..MAX_KICKOFF_ATTEMPTS {
+      ledger.record_failure("b");
+    }
+    assert!(ledger.due(&ids(&["c"])) == ids(&["c"]));
+    assert!(ledger.handled.is_empty());
+    assert!(ledger.failures.is_empty());
   }
 }

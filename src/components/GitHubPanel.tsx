@@ -37,7 +37,12 @@ import { useAuthStore } from "../stores/authStore";
 import { CreateIssueForm, IssueDetailPanel } from "./github-panel/IssueDetail";
 import { MergeQueueTab } from "./github-panel/MergeQueueTab";
 import { CreatePrForm, PrDetailPanel } from "./github-panel/PrDetail";
-import { EmptyState, IssueListItem, PrListItem } from "./github-panel/shared";
+import {
+  EmptyState,
+  ErrorState,
+  IssueListItem,
+  PrListItem,
+} from "./github-panel/shared";
 import {
   useGithubIssuePages,
   useGithubPrPages,
@@ -127,6 +132,7 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
 
   const {
     items: issues,
+    error: issuesError,
     isLoading: issuesLoading,
     fetchingNext: issuesFetchingNext,
     hasNextPage: issuesHasNextPage,
@@ -135,6 +141,7 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
   } = useGithubIssuePages(repoFullName, activeTab, currentFilter);
   const {
     items: prs,
+    error: prsError,
     isLoading: prsLoading,
     fetchingNext: prsFetchingNext,
     hasNextPage: prsHasNextPage,
@@ -400,7 +407,13 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
           {remoteInfo &&
             !isListLoading &&
             activeTab === "issues" &&
-            (issues.length === 0 ? (
+            (issuesError && issues.length === 0 ? (
+              <ErrorState
+                title="Could not load issues"
+                error={issuesError}
+                onRetry={() => void refetchIssues()}
+              />
+            ) : issues.length === 0 ? (
               <EmptyState icon={CircleDot} message="No issues found." />
             ) : (
               <>
@@ -433,7 +446,13 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
           {remoteInfo &&
             !isListLoading &&
             activeTab === "prs" &&
-            (prs.length === 0 ? (
+            (prsError && prs.length === 0 ? (
+              <ErrorState
+                title="Could not load pull requests"
+                error={prsError}
+                onRetry={() => void refetchPrs()}
+              />
+            ) : prs.length === 0 ? (
               <EmptyState
                 icon={GitPullRequest}
                 message="No pull requests found."

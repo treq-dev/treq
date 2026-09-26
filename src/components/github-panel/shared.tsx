@@ -246,4 +246,38 @@ export function EmptyState({
   );
 }
 
+/** Load failure with the gh message, so auth or network problems are visible. */
+export function ErrorState({
+  title,
+  error,
+  onRetry,
+}: {
+  title: string;
+  error: unknown;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-center justify-center py-12 text-center px-6 gap-2"
+    >
+      <AlertCircle className="w-6 h-6 text-destructive" />
+      <p className="text-base font-medium">{title}</p>
+      <p className="text-base text-muted-foreground break-words max-w-full">
+        {error instanceof Error ? error.message : String(error)}
+      </p>
+      {onRetry && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-base mt-1"
+          onClick={onRetry}
+        >
+          Try again
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export { CircleDot, GitPullRequest };
