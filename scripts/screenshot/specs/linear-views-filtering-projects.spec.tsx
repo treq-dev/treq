@@ -212,6 +212,21 @@ it("filters issues by standard view and AND-combined filters, and browses projec
     ],
   });
 
+  await user.click(screen.getByTestId("linear-team-selector"));
+  await screen.findByRole("menuitemradio", { name: "Engineering" });
+
+  await captureDocument(document, {
+    name: "linear-views-filtering-00-team-selector",
+    expectations: [
+      'A "Teams" dropdown is open listing "All Teams" (checked) and "Engineering".',
+    ],
+  });
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    if (screen.queryByRole("menu")) throw new Error("menu still open");
+  });
+
   await user.click(screen.getByText("Rework the ranking pipeline"));
   await screen.findByTestId("linear-issue-expanded");
 

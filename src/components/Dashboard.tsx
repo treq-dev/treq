@@ -3153,6 +3153,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             initialPrompt={runPromptRequest?.prompt}
             initialWorkspaceId={runPromptRequest?.workspaceId ?? null}
             initialGitHubIssue={runPromptRequest?.githubIssue ?? null}
+            initialLinearIssue={runPromptRequest?.linearIssue ?? null}
           />
 
           <PromptHistoryModal
