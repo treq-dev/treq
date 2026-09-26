@@ -23,22 +23,10 @@ it("captures the remote setup flow opening from onboarding", async () => {
   await captureDocument(document, {
     name: "remote-ssh-dialog-02-choice",
     expectations: [
-      "A modal dialog titled 'Connect a remote repository' is shown, overlaying the onboarding card, offering 'Treq-managed VM' and 'Your own VM' choices.",
+      "A modal dialog titled 'Connect a remote repository' is shown, overlaying the onboarding card, offering 'Treq-managed Sprite' and 'Your own VM' choices.",
     ],
   });
 
-  await user.click(
-    await screen.findByRole("button", { name: /Treq-managed VM/ }),
-  );
-  await screen.findByLabelText("Region");
-  await captureDocument(document, {
-    name: "remote-ssh-dialog-03-managed",
-    expectations: [
-      "The dialog now shows the Treq-managed VM setup screen with Region and Size dropdowns, and an SSH identity picker.",
-    ],
-  });
-
-  await user.click(screen.getByRole("button", { name: "Back" }));
   await user.click(
     await screen.findByRole("button", { name: /Your own VM/ }),
   );
