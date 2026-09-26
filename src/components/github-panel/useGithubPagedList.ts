@@ -2,6 +2,7 @@ import useSWRInfinite from "swr/infinite";
 import { GH_LIST_PAGE_SIZE, ghListIssues, ghListPrs } from "../../lib/api";
 import type { GhIssue, GhListPage, GhPullRequest } from "../../lib/api-types";
 import type { GitHubStateFilter, GitHubTab } from "../../lib/githubRoutes";
+import { useInfiniteQueryInvalidation } from "../../lib/swr-cache";
 
 function useGithubPagedList<T>(opts: {
   enabled: boolean;
@@ -15,7 +16,7 @@ function useGithubPagedList<T>(opts: {
   currentFilter: GitHubStateFilter;
 }) {
   const { enabled, keyPrefix, fetcher, repoFullName, currentFilter } = opts;
-  const { data, isLoading, isValidating, size, setSize, mutate } =
+  const { data, error, isLoading, isValidating, size, setSize, mutate } =
     useSWRInfinite(
       (pageIndex, previousPageData: GhListPage<T> | null) => {
         if (!enabled || !repoFullName) return null;
@@ -25,8 +26,12 @@ function useGithubPagedList<T>(opts: {
       ([, fullName, filter, page]) => fetcher(fullName, filter, page),
       { revalidateFirstPage: false },
     );
+  useInfiniteQueryInvalidation([keyPrefix, repoFullName, currentFilter], () =>
+    mutate(),
+  );
   return {
     items: data?.flatMap((page) => page.items) ?? [],
+    error: error as unknown,
     isLoading,
     fetchingNext: isValidating && size > 1,
     hasNextPage: Boolean(data?.at(-1)?.hasMore),
