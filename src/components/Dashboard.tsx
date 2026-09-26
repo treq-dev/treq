@@ -2966,19 +2966,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <LinearPanel
                   repoPath={dataRepoPath}
                   onStartPromptFromIssue={handleStartPromptFromLinearIssue}
-                  onOpenWorkspace={async (workspaceId) => {
-                    await invalidateQueries(["workspaces", queryRepoKey]);
-                    const updatedWorkspaces = await fetchAndCache(
-                      ["workspaces", repoPath],
-                      () => getWorkspaces(dataRepoPath),
-                    );
-                    const workspace = updatedWorkspaces.find(
-                      (w) => w.id === workspaceId,
-                    );
-                    if (workspace) {
-                      handleSelectWorkspace(workspace);
-                    }
-                  }}
                 />
               )}
 
