@@ -51,7 +51,6 @@ import {
   remoteOpenRepoOverSsh,
   remoteProbeRepoOverSsh,
   selectFolder,
-  setSessionModel,
   setSetting,
   setWindowRepoPath,
   updateSessionAccess,
@@ -1779,19 +1778,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     const sessionId = await createSession(repoPath, workspaceId, name);
-
-    // Apply default model from settings (repo-level overrides application-level)
-    try {
-      const repoDefaultModel = await getRepoSetting(repoPath, "default_model");
-      const appDefaultModel = await getSetting("default_model");
-      const defaultModel = repoDefaultModel || appDefaultModel;
-
-      if (defaultModel) {
-        await setSessionModel(repoPath, sessionId, defaultModel);
-      }
-    } catch (error) {
-      console.warn("Failed to set default model for session:", error);
-    }
 
     void invalidateQueries(["sessions"]);
     return sessionId;
