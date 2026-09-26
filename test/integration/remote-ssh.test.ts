@@ -41,7 +41,7 @@ describe("remote SSH integration", () => {
       }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Treq-managed Sprite/ }),
+      screen.getByRole("button", { name: /Treq-managed cloud workspace/ }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /Your own VM/ })).toBeTruthy();
   });

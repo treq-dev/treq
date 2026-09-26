@@ -19,9 +19,9 @@ export const SIZE_LABELS: Record<SizePreset, string> = {
 
 export const STAGE_LABELS: Record<ManagedInstanceState, string> = {
   unprovisioned: "Not provisioned",
-  provisioning: "Provisioning VM...",
+  provisioning: "Creating cloud workspace...",
   bootstrapping: "Installing Treq, JJ, Git, and agents...",
-  installing_access: "Installing SSH access...",
+  installing_access: "Configuring access...",
   verifying: "Verifying readiness...",
   ready: "Ready",
   suspended: "Suspended (idle)",

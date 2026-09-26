@@ -783,20 +783,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const status = await getInstanceStatus();
       setInstanceStatus(status);
     } catch (error) {
-      setProvisioningError(
-        error instanceof Error ? error.message : String(error),
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      setProvisioningError(message);
+      addToast({
+        title: "Couldn't create cloud workspace",
+        description: message,
+        type: "error",
+      });
+      // The control plane records the failure; reload so the card offers a
+      // retry instead of a fresh create.
+      await refreshInstanceStatus();
     } finally {
       setProvisioningStage(undefined);
     }
-  };
-
-  // Connect action for an existing ready managed instance (required behavior
-  // "Add a clear Connect action for an existing ready managed instance") -
-  // still runs key registration + certificate issuance + renewal, just skips
-  // provisioning/readiness polling since the instance is already `ready`.
-  const handleConnectManaged = async () => {
-    setShowRemoteSetupDialog(false);
   };
 
   // Wake/reconnect ordering (required behavior): wake, poll readiness,
@@ -2595,7 +2594,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
       onReprovision={handleReprovisionManaged}
       onDeleteInstance={handleDeleteManagedInstance}
       onRevokeKey={handleRevokeKey}
-      onConnectManaged={handleConnectManaged}
       onRegisterUserManaged={handleRegisterUserManaged}
       onOpenManagedRepositories={handleOpenManagedRepositories}
     />
@@ -2928,7 +2926,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   repoPath={dataRepoPath}
                   onClose={closeSettings}
                   currentBranch={effectiveDefaultBranch}
-                  onOpenRemoteSetup={() => void handleOpenRemoteSetup()}
+                  cloudWorkspace={{
+                    instanceStatus,
+                    provisioningStage,
+                    provisioningError,
+                    onRefreshStatus: async () => {
+                      setProvisioningError(undefined);
+                      await refreshInstanceStatus();
+                    },
+                    onProvision: handleProvisionManaged,
+                    onWake: () => handleWakeManaged(),
+                    onRepair: handleReprovisionManaged,
+                    onDelete: handleDeleteManagedInstance,
+                    onOpenRepositories: () => {
+                      handleOpenManagedRepositories();
+                      closeSettings();
+                    },
+                  }}
                 />
               )}
 

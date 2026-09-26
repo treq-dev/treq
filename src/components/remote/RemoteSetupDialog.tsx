@@ -7,7 +7,8 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import type { InstanceStatusResponse } from "../../lib/api-types-remote";
-import { RemoteManagedSetupPanel } from "./RemoteManagedSetupPanel";
+import { Button } from "../ui/button";
+import { CloudWorkspaceCard } from "./CloudWorkspaceCard";
 import { RemoteUserManagedSetupPanel } from "./RemoteUserManagedSetupPanel";
 import type {
   LocalKeyIdentity,
@@ -34,7 +35,6 @@ export interface RemoteSetupDialogProps {
   onReprovision: () => Promise<void>;
   onDeleteInstance: () => Promise<void>;
   onRevokeKey: (keyReference: string) => Promise<void>;
-  onConnectManaged: () => Promise<void>;
 
   onRegisterUserManaged: (values: UserManagedFormValues) => Promise<void>;
   /** Open repositories on the existing managed instance without provisioning another. */
@@ -45,9 +45,9 @@ export interface RemoteSetupDialogProps {
  * Remote setup flow: the two-choice entry point plus the managed and
  * user-managed configuration screens (PRD "UI requirements" / "Remote
  * setup"). Replaces the old bare host+path dialog. The two configuration
- * screens live in `RemoteManagedSetupPanel` and
- * `RemoteUserManagedSetupPanel`; this component only owns which screen is
- * showing.
+ * screens live in `CloudWorkspaceCard` (also shown inline on the account
+ * settings page) and `RemoteUserManagedSetupPanel`; this component only owns
+ * which screen is showing.
  */
 export function RemoteSetupDialog({
   open,
@@ -60,8 +60,6 @@ export function RemoteSetupDialog({
   onWake,
   onReprovision,
   onDeleteInstance,
-  onRevokeKey,
-  onConnectManaged,
   onRegisterUserManaged,
   onOpenManagedRepositories,
 }: RemoteSetupDialogProps) {
@@ -88,10 +86,10 @@ export function RemoteSetupDialog({
                 className="rounded-lg border border-border/60 p-4 text-left hover:border-primary/60 hover:bg-muted/40"
                 onClick={() => setMode("managed")}
               >
-                <div className="font-medium">Treq-managed Sprite</div>
+                <div className="font-medium">Treq-managed cloud workspace</div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Treq provisions and maintains one persistent development
-                  Sprite for your account.
+                  Treq provisions and maintains one persistent cloud workspace
+                  for your account.
                 </p>
               </button>
               <button
@@ -112,25 +110,29 @@ export function RemoteSetupDialog({
         {mode === "managed" && (
           <>
             <DialogHeader>
-              <DialogTitle>Treq-managed Sprite</DialogTitle>
+              <DialogTitle>Treq-managed cloud workspace</DialogTitle>
               <DialogDescription>
-                Treq manages lifecycle and runs typed commands through the
-                authenticated Sprites API.
+                Treq manages the machine lifecycle and runs typed commands on
+                it through an authenticated API.
               </DialogDescription>
             </DialogHeader>
-            <RemoteManagedSetupPanel
-              instanceStatus={instanceStatus}
-              provisioningStage={provisioningStage}
-              provisioningError={provisioningError}
-              onBack={() => setMode("choice")}
-              onProvisionManaged={onProvisionManaged}
-              onWake={onWake}
-              onReprovision={onReprovision}
-              onDeleteInstance={onDeleteInstance}
-              onRevokeKey={onRevokeKey}
-              onOpenRepositories={onOpenManagedRepositories}
-              onConnectManaged={onConnectManaged}
-            />
+            <div className="mt-4">
+              <CloudWorkspaceCard
+                instanceStatus={instanceStatus}
+                provisioningStage={provisioningStage}
+                provisioningError={provisioningError}
+                onProvision={onProvisionManaged}
+                onWake={onWake}
+                onRepair={onReprovision}
+                onDelete={onDeleteInstance}
+                onOpenRepositories={onOpenManagedRepositories}
+              />
+            </div>
+            <div className="mt-6">
+              <Button variant="ghost" onClick={() => setMode("choice")}>
+                Back
+              </Button>
+            </div>
           </>
         )}
 

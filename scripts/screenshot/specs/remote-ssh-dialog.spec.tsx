@@ -23,7 +23,7 @@ it("captures the remote setup flow opening from onboarding", async () => {
   await captureDocument(document, {
     name: "remote-ssh-dialog-02-choice",
     expectations: [
-      "A modal dialog titled 'Connect a remote repository' is shown, overlaying the onboarding card, offering 'Treq-managed Sprite' and 'Your own VM' choices.",
+      "A modal dialog titled 'Connect a remote repository' is shown, overlaying the onboarding card, offering 'Treq-managed cloud workspace' and 'Your own VM' choices.",
     ],
   });
 
