@@ -15,7 +15,13 @@ import {
 } from "../../lib/api";
 import type { GitHubIssueAttachment } from "../../lib/promptAttachments";
 import { MarkdownContent } from "../MarkdownContent";
-import { formatDate, LabelChip, OpenInWebButton, StateChip } from "./shared";
+import {
+  formatDate,
+  LabelChip,
+  OpenInWebButton,
+  StateChip,
+  useGhErrorToast,
+} from "./shared";
 
 export function IssueDetailPanel({
   repoFullName,
@@ -28,6 +34,7 @@ export function IssueDetailPanel({
   onClose: () => void;
   onStartPrompt?: (issue: GitHubIssueAttachment) => void;
 }) {
+  const ghErrorToast = useGhErrorToast();
   const [commentBody, setCommentBody] = useState("");
 
   const { data: issue, isLoading } = useSWR(
@@ -42,6 +49,7 @@ export function IssueDetailPanel({
       setCommentBody("");
       void invalidateQueries(["gh-issue", repoFullName, issueNumber]);
     },
+    onError: ghErrorToast("Failed to post comment"),
   });
 
   const closeIssue = useMutation({
@@ -50,6 +58,7 @@ export function IssueDetailPanel({
       void invalidateQueries(["gh-issue", repoFullName, issueNumber]);
       void invalidateQueries(["gh-issues", repoFullName]);
     },
+    onError: ghErrorToast("Failed to close issue"),
   });
 
   const reopenIssue = useMutation({
@@ -58,6 +67,7 @@ export function IssueDetailPanel({
       void invalidateQueries(["gh-issue", repoFullName, issueNumber]);
       void invalidateQueries(["gh-issues", repoFullName]);
     },
+    onError: ghErrorToast("Failed to reopen issue"),
   });
 
   return (
