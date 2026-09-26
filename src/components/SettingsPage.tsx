@@ -19,7 +19,10 @@ import {
   useZoomSettingsStore,
 } from "../stores/zoomSettingsStore";
 import { getSetting, setSetting } from "../lib/api";
-import { AccountSettings } from "./AccountSettings";
+import {
+  AccountSettings,
+  type CloudWorkspaceControls,
+} from "./AccountSettings";
 import { GitHubIntegrationSettings } from "./GitHubIntegrationSettings";
 import { LinearIntegrationSettings } from "./LinearIntegrationSettings";
 import { RepoYamlConfigCard } from "./RepoYamlConfigCard";
@@ -49,14 +52,14 @@ interface SettingsPageProps {
   repoPath: string;
   onClose: () => void;
   currentBranch?: string | null;
-  onOpenRemoteSetup?: () => void;
+  cloudWorkspace?: CloudWorkspaceControls;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   repoPath,
   onClose,
   currentBranch,
-  onOpenRemoteSetup,
+  cloudWorkspace,
 }) => {
   const [currentTab, setCurrentTab] = useState<TabValue>("repository");
   const [modelDraft, setModelDraft] = useState<string | null>(null);
@@ -416,7 +419,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </TabsContent>
 
                 <TabsContent value="account">
-                  <AccountSettings onOpenRemoteSetup={onOpenRemoteSetup} />
+                  <AccountSettings cloudWorkspace={cloudWorkspace} />
                 </TabsContent>
                 <TabsContent value="integrations">
                   <div className="space-y-12">
