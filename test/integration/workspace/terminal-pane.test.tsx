@@ -11,6 +11,7 @@ import { Dashboard } from "../../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
 import { useZoomSettingsStore } from "../../../src/stores/zoomSettingsStore";
 import { useTerminalSettingsStore } from "../../../src/stores/terminalSettingsStore";
+import { useFeaturePreviewStore } from "../../../src/stores/featurePreviewStore";
 
 async function setupWorkspace(branchName: string) {
   const { repoPath } = createTestRepo(false);
@@ -202,6 +203,38 @@ describe("WorkspaceTerminalPane integration", () => {
     expect(
       await within(terminalPanel).findByTestId("agent-message-queue-count"),
     ).toHaveTextContent("1");
+  });
+
+  it("hides the message queue when the agentMessageQueue preview is off", async () => {
+    useFeaturePreviewStore.setState({
+      flags: {
+        ...useFeaturePreviewStore.getState().flags,
+        agentMessageQueue: false,
+      },
+    });
+    const { workspace } = await setupWorkspace("feat/terminal-queue-flag-off");
+
+    render(<Dashboard />);
+    await user.click(await findSidebarBranchElement(workspace.branch_name));
+    await screen.findByTestId("workspace-terminal-pane");
+
+    await user.keyboard("{Meta>}]{/Meta}");
+
+    const terminalPanel = await waitFor(() => {
+      const el = document.querySelector('[data-terminal-id^="claude-"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+
+    expect(
+      within(terminalPanel).getByLabelText(/reset terminal/i),
+    ).toBeInTheDocument();
+    expect(
+      within(terminalPanel).queryByTestId("agent-message-queue"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(terminalPanel).queryByTestId("agent-message-queue-button"),
+    ).not.toBeInTheDocument();
   });
 
   it("double-clicking a terminal scrolls it fully into view", async () => {

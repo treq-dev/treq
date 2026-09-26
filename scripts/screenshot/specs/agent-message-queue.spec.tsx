@@ -118,3 +118,52 @@ it("captures agent terminal message queue button and dialog", async () => {
     ],
   });
 }, 60000);
+
+it("hides the agent message queue when its feature preview is off", async () => {
+  const { repoPath } = createTestRepo(false);
+  openRepo(repoPath);
+
+  await createWorkspace(repoPath, BRANCH_NAME);
+
+  const user = userEvent.setup();
+  render(<Dashboard />);
+
+  await user.click(await screen.findByLabelText("Settings"));
+  await user.click(await screen.findByRole("tab", { name: /feature preview/i }));
+  const queueSwitch = await screen.findByRole("switch", {
+    name: "Agent message queue",
+  });
+  await user.click(queueSwitch);
+  expect(queueSwitch).toHaveAttribute("aria-checked", "false");
+
+  await captureDocument(document, {
+    name: "agent-message-queue-05-preview-setting-off",
+    expectations: [
+      "Feature Preview settings list an 'Agent message queue' row below 'Browser'.",
+      "The 'Agent message queue' switch is off.",
+    ],
+  });
+
+  await user.click(screen.getByRole("button", { name: "Close" }));
+  await user.click(await findSidebarBranchElement(BRANCH_NAME));
+  await screen.findByTestId("workspace-terminal-pane");
+  await user.keyboard("{Meta>}]{/Meta}");
+
+  const terminalPanel = await waitFor(() => {
+    const el = document.querySelector('[data-terminal-id^="claude-"]');
+    expect(el).not.toBeNull();
+    return el as HTMLElement;
+  });
+  await within(terminalPanel).findByLabelText(/reset terminal/i);
+  expect(
+    within(terminalPanel).queryByTestId("agent-message-queue-button"),
+  ).not.toBeInTheDocument();
+
+  await captureDocument(document, {
+    name: "agent-message-queue-06-toolbar-flag-off",
+    expectations: [
+      "The agent terminal toolbar has no Queue (list) icon left of the model selector.",
+      "The rest of the toolbar (model, scroll, reset, search, close) renders normally.",
+    ],
+  });
+}, 60000);
