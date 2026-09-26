@@ -7,15 +7,6 @@ function baseProps() {
   return {
     open: true,
     onOpenChange: vi.fn(),
-    regions: ["us_east", "us_west"] as ("us_east" | "us_west")[],
-    sizePresets: ["small", "medium"] as ("small" | "medium")[],
-    localKeyIdentities: [
-      {
-        reference: "/home/me/.ssh/id_ed25519.pub",
-        label: "id_ed25519",
-        fingerprint: "SHA256:abc123",
-      },
-    ],
     sshConfigAliasSuggestions: ["prod-box"],
     instanceStatus: null,
     onProvisionManaged: vi.fn().mockResolvedValue(undefined),
@@ -23,7 +14,6 @@ function baseProps() {
     onReprovision: vi.fn().mockResolvedValue(undefined),
     onDeleteInstance: vi.fn().mockResolvedValue(undefined),
     onRevokeKey: vi.fn().mockResolvedValue(undefined),
-    onConnectManaged: vi.fn().mockResolvedValue(undefined),
     onRegisterUserManaged: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -32,27 +22,33 @@ describe("RemoteSetupDialog", () => {
   it("presents the two-choice entry point", async () => {
     render(<RemoteSetupDialog {...baseProps()} />);
     expect(
-      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+      await screen.findByRole("button", {
+        name: /Treq-managed cloud workspace/,
+      }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Your own VM/ }),
     ).toBeInTheDocument();
   });
 
-  it("provisions one managed Sprite without region, size, or SSH identity", async () => {
+  it("provisions one managed cloud workspace without region, size, or SSH identity", async () => {
     const user = userEvent.setup();
     const props = baseProps();
     render(<RemoteSetupDialog {...props} />);
 
     await user.click(
-      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+      await screen.findByRole("button", {
+        name: /Treq-managed cloud workspace/,
+      }),
     );
 
     expect(screen.queryByLabelText("Region")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Size")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("SSH identity")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Create Sprite" }));
+    await user.click(
+      screen.getByRole("button", { name: "Create cloud workspace" }),
+    );
     expect(props.onProvisionManaged).toHaveBeenCalledWith();
   });
 
@@ -73,19 +69,21 @@ describe("RemoteSetupDialog", () => {
     render(<RemoteSetupDialog {...props} />);
 
     await user.click(
-      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+      await screen.findByRole("button", {
+        name: /Treq-managed cloud workspace/,
+      }),
     );
     await user.click(
-      screen.getByRole("button", { name: "Retry Sprite creation" }),
+      screen.getByRole("button", { name: "Retry cloud workspace creation" }),
     );
 
     expect(props.onProvisionManaged).toHaveBeenCalledOnce();
     expect(
-      screen.queryByRole("button", { name: "Repair setup" }),
+      screen.queryByRole("button", { name: "Repair" }),
     ).not.toBeInTheDocument();
   });
 
-  it("shows a copyable structured server error", async () => {
+  it("shows the first line of a structured server error inline", async () => {
     const user = userEvent.setup();
     const props = {
       ...baseProps(),
@@ -95,13 +93,14 @@ describe("RemoteSetupDialog", () => {
     render(<RemoteSetupDialog {...props} />);
 
     await user.click(
-      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+      await screen.findByRole("button", {
+        name: /Treq-managed cloud workspace/,
+      }),
     );
 
-    expect(screen.getByRole("alert")).toHaveTextContent("corr-123");
-    expect(
-      screen.getByRole("button", { name: "Copy error" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "[invalid_request] Bad Sprite name",
+    );
   });
 
   it("requires host-trust confirmation before registering a user-managed endpoint", async () => {

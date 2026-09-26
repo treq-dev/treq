@@ -19,6 +19,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "ListCommits",
       "ListConflicts",
       "WorkspaceChangeMarker",
+      "MachineUsage",
       "ProbeRepo",
       "CloneRepo",
       "InitRepo",
@@ -49,7 +50,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "PtyStop",
       "PtyAttachCommand",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(40);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(41);
   });
 
   it("is exhaustive over the request union", () => {
@@ -70,6 +71,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       { kind: "ListCommits", repo: "/r" },
       { kind: "ListConflicts", repo: "/r" },
       { kind: "WorkspaceChangeMarker", repo: "/r" },
+      { kind: "MachineUsage", root: "/home/sprite/repos" },
       { kind: "ProbeRepo", repo: "/r" },
       {
         kind: "CloneRepo",

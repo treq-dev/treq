@@ -80,6 +80,12 @@ async function invokeRemoteTrust<T>(
   return data as T;
 }
 
+/**
+ * Where managed clones live on the cloud workspace. Mirrors
+ * `canonicalRepositoryPath` in `supabase/functions/_shared/remote/github-clone.ts`.
+ */
+export const MANAGED_REPOSITORIES_ROOT = "/home/sprite/repos";
+
 export async function execManagedSprite<T>(request: {
   instance_id: string;
   argv: string[];

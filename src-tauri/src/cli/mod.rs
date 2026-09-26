@@ -202,7 +202,7 @@ fn handle_repo_command(matches: &Matches) -> Result<(), String> {
         Err(error)
       }
     },
-    "status" | "branches" | "probe" | "init" | "clone" => {
+    "status" | "branches" | "probe" | "init" | "clone" | "usage" => {
       handle_remote_review_command("repo", matches)
     }
     other => {
@@ -278,6 +278,7 @@ pub(crate) fn parse_remote_command_request(
     ("repo", "status") => Ok(TreqCommandRequest::RepositoryStatus { repo }),
     ("repo", "branches") => Ok(TreqCommandRequest::ListBranches { repo }),
     ("repo", "probe") => Ok(TreqCommandRequest::ProbeRepo { repo }),
+    ("repo", "usage") => Ok(TreqCommandRequest::MachineUsage { root: repo }),
     ("repo", "init") => Ok(TreqCommandRequest::InitRepo {
       repo,
       idempotency_key: require_idempotency_key(idempotency_key)?,
@@ -600,6 +601,7 @@ fn print_cli_help() {
   println!("  treq send [path|-]");
   println!("  treq send --browser <path-or-url>");
   println!("  treq repo inspect --repo <path> [--format human|json]");
+  println!("  treq repo usage --repo <root> [--format human|json]");
   println!(
         "  treq agent-review add --target-type <type> --target-id <id> --file <path> --start-line <n> [--end-line <n>] [--side old|new] --comment <text> [--suggestion <text>]"
     );

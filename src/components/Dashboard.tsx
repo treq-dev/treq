@@ -59,6 +59,7 @@ import {
 import type { RemoteRepository } from "../lib/api-types";
 import type {
   InstanceStatusResponse,
+  MachineUsageReport,
   RemoteRepoProbe,
   RepositoryInspection,
   SshEndpoint,
@@ -106,6 +107,7 @@ import {
   deleteInstance as deleteManagedInstance,
   ensureInstance,
   getInstanceStatus,
+  MANAGED_REPOSITORIES_ROOT,
   issueCertificate,
   registerClientKey,
   reprovisionInstance,
@@ -122,6 +124,7 @@ import {
 } from "../lib/remote-endpoints";
 import {
   dispatchMutationOverSsh,
+  dispatchOverManagedSprite,
   dispatchOverSsh,
 } from "../lib/remote-dispatch";
 import {
@@ -366,6 +369,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     useState<InstanceStatusResponse | null>(null);
   const [provisioningStage, setProvisioningStage] = useState<string>();
   const [provisioningError, setProvisioningError] = useState<string>();
+  const [cloudUsage, setCloudUsage] = useState<MachineUsageReport>();
+  const [cloudUsageError, setCloudUsageError] = useState<string>();
   // Explicit user-managed or managed endpoints carry a native SSH identity.
   // Alias-backed repositories still use the same workspace tree; they
   // dispatch through `remote_dispatch_local` until an endpoint with a
@@ -760,6 +765,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       ]);
       setRemoteSshHosts(hosts.map((h) => h.alias));
       setInstanceStatus(status);
+      void loadCloudUsage(status);
     } catch {
       // Best-effort: the dialog still opens and shows what it could load.
     }
@@ -772,6 +778,34 @@ export const Dashboard: React.FC<DashboardProps> = ({
     } catch {
       // Leave the last-known status in place; the banner reflects staleness.
     }
+  };
+
+  // Usage is computed on the machine itself, so it is only asked for once
+  // the cloud workspace is ready.
+  const loadCloudUsage = async (status: InstanceStatusResponse | null) => {
+    const instance = status?.instance;
+    if (instance?.status !== "ready") return;
+    setCloudUsage(undefined);
+    setCloudUsageError(undefined);
+    try {
+      setCloudUsage(
+        await dispatchOverManagedSprite<MachineUsageReport>(
+          instance.instance_id,
+          { kind: "MachineUsage", root: MANAGED_REPOSITORIES_ROOT },
+        ),
+      );
+    } catch (error) {
+      setCloudUsageError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
+  const refreshCloudWorkspace = async () => {
+    setProvisioningError(undefined);
+    const status = await getInstanceStatus().catch(() => null);
+    if (status) setInstanceStatus(status);
+    await loadCloudUsage(status);
   };
 
   // Full identity -> registration -> certificate -> endpoint sequence (PRD
@@ -787,20 +821,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const status = await getInstanceStatus();
       setInstanceStatus(status);
     } catch (error) {
-      setProvisioningError(
-        error instanceof Error ? error.message : String(error),
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      setProvisioningError(message);
+      addToast({
+        title: "Couldn't create cloud workspace",
+        description: message,
+        type: "error",
+      });
+      // The control plane records the failure; reload so the card offers a
+      // retry instead of a fresh create.
+      await refreshInstanceStatus();
     } finally {
       setProvisioningStage(undefined);
     }
-  };
-
-  // Connect action for an existing ready managed instance (required behavior
-  // "Add a clear Connect action for an existing ready managed instance") -
-  // still runs key registration + certificate issuance + renewal, just skips
-  // provisioning/readiness polling since the instance is already `ready`.
-  const handleConnectManaged = async () => {
-    setShowRemoteSetupDialog(false);
   };
 
   // Wake/reconnect ordering (required behavior): wake, poll readiness,
@@ -2589,12 +2622,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
       instanceStatus={instanceStatus}
       provisioningStage={provisioningStage}
       provisioningError={provisioningError}
+      cloudUsage={cloudUsage}
+      cloudUsageError={cloudUsageError}
       onProvisionManaged={handleProvisionManaged}
       onWake={handleWakeManaged}
       onReprovision={handleReprovisionManaged}
       onDeleteInstance={handleDeleteManagedInstance}
       onRevokeKey={handleRevokeKey}
-      onConnectManaged={handleConnectManaged}
       onRegisterUserManaged={handleRegisterUserManaged}
       onOpenManagedRepositories={handleOpenManagedRepositories}
     />
@@ -2927,7 +2961,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   repoPath={dataRepoPath}
                   onClose={closeSettings}
                   currentBranch={effectiveDefaultBranch}
-                  onOpenRemoteSetup={() => void handleOpenRemoteSetup()}
+                  cloudWorkspace={{
+                    instanceStatus,
+                    provisioningStage,
+                    provisioningError,
+                    usage: cloudUsage,
+                    usageError: cloudUsageError,
+                    onRefreshStatus: refreshCloudWorkspace,
+                    onProvision: handleProvisionManaged,
+                    onWake: () => handleWakeManaged(),
+                    onRepair: handleReprovisionManaged,
+                    onDelete: handleDeleteManagedInstance,
+                    onOpenRepositories: () => {
+                      handleOpenManagedRepositories();
+                      closeSettings();
+                    },
+                  }}
                 />
               )}
 

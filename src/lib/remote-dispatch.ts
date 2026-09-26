@@ -46,6 +46,7 @@ export const TREQ_COMMAND_KINDS = [
   "ListCommits",
   "ListConflicts",
   "WorkspaceChangeMarker",
+  "MachineUsage",
   "ProbeRepo",
   "CloneRepo",
   "InitRepo",
@@ -109,6 +110,7 @@ export type TreqCommandRequest =
       repo: string;
       workspace?: string | null;
     }
+  | { kind: "MachineUsage"; root: string }
   | {
       kind: "CloneRepo";
       repo_url: string;

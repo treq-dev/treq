@@ -4,7 +4,6 @@ import {
   ExternalLink,
   Loader2,
   LogOut,
-  Server,
   User,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -12,22 +11,40 @@ import { Input } from "./ui/input";
 import { WEB_URL } from "../lib/supabase";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAuthStore } from "../stores/authStore";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  CloudWorkspaceCard,
+  type CloudWorkspaceCardProps,
+} from "./remote/CloudWorkspaceCard";
 
 const isDev = import.meta.env.DEV;
 
+/** State and actions for the account's Treq-managed cloud workspace. */
+export interface CloudWorkspaceControls extends CloudWorkspaceCardProps {
+  /** Reloads status from the control plane; called when the card mounts. */
+  onRefreshStatus: () => Promise<void>;
+}
+
 interface AccountSettingsProps {
-  onOpenRemoteSetup?: () => void;
+  cloudWorkspace?: CloudWorkspaceControls;
 }
 
 export const AccountSettings: React.FC<AccountSettingsProps> = ({
-  onOpenRemoteSetup,
+  cloudWorkspace,
 }) => {
   const { user, loading, subscription, signIn, signOut, exchangeToken } =
     useAuthStore();
   const [callbackUrl, setCallbackUrl] = useState("");
   const [devError, setDevError] = useState<string | null>(null);
   const [devLoading, setDevLoading] = useState(false);
+  const refreshCloudWorkspace = cloudWorkspace?.onRefreshStatus;
+  const signedIn = Boolean(user);
+
+  useEffect(() => {
+    if (signedIn) void refreshCloudWorkspace?.();
+    // Load once per sign-in; the callback identity changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn]);
 
   const handleDevCallback = async () => {
     setDevError(null);
@@ -194,25 +211,7 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({
         </div>
       </div>
 
-      {onOpenRemoteSetup && (
-        <div className="border border-border rounded-lg p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Server className="w-4 h-4" />
-            <span className="font-medium">Remote control</span>
-          </div>
-          <p className="text-sm text-muted-foreground mb-4">
-            Create or manage the persistent Sprite used for remote development.
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={onOpenRemoteSetup}
-          >
-            Manage remote environment
-          </Button>
-        </div>
-      )}
+      {cloudWorkspace && <CloudWorkspaceCard {...cloudWorkspace} />}
 
       {/* Sign Out */}
       <Button
