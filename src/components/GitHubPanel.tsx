@@ -375,6 +375,7 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
               />
             ) : (
               <CreatePrForm
+                repoPath={repoPath}
                 repoFullName={repoFullName}
                 onSuccess={(n) =>
                   navigate(githubDetailPath("prs", n, currentFilter), {

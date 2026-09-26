@@ -43,6 +43,7 @@ interface TaskInputProps {
   /** Pre-attach a GitHub issue chip (e.g. starting a prompt from an issue). */
   initialGitHubIssue?: GitHubIssueAttachment | null;
   initialLinearIssue?: LinearIssueAttachment | null;
+  onLinearIssueChange?: (issue: LinearIssueAttachment | null) => void;
 }
 
 export const TaskInput: React.FC<TaskInputProps> = ({
@@ -54,6 +55,7 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   initialText,
   initialGitHubIssue = null,
   initialLinearIssue = null,
+  onLinearIssueChange,
 }) => {
   const [taskText, setTaskText] = useState(initialText ?? "");
   const [githubIssue, setGithubIssue] = useState<GitHubIssueAttachment | null>(
@@ -433,7 +435,10 @@ export const TaskInput: React.FC<TaskInputProps> = ({
                   type="button"
                   aria-label="Remove Linear issue"
                   className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => setLinearIssue(null)}
+                  onClick={() => {
+                    setLinearIssue(null);
+                    onLinearIssueChange?.(null);
+                  }}
                 >
                   <X className="h-3 w-3" />
                 </button>

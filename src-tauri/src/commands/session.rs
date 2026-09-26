@@ -1,12 +1,18 @@
+use crate::core;
 use crate::local_db::{self, PromptHistoryEntry, Session};
+use crate::lock_ext::LockExt;
+use crate::AppState;
+use tauri::State;
 
 #[tauri::command]
 pub fn create_session(
+  state: State<AppState>,
   repo_path: String,
   workspace_id: Option<i64>,
   name: String,
 ) -> Result<i64, String> {
-  local_db::add_session(&repo_path, workspace_id, name)
+  let db = state.db.lock_or_recover();
+  core::sessions::create_session(&db, &repo_path, workspace_id, name)
 }
 
 #[tauri::command]
