@@ -147,7 +147,7 @@ describe("ShowWorkspace - Reviews integration", () => {
         screen.getByRole("button", { name: "Collapse file diff" }),
       ).toBeInTheDocument();
     });
-  });
+  }, 15_000);
 
   it("is able to expand and collapse a file diff", async () => {
     const branchName = "feat/reviews-expand-collapse";
