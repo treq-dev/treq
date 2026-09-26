@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  AlertCircle,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Cloud,
-  Loader2,
-} from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
@@ -14,11 +7,18 @@ import {
   TargetBranchSelector,
   type BranchListItem,
 } from "./TargetBranchSelector";
-import { getValidTargets, type TreeLine } from "../lib/workspace-tree";
+import {
+  getValidTargets,
+  type NewWorkspaceChainEntry,
+} from "../lib/workspace-tree";
 import { type Workspace } from "../lib/api";
 import { cn } from "../lib/utils";
 import { appendPathSuggestion } from "../lib/workspaceMetadata";
 import { Button } from "./ui/button";
+import {
+  type BranchStatus,
+  NewWorkspaceStackCard,
+} from "./NewWorkspaceStackCard";
 
 export interface WorkspaceLeftPanelProps {
   sourceWorkspace: Workspace | null;
@@ -30,7 +30,9 @@ export interface WorkspaceLeftPanelProps {
   onSelectTargetBranch: (branch: string) => void;
   position: "before" | "after";
   onSetPosition: (pos: "before" | "after") => void;
-  treePreview: TreeLine[];
+  stackChain: NewWorkspaceChainEntry[];
+  /** Branch the chain lands on; null until it is known. */
+  baseBranch: string | null;
   moveToExisting: boolean;
   onSetMoveToExisting: (val: boolean) => void;
   otherWorkspaces: Workspace[];
@@ -49,7 +51,7 @@ export interface WorkspaceLeftPanelProps {
   onSetBranchName: (val: string) => void;
   onSetIsEditingBranch: (val: boolean) => void;
   branchPattern: string;
-  branchStatus: "new" | "local" | "remote" | "checking" | null;
+  branchStatus: BranchStatus;
   loading: boolean;
   allWorkspaces: Workspace[];
 }
@@ -64,7 +66,8 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
   onSelectTargetBranch,
   position,
   onSetPosition,
-  treePreview,
+  stackChain,
+  baseBranch,
   moveToExisting,
   onSetMoveToExisting,
   otherWorkspaces,
@@ -120,9 +123,8 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
         )}
       </div>
 
-      {/* Position toggle - show when sourceWorkspace (not root) or when targetBranch chosen */}
-      {((sourceWorkspace && !isStackOnRoot) ||
-        (!sourceWorkspace && targetBranch)) && (
+      {/* Position toggle: only stacking on a workspace honours "before". */}
+      {sourceWorkspace && !isStackOnRoot && !moveToExisting && (
         <div className="flex items-center gap-2">
           <Label className="text-xs whitespace-nowrap">Position:</Label>
           <div className="flex gap-1 bg-muted p-0.5 rounded-md">
@@ -145,36 +147,18 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
         </div>
       )}
 
-      {/* Stack tree preview */}
-      {treePreview.length > 0 && (
-        <div className="bg-muted/50 rounded-md p-2 text-xs font-mono flex-shrink-0">
-          {treePreview.map((line, i) => (
-            <div
-              key={i}
-              className={cn(
-                "leading-5",
-                line.isNew && "text-green-500 font-semibold",
-                line.isCurrent && "text-foreground font-semibold",
-                !line.isNew && !line.isCurrent && "text-muted-foreground",
-              )}
-              style={{ paddingLeft: `${line.depth * 12}px` }}
-            >
-              {line.depth > 0 && (
-                <span className="text-muted-foreground">{"└─ "}</span>
-              )}
-              {line.label}
-              {line.isCurrent && (
-                <span className="text-muted-foreground font-normal">
-                  {" "}
-                  (current)
-                </span>
-              )}
-              {line.isNew && (
-                <span className="text-green-500/70 font-normal"> (new)</span>
-              )}
-            </div>
-          ))}
-        </div>
+      {!moveToExisting && baseBranch && (
+        <NewWorkspaceStackCard
+          chain={stackChain}
+          baseBranch={baseBranch}
+          branchName={branchName}
+          onBranchNameChange={(value) => {
+            onSetBranchName(value);
+            onSetIsEditingBranch(true);
+          }}
+          branchPlaceholder={branchPattern.replace("{name}", "example")}
+          branchStatus={branchStatus}
+        />
       )}
 
       {/* Move to existing workspace toggle */}
@@ -323,54 +307,6 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
                 )}
               </div>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Branch name (hidden when moveToExisting) */}
-      {!moveToExisting && (
-        <div className="grid gap-1.5">
-          <Label htmlFor="branch" className="text-xs">
-            Branch Name
-          </Label>
-          <div className="relative max-w-[220px]">
-            <Input
-              id="branch"
-              value={branchName}
-              onChange={(e) => {
-                onSetBranchName(e.target.value);
-                onSetIsEditingBranch(true);
-              }}
-              placeholder={branchPattern.replace("{name}", "example")}
-              className="pr-8 text-sm h-8"
-              tabIndex={2}
-            />
-            {branchStatus && (
-              <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                {branchStatus === "checking" && (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                )}
-                {branchStatus === "new" && (
-                  <Check className="w-3.5 h-3.5 text-green-500" />
-                )}
-                {branchStatus === "local" && (
-                  <AlertCircle className="w-3.5 h-3.5 text-yellow-500" />
-                )}
-                {branchStatus === "remote" && (
-                  <Cloud className="w-3.5 h-3.5 text-blue-500" />
-                )}
-              </div>
-            )}
-          </div>
-          {branchStatus === "local" && (
-            <p className="text-xs text-yellow-500">
-              Branch already exists locally
-            </p>
-          )}
-          {branchStatus === "remote" && (
-            <p className="text-xs text-blue-500">
-              Branch exists on remote — will check out
-            </p>
           )}
         </div>
       )}

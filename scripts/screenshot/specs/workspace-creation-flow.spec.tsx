@@ -3,10 +3,19 @@ import * as path from "node:path";
 import * as React from "react";
 import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { createTestRepo, openRepo } from "../../../test/utils";
+import {
+  createTestRepo,
+  findSidebarBranchElement,
+  openRepo,
+} from "../../../test/utils";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
-import { createWorkspace } from "../../../src/lib/api";
+import {
+  createWorkspace,
+  getWorkspaces,
+  setWorkspaceTargetBranch,
+} from "../../../src/lib/api";
+import { getFullWorkspacePath } from "../../../src/lib/utils";
 import { captureDocument } from "../capture";
 
 const EXISTING_BRANCH = "treq/existing-work";
@@ -55,8 +64,8 @@ it("captures the workspace creation flow from the home repo", async () => {
   await captureDocument(document, {
     name: "workspace-creation-flow-02-dialog-empty",
     expectations: [
-      "A single-column 'Stack a new Workspace' dialog shows Title, a two-row Description, Advanced and Branch Name fields.",
-      "Below the fields, a collapsed 'Move to workspace' row with a right-pointing chevron; no Commits/Changes tabs are visible.",
+      "Under 'Stacking On', a stack card shows a highlighted new-workspace row holding an empty branch input (placeholder 'treq/example'), above an arrow to the default branch.",
+      "There is no separate Branch Name field below Description/Advanced; a collapsed 'Move to workspace' row sits below the fields.",
       "The 'Create Workspace' button is disabled (greyed) because no branch name is set.",
     ],
   });
@@ -74,7 +83,7 @@ it("captures the workspace creation flow from the home repo", async () => {
   await captureDocument(document, {
     name: "workspace-creation-flow-03-filled",
     expectations: [
-      `The Branch Name field is auto-filled with '${EXPECTED_BRANCH}' derived from the title, with a green check (new branch).`,
+      `The branch input inside the stack card's new-workspace row is auto-filled with '${EXPECTED_BRANCH}' from the title, with a green check.`,
       "The Description box has grown to show all four typed lines with no scrollbar or clipped text.",
       "The 'Create Workspace' button is enabled.",
     ],
@@ -113,7 +122,7 @@ it("captures the workspace creation flow from the home repo", async () => {
   await captureDocument(document, {
     name: "workspace-creation-flow-05-branch-exists",
     expectations: [
-      "Under the Branch Name field, yellow text reads 'Branch already exists locally' with a yellow alert icon in the input.",
+      "Inside the stack card's new-workspace row, yellow text reads 'Branch already exists locally' under the input, with a yellow alert icon in the input.",
     ],
   });
 
@@ -139,6 +148,64 @@ it("captures the workspace creation flow from the home repo", async () => {
       `The workspace header shows the new branch '${EXPECTED_BRANCH}' (or its title '${TITLE}').`,
       "The sidebar lists the new workspace alongside 'treq/existing-work', with the new one selected.",
       "A success toast or no error message is visible; nothing indicates failure.",
+    ],
+  });
+}, 90000);
+
+// Scenario: stacking a new workspace onto an existing two-level stack from
+// the sidebar's "Stack a workspace" action. Checks the stack card places the
+// new row above the parent for "after" and below it for "before", and that
+// the branch name is typed straight into that row.
+it("captures the stack card before/after positions in the stack dialog", async () => {
+  const { repoPath } = createTestRepo(false);
+  openRepo(repoPath);
+
+  // Incidental background state: feat/base <- feat/api.
+  await createWorkspace(repoPath, "feat/base");
+  const parentId = await createWorkspace(repoPath, "feat/api");
+  const parent = (await getWorkspaces(repoPath)).find(
+    (workspace) => workspace.id === parentId,
+  );
+  if (!parent) throw new Error("feat/api workspace missing");
+  await setWorkspaceTargetBranch(
+    repoPath,
+    getFullWorkspacePath(parent),
+    parentId,
+    "feat/base",
+  );
+
+  const user = userEvent.setup();
+  render(<Dashboard />);
+
+  const label = await findSidebarBranchElement("feat/api");
+  const row = label.closest("div") as HTMLElement;
+  await user.hover(row);
+  await user.click(
+    await within(row).findByRole("button", { name: "Stack a workspace" }),
+  );
+  const dialog = await screen.findByTestId("modal");
+  const card = await within(dialog).findByTestId("new-workspace-stack-card");
+  await within(card).findByText("feat/base");
+
+  const branchInput = within(card).getByLabelText("Branch Name");
+  await user.click(branchInput);
+  await user.type(branchInput, "feat/api-client");
+  await waitFor(() => expect(branchInput).toHaveValue("feat/api-client"));
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  await captureDocument(document, {
+    name: "workspace-creation-flow-07-stack-after",
+    expectations: [
+      "Position 'After' is selected; the stack card lists, top to bottom: the highlighted new row, feat/api, feat/base, then an arrow to the default branch.",
+      "The new row's input contains the typed branch 'feat/api-client' with a green check.",
+    ],
+  });
+
+  await user.click(within(dialog).getByRole("button", { name: /^before$/i }));
+  await captureDocument(document, {
+    name: "workspace-creation-flow-08-stack-before",
+    expectations: [
+      "Position 'Before' is selected; the order is now feat/api, the highlighted new row, feat/base, then the default branch.",
+      "The new row still holds 'feat/api-client' in its input.",
     ],
   });
 }, 90000);

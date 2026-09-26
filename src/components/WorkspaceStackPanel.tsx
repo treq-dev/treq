@@ -1,11 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  ArrowDown,
-  CalendarClock,
-  CircleHelp,
-  ExternalLink,
-  Layers2,
-} from "lucide-react";
+import { CalendarClock, CircleHelp, ExternalLink, Layers2 } from "lucide-react";
 
 import useSWR from "swr";
 import { listCommits, listWorkspaceStatuses, type Workspace } from "../lib/api";
@@ -28,6 +22,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
+import { StackDot, StackTrack } from "./StackTrack";
 import { WorkspaceLocIndicator } from "./WorkspaceLocIndicator";
 
 const STACK_DOCS_URL = `${WEB_URL}/docs/concepts/workspaces#stacks-and-rebasing`;
@@ -160,40 +155,24 @@ export const WorkspaceStackPanel = ({
           </span>
         </span>
       </div>
-      <div className="relative">
-        <div
-          className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-border"
-          aria-hidden="true"
-        />
-        <ul className="space-y-0">
-          {stack.map((entry) => (
-            <StackItem
-              key={entry.workspace.id}
-              entry={entry}
-              diffStats={
-                diffStatsByWorkspaceId.get(entry.workspace.id) ?? {
-                  insertions: 0,
-                  deletions: 0,
-                }
+      <StackTrack baseBranch={defaultBranch}>
+        {stack.map((entry) => (
+          <StackItem
+            key={entry.workspace.id}
+            entry={entry}
+            diffStats={
+              diffStatsByWorkspaceId.get(entry.workspace.id) ?? {
+                insertions: 0,
+                deletions: 0,
               }
-              maxChange={maxChange}
-              insertionsCh={insertionsCh}
-              deletionsCh={deletionsCh}
-              onSelect={onSelectWorkspace}
-            />
-          ))}
-          <li>
-            <div className="relative z-10 flex w-full items-start gap-3 py-2 px-2 -mx-2 text-muted-foreground">
-              <div className="flex-shrink-0 mt-0.5 w-[14px] h-[14px] flex items-center justify-center">
-                <ArrowDown className="w-3.5 h-3.5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-mono truncate">{defaultBranch}</p>
-              </div>
-            </div>
-          </li>
-        </ul>
-      </div>
+            }
+            maxChange={maxChange}
+            insertionsCh={insertionsCh}
+            deletionsCh={deletionsCh}
+            onSelect={onSelectWorkspace}
+          />
+        ))}
+      </StackTrack>
     </div>
   );
 };
@@ -235,14 +214,7 @@ function StackItem({
             : "hover:bg-muted",
         )}
       >
-        <div className="flex-shrink-0 mt-0.5">
-          <div
-            className={cn(
-              "w-[14px] h-[14px] rounded-full border-2 border-background",
-              isCurrent ? "bg-primary" : "bg-muted-foreground",
-            )}
-          />
-        </div>
+        <StackDot highlighted={isCurrent} />
         <div className="flex-1 min-w-0">
           <p className="text-sm truncate" title={title}>
             {title}

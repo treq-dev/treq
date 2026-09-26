@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace, WorkspaceSidebarStatus } from "./api-types";
 import {
+  buildNewWorkspaceChain,
   buildWorkspaceTree,
   flattenWorkspaceTree,
   getValidTargets,
@@ -406,5 +407,76 @@ describe("getValidTargets", () => {
     const b = makeWorkspace(2, "feat/b", { targetBranch: "feat/a" });
 
     expect(getValidTargets([a, b], "feat/a")).not.toContain("feat/a");
+  });
+});
+
+describe("buildNewWorkspaceChain", () => {
+  const stack = [
+    makeWorkspace(1, "feat/a", { targetBranch: "main" }),
+    makeWorkspace(2, "feat/b", { targetBranch: "feat/a" }),
+  ];
+  const labels = (entries: ReturnType<typeof buildNewWorkspaceChain>) =>
+    entries.map((entry) => (entry.kind === "new" ? "[new]" : entry.branch));
+
+  it("returns only the new entry when stacking on the default branch", () => {
+    expect(
+      labels(
+        buildNewWorkspaceChain(stack, {
+          parentBranch: "main",
+          position: "after",
+          defaultBranch: "main",
+        }),
+      ),
+    ).toEqual(["[new]"]);
+  });
+
+  it("puts the new entry above the parent chain when position is after", () => {
+    expect(
+      labels(
+        buildNewWorkspaceChain(stack, {
+          parentBranch: "feat/b",
+          position: "after",
+          defaultBranch: "main",
+        }),
+      ),
+    ).toEqual(["[new]", "feat/b", "feat/a"]);
+  });
+
+  it("puts the new entry below the parent when position is before", () => {
+    expect(
+      labels(
+        buildNewWorkspaceChain(stack, {
+          parentBranch: "feat/b",
+          position: "before",
+          defaultBranch: "main",
+        }),
+      ),
+    ).toEqual(["feat/b", "[new]", "feat/a"]);
+  });
+
+  it("includes a parent branch that is not yet a workspace", () => {
+    const entries = buildNewWorkspaceChain(stack, {
+      parentBranch: "local-branch",
+      position: "after",
+      defaultBranch: "main",
+    });
+    expect(labels(entries)).toEqual(["[new]", "local-branch"]);
+    expect(entries[1]).toMatchObject({ kind: "branch", workspace: null });
+  });
+
+  it("stops walking when target branches form a cycle", () => {
+    const cyclic = [
+      makeWorkspace(1, "x", { targetBranch: "y" }),
+      makeWorkspace(2, "y", { targetBranch: "x" }),
+    ];
+    expect(
+      labels(
+        buildNewWorkspaceChain(cyclic, {
+          parentBranch: "x",
+          position: "after",
+          defaultBranch: "main",
+        }),
+      ),
+    ).toEqual(["[new]", "x", "y"]);
   });
 });

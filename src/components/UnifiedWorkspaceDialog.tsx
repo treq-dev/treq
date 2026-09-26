@@ -15,14 +15,11 @@ import {
   type JjFileChange,
   type Workspace,
   type WorkspaceStatus,
+  getRepoDefaultBranch,
   listGitignoredPathSuggestions,
 } from "../lib/api";
 import type { BranchListItem } from "./TargetBranchSelector";
-import {
-  type TreeLine,
-  buildStackTreePreview,
-  buildTreePreview,
-} from "../lib/workspace-tree";
+import { buildNewWorkspaceChain } from "../lib/workspace-tree";
 import { WorkspaceLeftPanel } from "./WorkspaceLeftPanel";
 import { WorkspaceRightPanel } from "./WorkspaceRightPanel";
 import { useWorkspaceDialogEffects } from "../hooks/useWorkspaceDialogEffects";
@@ -237,31 +234,21 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
         (w) => w.branch_name === sourceWorkspace.target_branch,
       ));
 
-  // ── tree preview ─────────────────────────────────────────────────────────
-  const treePreview: TreeLine[] = (() => {
-    if (sourceWorkspace) {
-      if (workspaceStatus) {
-        return buildTreePreview(
-          workspaceStatus.dag_nodes ?? [],
-          sourceWorkspace,
-          { position, newLabel: branchName || "[New Workspace]" },
-        );
-      }
-      return buildStackTreePreview(allWorkspaces, sourceWorkspace, {
-        newLabel: branchName || "[New Workspace]",
-        parentBranch: sourceWorkspace.branch_name,
-        position,
-      });
-    }
-    if (targetBranch) {
-      return buildStackTreePreview(allWorkspaces, null, {
-        newLabel: branchName || "[New Workspace]",
-        parentBranch: targetBranch,
-        position,
-      });
-    }
-    return [];
-  })();
+  // ── stack card ───────────────────────────────────────────────────────────
+  const { data: defaultBranch } = useSWR(
+    open ? ["repo-default-branch", repoPath] : null,
+    () => getRepoDefaultBranch(repoPath),
+  );
+  const parentBranch =
+    sourceWorkspace?.branch_name ?? targetBranch ?? defaultBranch ?? null;
+  const stackChain =
+    defaultBranch && parentBranch
+      ? buildNewWorkspaceChain(allWorkspaces, {
+          parentBranch,
+          position,
+          defaultBranch,
+        })
+      : [];
 
   // ── canSubmit ────────────────────────────────────────────────────────────
   const canSubmit = (() => {
@@ -446,7 +433,8 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
             onSelectTargetBranch={setTargetBranch}
             position={position}
             onSetPosition={setPosition}
-            treePreview={treePreview}
+            stackChain={stackChain}
+            baseBranch={defaultBranch ?? null}
             moveToExisting={moveToExisting}
             onSetMoveToExisting={setMoveToExisting}
             otherWorkspaces={otherWorkspaces}
