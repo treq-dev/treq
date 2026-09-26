@@ -17,6 +17,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import {
+  getRepoDefaultBranch,
   getWorkspaces,
   ghClosePr,
   ghCreatePr,
@@ -376,18 +377,28 @@ export function PrDetailPanel({
 }
 
 export function CreatePrForm({
+  repoPath,
   repoFullName,
   onSuccess,
   onCancel,
 }: {
+  repoPath: string;
   repoFullName: string;
   onSuccess: (prNumber: number) => void;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [base, setBase] = useState("main");
+  // null until the user edits it, so the field follows the repo's default
+  // branch once that loads.
+  const [editedBase, setEditedBase] = useState<string | null>(null);
   const [head, setHead] = useState("");
+
+  const { data: defaultBranch } = useSWR(
+    repoPath ? ["repo-default-branch", repoPath] : null,
+    () => getRepoDefaultBranch(repoPath),
+  );
+  const base = editedBase ?? defaultBranch ?? "";
 
   const create = useMutation({
     mutationFn: () => ghCreatePr(repoFullName, title, body, base, head),
@@ -417,7 +428,7 @@ export function CreatePrForm({
         <Input
           placeholder="Base branch"
           value={base}
-          onChange={(e) => setBase(e.target.value)}
+          onChange={(e) => setEditedBase(e.target.value)}
           className="text-base font-mono"
         />
       </div>
