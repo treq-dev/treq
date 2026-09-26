@@ -10,6 +10,7 @@ export const PREVIEW_FEATURE_IDS = [
   "logs",
   "checks",
   "browser",
+  "agentMessageQueue",
 ] as const;
 
 export type PreviewFeatureId = (typeof PREVIEW_FEATURE_IDS)[number];
@@ -55,6 +56,11 @@ export const PREVIEW_FEATURES: readonly PreviewFeature[] = [
     id: "browser",
     title: "Browser",
     docsPath: "/docs/concepts/browser",
+  },
+  {
+    id: "agentMessageQueue",
+    title: "Agent message queue",
+    docsPath: "/docs/concepts/agent-sessions",
   },
 ];
 

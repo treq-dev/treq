@@ -17,6 +17,7 @@ describe("preview features", () => {
       "logs",
       "checks",
       "browser",
+      "agentMessageQueue",
     ]);
     for (const feature of PREVIEW_FEATURES) {
       expect(feature.docsPath.startsWith("/docs/")).toBe(true);
@@ -32,6 +33,7 @@ describe("preview features", () => {
     expect(FEATURES.logs).toBe(false);
     expect(FEATURES.checks).toBe(false);
     expect(FEATURES.browser).toBe(false);
+    expect(FEATURES.agentMessageQueue).toBe(false);
   });
 
   it("defaults every preview flag on in test and dev", () => {
@@ -42,6 +44,7 @@ describe("preview features", () => {
     expect(previewFeatureDefault("logs")).toBe(true);
     expect(previewFeatureDefault("checks")).toBe(true);
     expect(previewFeatureDefault("browser")).toBe(true);
+    expect(previewFeatureDefault("agentMessageQueue")).toBe(true);
   });
 
   it("honors stored true/false over the startup default", () => {
