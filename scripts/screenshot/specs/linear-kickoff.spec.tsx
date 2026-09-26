@@ -106,13 +106,16 @@ it("kicks off an agent prompt from a Linear issue in Kanban view", async () => {
 
   await user.click(await screen.findByTestId("linear-sidebar-item"));
   await screen.findByText("Rework the ranking pipeline");
+  expect(
+    await screen.findAllByRole("button", { name: "Kick off" }),
+  ).toHaveLength(3);
 
   await captureDocument(document, {
     name: "linear-kickoff-01-list-view",
     expectations: [
       "The Linear panel is open in List view with ENG-101 and ENG-103 as root rows.",
       "Sub-issue ENG-102 is indented under ENG-101 with a left border.",
-      "No Kick off button is present on any list row.",
+      "Every row (ENG-101, ENG-102, ENG-103) has a Kick off button at its right edge.",
     ],
   });
 
