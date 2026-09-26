@@ -1,5 +1,5 @@
 -- Remote SSH observability and operations (Phase 7:
--- prds/remote-ssh.md "Observability and operations"). Adds the columns the
+-- prds/remote-development.md "Observability and operations"). Adds the columns the
 -- audit trail was missing to satisfy "Control-plane events" in full
 -- (correlation id, provider request id, operation duration), a named
 -- retention window plus a pruning function, failure-inspection views, and
@@ -113,7 +113,7 @@ where severity = 'error'
 order by created_at desc;
 
 comment on view public.remote_recent_failures is
-  'Non-raw, queryable view of readiness-stage, provider, certificate, and host-key failures for operator inspection. See prds/remote-ssh.md "operational dashboards and failure inspection tooling".';
+  'Non-raw, queryable view of readiness-stage, provider, certificate, and host-key failures for operator inspection. See prds/remote-development.md "operational dashboards and failure inspection tooling".';
 
 create view public.remote_instance_health as
 select
