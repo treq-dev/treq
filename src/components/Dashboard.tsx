@@ -51,7 +51,6 @@ import {
   remoteOpenRepoOverSsh,
   remoteProbeRepoOverSsh,
   selectFolder,
-  setSessionModel,
   setSetting,
   setWindowRepoPath,
   updateSessionAccess,
@@ -98,6 +97,7 @@ import {
   type AutoReviewEvent,
 } from "../lib/agent-review-launch";
 import { LINEAR_BASE_PATH } from "../lib/linearRoutes";
+import { useLinearAutoKickoff } from "../hooks/useLinearAutoKickoff";
 import { openRepositoryAtPath as openRepositoryAtPathShared } from "../lib/open-repository";
 import type {
   GitHubIssueAttachment,
@@ -737,6 +737,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     ? repositoryCacheKey(activeRepository)
     : repoPath;
   const remoteCaps = capabilitiesFor(Boolean(isRemoteActive));
+  useLinearAutoKickoff(
+    dataRepoPath,
+    linearIntegrationEnabled && !isRemoteActive,
+  );
   const cutoffReason = useRemoteCutoffStore((s) =>
     activeRepository?.endpointId
       ? s.cutoffs[activeRepository.endpointId]
@@ -1812,19 +1816,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     const sessionId = await createSession(repoPath, workspaceId, name);
-
-    // Apply default model from settings (repo-level overrides application-level)
-    try {
-      const repoDefaultModel = await getRepoSetting(repoPath, "default_model");
-      const appDefaultModel = await getSetting("default_model");
-      const defaultModel = repoDefaultModel || appDefaultModel;
-
-      if (defaultModel) {
-        await setSessionModel(repoPath, sessionId, defaultModel);
-      }
-    } catch (error) {
-      console.warn("Failed to set default model for session:", error);
-    }
 
     void invalidateQueries(["sessions"]);
     return sessionId;
@@ -3015,19 +3006,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <LinearPanel
                   repoPath={dataRepoPath}
                   onStartPromptFromIssue={handleStartPromptFromLinearIssue}
-                  onOpenWorkspace={async (workspaceId) => {
-                    await invalidateQueries(["workspaces", queryRepoKey]);
-                    const updatedWorkspaces = await fetchAndCache(
-                      ["workspaces", repoPath],
-                      () => getWorkspaces(dataRepoPath),
-                    );
-                    const workspace = updatedWorkspaces.find(
-                      (w) => w.id === workspaceId,
-                    );
-                    if (workspace) {
-                      handleSelectWorkspace(workspace);
-                    }
-                  }}
                 />
               )}
 
@@ -3202,6 +3180,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             initialPrompt={runPromptRequest?.prompt}
             initialWorkspaceId={runPromptRequest?.workspaceId ?? null}
             initialGitHubIssue={runPromptRequest?.githubIssue ?? null}
+            initialLinearIssue={runPromptRequest?.linearIssue ?? null}
           />
 
           <PromptHistoryModal

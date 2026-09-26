@@ -9,12 +9,17 @@ vi.mock("./TaskInput", () => ({
     onSessionCreated,
     initialText,
     initialGitHubIssue,
+    onLinearIssueChange,
   }: {
     onSessionCreated: (value: unknown) => void;
     initialText?: string;
     initialGitHubIssue?: { number: number; url: string; title: string } | null;
+    onLinearIssueChange?: (issue: null) => void;
   }) => (
     <div>
+      <button onClick={() => onLinearIssueChange?.(null)}>
+        Remove attached Linear issue
+      </button>
       <div data-testid="task-input-initial-text">{initialText ?? ""}</div>
       <div data-testid="task-input-initial-github-issue">
         {initialGitHubIssue ? `#${initialGitHubIssue.number}` : ""}
@@ -160,5 +165,32 @@ describe("AgentPromptDialog", () => {
     expect(
       screen.getByTestId("task-input-initial-github-issue"),
     ).toHaveTextContent("#42");
+  });
+
+  it("replaces the workspace picker with the issue's new workspace while a Linear issue is attached", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentPromptDialog
+        open
+        onOpenChange={vi.fn()}
+        repoPath="/repo"
+        defaultBranch="main"
+        workspaces={[workspace]}
+        onSessionCreated={vi.fn()}
+        initialLinearIssue={{
+          id: "issue-1",
+          identifier: "ENG-101",
+          url: "https://linear.app/treq/issue/ENG-101",
+          title: "Rework the ranking pipeline",
+          includeSubissues: false,
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByText(/Opens a workspace for ENG-101/)).toBeTruthy();
+
+    await user.click(screen.getByText("Remove attached Linear issue"));
+    expect(screen.getByRole("combobox")).toHaveTextContent("main");
   });
 });

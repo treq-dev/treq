@@ -1821,8 +1821,9 @@ export const ShowWorkspace = ({
           className="border-b p-2 flex flex-col gap-1 flex-shrink-0"
           data-testid="show-workspace-header"
         >
-          {/* Row 1: Branch name */}
-          <div className="flex items-center justify-between">
+          {/* Row 1: Branch name. Wraps so the actions drop to a second row
+              instead of overlapping the branch controls in a narrow pane. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
             <div className="flex items-center gap-2 min-w-0">
               <GitBranch className="w-4 h-4 text-muted-foreground shrink-0" />
 
@@ -2000,7 +2001,7 @@ export const ShowWorkspace = ({
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 ml-auto">
               {/* Push to remote button - shown when the branch isn't on remote
 								    and we can't offer the combined push+create-PR flow (either
 								    there's no GitHub remote, or this is the default branch, which

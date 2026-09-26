@@ -26,6 +26,7 @@ function defaultFlags(): PreviewFlags {
     logs: previewFeatureDefault("logs"),
     checks: previewFeatureDefault("checks"),
     browser: previewFeatureDefault("browser"),
+    agentMessageQueue: previewFeatureDefault("agentMessageQueue"),
   };
 }
 
