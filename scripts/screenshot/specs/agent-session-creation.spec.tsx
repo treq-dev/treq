@@ -28,7 +28,7 @@ it("captures agent session creation from the prompt dialog", async () => {
   process.env.PATH = `${fakeAgentDir}:${originalPath ?? ""}`;
 
   try {
-    const { repoPath } = createTestRepo(false);
+    const { repoPath, defaultBranch } = createTestRepo(false);
     openRepo(repoPath);
     // Background state: a workspace for the picker to list.
     const targetWorkspaceId = await createWorkspace(repoPath, TARGET_BRANCH);
@@ -105,12 +105,24 @@ it("captures agent session creation from the prompt dialog", async () => {
       ).not.toBeNull(),
     );
 
+    // Starting a session in another workspace does not navigate: the page
+    // stays on the workspace the user was viewing, and the terminal tab's
+    // branch badge is what names the session's workspace.
+    const header = screen.getByTestId("show-workspace-header");
+    expect(header).toHaveTextContent(defaultBranch);
+    expect(header).not.toHaveTextContent(TARGET_BRANCH);
+    expect(
+      screen.getByText(TARGET_BRANCH, {
+        selector: '[data-testid="workspace-terminal-pane"] *',
+      }),
+    ).toBeInTheDocument();
+
     await captureDocument(document, {
       name: "agent-session-creation-03-session-started",
       expectations: [
-        "The prompt dialog is closed.",
-        "An agent terminal pane is open with a tab for the new session.",
-        `The view shows ${TARGET_BRANCH} as the active workspace (header and highlighted sidebar row).`,
+        "The prompt dialog is closed and an agent terminal pane is open with a tab titled with the prompt.",
+        `The terminal tab carries a '${TARGET_BRANCH}' badge naming the session's workspace.`,
+        `The page stays on the home repo: the header and highlighted sidebar row show the default branch, not ${TARGET_BRANCH}.`,
       ],
     });
   } finally {

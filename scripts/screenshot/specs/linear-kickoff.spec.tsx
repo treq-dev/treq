@@ -16,16 +16,29 @@ import type {
   LinearTeam,
   LinearUser,
 } from "../../../src/lib/api-linear";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createWorkspace,
+  getSessions,
+  getWorkspaces,
+} from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { createTestRepo, openRepo } from "../../../test/utils";
 import { captureDocument } from "../capture";
 
-const { mockLinearListTeams, mockLinearListIssues, mockLinearGetViewer } =
-  vi.hoisted(() => ({
-    mockLinearListTeams: vi.fn(),
-    mockLinearListIssues: vi.fn(),
-    mockLinearGetViewer: vi.fn(),
-  }));
+const {
+  mockLinearListTeams,
+  mockLinearListIssues,
+  mockLinearGetViewer,
+  mockLinearKickoff,
+} = vi.hoisted(() => ({
+  mockLinearListTeams: vi.fn(),
+  mockLinearListIssues: vi.fn(),
+  mockLinearGetViewer: vi.fn(),
+  mockLinearKickoff: vi.fn(),
+}));
 
 vi.mock("../../../src/lib/api-linear", async () => {
   const actual = await vi.importActual<
@@ -36,6 +49,7 @@ vi.mock("../../../src/lib/api-linear", async () => {
     linearListTeams: mockLinearListTeams,
     linearListIssues: mockLinearListIssues,
     linearGetViewer: mockLinearGetViewer,
+    linearOpenOrCreateWorkspaceFromIssue: mockLinearKickoff,
   };
 });
 
@@ -157,6 +171,139 @@ it("kicks off an agent prompt from a Linear issue in Kanban view", async () => {
     name: "linear-kickoff-04-issue-removed",
     expectations: [
       "The ENG-101 chip is gone and the branch picker combobox is back above the prompt textarea.",
+    ],
+  });
+}, 60000);
+
+function withFakeClaude() {
+  const dir = mkdtempSync(join(tmpdir(), "treq-linear-kickoff-"));
+  const bin = join(dir, "claude");
+  writeFileSync(bin, "#!/bin/sh\nprintf 'agent started\\n'\nsleep 5\n");
+  chmodSync(bin, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${dir}:${originalPath ?? ""}`;
+  return () => {
+    process.env.PATH = originalPath;
+  };
+}
+
+async function openKickoffDialog(
+  user: ReturnType<typeof userEvent.setup>,
+  issueTitle: string,
+) {
+  await user.click(await screen.findByTestId("linear-sidebar-item"));
+  await user.click(await screen.findByRole("tab", { name: "Kanban" }));
+  const card = (await screen.findByText(issueTitle)).closest(
+    "div",
+  ) as HTMLElement;
+  await user.click(within(card).getByRole("button", { name: "Kick off" }));
+  return (
+    await screen.findByRole("heading", { name: "Start a new agent session" })
+  ).closest('[data-testid="modal"]') as HTMLElement;
+}
+
+it("starts an agent session in the Linear issue's workspace on submit", async () => {
+  const restorePath = withFakeClaude();
+  try {
+    const { repoPath } = createTestRepo(false);
+    openRepo(repoPath);
+    mockLinearListTeams.mockResolvedValue(TEAMS);
+    mockLinearListIssues.mockResolvedValue(ISSUES);
+    mockLinearGetViewer.mockResolvedValue(VIEWER);
+    // Stands in for the Linear lookup only: the workspace itself is created
+    // by the real backend, under the issue's branch name.
+    mockLinearKickoff.mockImplementation(async (path: string) => {
+      const workspaceId = await createWorkspace(path, "eng-103");
+      return [
+        { issue_id: "issue-3", workspace_id: workspaceId, created: true },
+      ];
+    });
+
+    const user = userEvent.setup();
+    render(<Dashboard />);
+
+    const dialog = await openKickoffDialog(
+      user,
+      "Investigate invoice rounding error",
+    );
+    await user.type(
+      within(dialog).getByPlaceholderText("Describe a task..."),
+      "Fix the rounding",
+    );
+    await user.click(within(dialog).getByRole("button", { name: /^edit$/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Start a new agent session" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(mockLinearKickoff).toHaveBeenCalledWith(repoPath, "issue-3", false);
+    await waitFor(async () => {
+      const sessions = await getSessions(repoPath);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].workspace_id).not.toBeNull();
+    });
+    await screen.findByTestId("linear-panel");
+    // Known gap: the backend has the new workspace, but TaskInput never
+    // refreshes the sidebar's workspace list after the Linear kickoff.
+    expect(
+      (await getWorkspaces(repoPath)).some((w) => w.branch_name === "eng-103"),
+    ).toBe(true);
+    expect(screen.queryByText("eng-103")).not.toBeInTheDocument();
+
+    await captureDocument(document, {
+      name: "linear-kickoff-05-submitted",
+      expectations: [
+        "The prompt dialog is closed and the Linear panel is still the page on screen (no navigation).",
+        "Known gap: the sidebar's Workspaces list is still empty even though the eng-103 workspace was created.",
+      ],
+    });
+  } finally {
+    restorePath();
+  }
+}, 120000);
+
+it("keeps the dialog open and shows an error toast when the Linear workspace can't be created", async () => {
+  const { repoPath } = createTestRepo(false);
+  openRepo(repoPath);
+  mockLinearListTeams.mockResolvedValue(TEAMS);
+  mockLinearListIssues.mockResolvedValue(ISSUES);
+  mockLinearGetViewer.mockResolvedValue(VIEWER);
+  // Real backend: with no Linear credentials configured, the command fails.
+  const actual = await vi.importActual<
+    typeof import("../../../src/lib/api-linear")
+  >("../../../src/lib/api-linear");
+  mockLinearKickoff.mockImplementation(
+    actual.linearOpenOrCreateWorkspaceFromIssue,
+  );
+
+  const user = userEvent.setup();
+  render(<Dashboard />);
+
+  const dialog = await openKickoffDialog(
+    user,
+    "Investigate invoice rounding error",
+  );
+  await user.type(
+    within(dialog).getByPlaceholderText("Describe a task..."),
+    "Fix the rounding",
+  );
+  await user.click(within(dialog).getByRole("button", { name: /^edit$/i }));
+
+  await screen.findByText("Failed to create task");
+  expect(
+    screen.getByRole("heading", { name: "Start a new agent session" }),
+  ).toBeInTheDocument();
+  expect(within(dialog).getByTestId("linear-issue-chip")).toHaveTextContent(
+    "ENG-103",
+  );
+  expect(await getSessions(repoPath)).toHaveLength(0);
+
+  await captureDocument(document, {
+    name: "linear-kickoff-06-submit-error",
+    expectations: [
+      "A red error toast titled 'Failed to create task' is visible.",
+      "The prompt dialog is still open with the ENG-103 chip and the typed prompt 'Fix the rounding' intact.",
     ],
   });
 }, 60000);
