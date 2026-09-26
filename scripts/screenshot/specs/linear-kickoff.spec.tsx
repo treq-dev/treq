@@ -16,7 +16,7 @@ import type {
   LinearTeam,
   LinearUser,
 } from "../../../src/lib/api-linear";
-import { render, screen, within } from "../../../test/test-utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { createTestRepo, openRepo } from "../../../test/utils";
 import { captureDocument } from "../capture";
 
@@ -140,6 +140,20 @@ it("kicks off an agent prompt from a Linear issue in Kanban view", async () => {
     expectations: [
       'The "Start a new agent session" dialog is open over the Linear panel.',
       "An ENG-101 chip with a violet issue icon and a remove (x) button sits above the prompt textarea.",
+      'In place of the branch picker, a muted line reads "Opens a workspace for ENG-101 and its sub-issues".',
+    ],
+  });
+
+  await user.click(screen.getByRole("button", { name: "Remove Linear issue" }));
+  await waitFor(() => {
+    if (screen.queryByText(/Opens a workspace for/))
+      throw new Error("picker not restored yet");
+  });
+
+  await captureDocument(document, {
+    name: "linear-kickoff-04-issue-removed",
+    expectations: [
+      "The ENG-101 chip is gone and the branch picker combobox is back above the prompt textarea.",
     ],
   });
 }, 60000);
