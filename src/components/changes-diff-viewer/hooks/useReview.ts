@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { useDebounce } from "../../../hooks/useDebounce";
 import {
@@ -10,12 +11,12 @@ import {
   unmarkFileViewed,
 } from "../../../lib/api";
 import type { ParsedFileChange } from "../../../lib/git-utils";
-import { shouldWritePendingReview } from "../../../lib/should-write-pending-review";
-import { setQueryData } from "../../../lib/swr-cache";
 import {
   FILE_COMMENT_HUNK_ID,
   formatReviewMarkdown as formatReviewMarkdownShared,
 } from "../../../lib/review";
+import { shouldWritePendingReview } from "../../../lib/should-write-pending-review";
+import { setQueryData } from "../../../lib/swr-cache";
 import type { useToast } from "../../ui/toast";
 import type { ConflictComment, FileHunksData, LineComment } from "../types";
 import {
@@ -222,7 +223,14 @@ export function useReview({
 
   const handleMarkFileViewed = async (filePath: string) => {
     const fileData = allFileHunks.get(filePath);
-    const contentHash = fileData?.hunks ? computeHunksHash(fileData.hunks) : "";
+    // A diff still loading holds placeholder hunks. Hashing those would
+    // record a hash the real diff never matches, so the stale-content check
+    // above would un-mark the file as soon as it loads. An empty hash is
+    // never treated as stale.
+    const contentHash =
+      fileData && !fileData.isLoading && fileData.hunks.length > 0
+        ? computeHunksHash(fileData.hunks)
+        : "";
     const now = new Date().toISOString();
     setViewedFiles((prev) =>
       new Map(prev).set(filePath, { contentHash, viewedAt: now }),
