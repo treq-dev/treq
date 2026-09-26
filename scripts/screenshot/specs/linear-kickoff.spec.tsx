@@ -25,7 +25,11 @@ import {
   getWorkspaces,
 } from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
-import { createTestRepo, openRepo } from "../../../test/utils";
+import {
+  createTestRepo,
+  findSidebarBranchElement,
+  openRepo,
+} from "../../../test/utils";
 import { captureDocument } from "../capture";
 
 const {
@@ -244,18 +248,16 @@ it("starts an agent session in the Linear issue's workspace on submit", async ()
       expect(sessions[0].workspace_id).not.toBeNull();
     });
     await screen.findByTestId("linear-panel");
-    // Known gap: the backend has the new workspace, but TaskInput never
-    // refreshes the sidebar's workspace list after the Linear kickoff.
     expect(
       (await getWorkspaces(repoPath)).some((w) => w.branch_name === "eng-103"),
     ).toBe(true);
-    expect(screen.queryByText("eng-103")).not.toBeInTheDocument();
+    await findSidebarBranchElement("eng-103");
 
     await captureDocument(document, {
       name: "linear-kickoff-05-submitted",
       expectations: [
         "The prompt dialog is closed and the Linear panel is still the page on screen (no navigation).",
-        "Known gap: the sidebar's Workspaces list is still empty even though the eng-103 workspace was created.",
+        "The sidebar's Workspaces list now includes the new 'eng-103' workspace.",
       ],
     });
   } finally {
