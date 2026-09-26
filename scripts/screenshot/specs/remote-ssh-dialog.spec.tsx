@@ -27,9 +27,7 @@ it("captures the remote setup flow opening from onboarding", async () => {
     ],
   });
 
-  await user.click(
-    await screen.findByRole("button", { name: /Your own VM/ }),
-  );
+  await user.click(await screen.findByRole("button", { name: /Your own VM/ }));
   await screen.findByLabelText("Display name");
   await captureDocument(document, {
     name: "remote-ssh-dialog-04-user-managed",

@@ -6,7 +6,7 @@ import type {
   InstanceStatusResponse,
   ManagedInstanceRecord,
 } from "../../../src/lib/api-types-remote";
-import { render, screen, within } from "../../../test/test-utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { captureDocument } from "../capture";
 
 // Sprite lifecycle lives behind the `remote-instance` Supabase Edge Function,
@@ -23,7 +23,9 @@ const { server } = vi.hoisted(() => ({
   },
 }));
 
-function sprite(overrides: Partial<ManagedInstanceRecord>): ManagedInstanceRecord {
+function sprite(
+  overrides: Partial<ManagedInstanceRecord>,
+): ManagedInstanceRecord {
   return {
     instance_id: "inst-qa",
     owner_user_id: "user-qa",
@@ -181,10 +183,18 @@ it("captures creating a Treq-managed Sprite from onboarding", async () => {
       port: 22,
       username: "sprite",
       host_keys: [],
-      authentication: { type: "certificate", key_reference: "~/.ssh/id_ed25519" },
+      authentication: {
+        type: "certificate",
+        key_reference: "~/.ssh/id_ed25519",
+      },
     },
   };
-  await user.keyboard("{Escape}");
+  // The shared Dialog has no Escape handler or close button; the backdrop is
+  // the only dismiss affordance.
+  const backdrop = screen.getByRole("dialog").parentElement
+    ?.previousElementSibling as HTMLElement;
+  await user.click(backdrop);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await user.click(await screen.findByRole("button", { name: "Open via SSH" }));
   await user.click(
     await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
