@@ -1,5 +1,5 @@
 // Edge function: administrative key revocation and instance recovery
-// (prds/remote-ssh.md, Phase 7: "Add administrative key revocation and
+// (prds/remote-development.md, Phase 7: "Add administrative key revocation and
 // instance recovery procedures").
 //
 // This function is deliberately NOT reachable with a normal end user's
@@ -46,7 +46,7 @@ const corsHeaders = {
 
 // Instance statuses this endpoint treats as "non-terminal" and therefore
 // eligible for a forced recovery transition. Matches the state machine in
-// prds/remote-ssh.md "Instance lifecycle" minus "ready"/"suspended"/
+// prds/remote-development.md "Instance lifecycle" minus "ready"/"suspended"/
 // "deleted", which are not stuck states.
 const RECOVERABLE_STATUSES = [
   "provisioning",
