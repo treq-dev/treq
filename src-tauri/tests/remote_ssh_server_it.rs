@@ -242,11 +242,20 @@ fn sign_user_certificate(
   );
 }
 
+/// Builds the endpoint the way the app does after `issue_certificate`: the
+/// key reference is the `.pub` path the desktop identity picker returns, and
+/// the certificate travels inline. The `-cert.pub` file `ssh-keygen -s`
+/// wrote is read and then removed, so a passing test proves the transport
+/// used the inline certificate rather than the file next to the key.
 fn cert_endpoint(cfg: &ItConfig, key_path: &Path, id_suffix: &str) -> SshEndpoint {
+  let cert_path = PathBuf::from(format!("{}-cert.pub", key_path.display()));
+  let certificate = std::fs::read_to_string(&cert_path).expect("read issued certificate");
+  std::fs::remove_file(&cert_path).expect("remove certificate file");
   let mut endpoint = cfg.endpoint.clone();
   endpoint.id = format!("remote-ssh-server-it-cert-{id_suffix}");
   endpoint.authentication = SshAuthentication::Certificate {
-    key_reference: key_path.to_string_lossy().into_owned(),
+    key_reference: format!("{}.pub", key_path.display()),
+    certificate: Some(certificate),
   };
   endpoint
 }

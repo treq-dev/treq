@@ -140,9 +140,12 @@ import {
 } from "../lib/remote-repository";
 import {
   connectExistingReadyInstance,
+  connectManagedInstance,
+  pickDefaultKeyReference,
   reauthenticateManagedInstance,
-  waitForInstanceReady,
+  wakeManagedInstance,
   type ManagedConnectionDeps,
+  type ManagedConnectionResult,
   type RenewalController,
 } from "../lib/managed-ssh-connection";
 import { startManagedCertificateRenewal } from "../lib/remote-cert-lifecycle";
@@ -514,7 +517,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [selectedKeyReference, setSelectedKeyReference] = useState<
     string | null
   >(null);
-  const renewalControllerRef = useRef<RenewalController | null>(null);
+  // The renewal loop for the active managed endpoint, tagged with that
+  // endpoint's id so a certificate update (same id) keeps it running while a
+  // replacement or disconnect (different id) stops it.
+  const renewalRef = useRef<{
+    endpointId: string;
+    controller: RenewalController;
+  } | null>(null);
   const cutoffs = useRemoteCutoffStore((s) => s.cutoffs);
   const clearRemoteCutoff = useRemoteCutoffStore((s) => s.clearCutoff);
 
@@ -524,16 +533,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, []);
 
   // Stop renewal on disconnect or endpoint replacement (PRD "Stop renewal on
-  // disconnect or endpoint replacement") - this fires whenever
-  // `activeSshEndpoint` changes identity (including to null) or the
-  // component unmounts, before any new renewal loop for a replacement
-  // endpoint is started by the handler that set it.
+  // disconnect or endpoint replacement"). Keyed on the endpoint id, not the
+  // object: a renewed certificate produces a new endpoint object with the
+  // same id, and that must not stop the loop that produced it. The check
+  // also cannot stop a loop that was started for the endpoint just
+  // activated, whichever of the render or the handler's bookkeeping runs
+  // first.
+  const activeSshEndpointId = activeSshEndpoint?.id ?? null;
+  useEffect(() => {
+    const { current } = renewalRef;
+    if (current && current.endpointId !== activeSshEndpointId) {
+      current.controller.stop();
+      renewalRef.current = null;
+    }
+  }, [activeSshEndpointId]);
   useEffect(
     () => () => {
-      renewalControllerRef.current?.stop();
-      renewalControllerRef.current = null;
+      renewalRef.current?.controller.stop();
+      renewalRef.current = null;
     },
-    [activeSshEndpoint],
+    [],
   );
 
   const managedConnectionDeps = (): ManagedConnectionDeps => ({
@@ -555,12 +574,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
     issueCertificate: (instanceId, keyId) =>
       issueCertificate({ instance_id: instanceId, key_id: keyId }),
     activateEndpoint: (endpoint) => {
-      renewalControllerRef.current?.stop();
+      renewalRef.current?.controller.stop();
+      renewalRef.current = null;
       setActiveSshEndpoint(endpoint);
       setActiveEndpointGeneration(
         endpoint.source.type === "managed" ? endpoint.source.generation : 0,
       );
     },
+    // Only swap the certificate if this endpoint is still the active one;
+    // the user may have switched to another endpoint since renewal began.
+    updateEndpointCertificate: (endpoint) =>
+      setActiveSshEndpoint((current) =>
+        current?.id === endpoint.id ? endpoint : current,
+      ),
+    wakeInstance: (instanceId, idempotencyKey) =>
+      wakeInstance({
+        instance_id: instanceId,
+        idempotency_key: idempotencyKey,
+      }),
     startRenewal: (lease, onRenewed) =>
       startManagedCertificateRenewal(lease, onRenewed),
     clearCutoff: (endpointId) => clearRemoteCutoff(endpointId),
@@ -804,8 +835,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Usage is computed on the machine itself over managed SSH, so it is only
   // asked for once the cloud workspace is ready and has an endpoint.
   const loadCloudUsage = async (status: InstanceStatusResponse | null) => {
-    const endpoint = status?.endpoint;
-    if (status?.instance?.status !== "ready" || !endpoint) return;
+    const serverEndpoint = status?.endpoint;
+    if (status?.instance?.status !== "ready" || !serverEndpoint) return;
+    // Prefer the active endpoint when it carries this device's key and
+    // certificate for the same instance; the control plane's endpoint names
+    // a server-side key id the native transport cannot authenticate with.
+    const endpoint =
+      activeSshEndpoint?.id === serverEndpoint.id &&
+      activeSshEndpoint.authentication.type === "certificate" &&
+      activeSshEndpoint.authentication.certificate
+        ? activeSshEndpoint
+        : serverEndpoint;
     setCloudUsage(undefined);
     setCloudUsageError(undefined);
     try {
@@ -829,6 +869,46 @@ export const Dashboard: React.FC<DashboardProps> = ({
     await loadCloudUsage(status);
   };
 
+  // The local identity managed SSH authenticates with: the one used last in
+  // this session, else a default from `~/.ssh`. Throws a message the setup
+  // panel can show when there is no key at all.
+  const resolveManagedKeyReference = async (): Promise<string> => {
+    if (selectedKeyReference) return selectedKeyReference;
+    const reference = pickDefaultKeyReference(await listLocalSshIdentities());
+    if (!reference) {
+      throw new Error(
+        "No SSH key found in ~/.ssh. Create one with `ssh-keygen -t ed25519`, then try again.",
+      );
+    }
+    return reference;
+  };
+
+  // Records a successful managed connection: remembers the renewal loop for
+  // this endpoint and the identity used. Connect and provision then open the
+  // repository list on the certificate-authenticated endpoint; wake and
+  // reauthentication leave the current repository view alone.
+  const adoptManagedConnection = async (
+    result: ManagedConnectionResult,
+    keyReference: string,
+    { openRepositories }: { openRepositories: boolean },
+  ) => {
+    renewalRef.current = {
+      endpointId: result.endpoint.id,
+      controller: result.renewal,
+    };
+    setSelectedKeyReference(keyReference);
+    await refreshInstanceStatus();
+    if (!openRepositories) return;
+    setExplicitEndpointRepoConnected(false);
+    setShowRemoteSetupDialog(false);
+    await refreshSavedRemoteRepos(
+      result.endpoint.id,
+      result.endpoint.source.type === "managed"
+        ? result.endpoint.source.generation
+        : 0,
+    );
+  };
+
   // Full identity -> registration -> certificate -> endpoint sequence (PRD
   // "Managed VM certificate flow"), plus the initial silent-renewal start.
   // See `src/lib/managed-ssh-connection.ts` for the state machine itself.
@@ -836,11 +916,31 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setProvisioningError(undefined);
     setProvisioningStage("Requesting provisioning...");
     try {
-      await ensureInstance({
-        idempotency_key: `provision-managed-${Date.now()}`,
+      const keyReference = await resolveManagedKeyReference();
+      // One idempotency key per click: the control plane replays the stored
+      // result for a repeated key, so a key shared across clicks would turn
+      // "Retry cloud workspace creation" after a failure into a replay of that
+      // failure. The control plane still allows only one cloud workspace per user.
+      const provisionKey = `provision-managed-${crypto.randomUUID()}`;
+      const result = await connectManagedInstance(
+        {
+          ...managedConnectionDeps(),
+          ensureInstance: () =>
+            ensureInstance({ idempotency_key: provisionKey }),
+          getInstanceStatus: async () => {
+            const status = await getInstanceStatus();
+            setInstanceStatus(status);
+            setProvisioningStage(
+              `Waiting for the cloud workspace (${status.instance?.status ?? "unprovisioned"})...`,
+            );
+            return status;
+          },
+        },
+        { region: "us_east", size: "small", keyReference },
+      );
+      await adoptManagedConnection(result, keyReference, {
+        openRepositories: true,
       });
-      const status = await getInstanceStatus();
-      setInstanceStatus(status);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setProvisioningError(message);
@@ -857,29 +957,51 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  // Connect flow for an existing ready managed instance, run by "Open
+  // repositories" when there is no certificate-authenticated endpoint yet.
+  // It still runs key registration + certificate issuance + renewal, just
+  // skips provisioning/readiness polling since the instance is already
+  // `ready`.
+  const handleConnectManaged = async () => {
+    setProvisioningError(undefined);
+    try {
+      const keyReference = await resolveManagedKeyReference();
+      // A fresh status rather than the one the dialog opened with, so a
+      // workspace that went to sleep in the meantime fails with "not ready"
+      // instead of a certificate for an unreachable host.
+      const status = await getInstanceStatus();
+      setInstanceStatus(status);
+      const result = await connectExistingReadyInstance(
+        managedConnectionDeps(),
+        { status, keyReference },
+      );
+      await adoptManagedConnection(result, keyReference, {
+        openRepositories: true,
+      });
+    } catch (error) {
+      setProvisioningError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
   // Wake/reconnect ordering (required behavior): wake, poll readiness,
   // refresh credentials (fresh certificate), validate generation/host trust
   // (via `activateEndpoint` replacing the endpoint), reconnect - only then is
   // interaction restored (the new `activeSshEndpoint` is what gates it).
-  const handleWakeManaged = async (keyReference?: string) => {
+  const handleWakeManaged = async () => {
     const instanceId = instanceStatus?.instance?.instance_id;
-    const resolvedKeyReference = keyReference ?? selectedKeyReference;
-    if (!instanceId || !resolvedKeyReference) return;
+    if (!instanceId) return;
     setProvisioningError(undefined);
     try {
-      await wakeInstance({
-        instance_id: instanceId,
-        idempotency_key: `wake-${instanceId}`,
+      const keyReference = await resolveManagedKeyReference();
+      const result = await wakeManagedInstance(managedConnectionDeps(), {
+        instanceId,
+        keyReference,
       });
-      const deps = managedConnectionDeps();
-      const readyStatus = await waitForInstanceReady(deps);
-      const result = await connectExistingReadyInstance(deps, {
-        status: readyStatus,
-        keyReference: resolvedKeyReference,
+      await adoptManagedConnection(result, keyReference, {
+        openRepositories: false,
       });
-      renewalControllerRef.current = result.renewal;
-      setSelectedKeyReference(resolvedKeyReference);
-      await refreshInstanceStatus();
     } catch (error) {
       setProvisioningError(
         error instanceof Error ? error.message : String(error),
@@ -910,8 +1032,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           keyReference: resolvedKeyReference,
         },
       );
-      renewalControllerRef.current = result.renewal;
-      setSelectedKeyReference(resolvedKeyReference);
+      await adoptManagedConnection(result, resolvedKeyReference, {
+        openRepositories: false,
+      });
     } catch (error) {
       setProvisioningError(
         error instanceof Error ? error.message : String(error),
@@ -968,8 +1091,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         idempotency_key: `revoke-${keyId}`,
       });
       if (activeSshEndpoint && managedKeyId) {
-        renewalControllerRef.current?.stop();
-        renewalControllerRef.current = null;
+        renewalRef.current?.controller.stop();
+        renewalRef.current = null;
         await remoteForceCutoff(activeSshEndpoint.id, "key_revoked");
         useRemoteCutoffStore
           .getState()
@@ -1026,8 +1149,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleOpenManagedRepositories = () => {
-    const endpoint = instanceStatus?.endpoint;
-    if (!endpoint) return;
+    const serverEndpoint = instanceStatus?.endpoint;
+    if (!serverEndpoint) return;
+    // The control plane's endpoint names its own key id, which the native
+    // transport cannot authenticate with. Reuse the active endpoint when it
+    // already carries this device's key and certificate; otherwise run the
+    // full Connect flow to get them.
+    const endpoint =
+      activeSshEndpoint?.id === serverEndpoint.id &&
+      activeSshEndpoint.authentication.type === "certificate" &&
+      activeSshEndpoint.authentication.certificate
+        ? activeSshEndpoint
+        : null;
+    if (!endpoint) {
+      void handleConnectManaged();
+      return;
+    }
     const generation = generationFromEndpoint(
       endpoint,
       instanceStatus?.instance?.generation ?? 0,
