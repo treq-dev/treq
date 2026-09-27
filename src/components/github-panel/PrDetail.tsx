@@ -418,7 +418,12 @@ export function PrDetailPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep open</AlertDialogCancel>
-            <AlertDialogAction onClick={() => closePr.mutate()}>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmCloseOpen(false);
+                closePr.mutate();
+              }}
+            >
               Close pull request
             </AlertDialogAction>
           </AlertDialogFooter>

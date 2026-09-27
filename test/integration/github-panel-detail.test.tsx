@@ -245,6 +245,7 @@ describe("PrDetailPanel close PR", () => {
     const closing = await screen.findByRole("button", { name: /closing/i });
     expect(closing).toBeDisabled();
     expect(closing).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText("Close pull request #42?")).toBeNull();
 
     resolveClose();
     await waitFor(() => {
