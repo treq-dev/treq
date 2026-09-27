@@ -9,7 +9,7 @@ import type {
   WorkspaceSidebarStatus,
   WorkspaceStatus,
 } from "./api-types";
-import type { WorkspaceChangeMarker } from "./api-types-remote";
+import type { SshEndpoint, WorkspaceChangeMarker } from "./api-types-remote";
 import {
   matchesActiveCanonicalPath,
   peekActiveRepository,
@@ -17,8 +17,7 @@ import {
 } from "./active-repository";
 import {
   dispatch,
-  dispatchMutation,
-  dispatchOverManagedSprite,
+  dispatchMutationOverSsh,
   type TreqCommandRequest,
 } from "./remote-dispatch";
 import { applyMutationDispatchResult } from "./remote-mutation-ui";
@@ -29,11 +28,18 @@ function workspaceArg(workspaceId: number | null | undefined): string | null {
   return String(workspaceId);
 }
 
-function activeForPath(repoPath: string): ActiveRepository | null {
+type SshActiveRepository = ActiveRepository & {
+  transport: { type: "ssh"; endpoint: SshEndpoint };
+};
+
+// Only SSH repositories route away from local execution. Narrowing here
+// means a remote mutation always has a real endpoint and can never fall
+// through to running on this machine.
+function activeForPath(repoPath: string): SshActiveRepository | null {
   const active = peekActiveRepository();
-  if (!active || active.transport.type === "local") return null;
+  if (!active || active.transport.type !== "ssh") return null;
   if (!matchesActiveCanonicalPath(active, repoPath)) return null;
-  return active;
+  return active as SshActiveRepository;
 }
 
 function noteCutoffFromError(error: unknown, endpointId: string | null) {
@@ -54,10 +60,6 @@ async function remoteDispatch<T>(
   repo: ActiveRepository,
   request: TreqCommandRequest,
 ): Promise<T> {
-  if (repo.transport.type === "managed_sprite") {
-    return dispatchOverManagedSprite<T>(repo.transport.instanceId, request);
-  }
-
   try {
     return await dispatch<T>(repo.endpoint, request);
   } catch (error) {
@@ -322,12 +324,15 @@ export async function transportCreateCommit(
 ): Promise<string> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const result = await dispatchMutation<string>(repo.endpoint, {
-    kind: "CreateCommit",
-    repo: repo.canonicalPath,
-    workspace: workspaceArg(workspaceId),
-    message,
-  });
+  const result = await dispatchMutationOverSsh<string>(
+    repo.transport.endpoint,
+    {
+      kind: "CreateCommit",
+      repo: repo.canonicalPath,
+      workspace: workspaceArg(workspaceId),
+      message,
+    },
+  );
   const value = applyMutationDispatchResult(result);
   if (result.status === "ambiguous") {
     throw new Error(result.reason);
@@ -341,7 +346,7 @@ export async function transportGitFetch(
 ): Promise<void> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const result = await dispatchMutation(repo.endpoint, {
+  const result = await dispatchMutationOverSsh(repo.transport.endpoint, {
     kind: "GitFetch",
     repo: repo.canonicalPath,
   });
