@@ -1,5 +1,5 @@
-// Edge function: SSH trust and authentication for Remote SSH Control
-// (prds/remote-ssh.md, Phase 3: "SSH trust and authentication").
+// Edge function: SSH trust and authentication for Remote Development
+// (prds/remote-development.md, Phase 3: "SSH trust and authentication").
 //
 // POST body: { action, idempotency_key?, ...action-specific fields }
 // action:

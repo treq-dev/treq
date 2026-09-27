@@ -1,4 +1,4 @@
-// Endpoint-aware remote repository registry (prds/remote-ssh.md,
+// Endpoint-aware remote repository registry (prds/remote-development.md,
 // "Repository opening"): persist descriptors, probe/inspect/clone/init
 // through typed commands, and restore a saved repository only after
 // reconnect + host-key + generation (or explicit transition) + typed

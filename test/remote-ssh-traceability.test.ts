@@ -3,11 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = join(import.meta.dirname, "..");
-const PRD_PATH = join(REPO_ROOT, "prds/remote-ssh.md");
+const PRD_PATH = join(REPO_ROOT, "prds/remote-development.md");
 const MATRIX_PATH = join(REPO_ROOT, "src-tauri/tests/remote_e2e_README.md");
 
 function acceptanceCriteriaSection(markdown: string): string {
-  const heading = "## Acceptance criteria";
+  const heading = "## Ship-blocking acceptance criteria";
   const start = markdown.indexOf(heading);
   if (start === -1) {
     throw new Error(`Missing "${heading}" section in ${PRD_PATH}`);
@@ -38,8 +38,8 @@ export function countReadmeMatrixRows(markdown: string): number {
   return section.match(/^\| \d+ \|/gm)?.length ?? 0;
 }
 
-describe("remote SSH acceptance traceability", () => {
-  it("documents the same number of criteria as prds/remote-ssh.md", () => {
+describe("remote development acceptance traceability", () => {
+  it("documents the same number of criteria as prds/remote-development.md", () => {
     const prd = readFileSync(PRD_PATH, "utf8");
     const matrix = readFileSync(MATRIX_PATH, "utf8");
     const prdCount = countPrdAcceptanceCriteria(prd);

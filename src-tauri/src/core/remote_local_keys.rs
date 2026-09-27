@@ -1,5 +1,5 @@
 //! Enumerates the user's existing local SSH public key identities for the
-//! Phase 6 remote-setup UI (prds/remote-ssh.md, "Treq-managed VM": "The user
+//! Phase 6 remote-setup UI (prds/remote-development.md, "Treq-managed VM": "The user
 //! selects: ... an existing local public/private key identity"; "Treq does
 //! not create a private key").
 //!
@@ -67,7 +67,7 @@ pub fn list_local_ssh_identities() -> Result<Vec<LocalSshIdentity>, String> {
 
 /// Reads the raw OpenSSH public-key text for a previously listed identity,
 /// so the managed-VM setup flow can register it with the control plane
-/// (prds/remote-ssh.md, "Client key policy": "Users select an existing key
+/// (prds/remote-development.md, "Client key policy": "Users select an existing key
 /// identity ... Private keys remain on the user's device").
 ///
 /// `reference` must be exactly a `reference` value returned by

@@ -1,5 +1,5 @@
 // Certificate auto-renewal and hard cutoff for managed-VM SSH certificates
-// (prds/remote-ssh.md, "SSH identity and certificates" > "Silent renewal
+// (prds/remote-development.md, "SSH identity and certificates" > "Silent renewal
 // while the session is active" and "Hard cutoff on revocation or expiry").
 //
 // A certificate must never lapse under a user who remains authenticated.

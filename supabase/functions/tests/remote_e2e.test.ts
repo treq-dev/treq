@@ -1,5 +1,5 @@
 // Phase 8 real-API end-to-end tests for the Remote SSH control plane
-// (prds/remote-ssh.md, "Phase 8: Test infrastructure against real APIs").
+// (prds/remote-development.md, "Phase 8: Test infrastructure against real APIs").
 //
 // This suite calls real, deployed Supabase Edge Functions on a dedicated
 // Supabase *test* project - never the stub adapter

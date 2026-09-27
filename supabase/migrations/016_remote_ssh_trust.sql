@@ -1,4 +1,4 @@
--- Remote SSH trust and authentication (Phase 3: prds/remote-ssh.md
+-- Remote SSH trust and authentication (Phase 3: prds/remote-development.md
 -- "SSH trust and authentication"). Adds the columns and tables needed for
 -- client key algorithm tracking, direct authorized_keys installs, and the
 -- wider set of operation types this phase introduces. The SSH CA private key
