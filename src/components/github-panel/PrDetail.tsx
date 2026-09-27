@@ -13,8 +13,20 @@ import {
 import { CiStatusButton } from "../CiStatusIndicator";
 import { usePrChecksForPr } from "../../hooks/useMergeQueueStatus";
 import { useToast } from "../ui/toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import {
   getRepoDefaultBranch,
@@ -74,6 +86,7 @@ export function PrDetailPanel({
   const { addToast } = useToast();
   const ghErrorToast = useGhErrorToast();
   const [commentBody, setCommentBody] = useState("");
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
 
   const {
     data: pr,
@@ -368,7 +381,7 @@ export function PrDetailPanel({
                     className="text-base"
                     disabled={closePr.isPending}
                     aria-busy={closePr.isPending}
-                    onClick={() => closePr.mutate()}
+                    onClick={() => setConfirmCloseOpen(true)}
                   >
                     {closePr.isPending ? (
                       <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -394,6 +407,23 @@ export function PrDetailPanel({
           </div>
         </div>
       )}
+
+      <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close pull request #{prNumber}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              GitHub notifies the author and reviewers. You can reopen it later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep open</AlertDialogCancel>
+            <AlertDialogAction onClick={() => closePr.mutate()}>
+              Close pull request
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -415,6 +445,7 @@ export function CreatePrForm({
   // branch once that loads.
   const [editedBase, setEditedBase] = useState<string | null>(null);
   const [head, setHead] = useState("");
+  const [draft, setDraft] = useState(false);
 
   const { data: defaultBranch } = useSWR(
     repoPath ? ["repo-default-branch", repoPath] : null,
@@ -423,7 +454,7 @@ export function CreatePrForm({
   const base = editedBase ?? defaultBranch ?? "";
 
   const create = useMutation({
-    mutationFn: () => ghCreatePr(repoFullName, title, body, base, head),
+    mutationFn: () => ghCreatePr(repoFullName, title, body, base, head, draft),
     onSuccess: (prNumber) => {
       void invalidateQueries(["gh-prs", repoFullName]);
       onSuccess(prNumber);
@@ -461,6 +492,17 @@ export function CreatePrForm({
         rows={4}
         className="text-base"
       />
+      <div className="flex items-center gap-2">
+        <Switch
+          id="create-pr-draft"
+          aria-label="Create as draft"
+          checked={draft}
+          onCheckedChange={(checked) => setDraft(checked)}
+        />
+        <Label htmlFor="create-pr-draft" className="text-base">
+          Create as draft
+        </Label>
+      </div>
       <div className="flex gap-2">
         <Button
           size="sm"
@@ -473,7 +515,7 @@ export function CreatePrForm({
           {create.isPending ? (
             <Loader2 className="w-3 h-3 mr-1 animate-spin" />
           ) : null}
-          Create Pull Request
+          {draft ? "Create Draft Pull Request" : "Create Pull Request"}
         </Button>
         <Button
           size="sm"
@@ -485,7 +527,11 @@ export function CreatePrForm({
         </Button>
       </div>
       {create.isError && (
-        <p className="text-base text-destructive">{String(create.error)}</p>
+        <p className="text-base text-destructive">
+          {create.error instanceof Error
+            ? create.error.message
+            : String(create.error)}
+        </p>
       )}
     </div>
   );

@@ -201,7 +201,7 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({
             <span className="font-medium">Remote control</span>
           </div>
           <p className="text-sm text-muted-foreground mb-4">
-            Create or manage the persistent Sprite used for remote development.
+            Create or manage the persistent VM used for remote development.
           </p>
           <Button
             variant="outline"

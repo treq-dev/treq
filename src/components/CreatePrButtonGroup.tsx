@@ -87,7 +87,9 @@ export function CreatePrButtonGroup({
     createPrMutationKey(repoPath, workspace.id),
   );
 
-  if (!remoteInfo || prInfoLoading || prInfo) {
+  // `gh pr view <branch>` also returns closed and merged PRs. Only an open
+  // PR blocks a new one; otherwise the branch can get a fresh PR.
+  if (!remoteInfo || prInfoLoading || prInfo?.state === "OPEN") {
     return null;
   }
 
