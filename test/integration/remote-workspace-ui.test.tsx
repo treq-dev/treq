@@ -168,7 +168,7 @@ describe("remote workspace UI", () => {
     );
   }, 20_000);
 
-  it("disables shell and agent actions from remote capabilities", async () => {
+  it("enables shell and agent actions for remote workspaces", async () => {
     const { repoPath } = createTestRepo(false);
     await createWorkspace(repoPath, "feat/caps");
     await openSavedRemoteRepo(repoPath);
@@ -178,10 +178,11 @@ describe("remote workspace UI", () => {
       "div",
     ) as HTMLElement;
     const shell = within(row).getByRole("button", { name: "Open shell" });
-    expect(shell).toBeDisabled();
-    expect(shell).toHaveAttribute("title", expect.stringContaining("PTY"));
+    expect(shell).toBeEnabled();
+    expect(shell).not.toHaveAttribute("title");
     const agent = within(row).getByRole("button", { name: "Start agent" });
-    expect(agent).toBeDisabled();
+    expect(agent).toBeEnabled();
+    expect(screen.queryByTestId("remote-capability-notice")).toBeNull();
   });
 
   it("blocks interaction behind a credential cutoff banner", async () => {

@@ -1,16 +1,19 @@
 /**
- * Desktop PTY streaming/reattach UI (mobile remote PRD, Phase 8) — the
- * counterpart to mobile's `TerminalScreen.tsx`. Renders a real interactive
- * terminal against a typed `SshEndpoint` over `remote_pty_create`/
- * `remote_pty_reattach`, mirroring `ConsolidatedTerminal`'s xterm.js wiring
- * (fit addon, resize observer, key handling) but against the remote PTY IPC
- * surface (`remotePty*` in `lib/api-extra.ts`) instead of the local one.
+ * Interactive terminal for a remote workspace, rendered in desktop's
+ * terminal pane and in mobile's `TerminalScreen`. Mirrors
+ * `ConsolidatedTerminal`'s xterm.js wiring (fit addon, resize observer) but
+ * talks to the remote PTY IPC surface (`remotePty*` in `lib/api-extra.ts`)
+ * instead of the local one.
  *
- * "Detach" only tears down this component's local xterm/listeners — the
- * VM-local `pty-remote` (tmux/screen) session keeps running and can be
- * reattached to later, same distinction mobile's `TerminalScreen` draws
- * between Detach and Stop. "Stop" additionally asks the VM to kill the
- * session via a `PtyStop` dispatch.
+ * Every session runs inside the VM-local `pty-remote` supervisor
+ * (tmux/screen), opened with `remote_pty_reattach`, which attaches to the
+ * named session or creates it first. So a shell or agent started here keeps
+ * running when the panel closes or the connection drops, and it can be
+ * reattached by its label later.
+ *
+ * "Detach" only tears down this component's xterm, listeners and SSH
+ * channel. "Stop" additionally asks the VM to kill the session via a
+ * `PtyStop` dispatch.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
@@ -21,9 +24,9 @@ import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 import {
   remotePtyClose,
-  remotePtyCreate,
   remotePtyListen,
   remotePtyListenExit,
+  remotePtyListPersistentSessions,
   remotePtyReattach,
   remotePtyResize,
   remotePtyWrite,
@@ -31,8 +34,14 @@ import {
 import { dispatchOverSsh } from "../lib/remote-dispatch";
 import type { SshEndpoint, PtyLaunchSpec } from "../lib/api-types-remote";
 
-/** Every persistent session this panel opens/reattaches to is a plain login shell. */
 const SHELL_LAUNCH: PtyLaunchSpec = { type: "shell" };
+
+/**
+ * Minimum time between automatic reattach attempts. One automatic retry
+ * covers a brief network drop; a session that keeps dropping straight away
+ * waits for the user instead of looping.
+ */
+const AUTO_REATTACH_COOLDOWN_MS = 30_000;
 
 export interface RemoteTerminalTarget {
   endpoint: SshEndpoint;
@@ -41,9 +50,27 @@ export interface RemoteTerminalTarget {
   remoteWorkingDirectory: string;
   /** Persistent `pty-remote` session label this panel attaches to / creates. */
   label: string;
-  /** `true` reattaches to an existing VM-local session; `false` starts fresh. */
+  /**
+   * What to run when the session does not exist yet. Ignored when a session
+   * with this label is already running (the panel attaches to it instead).
+   * Defaults to the user's login shell.
+   */
+  launch?: PtyLaunchSpec;
+  /** `true` when picking up a session that is already running. Only changes the loading text. */
   reattach: boolean;
 }
+
+/**
+ * How the attached SSH channel ended:
+ * - `ended`: the persistent session is gone (the shell or agent exited, or it was stopped).
+ * - `detached`: the channel closed but the session is still running, or its
+ *   state could not be checked because the host is unreachable.
+ */
+type EndState =
+  | { kind: "ended"; exitStatus: number | null }
+  | {
+      kind: "detached";
+    };
 
 interface RemoteTerminalPanelProps {
   target: RemoteTerminalTarget;
@@ -55,27 +82,56 @@ interface RemoteTerminalPanelProps {
    * (Ctrl/Esc/arrows) without duplicating the session-write wiring.
    */
   renderToolbar?: (send: (data: string) => void) => ReactNode;
+  /** Called with each output chunk, for activity tracking in the terminal pane. */
+  onOutput?: (data: string) => void;
+  /** Called when the user types into the terminal. */
+  onInput?: () => void;
 }
+
+const makeSessionId = (target: RemoteTerminalTarget) =>
+  `remote-pty-${target.endpoint.id}-${target.workspaceId}-${target.label}-${Date.now()}`;
 
 export const RemoteTerminalPanel = ({
   target,
   onClose,
   renderToolbar,
+  onOutput,
+  onInput,
 }: RemoteTerminalPanelProps) => {
   const { endpoint, repositoryId, workspaceId, remoteWorkingDirectory, label } =
     target;
-  const [sessionId] = useState(
-    () => `remote-pty-${endpoint.id}-${workspaceId}-${label}-${Date.now()}`,
-  );
+  const launch = target.launch ?? SHELL_LAUNCH;
+  // Each attach uses a fresh local session id: the backend refuses to reuse
+  // an id, and the persistent label, not this id, identifies the session.
+  const [sessionId, setSessionId] = useState(() => makeSessionId(target));
+  const [attachCount, setAttachCount] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
   const isReadyRef = useRef(false);
+  const stoppingRef = useRef(false);
+  const lastAutoReattachRef = useRef<number | null>(null);
+  const onOutputRef = useRef(onOutput);
+  const onInputRef = useRef(onInput);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [exited, setExited] = useState<number | null | undefined>(undefined);
+  const [endState, setEndState] = useState<EndState | null>(null);
   const [isStopping, setIsStopping] = useState(false);
+
+  const reattach = () => {
+    setError(null);
+    setEndState(null);
+    setIsReady(false);
+    setAttachCount((count) => count + 1);
+    setSessionId(makeSessionId(target));
+  };
+  const reattachRef = useRef(reattach);
+
+  useEffect(() => {
+    onOutputRef.current = onOutput;
+    onInputRef.current = onInput;
+    reattachRef.current = reattach;
+  });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -96,7 +152,6 @@ export const RemoteTerminalPanel = ({
     xterm.loadAddon(new WebLinksAddon());
     xterm.open(containerRef.current);
     xtermRef.current = xterm;
-    fitAddonRef.current = fitAddon;
 
     const handleError = (err: unknown) => {
       if (cancelled) return;
@@ -106,54 +161,77 @@ export const RemoteTerminalPanel = ({
 
     const dataSub = xterm.onData((data) => {
       if (!isReadyRef.current) return;
+      onInputRef.current?.();
       remotePtyWrite(sessionId, data).catch(handleError);
     });
 
     let unlistenData: (() => void) | null = null;
     let unlistenExit: (() => void) | null = null;
 
+    // Decides what an ended channel means. The persistent session outlives
+    // the channel, so a closed channel alone does not say whether the shell
+    // exited or the network dropped: ask the VM whether the session is
+    // still there.
+    const handleChannelExit = async (exitStatus: number | null) => {
+      isReadyRef.current = false;
+      if (cancelled || stoppingRef.current) return;
+      let stillRunning: boolean | null;
+      try {
+        const sessions = await remotePtyListPersistentSessions(
+          endpoint,
+          repositoryId,
+          workspaceId,
+        );
+        stillRunning = sessions.some((s) => s.label === label && s.running);
+      } catch {
+        stillRunning = null;
+      }
+      if (cancelled || stoppingRef.current) return;
+      if (stillRunning === false) {
+        setEndState({ kind: "ended", exitStatus });
+        return;
+      }
+      const now = Date.now();
+      const last = lastAutoReattachRef.current;
+      if (
+        stillRunning &&
+        (last === null || now - last > AUTO_REATTACH_COOLDOWN_MS)
+      ) {
+        lastAutoReattachRef.current = now;
+        reattachRef.current();
+        return;
+      }
+      setEndState({ kind: "detached" });
+    };
+
     const cols = xterm.cols || 80;
     const rows = xterm.rows || 24;
 
     const setup = async () => {
       try {
-        if (target.reattach) {
-          await remotePtyReattach(
-            sessionId,
-            endpoint,
-            repositoryId,
-            workspaceId,
-            label,
-            remoteWorkingDirectory,
-            SHELL_LAUNCH,
-            cols,
-            rows,
-          );
-        } else {
-          await remotePtyCreate(
-            sessionId,
-            endpoint,
-            repositoryId,
-            workspaceId,
-            remoteWorkingDirectory,
-            { type: "shell" },
-            cols,
-            rows,
-          );
-        }
-        if (cancelled) return;
-
+        // Subscribe before attaching so the first screen redraw from the
+        // remote side is not emitted before anything is listening.
         unlistenData = await remotePtyListen(sessionId, (chunk) => {
           xterm.write(chunk);
+          onOutputRef.current?.(chunk);
         });
         unlistenExit = await remotePtyListenExit(sessionId, (payload) => {
-          setExited(payload.exit_status);
+          void handleChannelExit(payload.exit_status);
         });
-        if (cancelled) {
-          unlistenData?.();
-          unlistenExit?.();
-          return;
-        }
+        if (cancelled) return;
+
+        await remotePtyReattach(
+          sessionId,
+          endpoint,
+          repositoryId,
+          workspaceId,
+          label,
+          remoteWorkingDirectory,
+          launch,
+          cols,
+          rows,
+        );
+        if (cancelled) return;
 
         isReadyRef.current = true;
         setIsReady(true);
@@ -161,6 +239,9 @@ export const RemoteTerminalPanel = ({
         requestAnimationFrame(() => {
           try {
             fitAddon.fit();
+            remotePtyResize(sessionId, xterm.cols, xterm.rows).catch(() => {
+              /* the channel may already be gone */
+            });
           } catch {
             /* container may not have a layout yet */
           }
@@ -170,7 +251,7 @@ export const RemoteTerminalPanel = ({
       }
     };
 
-    setup();
+    void setup();
 
     const handleResize = () => {
       if (!containerRef.current || !isReadyRef.current) return;
@@ -194,13 +275,9 @@ export const RemoteTerminalPanel = ({
       unlistenExit?.();
       xterm.dispose();
       xtermRef.current = null;
-      fitAddonRef.current = null;
       isReadyRef.current = false;
-      // Deliberately does NOT call remotePtyClose here: unmounting this
-      // panel is "Detach" by default (leave the VM-local tmux/screen
-      // session running). remotePtyClose only tears down this process's
-      // SSH channel to it, which is what a plain component unmount should
-      // do — the remote process itself is unaffected either way.
+      // Unmounting is "Detach": close this process's SSH channel only. The
+      // VM-local tmux/screen session keeps running and can be reattached.
       remotePtyClose(sessionId).catch(() => {
         /* best-effort; the SSH connection may already be gone */
       });
@@ -218,6 +295,7 @@ export const RemoteTerminalPanel = ({
 
   const handleStop = async () => {
     setIsStopping(true);
+    stoppingRef.current = true;
     try {
       await dispatchOverSsh(endpoint, {
         kind: "PtyStop",
@@ -227,11 +305,14 @@ export const RemoteTerminalPanel = ({
       });
       onClose();
     } catch (err) {
+      stoppingRef.current = false;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsStopping(false);
     }
   };
+
+  const isReattaching = target.reattach || attachCount > 0;
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
@@ -241,9 +322,13 @@ export const RemoteTerminalPanel = ({
           <span className="truncate">
             {endpoint.hostname} · {label}
           </span>
-          {exited !== undefined && (
+          {endState?.kind === "ended" && (
             <span className="text-xs text-amber-500">
-              (session ended{exited != null ? `, exit ${exited}` : ""})
+              (session ended
+              {endState.exitStatus != null
+                ? `, exit ${endState.exitStatus}`
+                : ""}
+              )
             </span>
           )}
         </div>
@@ -264,6 +349,7 @@ export const RemoteTerminalPanel = ({
             variant="ghost"
             className="h-6 w-6 p-0"
             aria-label="Detach"
+            title="Detach (the session keeps running)"
             onClick={onClose}
           >
             <X className="w-3.5 h-3.5" />
@@ -275,20 +361,28 @@ export const RemoteTerminalPanel = ({
         style={{ backgroundColor: "#1e1e1e" }}
       >
         <div ref={containerRef} className={cn("h-full w-full pt-1")} />
-        {!isReady && !error && (
+        {!isReady && !error && !endState && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 text-sm text-muted-foreground">
             <Loader2 className="w-5 h-5 animate-spin mb-2" />
             <span>
-              {target.reattach ? "Reattaching…" : "Starting remote shell…"}
+              {isReattaching ? "Reattaching…" : "Starting remote session…"}
             </span>
           </div>
         )}
-        {error && (
+        {(error || endState?.kind === "detached") && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/90 text-sm px-4 text-center">
-            <span className="text-red-500">{error}</span>
-            <Button size="sm" variant="outline" onClick={onClose}>
-              Close
-            </Button>
+            <span className={error ? "text-red-500" : "text-foreground"}>
+              {error ??
+                "Connection to the remote session was lost. The session may still be running on the host."}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={reattach}>
+                Reattach
+              </Button>
+              <Button size="sm" variant="outline" onClick={onClose}>
+                Close
+              </Button>
+            </div>
           </div>
         )}
       </div>

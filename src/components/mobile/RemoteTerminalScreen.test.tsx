@@ -75,15 +75,21 @@ describe("RemoteTerminalScreen", () => {
     const startButton = await screen.findByText("Start new session");
     await user.click(startButton);
 
-    expect(apiExtra.remotePtyCreate).toHaveBeenCalledWith(
-      expect.any(String),
-      endpoint,
-      "/srv/project",
-      "feature-branch",
-      WORKSPACE_PATH,
-      expect.anything(),
-      expect.any(Number),
-      expect.any(Number),
+    // New sessions go through the persistent supervisor (attach-or-create)
+    // so they survive the screen closing or the connection dropping.
+    await vi.waitFor(() =>
+      expect(apiExtra.remotePtyReattach).toHaveBeenCalledWith(
+        expect.any(String),
+        endpoint,
+        "/srv/project",
+        "feature-branch",
+        expect.stringMatching(/^shell-/),
+        WORKSPACE_PATH,
+        { type: "shell" },
+        expect.any(Number),
+        expect.any(Number),
+      ),
     );
+    expect(apiExtra.remotePtyCreate).not.toHaveBeenCalled();
   });
 });

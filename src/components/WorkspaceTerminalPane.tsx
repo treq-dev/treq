@@ -3,6 +3,7 @@ import { type ConsolidatedTerminalHandle } from "./ConsolidatedTerminal";
 import { ptyClose } from "../lib/api";
 import { ptyWrite } from "../lib/api-extra";
 import { type AgentSessionData } from "./terminal/types";
+import { type RemoteTerminalTarget } from "./RemoteTerminalPanel";
 import { WorkspaceTerminalPaneView } from "./WorkspaceTerminalPaneView";
 import { resolveTerminalWorkspace } from "./workspace-terminal-pane/resolveTerminalWorkspace";
 import { useScrollContainerWidth } from "./workspace-terminal-pane/useScrollContainerWidth";
@@ -33,6 +34,7 @@ const WorkspaceTerminalPaneInner = ({
   onNavigateToWorkspace,
   workspaceBranchByPath,
   onTerminalsChange,
+  resolveRemoteShell,
   className,
   ref,
 }: WorkspaceTerminalPaneProps) => {
@@ -141,6 +143,13 @@ const WorkspaceTerminalPaneInner = ({
   // Add new shell terminal in the active terminal's workspace, or sidebar-selected workspace
   const handleAddShell = (dirOverride?: string) => {
     const dir = dirOverride || activeWorkspaceDir || workingDirectory;
+    if (resolveRemoteShell) {
+      // A remote repository's paths exist only on the host, so a local PTY
+      // here would start in a directory that does not exist.
+      const target = resolveRemoteShell(dir);
+      if (target) handleOpenRemoteSession(target);
+      return;
+    }
     const newId = `shell-${dir.replace(/[^a-zA-Z0-9]/g, "-")}-${Date.now()}`;
     setShellTerminals((prev) => [
       ...prev,
@@ -151,6 +160,26 @@ const WorkspaceTerminalPaneInner = ({
     if (collapsed) {
       setCollapsed(false);
     }
+    scrollToTerminal(newId);
+  };
+
+  // Remote sessions share the shell slot in the pane (ids start with
+  // `shell-`) so ordering, focus, resize and close work unchanged.
+  const handleOpenRemoteSession = (target: RemoteTerminalTarget) => {
+    const newId = `shell-remote-${target.label.replace(/[^a-zA-Z0-9]/g, "-")}-${Date.now()}`;
+    setShellTerminals((prev) => [
+      ...prev,
+      {
+        id: newId,
+        workingDirectory: target.remoteWorkingDirectory,
+        remote: target,
+      },
+    ]);
+    setTerminalOrder((prev) => [...prev, newId]);
+    if (collapsed) {
+      setCollapsed(false);
+    }
+    setActivePtySessionId(newId);
     scrollToTerminal(newId);
   };
 
@@ -186,7 +215,13 @@ const WorkspaceTerminalPaneInner = ({
         activePtySessionId,
       }),
     );
-    ptyClose(terminalId)
+    // Closing a remote entry detaches: the remote panel closes its SSH
+    // channel on unmount and the persistent session keeps running. There is
+    // no local PTY to close.
+    const isRemote = shellTerminals.some(
+      (t) => t.id === terminalId && t.remote,
+    );
+    (isRemote ? Promise.resolve() : ptyClose(terminalId))
       .then(() => {
         console.info(
           "[WorkspaceTerminalPane] ptyClose succeeded",
@@ -414,6 +449,7 @@ const WorkspaceTerminalPaneInner = ({
         }
       },
       createShellSession: handleAddShell,
+      openRemoteSession: handleOpenRemoteSession,
       closeTerminalsForWorkspace,
       sendToTerminal: (id: string, text: string) => {
         const session = agentSessions.find(
@@ -427,6 +463,7 @@ const WorkspaceTerminalPaneInner = ({
     [
       maximized,
       handleAddShell,
+      handleOpenRemoteSession,
       agentSessions,
       closeTerminalsForWorkspace,
       handleFocusTerminalById,

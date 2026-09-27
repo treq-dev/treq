@@ -3,11 +3,17 @@ import {
   type AgentSessionData,
   type TerminalSessionSummary,
 } from "../terminal/types";
+import type { RemoteTerminalTarget } from "../RemoteTerminalPanel";
 
 export interface ShellTerminalData {
   id: string;
   workingDirectory: string;
   remoteHost?: string;
+  /**
+   * Set for a shell or agent running in a persistent session on a remote
+   * host. Rendered with the remote PTY panel instead of a local PTY.
+   */
+  remote?: RemoteTerminalTarget;
 }
 
 export interface WorkspaceTerminalPaneProps {
@@ -26,6 +32,14 @@ export interface WorkspaceTerminalPaneProps {
   workspaceBranchByPath?: Map<string, string>;
   /** Reports the up-to-date list of terminal sessions for the sidebar's terminal list. */
   onTerminalsChange?: (summaries: TerminalSessionSummary[]) => void;
+  /**
+   * Set while a remote repository is active. New shells are opened on the
+   * remote host in the session this returns, never as a local PTY. Returning
+   * `null` cancels the shell (the caller reports why).
+   */
+  resolveRemoteShell?: (
+    workingDirectory: string,
+  ) => RemoteTerminalTarget | null;
   className?: string;
 }
 
@@ -33,6 +47,8 @@ export interface WorkspaceTerminalPaneHandle {
   toggleCollapse: () => void;
   toggleMaximize: () => void;
   createShellSession: (workingDir?: string) => void;
+  /** Opens (or reattaches to) a persistent remote shell or agent session in the pane. */
+  openRemoteSession: (target: RemoteTerminalTarget) => void;
   closeTerminalsForWorkspace: (workspaceKey: string) => void;
   sendToTerminal: (id: string, text: string) => void;
 }
