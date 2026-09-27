@@ -13,6 +13,16 @@ import {
 import { CiStatusButton } from "../CiStatusIndicator";
 import { usePrChecksForPr } from "../../hooks/useMergeQueueStatus";
 import { useToast } from "../ui/toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -76,6 +86,7 @@ export function PrDetailPanel({
   const { addToast } = useToast();
   const ghErrorToast = useGhErrorToast();
   const [commentBody, setCommentBody] = useState("");
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
 
   const {
     data: pr,
@@ -370,7 +381,7 @@ export function PrDetailPanel({
                     className="text-base"
                     disabled={closePr.isPending}
                     aria-busy={closePr.isPending}
-                    onClick={() => closePr.mutate()}
+                    onClick={() => setConfirmCloseOpen(true)}
                   >
                     {closePr.isPending ? (
                       <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -396,6 +407,23 @@ export function PrDetailPanel({
           </div>
         </div>
       )}
+
+      <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close pull request #{prNumber}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              GitHub notifies the author and reviewers. You can reopen it later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep open</AlertDialogCancel>
+            <AlertDialogAction onClick={() => closePr.mutate()}>
+              Close pull request
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
