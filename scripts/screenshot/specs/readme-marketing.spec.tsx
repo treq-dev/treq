@@ -732,48 +732,6 @@ it("captures treq send thumbnail and lightbox for landing copy", async () => {
   });
 }, 120000);
 
-it("captures the schedule dialog for landing schedule copy", async () => {
-  const { user } = await prepareWorkspace();
-
-  await user.click(await screen.findByTestId("schedule-workspace-button"));
-  await screen.findByTestId("schedule-workspace-dialog");
-
-  await captureDocument(document, {
-    name: "readme-schedule",
-    deviceScaleFactor: 2,
-    clipSelector: '[data-testid="schedule-workspace-dialog"]',
-    publishTo: path.join(LANDING_SCREENSHOTS_DIR, "schedule.png"),
-    expectations: [
-      "A Schedule workspace dialog is open with hide-until presets.",
-      "The dialog is cropped; the rest of the app chrome is out of frame.",
-    ],
-  });
-}, 120000);
-
-it("captures commit timestamp editing for landing schedule copy", async () => {
-  const { user } = await prepareWorkspace();
-
-  await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
-  const commitTitle = await screen.findByText(
-    "feat: handle empty event messages",
-  );
-  await user.click(commitTitle);
-  await user.click(await screen.findByRole("button", { name: "Edit timestamp" }));
-  const editDialog = await screen.findByTestId("modal");
-  await within(editDialog).findByText("Edit commit timestamp");
-
-  await captureDocument(document, {
-    name: "readme-timestamp",
-    deviceScaleFactor: 2,
-    clipSelector: '[data-testid="modal"]',
-    publishTo: path.join(LANDING_SCREENSHOTS_DIR, "timestamp.png"),
-    expectations: [
-      "A dialog titled Edit commit timestamp is open with shift-by-duration fields.",
-      "A control exists to shift the stack to now.",
-    ],
-  });
-}, 120000);
-
 it("captures GitHub pull requests for landing GitHub copy", async () => {
   stubGithub();
   await seedReadmeMarketingRepo();

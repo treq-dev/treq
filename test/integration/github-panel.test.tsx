@@ -38,6 +38,20 @@ const queueEnabled = vi.hoisted(() => ({
   dequeue: vi.fn(),
 }));
 
+const mockFeatures = vi.hoisted(() => ({ mergeQueue: true }));
+
+vi.mock("../../src/lib/features", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/lib/features")>();
+  return {
+    ...actual,
+    FEATURES: Object.assign(mockFeatures, {
+      ...actual.FEATURES,
+      ...mockFeatures,
+    }),
+  };
+});
+
 vi.mock("../../src/stores/authStore", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../src/stores/authStore")>();
@@ -120,6 +134,7 @@ describe("GitHubPanel", () => {
   beforeEach(() => {
     window.location.hash = "";
     auth.subscription = null;
+    mockFeatures.mergeQueue = true;
     queueEnabled.current = true;
     queueEnabled.setEnabled.mockReset();
     queueEnabled.dequeue.mockReset();
@@ -146,6 +161,26 @@ describe("GitHubPanel", () => {
       .closest("div")?.parentElement;
     expect(header).toBeTruthy();
     expect(within(header!).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("hides the Merge Queue tab and ignores a direct link when the flag is off", async () => {
+    mockFeatures.mergeQueue = false;
+    auth.subscription = { plan: "pro", status: "active" };
+    window.location.hash = "#/github/merge-queue";
+
+    render(<GitHubPanel repoPath="/tmp/repo" />);
+
+    expect(
+      screen.queryByRole("tab", { name: /merge queue/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Issues" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(await screen.findByText("No issues found.")).toBeVisible();
+    expect(screen.queryByTestId("merge-queue-list")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("merge-queue-toolbar")).not.toBeInTheDocument();
+    expect(supabaseRpc).not.toHaveBeenCalled();
   });
 
   it("lets Free users open Merge Queue and shows an upgrade upsell", async () => {

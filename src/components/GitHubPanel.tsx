@@ -104,11 +104,14 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
     selector?: string;
   }>("/github/prs/:filter/:selector?");
 
-  const activeTab: GitHubTab = isMergeQueueRoute
-    ? "merge-queue"
-    : isPrsRoute
-      ? "prs"
-      : "issues";
+  // With the mergeQueue build flag off, a direct #/github/merge-queue link
+  // falls back to the Issues tab instead of rendering the hidden tab.
+  const activeTab: GitHubTab =
+    FEATURES.mergeQueue && isMergeQueueRoute
+      ? "merge-queue"
+      : isPrsRoute
+        ? "prs"
+        : "issues";
   const routeParams = activeTab === "prs" ? prsParams : issuesParams;
   const rawFilter = (isIssuesRoute || isPrsRoute) && routeParams?.filter;
   const currentFilter: GitHubStateFilter =

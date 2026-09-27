@@ -13,6 +13,19 @@ const auth = vi.hoisted(() => ({
   signIn: vi.fn(),
 }));
 const query = vi.hoisted(() => vi.fn());
+const mockFeatures = vi.hoisted(() => ({ mergeQueue: false }));
+
+vi.mock("../../src/lib/features", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/lib/features")>();
+  return {
+    ...actual,
+    FEATURES: Object.assign(mockFeatures, {
+      ...actual.FEATURES,
+      ...mockFeatures,
+    }),
+  };
+});
 
 vi.mock("../../src/stores/authStore", async (importOriginal) => {
   const actual =
@@ -54,6 +67,7 @@ describe("GitHubIntegrationSettings", () => {
     auth.loading = false;
     auth.subscription = null;
     auth.signIn.mockReset();
+    mockFeatures.mergeQueue = false;
     query.mockReset();
     vi.mocked(openUrl).mockReset();
   });
@@ -106,6 +120,23 @@ describe("GitHubIntegrationSettings", () => {
     expect(
       await screen.findByText(/no enabled github repositories/i),
     ).toBeVisible();
+  });
+
+  it("hides the merge queue setting when the mergeQueue flag is off", async () => {
+    auth.subscription = { plan: "pro", status: "active" };
+    query.mockResolvedValue({ data: repositories, error: null });
+    render(<GitHubIntegrationSettings />);
+    expect(await screen.findByText("acme/public")).toBeVisible();
+    expect(screen.queryByTestId("merge-queue-setting")).not.toBeInTheDocument();
+    expect(screen.queryByText("Merge queue")).not.toBeInTheDocument();
+  });
+
+  it("shows the merge queue setting when the mergeQueue flag is on", async () => {
+    mockFeatures.mergeQueue = true;
+    query.mockResolvedValue({ data: repositories, error: null });
+    render(<GitHubIntegrationSettings />);
+    expect(await screen.findByTestId("merge-queue-setting")).toBeVisible();
+    expect(screen.getByText("Merge queue")).toBeVisible();
   });
 
   it("opens the integrations dashboard to manage GitHub", async () => {
