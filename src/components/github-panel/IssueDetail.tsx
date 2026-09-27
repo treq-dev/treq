@@ -21,6 +21,7 @@ import {
   LabelChip,
   OpenInWebButton,
   StateChip,
+  useGhErrorToast,
 } from "./shared";
 
 export function IssueDetailPanel({
@@ -34,6 +35,7 @@ export function IssueDetailPanel({
   onClose: () => void;
   onStartPrompt?: (issue: GitHubIssueAttachment) => void;
 }) {
+  const ghErrorToast = useGhErrorToast();
   const [commentBody, setCommentBody] = useState("");
 
   const {
@@ -51,6 +53,7 @@ export function IssueDetailPanel({
       setCommentBody("");
       void invalidateQueries(["gh-issue", repoFullName, issueNumber]);
     },
+    onError: ghErrorToast("Failed to post comment"),
   });
 
   const closeIssue = useMutation({
@@ -59,6 +62,7 @@ export function IssueDetailPanel({
       void invalidateQueries(["gh-issue", repoFullName, issueNumber]);
       void invalidateQueries(["gh-issues", repoFullName]);
     },
+    onError: ghErrorToast("Failed to close issue"),
   });
 
   const reopenIssue = useMutation({
@@ -67,6 +71,7 @@ export function IssueDetailPanel({
       void invalidateQueries(["gh-issue", repoFullName, issueNumber]);
       void invalidateQueries(["gh-issues", repoFullName]);
     },
+    onError: ghErrorToast("Failed to reopen issue"),
   });
 
   return (

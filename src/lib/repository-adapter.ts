@@ -11,7 +11,7 @@ import type {
   WorkspaceSidebarStatus,
   WorkspaceStatus,
 } from "./api-types";
-import type { WorkspaceChangeMarker } from "./api-types-remote";
+import type { SshEndpoint, WorkspaceChangeMarker } from "./api-types-remote";
 import {
   matchesActiveCanonicalPath,
   peekActiveRepository,
@@ -20,7 +20,6 @@ import {
 import {
   dispatch,
   dispatchMutationOverSsh,
-  dispatchOverManagedSprite,
   type MutationDispatchResult,
   type TreqCommandRequest,
 } from "./remote-dispatch";
@@ -34,11 +33,18 @@ export function workspaceArg(
   return String(workspaceId);
 }
 
-export function activeForPath(repoPath: string): ActiveRepository | null {
+type SshActiveRepository = ActiveRepository & {
+  transport: { type: "ssh"; endpoint: SshEndpoint };
+};
+
+// Only SSH repositories route away from local execution. Narrowing here
+// means a remote mutation always has a real endpoint and can never fall
+// through to running on this machine.
+export function activeForPath(repoPath: string): SshActiveRepository | null {
   const active = peekActiveRepository();
-  if (!active || active.transport.type === "local") return null;
+  if (!active || active.transport.type !== "ssh") return null;
   if (!matchesActiveCanonicalPath(active, repoPath)) return null;
-  return active;
+  return active as SshActiveRepository;
 }
 
 function trimTrailingSlashes(path: string): string {
@@ -145,10 +151,6 @@ export async function remoteDispatch<T>(
   repo: ActiveRepository,
   request: TreqCommandRequest,
 ): Promise<T> {
-  if (repo.transport.type === "managed_sprite") {
-    return dispatchOverManagedSprite<T>(repo.transport.instanceId, request);
-  }
-
   try {
     return await dispatch<T>(repo.endpoint, request);
   } catch (error) {

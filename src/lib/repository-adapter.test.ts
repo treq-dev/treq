@@ -29,6 +29,7 @@ import {
   dispatchMutationOverSsh,
   type TreqCommandRequest,
 } from "./remote-dispatch";
+import { transportCreateCommit } from "./repository-adapter";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -291,6 +292,39 @@ describe("local repositories", () => {
       message: "m",
       filePaths: ["a"],
     });
+    expect(dispatchMutationOverSsh).not.toHaveBeenCalled();
+  });
+});
+
+describe("transportCreateCommit", () => {
+  it("sends mutations for SSH repositories over the SSH transport", async () => {
+    vi.mocked(dispatchMutationOverSsh).mockResolvedValueOnce({
+      status: "applied",
+      value: "commit-1",
+    });
+    const local = vi.fn();
+
+    await expect(transportCreateCommit(ROOT, null, "msg", local)).resolves.toBe(
+      "commit-1",
+    );
+
+    expect(local).not.toHaveBeenCalled();
+    expect(dispatchMutationOverSsh).toHaveBeenCalledWith(endpoint, {
+      kind: "CreateCommit",
+      repo: ROOT,
+      workspace: null,
+      message: "msg",
+      idempotency_key: expect.any(String),
+    });
+  });
+
+  it("runs local repositories through the local callback only", async () => {
+    setActiveRepositorySingleton(localActiveRepository("/repo"));
+    const local = vi.fn().mockResolvedValue("local-commit");
+
+    await expect(
+      transportCreateCommit("/repo", null, "msg", local),
+    ).resolves.toBe("local-commit");
     expect(dispatchMutationOverSsh).not.toHaveBeenCalled();
   });
 });

@@ -32,27 +32,27 @@ describe("RemoteSetupDialog", () => {
   it("presents the two-choice entry point", async () => {
     render(<RemoteSetupDialog {...baseProps()} />);
     expect(
-      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+      await screen.findByRole("button", { name: /Treq-managed VM/ }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Your own VM/ }),
     ).toBeInTheDocument();
   });
 
-  it("provisions one managed Sprite without region, size, or SSH identity", async () => {
+  it("provisions one managed VM without region, size, or SSH identity", async () => {
     const user = userEvent.setup();
     const props = baseProps();
     render(<RemoteSetupDialog {...props} />);
 
     await user.click(
-      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+      await screen.findByRole("button", { name: /Treq-managed VM/ }),
     );
 
     expect(screen.queryByLabelText("Region")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Size")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("SSH identity")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Create Sprite" }));
+    await user.click(screen.getByRole("button", { name: "Create VM" }));
     expect(props.onProvisionManaged).toHaveBeenCalledWith();
   });
 
@@ -73,11 +73,9 @@ describe("RemoteSetupDialog", () => {
     render(<RemoteSetupDialog {...props} />);
 
     await user.click(
-      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+      await screen.findByRole("button", { name: /Treq-managed VM/ }),
     );
-    await user.click(
-      screen.getByRole("button", { name: "Retry Sprite creation" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Retry VM creation" }));
 
     expect(props.onProvisionManaged).toHaveBeenCalledOnce();
     expect(
@@ -90,12 +88,12 @@ describe("RemoteSetupDialog", () => {
     const props = {
       ...baseProps(),
       provisioningError:
-        "[invalid_request] Bad Sprite name\nHTTP 400 · Correlation ID: corr-123",
+        "[invalid_request] Bad VM name\nHTTP 400 · Correlation ID: corr-123",
     };
     render(<RemoteSetupDialog {...props} />);
 
     await user.click(
-      await screen.findByRole("button", { name: /Treq-managed Sprite/ }),
+      await screen.findByRole("button", { name: /Treq-managed VM/ }),
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent("corr-123");

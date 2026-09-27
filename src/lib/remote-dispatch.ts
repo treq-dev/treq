@@ -14,11 +14,9 @@
 
 import {
   remoteDispatchLocal,
-  remoteBuildCliArgv,
   remoteDispatchMutationOverSsh,
   remoteDispatchOverSsh,
 } from "./api-extra";
-import { execManagedSprite } from "./remote-control-plane";
 import type { SshEndpoint, PtyLaunchSpec } from "./api-types-remote";
 
 /** Mirrors `core::workspaces::HunkSpec` for non-interactive split/move. */
@@ -316,15 +314,6 @@ export function dispatchOverSsh<T = unknown>(
   return remoteDispatchOverSsh<T>(endpoint, request);
 }
 
-/** Runs an allow-listed typed command in the current user's managed Sprite. */
-export async function dispatchOverManagedSprite<T = unknown>(
-  instanceId: string,
-  request: TreqCommandRequest,
-): Promise<T> {
-  const argv = await remoteBuildCliArgv(request);
-  return execManagedSprite<T>({ instance_id: instanceId, argv });
-}
-
 /** Dispatches locally or over SSH depending on whether an endpoint is given. */
 export function dispatch<T = unknown>(
   endpoint: SshEndpoint | null,
@@ -373,22 +362,4 @@ export function dispatchMutationOverSsh<T = unknown>(
     endpoint,
     request,
   );
-}
-
-/**
- * Dispatches a mutation locally (verify-before-retry only applies to the
- * real SSH transport, where a network failure is possible) or over SSH with
- * verify-before-retry when an endpoint is given. Local mutations always
- * resolve as `"applied"` since there is no transport in between to fail.
- */
-// eslint-disable-next-line local/no-unused-exported-ts-functions
-export async function dispatchMutation<T = unknown>(
-  endpoint: SshEndpoint | null,
-  request: TreqCommandRequest,
-): Promise<MutationDispatchResult<T>> {
-  if (!endpoint) {
-    const value = await dispatchLocal<T>(request);
-    return { status: "applied", value };
-  }
-  return dispatchMutationOverSsh<T>(endpoint, request);
 }

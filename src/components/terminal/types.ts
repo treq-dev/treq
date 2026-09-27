@@ -1,8 +1,4 @@
 import type { ConsolidatedTerminalHandle } from "../ConsolidatedTerminal";
-import type {
-  WorkspaceIdentity,
-  WorkspaceSource,
-} from "../../lib/active-repository";
 
 // Minimum width for each terminal panel (used when multiple terminals)
 export const MIN_TERMINAL_WIDTH = 300;
@@ -14,9 +10,6 @@ export interface ClaudeSessionData {
   workspacePath: string | null;
   workspaceId?: number | null;
   workingDirectoryOverride?: string;
-  source?: WorkspaceSource;
-  repositoryId?: string;
-  workspaceIdentity?: WorkspaceIdentity;
   repoPath: string;
   workspaceName?: string | null; // Branch name or null for main repo
   pendingPrompt?: string; // Optional prompt to send after agent initializes
@@ -27,9 +20,6 @@ export interface ClaudeSessionData {
 export interface ShellTerminalData {
   id: string;
   workingDirectory: string;
-  source?: WorkspaceSource;
-  repositoryId?: string;
-  workspaceIdentity?: WorkspaceIdentity;
 }
 
 export type TerminalRefsMap = Map<string, ConsolidatedTerminalHandle | null>;
@@ -58,12 +48,6 @@ export interface TerminalSessionSummary {
   name: string;
   /** null when the terminal belongs to the main repo (not a workspace). */
   branchName: string | null;
-  /** Execution source and collision-free ownership for mixed local/cloud lists. */
-  source?: WorkspaceSource;
-  repositoryId?: string;
-  workspaceIdentity?: WorkspaceIdentity;
-  /** Provider session id persisted for safe Sprite reattachment. */
-  remoteSessionId?: string;
   isMainRepo: boolean;
   agent?: "claude" | "codex" | "cursor" | "copilot";
   /** Epoch ms of the last output/creation event. */

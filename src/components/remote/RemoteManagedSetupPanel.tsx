@@ -18,7 +18,7 @@ export interface RemoteManagedSetupPanelProps {
   onConnectManaged: () => Promise<void>;
 }
 
-/** Treq-managed Sprite setup and lifecycle screen. */
+/** Treq-managed VM setup and lifecycle screen. */
 export function RemoteManagedSetupPanel({
   instanceStatus,
   provisioningStage,
@@ -86,7 +86,7 @@ export function RemoteManagedSetupPanel({
                 {STAGE_LABELS[existingInstance.status]}
               </span>
               <span className="text-muted-foreground">
-                Sprite · gen {existingInstance.generation}
+                Managed VM · gen {existingInstance.generation}
               </span>
             </div>
             {existingEndpoint && (
@@ -161,15 +161,15 @@ export function RemoteManagedSetupPanel({
               disabled={submitting}
               onClick={() => void onDeleteInstance()}
             >
-              Delete Sprite
+              Delete VM
             </Button>
           </div>
 
           {confirmingReprovision && (
             <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
               <p>
-                Repair reruns Treq setup in the existing Sprite. The Sprite and
-                its filesystem are preserved.
+                Repair reruns Treq setup on the existing VM. The VM and its
+                filesystem are preserved.
               </p>
               <div className="mt-3 flex gap-2">
                 <Button
@@ -193,8 +193,8 @@ export function RemoteManagedSetupPanel({
       ) : (
         <div className="mt-4 space-y-4">
           <p className="text-sm text-muted-foreground">
-            Treq creates one Sprite for your account. Sprites manage location,
-            CPU, memory, and persistent storage automatically.
+            Treq creates one managed VM for your account and handles its
+            location, CPU, memory, and persistent storage.
           </p>
 
           {provisioningStage && (
@@ -231,8 +231,8 @@ export function RemoteManagedSetupPanel({
             {submitting
               ? "Creating..."
               : creationRetry
-                ? "Retry Sprite creation"
-                : "Create Sprite"}
+                ? "Retry VM creation"
+                : "Create VM"}
           </Button>
         )}
       </div>

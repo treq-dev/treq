@@ -2160,43 +2160,45 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       hunks,
       message,
       idempotency_key,
-    } => with_idempotency_key(
-      &repo,
-      "commit.split",
-      Some(idempotency_key.as_str()),
-      request_snapshot
-        .as_ref()
-        .expect("SplitCommit is a mutation"),
-      || {
-        // The underlying split works on whole files of the working copy.
-        // Hunk selections would silently become whole-file splits, so they are
-        // refused instead.
-        if !hunks.is_empty() {
-          return Err(
-            "unsupported: SplitCommit does not support hunk selections yet; select whole files"
-              .to_string(),
-          );
-        }
-        let selected: Vec<String> = files
-          .into_iter()
-          .map(|f| f.trim().to_string())
-          .filter(|f| !f.is_empty())
-          .collect();
-        if selected.is_empty() {
-          return Err(
-            "invalid_arguments: SplitCommit requires selected files or hunks".to_string(),
-          );
-        }
-        let id =
-          workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
-        let workspace_path = resolve_workspace_path(&repo, Some(id))?;
-        ensure_working_copy_revision(&workspace_path, &commit)?;
-        json(
-          crate::jj::jj_split(&workspace_path, &message, selected)
-            .map_err(|error| format!("jj_command_failed: {error}")),
-        )
-      },
-    ),
+    } => {
+      // The underlying split works on whole files of the working copy.
+      // Hunk selections would silently become whole-file splits, so they are
+      // refused before the idempotency store records a claim.
+      if !hunks.is_empty() {
+        return Err(
+          "unsupported: SplitCommit does not support hunk selections yet; select whole files"
+            .to_string(),
+        );
+      }
+      with_idempotency_key(
+        &repo,
+        "commit.split",
+        Some(idempotency_key.as_str()),
+        request_snapshot
+          .as_ref()
+          .expect("SplitCommit is a mutation"),
+        || {
+          let selected: Vec<String> = files
+            .into_iter()
+            .map(|f| f.trim().to_string())
+            .filter(|f| !f.is_empty())
+            .collect();
+          if selected.is_empty() {
+            return Err(
+              "invalid_arguments: SplitCommit requires selected files or hunks".to_string(),
+            );
+          }
+          let id =
+            workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
+          let workspace_path = resolve_workspace_path(&repo, Some(id))?;
+          ensure_working_copy_revision(&workspace_path, &commit)?;
+          json(
+            crate::jj::jj_split(&workspace_path, &message, selected)
+              .map_err(|error| format!("jj_command_failed: {error}")),
+          )
+        },
+      )
+    }
     TreqCommandRequest::MoveCommit {
       repo,
       workspace,
