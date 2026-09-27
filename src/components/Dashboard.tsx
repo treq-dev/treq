@@ -124,7 +124,6 @@ import {
 } from "../lib/remote-endpoints";
 import {
   dispatchMutationOverSsh,
-  dispatchOverManagedSprite,
   dispatchOverSsh,
 } from "../lib/remote-dispatch";
 import {
@@ -780,19 +779,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
-  // Usage is computed on the machine itself, so it is only asked for once
-  // the cloud workspace is ready.
+  // Usage is computed on the machine itself over managed SSH, so it is only
+  // asked for once the cloud workspace is ready and has an endpoint.
   const loadCloudUsage = async (status: InstanceStatusResponse | null) => {
-    const instance = status?.instance;
-    if (instance?.status !== "ready") return;
+    const endpoint = status?.endpoint;
+    if (status?.instance?.status !== "ready" || !endpoint) return;
     setCloudUsage(undefined);
     setCloudUsageError(undefined);
     try {
       setCloudUsage(
-        await dispatchOverManagedSprite<MachineUsageReport>(
-          instance.instance_id,
-          { kind: "MachineUsage", root: MANAGED_REPOSITORIES_ROOT },
-        ),
+        await dispatchOverSsh<MachineUsageReport>(endpoint, {
+          kind: "MachineUsage",
+          root: MANAGED_REPOSITORIES_ROOT,
+        }),
       );
     } catch (error) {
       setCloudUsageError(

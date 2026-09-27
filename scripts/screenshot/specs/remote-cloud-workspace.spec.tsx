@@ -5,14 +5,17 @@ import { Dashboard } from "../../../src/components/Dashboard";
 import type {
   InstanceStatusResponse,
   ManagedInstanceRecord,
+  SshEndpoint,
 } from "../../../src/lib/api-types-remote";
+import type { TreqCommandRequest } from "../../../src/lib/remote-dispatch";
 import { render, screen, within } from "../../../test/test-utils";
 import { createTestRepo, openRepo } from "../../../test/utils";
 import { captureDocument } from "../capture";
 
 // Cloud workspace lifecycle lives behind the `remote-instance` Supabase Edge
-// Function, which the desktop harness cannot reach, and the account page
-// needs a signed-in user. Only those two boundaries are stubbed; the real
+// Function, which the desktop harness cannot reach, usage is read from the
+// machine over managed SSH, and the account page needs a signed-in user.
+// Only those three boundaries are stubbed; the real
 // repo, Dashboard handlers, settings page, and `remote-control-plane` error
 // decoding all run. `server` is mutated by the spec to walk the flow through
 // each state the edge function can report.
@@ -22,7 +25,7 @@ const { server, auth } = vi.hoisted(() => ({
     nextEnsure: "fail" as "fail" | "defer",
     releaseEnsure: null as null | (() => void),
     actions: [] as string[],
-    execArgv: [] as string[][],
+    sshRequests: [] as TreqCommandRequest[],
   },
   auth: {
     user: {
@@ -61,6 +64,33 @@ function cloudInstance(
   };
 }
 
+const ENDPOINT: SshEndpoint = {
+  id: "ep-qa",
+  instance_id: "inst-qa",
+  source: { type: "managed", provider: "fly_sprites", generation: 1 },
+  hostname: "vm-qa.treq.dev",
+  port: 22,
+  username: "treq",
+  host_keys: [],
+  authentication: { type: "public_key", key_reference: "key-qa" },
+};
+
+vi.mock("../../../src/lib/remote-dispatch", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../src/lib/remote-dispatch")>();
+  return {
+    ...actual,
+    dispatchOverSsh: vi.fn(async (_endpoint, request: TreqCommandRequest) => {
+      server.sshRequests.push(request);
+      return {
+        repository_count: 3,
+        workspace_count: 7,
+        disk_used_bytes: 1.8 * 1024 ** 3,
+      };
+    }),
+  };
+});
+
 vi.mock("../../../src/stores/authStore", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../../src/stores/authStore")>();
@@ -78,25 +108,7 @@ vi.mock("../../../src/lib/supabase", () => ({
     }),
     functions: {
       invoke: vi.fn(
-        async (
-          fn: string,
-          { body }: { body: { action: string; argv?: string[] } },
-        ) => {
-          if (fn === "remote-sprite-exec") {
-            server.execArgv.push(body.argv ?? []);
-            return {
-              data: {
-                exit_code: 0,
-                stdout: JSON.stringify({
-                  repository_count: 3,
-                  workspace_count: 7,
-                  disk_used_bytes: 1.8 * 1024 ** 3,
-                }),
-                stderr: "",
-              },
-              error: null,
-            };
-          }
+        async (_fn: string, { body }: { body: { action: string } }) => {
           server.actions.push(body.action);
           if (body.action === "status") {
             return { data: server.status, error: null };
@@ -230,21 +242,16 @@ it("captures creating and managing a cloud workspace from account settings", asy
       ready_at: "2026-09-26T00:05:00Z",
       disk_quota_gb: 5,
     }),
-    endpoint: null,
+    endpoint: ENDPOINT,
   };
   await user.click(screen.getByRole("tab", { name: /repository/i }));
   await user.click(screen.getByRole("tab", { name: /account/i }));
   await screen.findByText("7 workspaces across 3 repositories");
   expect(screen.getByText("1.8 GB of 5 GB")).toBeTruthy();
-  expect(server.execArgv.at(-1)).toEqual([
-    "treq",
-    "repo",
-    "usage",
-    "--repo",
-    "/home/sprite/repos",
-    "--format",
-    "json",
-  ]);
+  expect(server.sshRequests.at(-1)).toEqual({
+    kind: "MachineUsage",
+    root: "/home/treq",
+  });
   await captureDocument(document, {
     name: "remote-cloud-workspace-05-ready-usage",
     expectations: [
