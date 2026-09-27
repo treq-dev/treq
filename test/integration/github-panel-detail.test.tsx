@@ -200,8 +200,9 @@ describe("PrDetailPanel close PR", () => {
     api.ghClosePr.mockReset();
   });
 
-  it("asks for confirmation before closing and does nothing on cancel", async () => {
+  it("closes the PR on one click, with no confirmation dialog", async () => {
     api.ghViewPr.mockResolvedValue(makeDetailPr({ is_draft: false }));
+    api.ghClosePr.mockResolvedValue(undefined);
 
     render(
       <PrDetailPanel
@@ -213,13 +214,11 @@ describe("PrDetailPanel close PR", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
-    expect(await screen.findByText("Close pull request #42?")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: /keep open/i }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Close pull request #42?")).toBeNull();
+      expect(api.ghClosePr).toHaveBeenCalledWith("acme/treq", 42);
     });
-    expect(api.ghClosePr).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("shows a loading state on the Close PR button while the request is in flight", async () => {
@@ -242,9 +241,6 @@ describe("PrDetailPanel close PR", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
-    await user.click(
-      await screen.findByRole("button", { name: /close pull request/i }),
-    );
 
     const closing = await screen.findByRole("button", { name: /closing/i });
     expect(closing).toBeDisabled();
@@ -292,11 +288,6 @@ describe("PrDetailPanel refreshes the workspace PR status", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: action }));
-    if (action.test("Close PR")) {
-      await user.click(
-        await screen.findByRole("button", { name: /close pull request/i }),
-      );
-    }
 
     await waitFor(() => {
       expect(api.getPrInfoViaGh).toHaveBeenCalledWith("/tmp/repo", "feat");
@@ -383,9 +374,6 @@ describe("GitHub detail action failures", () => {
     renderPr();
 
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
-    await user.click(
-      await screen.findByRole("button", { name: /close pull request/i }),
-    );
 
     expect(
       await screen.findByText("Failed to close pull request"),
