@@ -49,6 +49,14 @@ interface UseFileActionsParams {
   addToast: ReturnType<typeof useToast>["addToast"];
 }
 
+/** The commit landed but the push before PR creation failed. */
+class PushAfterCommitError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "PushAfterCommitError";
+  }
+}
+
 export function useFileActions({
   workspacePath,
   repoPath,
@@ -344,10 +352,17 @@ export function useFileActions({
   const createPrMutation = useMutation({
     mutationKey: createPrMutationKey(repoPath, workspaceId),
     mutationFn: async (commitMsg: string) => {
-      if (!remoteInfo || !workspace || !baseBranch) return null;
+      if (!remoteInfo || !workspace || !baseBranch) {
+        throw new Error("No GitHub remote or target branch detected");
+      }
+      // performCommit shows its own toast when it fails.
       const committed = await performCommit(commitMsg);
       if (!committed) return null;
-      await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
+      try {
+        await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
+      } catch (error) {
+        throw new PushAfterCommitError(error);
+      }
       const number = await ghCreatePr(
         remoteInfo.full_name,
         deriveConventionalPrTitle(commitMsg, workspace.branch_name),
@@ -364,7 +379,14 @@ export function useFileActions({
   });
 
   const handleCommitAndCreatePR = async (commitMsg: string) => {
-    if (!remoteInfo || !workspace || !baseBranch) return;
+    if (!remoteInfo || !workspace || !baseBranch) {
+      addToast({
+        title: "Failed to create PR",
+        description: "No GitHub remote or target branch detected",
+        type: "error",
+      });
+      return;
+    }
     try {
       const number = await createPrMutation.mutateAsync(commitMsg);
       if (number == null) return;
@@ -381,7 +403,10 @@ export function useFileActions({
       });
     } catch (error) {
       addToast({
-        title: "Failed to create PR",
+        title:
+          error instanceof PushAfterCommitError
+            ? "Committed, but failed to push"
+            : "Failed to create PR",
         description: error instanceof Error ? error.message : String(error),
         type: "error",
       });
