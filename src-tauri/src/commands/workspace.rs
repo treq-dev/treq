@@ -1,5 +1,5 @@
 use crate::jj::{self, JjRebaseResult};
-use crate::local_db::{self, Workspace};
+use crate::local_db::Workspace;
 use crate::lock_ext::LockExt;
 use crate::AppState;
 use std::collections::HashSet;
@@ -15,15 +15,13 @@ static INDEXED_WORKSPACES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 /// slowed down. Checks are blocked for the workspace until this finishes —
 /// see `core::checks::ensure_setup_script_complete`.
 fn spawn_setup_script_if_configured(workspace: &Workspace) {
-  let config = match crate::repo_config::parse_config(&workspace.repo_path) {
-    Ok(c) => c,
+  let script = match crate::core::configured_setup_script(&workspace.repo_path) {
+    Ok(Some(script)) => script,
+    Ok(None) => return,
     Err(e) => {
       log::warn!("Failed to read .treq/config.yaml for setup_script: {}", e);
       return;
     }
-  };
-  let Some(script) = config.setup_script.filter(|s| !s.trim().is_empty()) else {
-    return;
   };
 
   let repo_path = workspace.repo_path.clone();
@@ -101,47 +99,27 @@ pub async fn create_workspace(
 ) -> Result<i64, String> {
   let started_at = Instant::now();
   let parsed_metadata = crate::core::parse_workspace_metadata(metadata.as_deref());
-  let (title, description, moved_files, sparse_patterns, symlinked_dirs) = (
-    parsed_metadata.title,
-    parsed_metadata.description,
-    parsed_metadata.moved_files,
-    parsed_metadata.sparse_patterns,
-    parsed_metadata.symlinked_dirs,
-  );
 
   // Read included_copy_files setting from DB (small files to copy into every workspace)
-  let included_copy_files: Option<Vec<String>> = {
+  let included_copy_files = {
     let db = state.db.lock_or_recover();
-    db.get_repo_setting(&repo_path, "included_copy_files")
+    let raw = db
+      .get_repo_setting(&repo_path, "included_copy_files")
       .ok()
-      .flatten()
-      .map(|s| {
-        s.lines()
-          .map(|l| l.trim().to_string())
-          .filter(|l| !l.is_empty())
-          .collect::<Vec<_>>()
-      })
+      .flatten();
+    crate::core::parse_included_copy_files(raw.as_deref())
   };
 
   let repo_path_for_task = repo_path.clone();
   let branch_name_for_task = branch_name.clone();
   let result = tauri::async_runtime::spawn_blocking(move || {
-    let workspace = crate::core::create_workspace_with_symlinked_dirs(
+    let workspace = crate::core::create_new_workspace(
       &repo_path_for_task,
       &branch_name_for_task,
-      description,
-      moved_files,
       source_branch.as_deref(),
+      parsed_metadata,
       included_copy_files,
-      sparse_patterns,
-      symlinked_dirs,
     )?;
-    if let Some(t) = title {
-      local_db::update_workspace_title(&repo_path_for_task, workspace.id, &t)?;
-    }
-
-    // Initialize rebase flag to trigger rebase on first view
-    local_db::update_workspace_last_rebased_commit(&repo_path_for_task, workspace.id, "")?;
 
     spawn_setup_script_if_configured(&workspace);
 
