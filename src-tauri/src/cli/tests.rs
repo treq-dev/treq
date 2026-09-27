@@ -805,3 +805,326 @@ fn describe_commit_allows_missing_idempotency_key_at_cli_boundary() {
   )
   .unwrap();
 }
+
+/// One sample of every typed remote command, used to check the wire format
+/// end to end: `cli_args` must only emit flags the remote CLI declares, and
+/// parsing those args back must give the same request.
+fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> {
+  use crate::core::remote::{FileRevision, TreqCommandRequest as R};
+  use crate::core::remote_pty::PtyLaunchSpec;
+  use crate::core::workspaces::HunkSpec;
+  let repo = || "/srv/r".to_string();
+  let key = || "k1".to_string();
+  let hunk = || HunkSpec {
+    file_path: "c.rs".into(),
+    start_line: 3,
+    end_line: 5,
+  };
+  vec![
+    R::InspectRepository { repo: repo() },
+    R::RepositoryStatus { repo: repo() },
+    R::ListBranches { repo: repo() },
+    R::ListWorkspaces { repo: repo() },
+    R::InspectWorkspace {
+      repo: repo(),
+      workspace: "1".into(),
+    },
+    R::ListChanges {
+      repo: repo(),
+      workspace: Some("1".into()),
+    },
+    R::DiffFile {
+      repo: repo(),
+      workspace: Some("1".into()),
+      path: "a.rs".into(),
+    },
+    R::ReadFile {
+      repo: repo(),
+      workspace: Some("1".into()),
+      path: "a.rs".into(),
+      revision: FileRevision::Parent,
+      start_line: Some(1),
+      end_line: Some(20),
+    },
+    R::ListCommits {
+      repo: repo(),
+      workspace: None,
+    },
+    R::ListConflicts {
+      repo: repo(),
+      workspace: Some("1".into()),
+    },
+    R::WorkspaceDiff {
+      repo: repo(),
+      workspace: "1".into(),
+    },
+    R::CommitDiff {
+      repo: repo(),
+      workspace: Some("1".into()),
+      revision: "abc".into(),
+    },
+    R::CommitFileDiff {
+      repo: repo(),
+      workspace: Some("1".into()),
+      revision: "abc".into(),
+      path: "a.rs".into(),
+    },
+    R::SearchFiles {
+      repo: repo(),
+      workspace: Some("1".into()),
+      query: "main".into(),
+      limit: Some(4),
+    },
+    R::WorkspaceChangeMarker {
+      repo: repo(),
+      workspace: Some("1".into()),
+    },
+    R::ProbeRepo { repo: repo() },
+    R::CloneRepo {
+      repo_url: "git@example.com:x.git".into(),
+      destination: repo(),
+      idempotency_key: key(),
+    },
+    R::InitRepo {
+      repo: repo(),
+      idempotency_key: key(),
+    },
+    R::CreateWorkspace {
+      repo: repo(),
+      branch_name: "feat".into(),
+      source_branch: Some("main".into()),
+      metadata: Some(r#"{"title":"T"}"#.into()),
+      idempotency_key: key(),
+    },
+    R::RenameWorkspace {
+      repo: repo(),
+      workspace: "1".into(),
+      new_name: "feat-2".into(),
+      idempotency_key: key(),
+    },
+    R::UpdateWorkspace {
+      repo: repo(),
+      workspace: "1".into(),
+      target_branch: Some("main".into()),
+      title: Some("Title".into()),
+      description: Some("desc".into()),
+    },
+    R::DeleteWorkspace {
+      repo: repo(),
+      workspace: "1".into(),
+    },
+    R::MoveWorkspaceChanges {
+      repo: repo(),
+      workspace: "feat-a".into(),
+      destination: "feat-b".into(),
+      files: vec!["a.rs".into(), "b.rs".into()],
+      hunks: vec![hunk()],
+      commits: vec!["abc".into()],
+      idempotency_key: key(),
+    },
+    R::RebaseWorkspace {
+      repo: repo(),
+      workspace: "1".into(),
+      target_branch: "main".into(),
+      idempotency_key: key(),
+    },
+    R::RestoreFile {
+      repo: repo(),
+      workspace: Some("1".into()),
+      path: "a.rs".into(),
+    },
+    R::PatchFile {
+      repo: repo(),
+      workspace: Some("1".into()),
+      path: "a.rs".into(),
+      patch_base64: "YQ==".into(),
+      idempotency_key: key(),
+    },
+    R::CreateCommit {
+      repo: repo(),
+      workspace: Some("1".into()),
+      message: "wip".into(),
+      base_change_id: Some("base00000000".into()),
+      idempotency_key: key(),
+    },
+    R::DescribeCommit {
+      repo: repo(),
+      workspace: "1".into(),
+      commit: "abc".into(),
+      message: "m".into(),
+    },
+    R::SplitCommit {
+      repo: repo(),
+      workspace: "1".into(),
+      commit: "@".into(),
+      files: vec!["a.rs".into()],
+      hunks: vec![hunk()],
+      message: "first".into(),
+      idempotency_key: key(),
+    },
+    R::MoveCommit {
+      repo: repo(),
+      workspace: "1".into(),
+      commit: "abc".into(),
+      target_workspace: "2".into(),
+      idempotency_key: key(),
+    },
+    R::AbandonCommit {
+      repo: repo(),
+      workspace: "1".into(),
+      commit: "abc".into(),
+      idempotency_key: key(),
+    },
+    R::ResolveConflict {
+      repo: repo(),
+      revision: "abc".into(),
+      sides: vec!["ours".into()],
+      idempotency_key: key(),
+    },
+    R::GitFetch { repo: repo() },
+    R::GitBookmarkTrack {
+      repo: repo(),
+      bookmark: "main".into(),
+      remote_name: "origin".into(),
+    },
+    R::GitPush {
+      repo: repo(),
+      workspace: Some("1".into()),
+      idempotency_key: key(),
+    },
+    R::AgentStart {
+      repo: repo(),
+      workspace: "1".into(),
+      agent: "claude".into(),
+      prompt: "hi".into(),
+      idempotency_key: key(),
+    },
+    R::AgentInput {
+      repo: repo(),
+      workspace: "1".into(),
+      input: "more".into(),
+      idempotency_key: key(),
+    },
+    R::AgentStatus {
+      repo: repo(),
+      workspace: "1".into(),
+    },
+    R::AgentStop {
+      repo: repo(),
+      workspace: "1".into(),
+    },
+    R::AgentLogs {
+      repo: repo(),
+      workspace: "1".into(),
+    },
+    R::PtyStart {
+      repo: repo(),
+      workspace: "1".into(),
+      label: "shell".into(),
+      remote_dir: repo(),
+      launch: PtyLaunchSpec::Shell,
+      cols: 80,
+      rows: 24,
+      idempotency_key: key(),
+    },
+    R::PtyList {
+      repo: repo(),
+      workspace: Some("1".into()),
+    },
+    R::PtyStop {
+      repo: repo(),
+      workspace: "1".into(),
+      label: "shell".into(),
+    },
+    R::PtyAttachCommand {
+      repo: repo(),
+      workspace: "1".into(),
+      label: "shell".into(),
+      remote_dir: repo(),
+      launch: PtyLaunchSpec::Shell,
+      cols: 80,
+      rows: 24,
+    },
+  ]
+}
+
+/// Splits `cli_args` output into the subcommand name and its `--flag value`
+/// pairs, with the positional action under `action`.
+fn cli_args_to_pairs(args: &[String]) -> (String, Vec<(String, String)>) {
+  let mut pairs = vec![("action".to_string(), args[1].clone())];
+  let mut rest = args[2..].iter();
+  while let Some(flag) = rest.next() {
+    let name = flag
+      .strip_prefix("--")
+      .unwrap_or_else(|| panic!("expected a flag, got {flag}"));
+    let value = rest.next().expect("every flag takes a value").clone();
+    pairs.push((name.to_string(), value));
+  }
+  (args[0].clone(), pairs)
+}
+
+#[test]
+fn every_typed_remote_request_covers_every_kind() {
+  let kinds: Vec<_> = every_typed_remote_request()
+    .iter()
+    .map(|r| r.kind_name())
+    .collect();
+  for kind in crate::core::remote::TreqCommandRequest::KIND_NAMES {
+    assert!(kinds.contains(kind), "missing sample for {kind}");
+  }
+}
+
+#[test]
+fn every_remote_cli_flag_is_declared_in_tauri_config() {
+  // The remote VM parses argv with the CLI config in tauri.conf.json, which
+  // rejects undeclared flags. A flag emitted by `cli_args` but missing there
+  // would make the command fail only over SSH.
+  let config =
+    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json")).unwrap();
+  let json: Value = serde_json::from_str(&config).unwrap();
+  let subcommands = &json["plugins"]["cli"]["subcommands"];
+  for request in every_typed_remote_request() {
+    let args = request.cli_args().unwrap();
+    let (command, pairs) = cli_args_to_pairs(&args);
+    let declared: Vec<&str> = subcommands[&command]["args"]
+      .as_array()
+      .unwrap_or_else(|| panic!("missing CLI subcommand {command}"))
+      .iter()
+      .filter_map(|arg| arg["name"].as_str())
+      .collect();
+    for (name, _) in pairs {
+      assert!(
+        declared.contains(&name.as_str()),
+        "{} emits --{name}, which `{command}` does not declare",
+        request.kind_name()
+      );
+    }
+  }
+}
+
+#[test]
+fn every_typed_remote_request_round_trips_through_cli_args() {
+  // Fields dropped between `cli_args` and the VM-side parser silently change
+  // what a remote mutation does (for example a move losing its files).
+  for request in every_typed_remote_request() {
+    // `repo inspect` has its own handler with human-readable output.
+    if request.kind_name() == "InspectRepository" {
+      continue;
+    }
+    let args = request.cli_args().unwrap();
+    let (command, pairs) = cli_args_to_pairs(&args);
+    let borrowed: Vec<(&str, &str)> = pairs
+      .iter()
+      .filter(|(name, _)| name != "format")
+      .map(|(n, v)| (n.as_str(), v.as_str()))
+      .collect();
+    let parsed = parse_remote_command_request(&command, &remote_matches(&borrowed))
+      .unwrap_or_else(|e| panic!("{}: {e}", request.kind_name()));
+    assert_eq!(
+      parsed,
+      request,
+      "{} did not round-trip",
+      request.kind_name()
+    );
+  }
+}

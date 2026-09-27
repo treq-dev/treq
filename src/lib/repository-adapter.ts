@@ -1,4 +1,6 @@
 import type {
+  FileSearchResult,
+  JjDiffHunk,
   JjFileChange,
   JjFileDiff,
   JjFileLines,
@@ -18,12 +20,15 @@ import {
 import {
   dispatch,
   dispatchMutationOverSsh,
+  type MutationDispatchResult,
   type TreqCommandRequest,
 } from "./remote-dispatch";
 import { applyMutationDispatchResult } from "./remote-mutation-ui";
 import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 
-function workspaceArg(workspaceId: number | null | undefined): string | null {
+export function workspaceArg(
+  workspaceId: number | null | undefined,
+): string | null {
   if (workspaceId == null) return null;
   return String(workspaceId);
 }
@@ -35,11 +40,97 @@ type SshActiveRepository = ActiveRepository & {
 // Only SSH repositories route away from local execution. Narrowing here
 // means a remote mutation always has a real endpoint and can never fall
 // through to running on this machine.
-function activeForPath(repoPath: string): SshActiveRepository | null {
+export function activeForPath(repoPath: string): SshActiveRepository | null {
   const active = peekActiveRepository();
   if (!active || active.transport.type !== "ssh") return null;
   if (!matchesActiveCanonicalPath(active, repoPath)) return null;
   return active as SshActiveRepository;
+}
+
+function trimTrailingSlashes(path: string): string {
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
+/**
+ * The active remote repository when `path` is its root or any path inside
+ * it (a workspace directory or a file). Paths like these must never reach a
+ * local Tauri command: the local machine does not have them.
+ */
+export function remoteRepositoryContaining(
+  path: string | null | undefined,
+): ActiveRepository | null {
+  if (!path) return null;
+  const active = peekActiveRepository();
+  if (!active || active.transport.type === "local") return null;
+  if (matchesActiveCanonicalPath(active, path)) return active;
+  const root = trimTrailingSlashes(active.canonicalPath);
+  return path.startsWith(`${root}/`) ? active : null;
+}
+
+/** Raised instead of running a remote repository operation on this machine. */
+export class RemoteOperationUnsupportedError extends Error {
+  constructor(operation: string) {
+    super(
+      `unsupported: ${operation} is not available for remote repositories yet`,
+    );
+    this.name = "RemoteOperationUnsupportedError";
+  }
+}
+
+/**
+ * Guards a local-only operation. When `path` belongs to the active remote
+ * repository the operation fails with a structured error rather than running
+ * against a path that only exists on the remote host.
+ */
+export function assertLocalOperation(
+  path: string | null | undefined,
+  operation: string,
+): void {
+  if (remoteRepositoryContaining(path)) {
+    throw new RemoteOperationUnsupportedError(operation);
+  }
+}
+
+interface RemoteLocation {
+  repo: ActiveRepository;
+  /** Workspace id as the typed commands expect it, or null for the root. */
+  workspace: string | null;
+  /** Path relative to the workspace (or repository) root. */
+  relative: string;
+}
+
+const WORKSPACES_DIR = ".treq/workspaces/";
+
+/**
+ * Maps an absolute remote path (repository root, workspace directory, or a
+ * file inside either) to the repository, workspace id, and relative path
+ * the typed commands take. Returns null for paths outside the active remote
+ * repository.
+ */
+export async function resolveRemoteLocation(
+  path: string,
+): Promise<RemoteLocation | null> {
+  const repo = remoteRepositoryContaining(path);
+  if (!repo) return null;
+  const root = trimTrailingSlashes(repo.canonicalPath);
+  const trimmed = trimTrailingSlashes(path);
+  if (trimmed === root || matchesActiveCanonicalPath(repo, path)) {
+    return { repo, workspace: null, relative: "" };
+  }
+  const rest = trimmed.slice(root.length + 1);
+  if (!rest.startsWith(WORKSPACES_DIR)) {
+    return { repo, workspace: null, relative: rest };
+  }
+  const [dirName, ...tail] = rest.slice(WORKSPACES_DIR.length).split("/");
+  const workspaces = await remoteDispatch<Workspace[]>(repo, {
+    kind: "ListWorkspaces",
+    repo: repo.canonicalPath,
+  });
+  const match = workspaces.find((ws) => ws.workspace_path === dirName);
+  if (!match) {
+    throw new Error(`workspace_not_found: no remote workspace at ${dirName}`);
+  }
+  return { repo, workspace: String(match.id), relative: tail.join("/") };
 }
 
 function noteCutoffFromError(error: unknown, endpointId: string | null) {
@@ -56,7 +147,7 @@ function noteCutoffFromError(error: unknown, endpointId: string | null) {
     .recordCutoff(endpointId, "certificate_expired");
 }
 
-async function remoteDispatch<T>(
+export async function remoteDispatch<T>(
   repo: ActiveRepository,
   request: TreqCommandRequest,
 ): Promise<T> {
@@ -214,21 +305,6 @@ export async function transportListCommits(
   return result as JjLogResult;
 }
 
-export async function transportListConflicts(
-  repoPath: string,
-  workspaceId: number | null,
-): Promise<string[]> {
-  const repo = activeForPath(repoPath);
-  if (!repo) return [];
-  const result = await remoteDispatch<string[] | { path: string }[]>(repo, {
-    kind: "ListConflicts",
-    repo: repo.canonicalPath,
-    workspace: workspaceArg(workspaceId),
-  });
-  if (!Array.isArray(result)) return [];
-  return result.map((item) => (typeof item === "string" ? item : item.path));
-}
-
 export async function transportGetWorkspaceDiff(
   repoPath: string,
   workspaceId: number,
@@ -236,28 +312,113 @@ export async function transportGetWorkspaceDiff(
 ): Promise<JjRevisionDiff> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const [uncommitted, conflicted] = await Promise.all([
-    transportGetWorkspaceChangedFiles(repoPath, workspaceId, async () => []),
-    transportListConflicts(repoPath, workspaceId),
-  ]);
-  const hunksByFile: JjFileDiff[] = await Promise.all(
-    uncommitted.map(async (file) => {
-      const hunks = await remoteDispatch<JjFileDiff["hunks"]>(repo, {
-        kind: "DiffFile",
-        repo: repo.canonicalPath,
-        workspace: workspaceArg(workspaceId),
-        path: file.path,
-      });
-      return { path: file.path, hunks: hunks ?? [] };
-    }),
-  );
-  return {
-    uncommitted_files: uncommitted,
-    committed_files: [],
-    conflicted_files: conflicted,
-    hunks_by_file: hunksByFile,
-    too_large_to_render: false,
-  };
+  return remoteDispatch<JjRevisionDiff>(repo, {
+    kind: "WorkspaceDiff",
+    repo: repo.canonicalPath,
+    workspace: String(workspaceId),
+  });
+}
+
+// eslint-disable-next-line max-params -- matches local invoke arity
+export async function transportGetWorkspaceFileHunks(
+  repoPath: string,
+  workspaceId: number | null,
+  filePath: string,
+  local: () => Promise<JjDiffHunk[]>,
+): Promise<JjDiffHunk[]> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  const hunks = await remoteDispatch<JjDiffHunk[] | null>(repo, {
+    kind: "DiffFile",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+    path: filePath,
+  });
+  return hunks ?? [];
+}
+
+// eslint-disable-next-line max-params -- matches local invoke arity
+export async function transportGetCommitDiff(
+  repoPath: string,
+  workspaceId: number | null,
+  revision: string,
+  local: () => Promise<JjRevisionDiff>,
+): Promise<JjRevisionDiff> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  return remoteDispatch<JjRevisionDiff>(repo, {
+    kind: "CommitDiff",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+    revision,
+  });
+}
+
+// eslint-disable-next-line max-params -- matches local invoke arity
+export async function transportGetCommitFileDiff(
+  repoPath: string,
+  workspaceId: number | null,
+  revision: string,
+  filePath: string,
+  local: () => Promise<JjFileDiff>,
+): Promise<JjFileDiff> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  return remoteDispatch<JjFileDiff>(repo, {
+    kind: "CommitFileDiff",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+    revision,
+    path: filePath,
+  });
+}
+
+// eslint-disable-next-line max-params -- matches local invoke arity
+export async function transportSearchWorkspaceFiles(
+  repoPath: string,
+  workspaceId: number | null,
+  query: string,
+  limit: number,
+  local: () => Promise<FileSearchResult[]>,
+): Promise<FileSearchResult[]> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  return remoteDispatch<FileSearchResult[]>(repo, {
+    kind: "SearchFiles",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+    query,
+    limit,
+  });
+}
+
+/** Large enough to read any file the viewer would display in one request. */
+const WHOLE_FILE_END_LINE = 1_000_000;
+
+/**
+ * Reads a file by absolute path. A path inside the active remote repository
+ * is read from that workspace's working copy through the typed `ReadFile`
+ * command instead of the local filesystem.
+ */
+export async function transportReadFile(
+  path: string,
+  local: () => Promise<string>,
+): Promise<string> {
+  const location = await resolveRemoteLocation(path);
+  if (!location) return local();
+  if (!location.relative) {
+    throw new Error(`invalid_arguments: ${path} is a directory`);
+  }
+  const result = await remoteDispatch<JjFileLines>(location.repo, {
+    kind: "ReadFile",
+    repo: location.repo.canonicalPath,
+    workspace: location.workspace,
+    path: location.relative,
+    revision: "WorkingCopy",
+    start_line: 1,
+    end_line: WHOLE_FILE_END_LINE,
+  });
+  return result.lines.length > 0 ? `${result.lines.join("\n")}\n` : "";
 }
 
 /* eslint-disable max-params -- matches local invoke arity */
@@ -316,6 +477,46 @@ export async function transportChangeMarker(
   });
 }
 
+/**
+ * Runs a typed mutation against a remote repository with the PRD's
+ * verify-before-retry semantics, reports the outcome to the mutation
+ * feedback store, and returns the value when the mutation ran in this call.
+ * `already_applied` resolves to `undefined`; `ambiguous` throws so the caller
+ * never treats an unknown outcome as success.
+ */
+export async function remoteMutation<T>(
+  repo: ActiveRepository,
+  request: TreqCommandRequest,
+): Promise<T | undefined> {
+  let result: MutationDispatchResult<T>;
+  if (repo.transport.type === "ssh") {
+    try {
+      result = await dispatchMutationOverSsh<T>(
+        repo.transport.endpoint,
+        request,
+      );
+    } catch (error) {
+      noteCutoffFromError(error, repo.endpointId);
+      throw error;
+    }
+  } else {
+    result = {
+      status: "applied",
+      value: await remoteDispatch<T>(repo, request),
+    };
+  }
+  const value = applyMutationDispatchResult(result);
+  if (result.status === "ambiguous") {
+    throw new Error(result.reason);
+  }
+  return value;
+}
+
+/** A fresh key per user action, reused only by that action's retries. */
+export function newIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
 export async function transportCreateCommit(
   repoPath: string,
   workspaceId: number | null,
@@ -324,19 +525,13 @@ export async function transportCreateCommit(
 ): Promise<string> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const result = await dispatchMutationOverSsh<string>(
-    repo.transport.endpoint,
-    {
-      kind: "CreateCommit",
-      repo: repo.canonicalPath,
-      workspace: workspaceArg(workspaceId),
-      message,
-    },
-  );
-  const value = applyMutationDispatchResult(result);
-  if (result.status === "ambiguous") {
-    throw new Error(result.reason);
-  }
+  const value = await remoteMutation<string>(repo, {
+    kind: "CreateCommit",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+    message,
+    idempotency_key: newIdempotencyKey(),
+  });
   return value ?? "Commit applied";
 }
 
@@ -346,12 +541,8 @@ export async function transportGitFetch(
 ): Promise<void> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const result = await dispatchMutationOverSsh(repo.transport.endpoint, {
+  await remoteMutation(repo, {
     kind: "GitFetch",
     repo: repo.canonicalPath,
   });
-  applyMutationDispatchResult(result);
-  if (result.status === "ambiguous") {
-    throw new Error(result.reason);
-  }
 }

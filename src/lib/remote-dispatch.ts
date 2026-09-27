@@ -73,6 +73,10 @@ export const TREQ_COMMAND_KINDS = [
   "PtyList",
   "PtyStop",
   "PtyAttachCommand",
+  "WorkspaceDiff",
+  "CommitDiff",
+  "CommitFileDiff",
+  "SearchFiles",
 ] as const;
 
 export type TreqCommandKind = (typeof TREQ_COMMAND_KINDS)[number];
@@ -102,6 +106,27 @@ export type TreqCommandRequest =
     }
   | { kind: "ListCommits"; repo: string; workspace?: string | null }
   | { kind: "ListConflicts"; repo: string; workspace?: string | null }
+  | { kind: "WorkspaceDiff"; repo: string; workspace: string }
+  | {
+      kind: "CommitDiff";
+      repo: string;
+      workspace?: string | null;
+      revision: string;
+    }
+  | {
+      kind: "CommitFileDiff";
+      repo: string;
+      workspace?: string | null;
+      revision: string;
+      path: string;
+    }
+  | {
+      kind: "SearchFiles";
+      repo: string;
+      workspace?: string | null;
+      query: string;
+      limit?: number | null;
+    }
   | {
       kind: "WorkspaceChangeMarker";
       repo: string;
@@ -119,6 +144,7 @@ export type TreqCommandRequest =
       repo: string;
       branch_name: string;
       source_branch?: string | null;
+      metadata?: string | null;
       idempotency_key: string;
     }
   | {
@@ -133,6 +159,7 @@ export type TreqCommandRequest =
       repo: string;
       workspace: string;
       target_branch?: string | null;
+      title?: string | null;
       description?: string | null;
     }
   | { kind: "DeleteWorkspace"; repo: string; workspace: string }
@@ -141,6 +168,8 @@ export type TreqCommandRequest =
       repo: string;
       workspace: string;
       destination: string;
+      files?: string[];
+      hunks?: RemoteHunkSpec[];
       commits: string[];
       idempotency_key: string;
     }
@@ -170,6 +199,7 @@ export type TreqCommandRequest =
       repo: string;
       workspace?: string | null;
       message: string;
+      base_change_id?: string | null;
       idempotency_key: string;
     }
   | {
@@ -186,6 +216,7 @@ export type TreqCommandRequest =
       commit: string;
       files: string[];
       hunks: RemoteHunkSpec[];
+      message?: string;
       idempotency_key: string;
     }
   | {
@@ -222,13 +253,6 @@ export type TreqCommandRequest =
       repo: string;
       workspace?: string | null;
       idempotency_key: string;
-    }
-  | {
-      kind: "CreateCommit";
-      repo: string;
-      workspace?: string | null;
-      message: string;
-      idempotency_key?: string | null;
     }
   | {
       kind: "AgentStart";

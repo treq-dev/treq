@@ -93,6 +93,12 @@ pub struct RemoteRepository {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceChangeMarker {
   pub operation_id: String,
+  /// Change id of the workspace's working-copy commit when the marker was
+  /// read. A `CreateCommit` records it before running so a post-reconnect
+  /// check can tell "this exact working copy was committed" apart from "some
+  /// other commit happens to carry the same message".
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub working_copy_change_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +156,34 @@ pub enum TreqCommandRequest {
     repo: String,
     workspace: Option<String>,
   },
+  /// Full review diff for a workspace against its target branch: committed
+  /// files, uncommitted files, conflicts, and hunks, matching the local
+  /// `get_workspace_diff` Tauri command.
+  WorkspaceDiff {
+    repo: String,
+    workspace: String,
+  },
+  /// Diff of a single commit (by change or commit id).
+  CommitDiff {
+    repo: String,
+    workspace: Option<String>,
+    revision: String,
+  },
+  /// Diff of one file inside a single commit.
+  CommitFileDiff {
+    repo: String,
+    workspace: Option<String>,
+    revision: String,
+    path: String,
+  },
+  /// Fuzzy file-name search over the workspace file index.
+  SearchFiles {
+    repo: String,
+    workspace: Option<String>,
+    query: String,
+    #[serde(default)]
+    limit: Option<usize>,
+  },
   /// Returns the workspace's current JJ operation id as a lightweight,
   /// pollable change marker so a client can detect that another client (or
   /// process) moved VM-side repository state and refresh. See
@@ -176,6 +210,10 @@ pub enum TreqCommandRequest {
     repo: String,
     branch_name: String,
     source_branch: Option<String>,
+    /// Same JSON the local `create_workspace` Tauri command accepts (title,
+    /// description, moved files, sparse patterns, symlinked dirs).
+    #[serde(default)]
+    metadata: Option<String>,
     idempotency_key: String,
   },
   RenameWorkspace {
@@ -188,6 +226,8 @@ pub enum TreqCommandRequest {
     repo: String,
     workspace: String,
     target_branch: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
     description: Option<String>,
   },
   DeleteWorkspace {
@@ -198,6 +238,10 @@ pub enum TreqCommandRequest {
     repo: String,
     workspace: String,
     destination: String,
+    #[serde(default)]
+    files: Vec<String>,
+    #[serde(default)]
+    hunks: Vec<crate::core::workspaces::HunkSpec>,
     commits: Vec<String>,
     idempotency_key: String,
   },
@@ -225,6 +269,14 @@ pub enum TreqCommandRequest {
     repo: String,
     workspace: Option<String>,
     message: String,
+    /// Working-copy change id observed before the commit ran. It is the
+    /// marker the verify-before-retry check uses: a commit rewrites the
+    /// working copy in place (keeping its change id) and starts a fresh one on
+    /// top, so "this change id is no longer the working copy and now carries
+    /// the message" means this exact commit landed. `None` makes that check
+    /// report ambiguity instead of guessing from the message alone.
+    #[serde(default)]
+    base_change_id: Option<String>,
     idempotency_key: String,
   },
   DescribeCommit {
@@ -235,13 +287,18 @@ pub enum TreqCommandRequest {
   },
   /// Non-interactive split: the caller supplies the files and/or hunks to
   /// place in the first commit. No interactive hunk selector runs on the
-  /// exec channel.
+  /// exec channel. Only the working copy (`@`) can be split today, and only
+  /// by whole files; other commits and hunk selections are rejected with a
+  /// structured error rather than silently widened.
   SplitCommit {
     repo: String,
     workspace: String,
     commit: String,
     files: Vec<String>,
     hunks: Vec<crate::core::workspaces::HunkSpec>,
+    /// Description for the new commit holding the selected files.
+    #[serde(default)]
+    message: String,
     idempotency_key: String,
   },
   MoveCommit {
@@ -379,6 +436,10 @@ impl TreqCommandRequest {
       | Self::ReadFile { .. }
       | Self::ListCommits { .. }
       | Self::ListConflicts { .. }
+      | Self::WorkspaceDiff { .. }
+      | Self::CommitDiff { .. }
+      | Self::CommitFileDiff { .. }
+      | Self::SearchFiles { .. }
       | Self::ProbeRepo { .. }
       | Self::AgentStatus { .. }
       | Self::AgentLogs { .. }
@@ -445,6 +506,10 @@ impl TreqCommandRequest {
       | Self::ReadFile { .. }
       | Self::ListCommits { .. }
       | Self::ListConflicts { .. }
+      | Self::WorkspaceDiff { .. }
+      | Self::CommitDiff { .. }
+      | Self::CommitFileDiff { .. }
+      | Self::SearchFiles { .. }
       | Self::WorkspaceChangeMarker { .. }
       | Self::ProbeRepo { .. }
       | Self::UpdateWorkspace { .. }
@@ -474,6 +539,10 @@ impl TreqCommandRequest {
       Self::ReadFile { .. } => "ReadFile",
       Self::ListCommits { .. } => "ListCommits",
       Self::ListConflicts { .. } => "ListConflicts",
+      Self::WorkspaceDiff { .. } => "WorkspaceDiff",
+      Self::CommitDiff { .. } => "CommitDiff",
+      Self::CommitFileDiff { .. } => "CommitFileDiff",
+      Self::SearchFiles { .. } => "SearchFiles",
       Self::WorkspaceChangeMarker { .. } => "WorkspaceChangeMarker",
       Self::ProbeRepo { .. } => "ProbeRepo",
       Self::CloneRepo { .. } => "CloneRepo",
@@ -550,6 +619,10 @@ impl TreqCommandRequest {
     "PtyList",
     "PtyStop",
     "PtyAttachCommand",
+    "WorkspaceDiff",
+    "CommitDiff",
+    "CommitFileDiff",
+    "SearchFiles",
   ];
 }
 
@@ -581,6 +654,16 @@ pub struct MutationVerification {
 
 fn json_str<'a>(value: &'a serde_json::Value, field: &str) -> Option<&'a str> {
   value.get(field).and_then(|v| v.as_str())
+}
+
+/// Workspace ids are numbers in `ListWorkspaces` output but strings in typed
+/// requests; compare them as text.
+fn json_id_matches(item: &serde_json::Value, id: &str) -> bool {
+  match item.get("id") {
+    Some(serde_json::Value::String(value)) => value == id,
+    Some(serde_json::Value::Number(value)) => value.to_string() == id,
+    _ => false,
+  }
 }
 
 /// Builds the verification recipe for `request`, when one exists. Every
@@ -621,11 +704,9 @@ pub fn verification_for(request: &TreqCommandRequest) -> Option<MutationVerifica
           let Some(items) = value.as_array() else {
             return MutationVerificationOutcome::Ambiguous;
           };
-          let still_present = items.iter().any(|item| {
-            json_str(item, "id")
-              .map(|id| id == workspace)
-              .unwrap_or(false)
-          });
+          let still_present = items
+            .iter()
+            .any(|item| json_id_matches(item, workspace.as_str()));
           if still_present {
             MutationVerificationOutcome::NotApplied
           } else {
@@ -647,8 +728,13 @@ pub fn verification_for(request: &TreqCommandRequest) -> Option<MutationVerifica
           repo: repo.clone(),
           workspace,
         },
+        // Renaming changes the workspace's branch; `InspectWorkspace`
+        // returns it under `current`.
         check: Box::new(move |value| {
-          match json_str(value, "title").or_else(|| json_str(value, "workspace_name")) {
+          match value
+            .get("current")
+            .and_then(|c| json_str(c, "branch_name"))
+          {
             Some(current) if current == new_name => MutationVerificationOutcome::AlreadyApplied,
             Some(_) => MutationVerificationOutcome::NotApplied,
             None => MutationVerificationOutcome::Ambiguous,
@@ -656,31 +742,25 @@ pub fn verification_for(request: &TreqCommandRequest) -> Option<MutationVerifica
         }),
       })
     }
+    // Matching on the message alone is not enough: repeated messages such as
+    // "wip" would make an older commit look like this one. Without the
+    // pre-commit working-copy change id there is no precise check, so the
+    // caller reports ambiguity rather than guessing.
     TreqCommandRequest::CreateCommit {
       repo,
       workspace,
       message,
+      base_change_id: Some(base_change_id),
       ..
     } => {
       let message = message.clone();
+      let base_change_id = base_change_id.clone();
       Some(MutationVerification {
         read_request: TreqCommandRequest::ListCommits {
           repo: repo.clone(),
           workspace: workspace.clone(),
         },
-        check: Box::new(move |value| {
-          let Some(items) = value.get("commits").and_then(|v| v.as_array()) else {
-            return MutationVerificationOutcome::Ambiguous;
-          };
-          let found = items
-            .iter()
-            .any(|item| json_str(item, "description") == Some(message.as_str()));
-          if found {
-            MutationVerificationOutcome::AlreadyApplied
-          } else {
-            MutationVerificationOutcome::NotApplied
-          }
-        }),
+        check: Box::new(move |value| check_create_commit(value, &base_change_id, &message)),
       })
     }
     TreqCommandRequest::AbandonCommit {
@@ -794,6 +874,54 @@ pub fn verification_for(request: &TreqCommandRequest) -> Option<MutationVerifica
   }
 }
 
+/// Decides whether a `CreateCommit` landed by finding the working-copy change
+/// that was current before the commit ran. A commit keeps that change id,
+/// sets its description, and moves the working copy to a new child, so:
+///
+/// - the change is still the working copy: the commit did not run;
+/// - the change is no longer the working copy and carries the message: it ran;
+/// - anything else (change missing, different description): ambiguous.
+fn check_create_commit(
+  value: &serde_json::Value,
+  base_change_id: &str,
+  message: &str,
+) -> MutationVerificationOutcome {
+  let Some(items) = value.get("commits").and_then(|v| v.as_array()) else {
+    return MutationVerificationOutcome::Ambiguous;
+  };
+  let tentative = value
+    .get("tentative_working_copy")
+    .and_then(|v| v.get("commit"));
+  let base = items.iter().chain(tentative).find(|item| {
+    json_str(item, "change_id").is_some_and(|id| change_ids_match(id, base_change_id))
+  });
+  let Some(base) = base else {
+    return MutationVerificationOutcome::Ambiguous;
+  };
+  let is_working_copy = base
+    .get("is_working_copy")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false);
+  if is_working_copy {
+    return MutationVerificationOutcome::NotApplied;
+  }
+  let description = json_str(base, "description").unwrap_or("");
+  if description.trim_end() == message.trim_end() {
+    MutationVerificationOutcome::AlreadyApplied
+  } else {
+    MutationVerificationOutcome::Ambiguous
+  }
+}
+
+/// Change ids may be shown at different prefix lengths; treat a shorter id as
+/// matching when it is a prefix of the longer one.
+fn change_ids_match(a: &str, b: &str) -> bool {
+  if a.is_empty() || b.is_empty() {
+    return false;
+  }
+  a.starts_with(b) || b.starts_with(a)
+}
+
 /// Outcome of running a mutation with verify-before-retry semantics after a
 /// network failure. Carries enough for a Phase 6 UI to render each case from
 /// the PRD: treat-as-complete, retry-with-idempotency-key, or
@@ -855,6 +983,27 @@ where
     request.is_mutation(),
     "retry_after_reconnect is only meaningful for mutations; reads are always safe to retry directly"
   );
+
+  // Record the pre-mutation marker the verification check needs before the
+  // mutation can change it. A failed read leaves it unset, which only makes a
+  // later verification report ambiguity; it never blocks the mutation.
+  let request = match baseline_request(&request) {
+    Some(read) => {
+      match execute_remote_command::<WorkspaceChangeMarker>(
+        pool,
+        endpoint,
+        read,
+        limits,
+        cancellation,
+      )
+      .await
+      {
+        Ok(marker) => with_verification_baseline(request, marker),
+        Err(_) => request,
+      }
+    }
+    None => request,
+  };
 
   match execute_remote_command::<T>(
     pool,
@@ -934,6 +1083,48 @@ where
   }
 }
 
+/// The read that captures a mutation's pre-mutation marker, when its
+/// verification needs one and the caller did not already supply it.
+pub fn baseline_request(request: &TreqCommandRequest) -> Option<TreqCommandRequest> {
+  match request {
+    TreqCommandRequest::CreateCommit {
+      repo,
+      workspace,
+      base_change_id: None,
+      ..
+    } => Some(TreqCommandRequest::WorkspaceChangeMarker {
+      repo: repo.clone(),
+      workspace: workspace.clone(),
+    }),
+    _ => None,
+  }
+}
+
+/// Copies the marker read by [`baseline_request`] into the request so it
+/// travels with the mutation, into the idempotency record, and into any
+/// stale-claim recovery on the VM.
+pub fn with_verification_baseline(
+  request: TreqCommandRequest,
+  marker: WorkspaceChangeMarker,
+) -> TreqCommandRequest {
+  match request {
+    TreqCommandRequest::CreateCommit {
+      repo,
+      workspace,
+      message,
+      base_change_id: None,
+      idempotency_key,
+    } => TreqCommandRequest::CreateCommit {
+      repo,
+      workspace,
+      message,
+      base_change_id: marker.working_copy_change_id,
+      idempotency_key,
+    },
+    other => other,
+  }
+}
+
 /// `TreqCommandRequest` does not derive `Clone` reuse would require adding it
 /// repo-wide; this narrow helper only needs to survive a single retry path,
 /// so it round-trips through JSON rather than widening the enum's derive
@@ -989,6 +1180,23 @@ struct CliArgFields<'a> {
   target: Option<&'a str>,
   value: Option<String>,
   idempotency_key: Option<&'a str>,
+  /// Additional named flags (`--<name> <value>`) for request fields that do
+  /// not fit the shared slots above. Each name must be declared for the
+  /// matching subcommand in `tauri.conf.json`.
+  extra: Vec<(&'static str, String)>,
+}
+
+fn hunk_specs_arg(hunks: &[crate::core::workspaces::HunkSpec]) -> Option<String> {
+  if hunks.is_empty() {
+    return None;
+  }
+  Some(
+    hunks
+      .iter()
+      .map(|h| format!("{}:{}-{}", h.file_path, h.start_line, h.end_line))
+      .collect::<Vec<_>>()
+      .join(","),
+  )
 }
 
 impl TreqCommandRequest {
@@ -1029,10 +1237,14 @@ impl TreqCommandRequest {
         repo,
         branch_name,
         source_branch,
+        metadata,
         idempotency_key,
       } => {
         fields.value = Some(branch_name.clone());
         fields.target = source_branch.as_deref();
+        if let Some(metadata) = metadata.as_ref().filter(|m| !m.trim().is_empty()) {
+          fields.extra.push(("metadata", metadata.clone()));
+        }
         fields.idempotency_key = Some(idempotency_key);
         ("workspace", "create", repo)
       }
@@ -1051,11 +1263,15 @@ impl TreqCommandRequest {
         repo,
         workspace,
         target_branch,
+        title,
         description,
       } => {
         fields.workspace = Some(workspace);
         fields.target = target_branch.as_deref();
         fields.value = description.clone();
+        if let Some(title) = title {
+          fields.extra.push(("title", title.clone()));
+        }
         ("workspace", "update", repo)
       }
       Self::DeleteWorkspace { repo, workspace } => {
@@ -1066,12 +1282,20 @@ impl TreqCommandRequest {
         repo,
         workspace,
         destination,
+        files,
+        hunks,
         commits,
         idempotency_key,
       } => {
         fields.workspace = Some(workspace);
         fields.target = Some(destination);
-        fields.value = Some(commits.join(","));
+        if !commits.is_empty() {
+          fields.value = Some(commits.join(","));
+        }
+        if !files.is_empty() {
+          fields.extra.push(("files", files.join(",")));
+        }
+        fields.owned_path = hunk_specs_arg(hunks);
         fields.idempotency_key = Some(idempotency_key);
         ("workspace", "move", repo)
       }
@@ -1089,6 +1313,43 @@ impl TreqCommandRequest {
       Self::ListChanges { repo, workspace } => {
         fields.workspace = workspace.as_deref();
         ("changes", "list", repo)
+      }
+      Self::WorkspaceDiff { repo, workspace } => {
+        fields.workspace = Some(workspace);
+        ("changes", "workspace-diff", repo)
+      }
+      Self::CommitDiff {
+        repo,
+        workspace,
+        revision,
+      } => {
+        fields.workspace = workspace.as_deref();
+        fields.target = Some(revision);
+        ("commits", "diff", repo)
+      }
+      Self::CommitFileDiff {
+        repo,
+        workspace,
+        revision,
+        path,
+      } => {
+        fields.workspace = workspace.as_deref();
+        fields.target = Some(revision);
+        fields.path = Some(path);
+        ("commits", "file-diff", repo)
+      }
+      Self::SearchFiles {
+        repo,
+        workspace,
+        query,
+        limit,
+      } => {
+        fields.workspace = workspace.as_deref();
+        fields.value = Some(query.clone());
+        if let Some(limit) = limit {
+          fields.extra.push(("limit", limit.to_string()));
+        }
+        ("file", "search", repo)
       }
       Self::DiffFile {
         repo,
@@ -1139,10 +1400,12 @@ impl TreqCommandRequest {
         repo,
         workspace,
         message,
+        base_change_id,
         idempotency_key,
       } => {
         fields.workspace = workspace.as_deref();
         fields.value = Some(message.clone());
+        fields.target = base_change_id.as_deref();
         fields.idempotency_key = Some(idempotency_key);
         ("commits", "create", repo)
       }
@@ -1163,6 +1426,7 @@ impl TreqCommandRequest {
         commit,
         files,
         hunks,
+        message,
         idempotency_key,
       } => {
         if files.iter().all(|f| f.trim().is_empty()) && hunks.is_empty() {
@@ -1175,14 +1439,9 @@ impl TreqCommandRequest {
         if !files.is_empty() {
           fields.value = Some(files.join(","));
         }
-        if !hunks.is_empty() {
-          fields.owned_path = Some(
-            hunks
-              .iter()
-              .map(|h| format!("{}:{}-{}", h.file_path, h.start_line, h.end_line))
-              .collect::<Vec<_>>()
-              .join(","),
-          );
+        fields.owned_path = hunk_specs_arg(hunks);
+        if !message.is_empty() {
+          fields.extra.push(("message", message.clone()));
         }
         fields.idempotency_key = Some(idempotency_key);
         ("commits", "split", repo)
@@ -1356,6 +1615,9 @@ impl TreqCommandRequest {
     }
     if let Some(value) = &fields.value {
       args.extend(["--value".into(), value.clone()]);
+    }
+    for (name, value) in &fields.extra {
+      args.extend([format!("--{name}"), value.clone()]);
     }
     if self.requires_idempotency_key() {
       match fields.idempotency_key {
@@ -1631,8 +1893,48 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       json(Ok::<_, String>(WorkspaceChangeMarker {
         operation_id: crate::jj::jj_snapshot_head_operation_id(&workspace_path)
           .map_err(|error| format!("jj_command_failed: {error}"))?,
+        working_copy_change_id: crate::jj::jj_get_change_id(&workspace_path, "@").ok(),
       }))
     }
+    TreqCommandRequest::WorkspaceDiff { repo, workspace } => {
+      let id = workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
+      json(crate::core::workspaces::workspace_diff(&repo, id))
+    }
+    TreqCommandRequest::CommitDiff {
+      repo,
+      workspace,
+      revision,
+    } => json(crate::core::commits::get_commit_diff_with_conflict_style(
+      &repo,
+      workspace_id(workspace.as_ref())?,
+      &revision,
+      "git",
+    )),
+    TreqCommandRequest::CommitFileDiff {
+      repo,
+      workspace,
+      revision,
+      path,
+    } => json(
+      crate::core::commits::get_commit_file_diff_with_conflict_style(
+        &repo,
+        workspace_id(workspace.as_ref())?,
+        &revision,
+        &path,
+        "git",
+      ),
+    ),
+    TreqCommandRequest::SearchFiles {
+      repo,
+      workspace,
+      query,
+      limit,
+    } => json(search_files_local(
+      &repo,
+      workspace_id(workspace.as_ref())?,
+      &query,
+      limit.unwrap_or(50),
+    )),
     TreqCommandRequest::ProbeRepo { repo } => json(probe_repo_path(&repo)),
     TreqCommandRequest::InitRepo {
       repo,
@@ -1668,6 +1970,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       repo,
       branch_name,
       source_branch,
+      metadata,
       idempotency_key,
     } => with_idempotency_key(
       &repo,
@@ -1677,14 +1980,11 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         .as_ref()
         .expect("CreateWorkspace is a mutation"),
       || {
-        json(crate::core::workspaces::create_workspace(
+        json(create_workspace_from_metadata(
           &repo,
           &branch_name,
-          None,
-          None,
           source_branch.as_deref(),
-          None,
-          None,
+          metadata.as_deref(),
         ))
       },
     ),
@@ -1713,11 +2013,16 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       repo,
       workspace,
       target_branch,
+      title,
       description,
-    } => json(crate::core::workspaces::update_workspace(
+    } => json(crate::core::workspaces::update_workspace_with_title(
       &repo,
       workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?,
       target_branch.map_or(
+        crate::core::workspaces::MaybeEmptyParam::Omitted,
+        crate::core::workspaces::MaybeEmptyParam::Some,
+      ),
+      title.map_or(
         crate::core::workspaces::MaybeEmptyParam::Omitted,
         crate::core::workspaces::MaybeEmptyParam::Some,
       ),
@@ -1734,6 +2039,8 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       repo,
       workspace,
       destination,
+      files,
+      hunks,
       commits,
       idempotency_key,
     } => with_idempotency_key(
@@ -1745,9 +2052,9 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         .expect("MoveWorkspaceChanges is a mutation"),
       || {
         let request = crate::core::workspaces::WorkspaceMoveRequest {
-          files: vec![],
-          hunks: vec![],
-          commits: commits.iter().filter(|c| !c.is_empty()).cloned().collect(),
+          files: files.into_iter().filter(|f| !f.is_empty()).collect(),
+          hunks,
+          commits: commits.into_iter().filter(|c| !c.is_empty()).collect(),
         };
         json(crate::core::workspaces::move_workspace_changes(
           &repo,
@@ -1772,11 +2079,15 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       || {
         let id =
           workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
+        // Stack planning needs the repository's real default branch; a
+        // hardcoded "main" misplans retargets in repos that use another name.
+        let default_branch = crate::jj::get_default_branch(&repo)
+          .map_err(|error| format!("jj_command_failed: {error}"))?;
         json(crate::core::workspaces::retarget_workspace(
           &repo,
           id,
           &target_branch,
-          "main",
+          &default_branch,
         ))
       },
     ),
@@ -1816,6 +2127,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       workspace,
       message,
       idempotency_key,
+      ..
     } => with_idempotency_key(
       &repo,
       "commit.create",
@@ -1847,42 +2159,50 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
     TreqCommandRequest::SplitCommit {
       repo,
       workspace,
-      commit: _,
+      commit,
       files,
       hunks,
+      message,
       idempotency_key,
-    } => with_idempotency_key(
-      &repo,
-      "commit.split",
-      Some(idempotency_key.as_str()),
-      request_snapshot
-        .as_ref()
-        .expect("SplitCommit is a mutation"),
-      || {
-        let mut selected: Vec<String> = files
-          .into_iter()
-          .map(|f| f.trim().to_string())
-          .filter(|f| !f.is_empty())
-          .collect();
-        for hunk in hunks {
-          if !selected.iter().any(|f| f == &hunk.file_path) {
-            selected.push(hunk.file_path);
+    } => {
+      // The underlying split works on whole files of the working copy.
+      // Hunk selections would silently become whole-file splits, so they are
+      // refused before the idempotency store records a claim.
+      if !hunks.is_empty() {
+        return Err(
+          "unsupported: SplitCommit does not support hunk selections yet; select whole files"
+            .to_string(),
+        );
+      }
+      with_idempotency_key(
+        &repo,
+        "commit.split",
+        Some(idempotency_key.as_str()),
+        request_snapshot
+          .as_ref()
+          .expect("SplitCommit is a mutation"),
+        || {
+          let selected: Vec<String> = files
+            .into_iter()
+            .map(|f| f.trim().to_string())
+            .filter(|f| !f.is_empty())
+            .collect();
+          if selected.is_empty() {
+            return Err(
+              "invalid_arguments: SplitCommit requires selected files or hunks".to_string(),
+            );
           }
-        }
-        if selected.is_empty() {
-          return Err(
-            "invalid_arguments: SplitCommit requires selected files or hunks".to_string(),
-          );
-        }
-        let id =
-          workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
-        let workspace_path = resolve_workspace_path(&repo, Some(id))?;
-        json(
-          crate::jj::jj_split(&workspace_path, "", selected)
-            .map_err(|error| format!("jj_command_failed: {error}")),
-        )
-      },
-    ),
+          let id =
+            workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
+          let workspace_path = resolve_workspace_path(&repo, Some(id))?;
+          ensure_working_copy_revision(&workspace_path, &commit)?;
+          json(
+            crate::jj::jj_split(&workspace_path, &message, selected)
+              .map_err(|error| format!("jj_command_failed: {error}")),
+          )
+        },
+      )
+    }
     TreqCommandRequest::MoveCommit {
       repo,
       workspace,
@@ -2076,6 +2396,91 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       rows,
     )),
   }
+}
+
+/// Mirrors the local `create_workspace` Tauri command: parses the same
+/// metadata JSON, applies the title, and marks the workspace for its first
+/// rebase. Repository settings that live in the desktop app database (copied
+/// files, setup scripts) are not available on the VM and are skipped.
+fn create_workspace_from_metadata(
+  repo: &str,
+  branch_name: &str,
+  source_branch: Option<&str>,
+  metadata: Option<&str>,
+) -> Result<crate::local_db::Workspace, String> {
+  let parsed = crate::core::workspaces::parse_workspace_metadata(metadata);
+  let workspace = crate::core::workspaces::create_workspace_with_symlinked_dirs(
+    repo,
+    branch_name,
+    parsed.description,
+    parsed.moved_files,
+    source_branch,
+    None,
+    parsed.sparse_patterns,
+    parsed.symlinked_dirs,
+  )?;
+  if let Some(title) = parsed.title {
+    crate::local_db::update_workspace_title(repo, workspace.id, &title)?;
+  }
+  crate::local_db::update_workspace_last_rebased_commit(repo, workspace.id, "")?;
+  crate::local_db::get_workspace_by_id(repo, workspace.id)?.ok_or_else(|| {
+    format!(
+      "workspace_not_found: Workspace {} was not found",
+      workspace.id
+    )
+  })
+}
+
+/// Split only runs against the working copy. Accept `@` or the working
+/// copy's own change id, and refuse anything else so a request for another
+/// commit is never applied to `@` by mistake.
+fn ensure_working_copy_revision(workspace_path: &str, commit: &str) -> Result<(), String> {
+  let commit = commit.trim();
+  if commit.is_empty() || commit == "@" {
+    return Ok(());
+  }
+  let working_copy = crate::jj::jj_get_change_id(workspace_path, "@")
+    .map_err(|error| format!("jj_command_failed: {error}"))?;
+  if change_ids_match(&working_copy, commit) {
+    Ok(())
+  } else {
+    Err(format!(
+      "unsupported: SplitCommit can only split the working copy, not {commit}"
+    ))
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteFileSearchResult {
+  pub file_path: String,
+  pub relative_path: String,
+}
+
+/// Searches the workspace file index. Each remote CLI call is a fresh
+/// process, so the index may not exist yet on the VM; an empty result
+/// triggers one indexing pass and a second search.
+fn search_files_local(
+  repo: &str,
+  workspace: Option<i64>,
+  query: &str,
+  limit: usize,
+) -> Result<Vec<RemoteFileSearchResult>, String> {
+  let search = || crate::local_db::search_workspace_files(repo, workspace, query, limit);
+  let mut files = search()?;
+  if files.is_empty() {
+    let workspace_path = resolve_workspace_path(repo, workspace)?;
+    crate::file_indexer::index_workspace_files(repo, workspace, &workspace_path)?;
+    files = search()?;
+  }
+  Ok(
+    files
+      .into_iter()
+      .map(|f| RemoteFileSearchResult {
+        file_path: f.file_path,
+        relative_path: f.relative_path,
+      })
+      .collect(),
+  )
 }
 
 fn probe_repo_path(repo_path: &str) -> Result<RemoteRepoProbe, String> {
@@ -2889,6 +3294,7 @@ mod tests {
       repo: repo.to_string(),
       branch_name: "feature-x".into(),
       source_branch: None,
+      metadata: None,
       idempotency_key: String::new(),
     }
   }
@@ -2946,6 +3352,7 @@ mod tests {
       repo: repo.to_string(),
       branch_name: "different-branch".into(),
       source_branch: None,
+      metadata: None,
       idempotency_key: String::new(),
     };
     let error = with_idempotency_key(repo, "test.create", Some(&key), &second_request, || {
@@ -3063,6 +3470,7 @@ mod tests {
       repo: repo_path.clone(),
       workspace: None,
       message: "test commit".into(),
+      base_change_id: None,
       idempotency_key: "commit-1".into(),
     })
     .unwrap();
@@ -3171,6 +3579,7 @@ mod tests {
         repo: "/r".into(),
         branch_name: "b".into(),
         source_branch: None,
+        metadata: None,
         idempotency_key: "k".into(),
       },
       TreqCommandRequest::DeleteWorkspace {
@@ -3187,6 +3596,7 @@ mod tests {
         repo: "/r".into(),
         workspace: None,
         message: "m".into(),
+        base_change_id: None,
         idempotency_key: "k".into(),
       },
       TreqCommandRequest::AbandonCommit {
@@ -3233,6 +3643,7 @@ mod tests {
       repo: "/r".into(),
       branch_name: "feature-x".into(),
       source_branch: None,
+      metadata: None,
       idempotency_key: "key".into(),
     })
     .expect("CreateWorkspace has a verification recipe");
@@ -3278,6 +3689,34 @@ mod tests {
     assert_eq!(
       (verification.check)(&gone),
       MutationVerificationOutcome::AlreadyApplied
+    );
+
+    // `ListWorkspaces` serializes ids as numbers.
+    let still_present_numeric = serde_json::json!([{ "id": 42 }]);
+    assert_eq!(
+      (verification.check)(&still_present_numeric),
+      MutationVerificationOutcome::NotApplied
+    );
+  }
+
+  #[test]
+  fn rename_workspace_verification_reads_the_current_branch() {
+    let verification = verification_for(&TreqCommandRequest::RenameWorkspace {
+      repo: "/r".into(),
+      workspace: "1".into(),
+      new_name: "feat-new".into(),
+      idempotency_key: "k".into(),
+    })
+    .unwrap();
+    let renamed = serde_json::json!({ "current": { "branch_name": "feat-new" } });
+    assert_eq!(
+      (verification.check)(&renamed),
+      MutationVerificationOutcome::AlreadyApplied
+    );
+    let unchanged = serde_json::json!({ "current": { "branch_name": "feat-old" } });
+    assert_eq!(
+      (verification.check)(&unchanged),
+      MutationVerificationOutcome::NotApplied
     );
   }
 
@@ -3331,6 +3770,7 @@ mod tests {
       commit: "abc".into(),
       files: vec![],
       hunks: vec![],
+      message: String::new(),
       idempotency_key: "split-1".into(),
     }
     .cli_args()
@@ -3350,6 +3790,7 @@ mod tests {
         start_line: 2,
         end_line: 4,
       }],
+      message: String::new(),
       idempotency_key: "split-1".into(),
     }
     .cli_args()
@@ -3369,6 +3810,7 @@ mod tests {
       commit: "abc".into(),
       files: vec!["a.rs".into()],
       hunks: vec![],
+      message: String::new(),
       idempotency_key: "split-exec".into(),
     })
     .unwrap_err();
@@ -3400,6 +3842,7 @@ mod tests {
       repo: "/r".into(),
       workspace: None,
       message: "m".into(),
+      base_change_id: None,
       idempotency_key: " ".into(),
     };
     assert!(request.requires_idempotency_key());
@@ -3415,7 +3858,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 40);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 44);
   }
 
   #[test]
@@ -3425,5 +3868,403 @@ mod tests {
       "cmd": "rm -rf /"
     }));
     assert!(parsed.is_err());
+  }
+
+  // -- CreateCommit verification uses a pre-commit marker -----------------------
+
+  fn create_commit(base: Option<&str>) -> TreqCommandRequest {
+    TreqCommandRequest::CreateCommit {
+      repo: "/r".into(),
+      workspace: Some("1".into()),
+      message: "wip".into(),
+      base_change_id: base.map(str::to_string),
+      idempotency_key: "k".into(),
+    }
+  }
+
+  fn log_commit(change_id: &str, description: &str, is_working_copy: bool) -> serde_json::Value {
+    serde_json::json!({
+      "change_id": change_id,
+      "commit_id": format!("{change_id}-commit"),
+      "description": description,
+      "is_working_copy": is_working_copy,
+    })
+  }
+
+  #[test]
+  fn create_commit_without_a_baseline_has_no_verification_recipe() {
+    // Matching on the message alone is a false positive for repeated
+    // messages, so without a marker the caller must report ambiguity.
+    assert!(verification_for(&create_commit(None)).is_none());
+  }
+
+  #[test]
+  fn create_commit_verification_ignores_older_commits_with_the_same_message() {
+    let verification = verification_for(&create_commit(Some("base00000000"))).unwrap();
+    let state = serde_json::json!({
+      "commits": [
+        log_commit("base00000000", "", true),
+        log_commit("older0000000", "wip", false),
+      ],
+    });
+    assert_eq!(
+      (verification.check)(&state),
+      MutationVerificationOutcome::NotApplied
+    );
+  }
+
+  #[test]
+  fn create_commit_verification_detects_the_committed_working_copy() {
+    let verification = verification_for(&create_commit(Some("base00000000"))).unwrap();
+    let state = serde_json::json!({
+      "commits": [
+        log_commit("newwc0000000", "", true),
+        log_commit("base00000000", "wip\n", false),
+      ],
+    });
+    assert_eq!(
+      (verification.check)(&state),
+      MutationVerificationOutcome::AlreadyApplied
+    );
+  }
+
+  #[test]
+  fn create_commit_verification_reads_the_tentative_working_copy() {
+    let verification = verification_for(&create_commit(Some("base00000000"))).unwrap();
+    let state = serde_json::json!({
+      "commits": [log_commit("older0000000", "wip", false)],
+      "tentative_working_copy": {
+        "workspace_label": "ws",
+        "commit": log_commit("base00000000", "", true),
+      },
+    });
+    assert_eq!(
+      (verification.check)(&state),
+      MutationVerificationOutcome::NotApplied
+    );
+  }
+
+  #[test]
+  fn create_commit_verification_is_ambiguous_when_the_marker_is_missing_or_rewritten() {
+    let verification = verification_for(&create_commit(Some("base00000000"))).unwrap();
+    let missing = serde_json::json!({ "commits": [log_commit("older0000000", "wip", false)] });
+    assert_eq!(
+      (verification.check)(&missing),
+      MutationVerificationOutcome::Ambiguous
+    );
+    let rewritten = serde_json::json!({ "commits": [log_commit("base00000000", "other", false)] });
+    assert_eq!(
+      (verification.check)(&rewritten),
+      MutationVerificationOutcome::Ambiguous
+    );
+  }
+
+  #[test]
+  fn baseline_is_read_only_for_create_commit_without_a_marker() {
+    assert!(matches!(
+      baseline_request(&create_commit(None)),
+      Some(TreqCommandRequest::WorkspaceChangeMarker { workspace: Some(ref w), .. }) if w == "1"
+    ));
+    assert!(baseline_request(&create_commit(Some("base00000000"))).is_none());
+    assert!(baseline_request(&TreqCommandRequest::GitFetch { repo: "/r".into() }).is_none());
+
+    let filled = with_verification_baseline(
+      create_commit(None),
+      WorkspaceChangeMarker {
+        operation_id: "op".into(),
+        working_copy_change_id: Some("base00000000".into()),
+      },
+    );
+    assert_eq!(filled, create_commit(Some("base00000000")));
+  }
+
+  #[test]
+  fn create_commit_json_without_an_idempotency_key_is_rejected() {
+    // The desktop client must always send a key: the field is required at the
+    // IPC boundary, so a request without it never reaches the remote.
+    let parsed = serde_json::from_value::<TreqCommandRequest>(serde_json::json!({
+      "kind": "CreateCommit",
+      "repo": "/r",
+      "workspace": null,
+      "message": "m",
+    }));
+    assert!(parsed.is_err());
+  }
+
+  #[test]
+  fn create_commit_carries_its_marker_on_the_cli() {
+    let args = create_commit(Some("base00000000")).cli_args().unwrap();
+    let target = args.iter().position(|a| a == "--target").unwrap();
+    assert_eq!(args[target + 1], "base00000000");
+  }
+
+  // -- Split and move fidelity --------------------------------------------------
+
+  #[test]
+  fn split_commit_refuses_hunk_selections_instead_of_widening_to_whole_files() {
+    let error = execute_local_request(TreqCommandRequest::SplitCommit {
+      repo: "/does/not/exist".into(),
+      workspace: "1".into(),
+      commit: "@".into(),
+      files: vec![],
+      hunks: vec![crate::core::workspaces::HunkSpec {
+        file_path: "a.rs".into(),
+        start_line: 1,
+        end_line: 2,
+      }],
+      message: "first".into(),
+      idempotency_key: format!("split-hunks-{}", uuid_like()),
+    })
+    .unwrap_err();
+    assert!(error.starts_with("unsupported:"), "got: {error}");
+  }
+
+  #[test]
+  fn split_commit_sends_its_message_on_the_cli() {
+    let args = TreqCommandRequest::SplitCommit {
+      repo: "/srv/project".into(),
+      workspace: "1".into(),
+      commit: "@".into(),
+      files: vec!["a.rs".into()],
+      hunks: vec![],
+      message: "first half".into(),
+      idempotency_key: "split-1".into(),
+    }
+    .cli_args()
+    .unwrap();
+    let message = args.iter().position(|a| a == "--message").unwrap();
+    assert_eq!(args[message + 1], "first half");
+  }
+
+  #[test]
+  fn move_workspace_changes_sends_files_and_hunks_on_the_cli() {
+    let args = TreqCommandRequest::MoveWorkspaceChanges {
+      repo: "/srv/project".into(),
+      workspace: "feat-a".into(),
+      destination: "feat-b".into(),
+      files: vec!["a.rs".into(), "b.rs".into()],
+      hunks: vec![crate::core::workspaces::HunkSpec {
+        file_path: "c.rs".into(),
+        start_line: 3,
+        end_line: 5,
+      }],
+      commits: vec![],
+      idempotency_key: "move-1".into(),
+    }
+    .cli_args()
+    .unwrap();
+    let files = args.iter().position(|a| a == "--files").unwrap();
+    assert_eq!(args[files + 1], "a.rs,b.rs");
+    let path = args.iter().position(|a| a == "--path").unwrap();
+    assert_eq!(args[path + 1], "c.rs:3-5");
+    assert!(!args.iter().any(|a| a == "--value"));
+  }
+
+  #[test]
+  fn new_review_reads_are_not_mutations() {
+    let reads = [
+      TreqCommandRequest::WorkspaceDiff {
+        repo: "/r".into(),
+        workspace: "1".into(),
+      },
+      TreqCommandRequest::CommitDiff {
+        repo: "/r".into(),
+        workspace: None,
+        revision: "abc".into(),
+      },
+      TreqCommandRequest::CommitFileDiff {
+        repo: "/r".into(),
+        workspace: None,
+        revision: "abc".into(),
+        path: "a.rs".into(),
+      },
+      TreqCommandRequest::SearchFiles {
+        repo: "/r".into(),
+        workspace: None,
+        query: "a".into(),
+        limit: Some(4),
+      },
+    ];
+    for request in reads {
+      assert!(!request.is_mutation(), "{request:?}");
+      assert!(!request.requires_idempotency_key(), "{request:?}");
+      assert!(TreqCommandRequest::KIND_NAMES.contains(&request.kind_name()));
+      request.cli_args().unwrap();
+    }
+  }
+
+  // -- Real repository round trips (need the tauri-test helpers) ---------------
+
+  #[cfg(feature = "tauri-test")]
+  mod real_repo {
+    use super::super::*;
+    use crate::e2e_test_helpers::TestRepo;
+
+    fn key(tag: &str) -> String {
+      format!("{tag}-{}", super::uuid_like())
+    }
+
+    fn workspace_path(repo: &TestRepo, id: i64) -> String {
+      let ws = crate::local_db::get_workspace_by_id(&repo.repo_path, id)
+        .unwrap()
+        .unwrap();
+      repo.workspace_full_path(&ws)
+    }
+
+    fn list_commits(repo: &TestRepo, id: i64) -> serde_json::Value {
+      execute_local_request(TreqCommandRequest::ListCommits {
+        repo: repo.repo_path.clone(),
+        workspace: Some(id.to_string()),
+      })
+      .unwrap()
+    }
+
+    #[test]
+    fn create_commit_marker_check_distinguishes_before_and_after_a_real_commit() {
+      let repo = TestRepo::new().unwrap();
+      let ws = repo.create_workspace_simple("feat-commit").unwrap();
+      let path = workspace_path(&repo, ws.id);
+      TestRepo::write_workspace_file(&path, "a.txt", "one\n").unwrap();
+
+      let marker: WorkspaceChangeMarker = serde_json::from_value(
+        execute_local_request(TreqCommandRequest::WorkspaceChangeMarker {
+          repo: repo.repo_path.clone(),
+          workspace: Some(ws.id.to_string()),
+        })
+        .unwrap(),
+      )
+      .unwrap();
+      let base = marker
+        .working_copy_change_id
+        .clone()
+        .expect("marker reports the working-copy change id");
+
+      let request = TreqCommandRequest::CreateCommit {
+        repo: repo.repo_path.clone(),
+        workspace: Some(ws.id.to_string()),
+        message: "wip".into(),
+        base_change_id: Some(base),
+        idempotency_key: key("commit"),
+      };
+      let verification = verification_for(&request).unwrap();
+      assert_eq!(
+        (verification.check)(&list_commits(&repo, ws.id)),
+        MutationVerificationOutcome::NotApplied
+      );
+
+      execute_local_request(request).unwrap();
+      assert_eq!(
+        (verification.check)(&list_commits(&repo, ws.id)),
+        MutationVerificationOutcome::AlreadyApplied
+      );
+    }
+
+    #[test]
+    fn split_commit_uses_the_message_and_refuses_other_commits() {
+      let repo = TestRepo::new().unwrap();
+      let ws = repo.create_workspace_simple("feat-split").unwrap();
+      let path = workspace_path(&repo, ws.id);
+      TestRepo::write_workspace_file(&path, "a.txt", "a\n").unwrap();
+      TestRepo::write_workspace_file(&path, "b.txt", "b\n").unwrap();
+      // The desktop snapshots the working copy when it lists changes before a
+      // split; do the same so the split sees both files.
+      crate::jj::jj_get_changed_files(&path).unwrap();
+
+      let refused = execute_local_request(TreqCommandRequest::SplitCommit {
+        repo: repo.repo_path.clone(),
+        workspace: ws.id.to_string(),
+        commit: "zzzzzzzzzzzz".into(),
+        files: vec!["a.txt".into()],
+        hunks: vec![],
+        message: "first".into(),
+        idempotency_key: key("split-other"),
+      })
+      .unwrap_err();
+      assert!(refused.starts_with("unsupported:"), "got: {refused}");
+
+      execute_local_request(TreqCommandRequest::SplitCommit {
+        repo: repo.repo_path.clone(),
+        workspace: ws.id.to_string(),
+        commit: "@".into(),
+        files: vec!["a.txt".into()],
+        hunks: vec![],
+        message: "first".into(),
+        idempotency_key: key("split"),
+      })
+      .unwrap();
+      let commits = list_commits(&repo, ws.id);
+      let described = commits["commits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["description"].as_str().map(str::trim_end) == Some("first"));
+      assert!(described, "split commit must carry the message: {commits}");
+    }
+
+    #[test]
+    fn move_workspace_changes_moves_selected_files() {
+      let repo = TestRepo::new().unwrap();
+      let source = repo.create_workspace_simple("feat-src").unwrap();
+      let destination = repo.create_workspace_simple("feat-dst").unwrap();
+      let source_path = workspace_path(&repo, source.id);
+      let destination_path = workspace_path(&repo, destination.id);
+      TestRepo::write_workspace_file(&source_path, "moved.txt", "moved\n").unwrap();
+      TestRepo::write_workspace_file(&source_path, "kept.txt", "kept\n").unwrap();
+
+      let result = execute_local_request(TreqCommandRequest::MoveWorkspaceChanges {
+        repo: repo.repo_path.clone(),
+        workspace: "feat-src".into(),
+        destination: "feat-dst".into(),
+        files: vec!["moved.txt".into()],
+        hunks: vec![],
+        commits: vec![],
+        idempotency_key: key("move"),
+      })
+      .unwrap();
+      assert_eq!(result["files_moved"], 1, "{result}");
+      assert!(Path::new(&destination_path).join("moved.txt").exists());
+      assert!(Path::new(&source_path).join("kept.txt").exists());
+    }
+
+    #[test]
+    fn rebase_workspace_lifts_bridges_onto_the_real_default_branch() {
+      let repo = TestRepo::new().unwrap();
+      assert_ne!(repo.default_branch(), "main");
+      let parent = repo.create_workspace_simple("feat-parent").unwrap();
+      // A workspace with no recorded target falls back to the repository
+      // default, which is the branch the old hardcoded "main" got wrong.
+      rusqlite::Connection::open(crate::local_db::get_local_db_path(&repo.repo_path))
+        .unwrap()
+        .execute(
+          "UPDATE workspaces SET target_branch = NULL WHERE id = ?1",
+          [parent.id],
+        )
+        .unwrap();
+      let child = crate::core::workspaces::create_workspace(
+        &repo.repo_path,
+        "feat-child",
+        None,
+        None,
+        Some("feat-parent"),
+        None,
+        None,
+      )
+      .unwrap();
+      assert_eq!(child.target_branch.as_deref(), Some("feat-parent"));
+
+      // Moving the parent under its own child lifts the child (the bridge)
+      // onto the parent's old target, which here is the repository default.
+      execute_local_request(TreqCommandRequest::RebaseWorkspace {
+        repo: repo.repo_path.clone(),
+        workspace: parent.id.to_string(),
+        target_branch: "feat-child".into(),
+        idempotency_key: key("rebase"),
+      })
+      .unwrap();
+      let lifted = crate::local_db::get_workspace_by_id(&repo.repo_path, child.id)
+        .unwrap()
+        .unwrap();
+      assert_eq!(lifted.target_branch.as_deref(), Some(repo.default_branch()));
+    }
   }
 }

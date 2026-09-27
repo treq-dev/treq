@@ -425,6 +425,7 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
       repo: repo_a.clone(),
       branch_name: format!("feat/{tag}"),
       source_branch: None,
+      metadata: None,
       idempotency_key: e2e_tag(),
     },
   )

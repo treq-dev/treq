@@ -315,6 +315,26 @@
               "description": "Idempotency key for mutations where a retry could duplicate work"
             },
             {
+              "name": "path",
+              "takesValue": true,
+              "description": "Comma-separated hunk specs (file:start-end) for move"
+            },
+            {
+              "name": "files",
+              "takesValue": true,
+              "description": "Comma-separated file paths for move"
+            },
+            {
+              "name": "title",
+              "takesValue": true,
+              "description": "New workspace title for update"
+            },
+            {
+              "name": "metadata",
+              "takesValue": true,
+              "description": "Workspace metadata JSON for create (title, description, moved files, sparse patterns)"
+            },
+            {
               "name": "format",
               "takesValue": true,
               "description": "Output format: human or json"
@@ -405,6 +425,11 @@
               "description": "Idempotency key for mutations where a retry could duplicate work"
             },
             {
+              "name": "limit",
+              "takesValue": true,
+              "description": "Maximum number of search results"
+            },
+            {
               "name": "format",
               "takesValue": true,
               "description": "Output format: human or json"
@@ -448,6 +473,16 @@
               "description": "Idempotency key for mutations where a retry could duplicate work"
             },
             {
+              "name": "path",
+              "takesValue": true,
+              "description": "File path for file-diff, or comma-separated hunk specs (file:start-end) for split"
+            },
+            {
+              "name": "message",
+              "takesValue": true,
+              "description": "Description for the commit created by split"
+            },
+            {
               "name": "format",
               "takesValue": true,
               "description": "Output format: human or json"
@@ -474,6 +509,21 @@
               "name": "workspace",
               "takesValue": true,
               "description": "Workspace numeric ID"
+            },
+            {
+              "name": "target",
+              "takesValue": true,
+              "description": "Revision for resolve"
+            },
+            {
+              "name": "value",
+              "takesValue": true,
+              "description": "Comma-separated conflict sides for resolve"
+            },
+            {
+              "name": "idempotency-key",
+              "takesValue": true,
+              "description": "Idempotency key for mutations where a retry could duplicate work"
             },
             {
               "name": "format",
