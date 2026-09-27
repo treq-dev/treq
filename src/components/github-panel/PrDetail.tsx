@@ -15,6 +15,8 @@ import { usePrChecksForPr } from "../../hooks/useMergeQueueStatus";
 import { useToast } from "../ui/toast";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import {
   getRepoDefaultBranch,
@@ -415,6 +417,7 @@ export function CreatePrForm({
   // branch once that loads.
   const [editedBase, setEditedBase] = useState<string | null>(null);
   const [head, setHead] = useState("");
+  const [draft, setDraft] = useState(false);
 
   const { data: defaultBranch } = useSWR(
     repoPath ? ["repo-default-branch", repoPath] : null,
@@ -423,7 +426,7 @@ export function CreatePrForm({
   const base = editedBase ?? defaultBranch ?? "";
 
   const create = useMutation({
-    mutationFn: () => ghCreatePr(repoFullName, title, body, base, head),
+    mutationFn: () => ghCreatePr(repoFullName, title, body, base, head, draft),
     onSuccess: (prNumber) => {
       void invalidateQueries(["gh-prs", repoFullName]);
       onSuccess(prNumber);
@@ -461,6 +464,17 @@ export function CreatePrForm({
         rows={4}
         className="text-base"
       />
+      <div className="flex items-center gap-2">
+        <Switch
+          id="create-pr-draft"
+          aria-label="Create as draft"
+          checked={draft}
+          onCheckedChange={(checked) => setDraft(checked)}
+        />
+        <Label htmlFor="create-pr-draft" className="text-base">
+          Create as draft
+        </Label>
+      </div>
       <div className="flex gap-2">
         <Button
           size="sm"
@@ -473,7 +487,7 @@ export function CreatePrForm({
           {create.isPending ? (
             <Loader2 className="w-3 h-3 mr-1 animate-spin" />
           ) : null}
-          Create Pull Request
+          {draft ? "Create Draft Pull Request" : "Create Pull Request"}
         </Button>
         <Button
           size="sm"
@@ -485,7 +499,11 @@ export function CreatePrForm({
         </Button>
       </div>
       {create.isError && (
-        <p className="text-base text-destructive">{String(create.error)}</p>
+        <p className="text-base text-destructive">
+          {create.error instanceof Error
+            ? create.error.message
+            : String(create.error)}
+        </p>
       )}
     </div>
   );
