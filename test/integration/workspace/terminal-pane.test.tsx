@@ -1,11 +1,16 @@
 import * as React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   createTestRepo,
   findSidebarBranchElement,
   openRepo,
 } from "../../utils";
-import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
+import {
+  createWorkspace,
+  getWorkspaces,
+  setSetting,
+} from "../../../src/lib/api";
+import { previewSettingKey } from "../../../src/lib/features";
 import { render, screen, waitFor, within } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
@@ -206,6 +211,10 @@ describe("WorkspaceTerminalPane integration", () => {
   });
 
   it("hides the message queue when the agentMessageQueue preview is off", async () => {
+    onTestFinished(() =>
+      setSetting(previewSettingKey("agentMessageQueue"), "true"),
+    );
+    await setSetting(previewSettingKey("agentMessageQueue"), "false");
     useFeaturePreviewStore.setState({
       flags: {
         ...useFeaturePreviewStore.getState().flags,
