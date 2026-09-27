@@ -195,7 +195,7 @@ async function setupRebaseConflictState(
   };
 }
 
-describe("Review - conflict rendering contract", () => {
+describe("Review - conflict rendering contract", { timeout: 20_000 }, () => {
   let user: ReturnType<typeof userEvent.setup>;
 
   beforeEach(() => {

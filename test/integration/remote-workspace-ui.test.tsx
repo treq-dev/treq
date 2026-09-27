@@ -6,6 +6,7 @@ import {
   createCommit,
   createWorkspace,
   ensureWorkspaceIndexed,
+  getWorkspaceChangedFiles,
   getWorkspaces,
   setSetting,
 } from "../../src/lib/api";
@@ -257,12 +258,14 @@ describe("remote workspace UI", () => {
     render(React.createElement(Dashboard));
     await user.click(await findSidebarBranchElement("feat/marker"));
     await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
+    await screen.findByText("No changes to review");
 
     writeWorkspaceFile(
       resolveWorkspacePath(repoPath, workspace.workspace_path),
       "foreign.txt",
       "from another client\n",
     );
+    await getWorkspaceChangedFiles(repoPath, workspaceId);
 
     await waitFor(
       () => {
