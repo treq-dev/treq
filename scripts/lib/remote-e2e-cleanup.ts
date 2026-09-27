@@ -23,13 +23,11 @@ export interface EnvGateInput {
   supabaseUrl?: string | null;
   supabaseServiceRoleKey?: string | null;
   cleanupTargetKind?: string | null;
-  flyCleanupToken?: string | null;
-  flyCleanupAppName?: string | null;
-  flyCleanupBaseUrl?: string | null;
+  spritesCleanupToken?: string | null;
 }
 
 export type EnvGateResult =
-  | { ok: true; flyScanEnabled: boolean }
+  | { ok: true; spriteScanEnabled: boolean }
   | { ok: false; reason: string; skip?: boolean };
 
 export interface TaggedResource {
@@ -44,13 +42,13 @@ export type DeleteDecision =
   | { action: "skip"; reason: string }
   | { action: "refuse"; reason: string };
 
-export interface FlyMachineFixture {
-  id: string;
+/** The fields of a Sprites API `SpriteResponse` that cleanup reads. */
+export interface SpriteFixture {
+  id?: string;
   name: string;
-  state: string;
+  status: string;
   created_at: string;
-  request_id?: string;
-  metadata?: Record<string, string>;
+  labels?: string[];
 }
 
 export function isE2eTagged(value: string | null | undefined): boolean {
@@ -108,19 +106,26 @@ export function evaluateEnvGate(input: EnvGateInput): EnvGateResult {
       };
     }
   }
-  const flyScanEnabled = Boolean(input.flyCleanupToken && input.flyCleanupAppName);
-  return { ok: true, flyScanEnabled };
+  const spriteScanEnabled = Boolean(input.spritesCleanupToken);
+  return { ok: true, spriteScanEnabled };
 }
 
-export function flyMachineE2eName(name: string): boolean {
-  // Rust adapter tests name machines `treq-{owner}` where owner is `treq-e2e-<uuid>`.
-  const rustOwned = name.match(/^treq-(treq-e2e-[0-9a-f-]{36})$/i);
+// Both the Rust and the Deno Sprites adapters name a Sprite
+// `dev-treq-<owner user id>`. Listing with this prefix keeps the scan to
+// Sprites Treq created; the name checks below decide which are e2e-owned.
+export const SPRITE_NAME_PREFIX = "dev-treq-";
+
+export function spriteE2eName(name: string): boolean {
+  // remote_e2e.rs uses an e2e tag as the owner: `dev-treq-treq-e2e-<uuid>`.
+  const rustOwned = name.match(/^dev-treq-(treq-e2e-[0-9a-f-]{36})$/i);
   if (rustOwned && isE2eTagged(rustOwned[1])) return true;
   return false;
 }
 
-export function flyMachineMatchesKnownE2eUser(name: string, e2eUserIds: Set<string>): boolean {
-  const match = name.match(/^treq-([0-9a-f-]{36})$/i);
+export function spriteMatchesKnownE2eUser(name: string, e2eUserIds: Set<string>): boolean {
+  // Edge Function e2e runs provision for a real (e2e-tagged) auth user, so
+  // the Sprite carries that user's id: `dev-treq-<uuid>`.
+  const match = name.match(/^dev-treq-([0-9a-f-]{36})$/i);
   if (!match) return false;
   return e2eUserIds.has(match[1].toLowerCase());
 }
@@ -132,8 +137,8 @@ export function decideTaggedResource(
 ): DeleteDecision {
   const tagged = isE2eTagged(resource.name) ||
     resource.tags.some((tag) => isE2eTagged(tag)) ||
-    flyMachineE2eName(resource.name) ||
-    flyMachineMatchesKnownE2eUser(resource.name, e2eUserIds);
+    spriteE2eName(resource.name) ||
+    spriteMatchesKnownE2eUser(resource.name, e2eUserIds);
 
   if (!tagged) {
     return {
@@ -147,17 +152,18 @@ export function decideTaggedResource(
   return { action: "delete", reason: "e2e-tagged and older than min age" };
 }
 
-export function decideFlyMachine(
-  machine: FlyMachineFixture,
+export function decideSprite(
+  sprite: SpriteFixture,
   cutoff: Date,
   e2eUserIds: Set<string>,
 ): DeleteDecision {
   return decideTaggedResource(
     {
-      id: machine.id,
-      name: machine.name,
-      createdAt: new Date(machine.created_at),
-      tags: Object.values(machine.metadata ?? {}),
+      // Sprites are addressed by name in every lifecycle endpoint.
+      id: sprite.name,
+      name: sprite.name,
+      createdAt: new Date(sprite.created_at),
+      tags: sprite.labels ?? [],
     },
     cutoff,
     e2eUserIds,
@@ -185,7 +191,7 @@ export async function mapWithConcurrency<T, R>(
 }
 
 export interface CleanupPlanItem {
-  kind: "auth_user" | "fly_machine";
+  kind: "auth_user" | "sprite";
   id: string;
   label: string;
   decision: DeleteDecision;
@@ -206,15 +212,15 @@ export function planAuthUserCleanup(
   });
 }
 
-export function planFlyMachineCleanup(
-  machines: FlyMachineFixture[],
+export function planSpriteCleanup(
+  sprites: SpriteFixture[],
   cutoff: Date,
   e2eUserIds: Set<string>,
 ): CleanupPlanItem[] {
-  return machines.map((machine) => ({
-    kind: "fly_machine",
-    id: machine.id,
-    label: `${machine.name} (${machine.id})`,
-    decision: decideFlyMachine(machine, cutoff, e2eUserIds),
+  return sprites.map((sprite) => ({
+    kind: "sprite",
+    id: sprite.name,
+    label: sprite.id ? `${sprite.name} (${sprite.id})` : sprite.name,
+    decision: decideSprite(sprite, cutoff, e2eUserIds),
   }));
 }

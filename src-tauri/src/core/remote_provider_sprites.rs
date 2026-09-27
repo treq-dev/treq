@@ -13,9 +13,6 @@ use std::time::Duration;
 pub struct SpritesConfig {
   pub base_url: String,
   pub api_token: String,
-  /// Retained while the gated legacy e2e harness is migrated. The Sprites
-  /// API does not use Fly app names.
-  pub app_name: String,
   pub request_timeout: Duration,
 }
 
@@ -44,7 +41,6 @@ impl SpritesConfig {
     Ok(Self {
       base_url,
       api_token,
-      app_name: String::new(),
       request_timeout: Duration::from_secs(30),
     })
   }
@@ -91,15 +87,15 @@ impl SpritesProvider {
   pub fn config_api_token(&self) -> String {
     self.config.api_token.clone()
   }
-  pub fn config_app_name(&self) -> String {
-    self.config.app_name.clone()
-  }
 
   fn sprites_url(&self) -> String {
     format!("{}/v1/sprites", self.config.base_url.trim_end_matches('/'))
   }
   fn sprite_url(&self, name: &str) -> String {
     format!("{}/{}", self.sprites_url(), urlencoding::encode(name))
+  }
+  fn exec_url(&self, name: &str) -> String {
+    format!("{}/exec", self.sprite_url(name))
   }
   fn auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     request.bearer_auth(&self.config.api_token)
@@ -215,7 +211,23 @@ impl ManagedComputeProvider for SpritesProvider {
     self.parse(response).await
   }
   async fn wake_instance(&self, provider_id: &str) -> Result<(), ProviderError> {
-    self.get_instance(provider_id).await.map(|_| ())
+    // Reading a Sprite's metadata is not activity, so a GET leaves a paused
+    // Sprite paused. A Sprite resumes when work arrives, and the cheapest
+    // work is a no-op command through the non-TTY exec endpoint. The call
+    // returns after the command has run, so the Sprite is running by then.
+    let response = self
+      .auth(self.client.post(self.exec_url(provider_id)))
+      .query(&[("cmd", "true")])
+      .send()
+      .await
+      .map_err(Self::transport_error)?;
+    self.capture_request_id(&response);
+    let status = response.status();
+    if status.is_success() {
+      return Ok(());
+    }
+    let body = response.text().await.unwrap_or_default();
+    Err(Self::status_error(status, &body))
   }
   async fn replace_instance(
     &self,
@@ -246,14 +258,13 @@ impl ManagedComputeProvider for SpritesProvider {
 mod tests {
   use super::*;
   use serde_json::json;
-  use wiremock::matchers::{body_json, method, path};
+  use wiremock::matchers::{body_json, method, path, query_param};
   use wiremock::{Mock, MockServer, ResponseTemplate};
 
   fn config(url: String) -> SpritesConfig {
     SpritesConfig {
       base_url: url,
       api_token: "secret-token".into(),
-      app_name: String::new(),
       request_timeout: Duration::from_secs(5),
     }
   }
@@ -321,6 +332,46 @@ mod tests {
       provider.get_instance("treq-user-1").await.unwrap().state,
       ManagedInstanceState::Suspended
     );
+  }
+
+  #[tokio::test]
+  async fn wake_runs_a_command_so_a_paused_sprite_resumes() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(path("/v1/sprites/dev-treq-user-1/exec"))
+      .and(query_param("cmd", "true"))
+      .respond_with(ResponseTemplate::new(200).insert_header("fly-request-id", "wake-req-1"))
+      .expect(1)
+      .mount(&server)
+      .await;
+    // A metadata read does not wake a Sprite, so wake must never settle for
+    // one in place of running work on the Sprite.
+    Mock::given(method("GET"))
+      .and(path("/v1/sprites/dev-treq-user-1"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        "name": "dev-treq-user-1", "status": "cold"
+      })))
+      .expect(0)
+      .mount(&server)
+      .await;
+    let provider = SpritesProvider::new(config(server.uri())).unwrap();
+    provider.wake_instance("dev-treq-user-1").await.unwrap();
+    assert_eq!(provider.last_request_id().as_deref(), Some("wake-req-1"));
+  }
+
+  #[tokio::test]
+  async fn wake_of_a_missing_sprite_is_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(path("/v1/sprites/missing/exec"))
+      .respond_with(ResponseTemplate::new(404))
+      .mount(&server)
+      .await;
+    let result = SpritesProvider::new(config(server.uri()))
+      .unwrap()
+      .wake_instance("missing")
+      .await;
+    assert!(matches!(result, Err(ProviderError::NotFound)), "{result:?}");
   }
 
   #[tokio::test]

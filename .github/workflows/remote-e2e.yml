@@ -1,10 +1,17 @@
 name: Remote SSH live e2e
 
-# Opt-in live acceptance against a dedicated Fly app and Supabase test
-# project. Never runs on pull_request. Missing secrets skip rather than
-# fake a passing acceptance run.
+# Live acceptance against a dedicated Sprites test organization and a
+# dedicated Supabase test project. Runs nightly and on demand, never on
+# pull_request. Missing secrets skip rather than fake a passing acceptance
+# run. See src-tauri/tests/remote_e2e_README.md for the secrets it needs.
+
+defaults:
+  run:
+    shell: bash
 
 on:
+  schedule:
+    - cron: "37 6 * * *" # 06:37 UTC daily, before the 07:17 orphan scan
   workflow_dispatch:
     inputs:
       native:
@@ -12,55 +19,71 @@ on:
         type: boolean
         default: false
       soak:
-        description: "Run vendor auto-suspension soak (hours-long)"
+        description: "Run the cold-Sprite soak (hours-long)"
         type: boolean
         default: false
+
+# Every run shares one test organization and one concurrency cap, so never
+# let two runs provision at the same time. A queued run waits rather than
+# cancelling one that already holds live resources.
+concurrency:
+  group: remote-e2e-live
+  cancel-in-progress: false
 
 jobs:
   live:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    # The soak waits up to six hours for a Sprite to go cold.
+    timeout-minutes: ${{ github.event.inputs.soak == 'true' && 420 || 90 }}
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-      - uses: dtolnay/rust-toolchain@stable
       - name: Skip when dedicated credentials are absent
         id: gate
         env:
           TREQ_REMOTE_E2E: ${{ secrets.TREQ_REMOTE_E2E }}
-          FLY_TEST_API_TOKEN: ${{ secrets.FLY_TEST_API_TOKEN }}
-          FLY_TEST_APP_NAME: ${{ secrets.FLY_TEST_APP_NAME }}
+          SPRITES_TEST_API_TOKEN: ${{ secrets.SPRITES_TEST_API_TOKEN }}
           SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
         run: |
-          if [ "$TREQ_REMOTE_E2E" != "1" ] || [ -z "$FLY_TEST_API_TOKEN" ] || [ -z "$FLY_TEST_APP_NAME" ] || [ -z "$SUPABASE_TEST_URL" ]; then
+          if [ "$TREQ_REMOTE_E2E" != "1" ] || [ -z "$SPRITES_TEST_API_TOKEN" ] || [ -z "$SUPABASE_TEST_URL" ]; then
             echo "SKIP: dedicated live e2e secrets are not configured"
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Fly adapter live tests
+      - uses: denoland/setup-deno@v2
+        if: steps.gate.outputs.run == 'true'
+        with:
+          deno-version: v2.x
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.gate.outputs.run == 'true'
+      - name: Install Linux build dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: Swatinem/rust-cache@v2
+        if: steps.gate.outputs.run == 'true'
+        with:
+          cache-on-failure: true
+          workspaces: "./src-tauri -> target"
+      - name: Sprites adapter live tests
         if: steps.gate.outputs.run == 'true'
         env:
           TREQ_REMOTE_E2E: "1"
-          FLY_TEST_API_TOKEN: ${{ secrets.FLY_TEST_API_TOKEN }}
-          FLY_TEST_APP_NAME: ${{ secrets.FLY_TEST_APP_NAME }}
-          FLY_TEST_API_BASE_URL: ${{ secrets.FLY_TEST_API_BASE_URL }}
-        run: cargo test --manifest-path src-tauri/Cargo.toml --test remote_e2e -- --ignored --test-threads=1
+          SPRITES_TEST_API_TOKEN: ${{ secrets.SPRITES_TEST_API_TOKEN }}
+          SPRITES_TEST_API_URL: ${{ secrets.SPRITES_TEST_API_URL }}
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --test remote_e2e -- --ignored --test-threads=1
       - name: Native SSH live tests
-        if: steps.gate.outputs.run == 'true' && github.event.inputs.native == 'true'
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'true' && github.event.inputs.native == 'true' }}
         env:
           TREQ_REMOTE_E2E: "1"
           TREQ_REMOTE_E2E_NATIVE: "1"
-          FLY_TEST_API_TOKEN: ${{ secrets.FLY_TEST_API_TOKEN }}
-          FLY_TEST_APP_NAME: ${{ secrets.FLY_TEST_APP_NAME }}
           SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
           SUPABASE_TEST_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
           SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
-        run: cargo test --manifest-path src-tauri/Cargo.toml --test remote_e2e_native -- --ignored --test-threads=1
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --test remote_e2e_native -- --ignored --test-threads=1
       - name: Supabase Edge live tests
-        if: steps.gate.outputs.run == 'true'
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
         env:
           TREQ_REMOTE_E2E: "1"
           TREQ_REMOTE_E2E_SOAK: ${{ github.event.inputs.soak == 'true' && '1' || '' }}
@@ -69,3 +92,23 @@ jobs:
           SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
           REMOTE_ADMIN_API_KEY_TEST: ${{ secrets.REMOTE_ADMIN_API_KEY_TEST }}
         run: deno test --allow-net --allow-env supabase/functions/tests/remote_e2e.test.ts
+      # Per-test guards delete what each test creates, but a killed runner
+      # skips them. Sweep this run's leftovers whatever happened above. The
+      # zero-hour window is safe because the concurrency group guarantees no
+      # other live run is using the test organization right now.
+      - name: Sweep leftover e2e resources
+        if: ${{ always() && steps.gate.outputs.run == 'true' }}
+        env:
+          SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
+          SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
+          TREQ_REMOTE_E2E_CLEANUP_TARGET: ${{ secrets.TREQ_REMOTE_E2E_CLEANUP_TARGET }}
+          SPRITES_E2E_CLEANUP_API_TOKEN: ${{ secrets.SPRITES_E2E_CLEANUP_API_TOKEN }}
+          SPRITES_E2E_CLEANUP_API_URL: ${{ secrets.SPRITES_E2E_CLEANUP_API_URL }}
+        run: |
+          if [ "$TREQ_REMOTE_E2E_CLEANUP_TARGET" = "dedicated-test" ]; then
+            mode=--apply
+          else
+            echo "TREQ_REMOTE_E2E_CLEANUP_TARGET is not dedicated-test; reporting leftovers without deleting"
+            mode=--dry-run
+          fi
+          deno run --allow-net --allow-env scripts/remote-e2e-cleanup.ts "$mode" --min-age-hours=0
