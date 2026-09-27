@@ -78,9 +78,6 @@ describe("GitHubPanel list refresh", () => {
     await user.click(screen.getByRole("tab", { name: /pull requests/i }));
     await user.click(await screen.findByRole("button", { name: /close me/i }));
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
-    await user.click(
-      await screen.findByRole("button", { name: /close pull request/i }),
-    );
 
     expect(
       await screen.findByRole("button", { name: /reopen pr/i }),

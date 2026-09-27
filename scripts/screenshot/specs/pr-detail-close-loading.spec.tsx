@@ -1,8 +1,7 @@
 /**
- * Verifies that clicking Close PR on a GitHub PR detail panel first asks for
- * confirmation, and that confirming closes the dialog and immediately shows a
- * pending "Closing…" label and spinner (gh close is stubbed so the request
- * stays in flight).
+ * Verifies that clicking Close PR on a GitHub PR detail panel immediately
+ * shows a pending "Closing…" label and spinner (gh close is stubbed so the
+ * request stays in flight).
  */
 
 import userEvent from "@testing-library/user-event";
@@ -75,26 +74,11 @@ it("captures Close PR loading on click", async () => {
 	});
 
 	await user.click(closeButton);
-	expect(await screen.findByText("Close pull request #42?")).toBeVisible();
-	expect(api.ghClosePr).not.toHaveBeenCalled();
-
-	await captureDocument(document, {
-		name: "pr-detail-close-loading-02-confirm",
-		expectations: [
-			'A dialog titled "Close pull request #42?" is centered over the PR detail panel.',
-			"The dialog explains that GitHub notifies the author and reviewers and that the PR can be reopened.",
-			'The dialog footer has a "Keep open" button and a "Close pull request" button.',
-		],
-	});
-
-	await user.click(screen.getByRole("button", { name: /close pull request/i }));
 	expect(await screen.findByRole("button", { name: /closing/i })).toBeDisabled();
-	expect(screen.queryByText("Close pull request #42?")).toBeNull();
 
 	await captureDocument(document, {
-		name: "pr-detail-close-loading-03-pending",
+		name: "pr-detail-close-loading-02-pending",
 		expectations: [
-			"The confirmation dialog is gone and the panel is not dimmed.",
 			'The Close PR control now reads "Closing…" and looks disabled.',
 			"A spinner is visible next to the Closing label.",
 		],

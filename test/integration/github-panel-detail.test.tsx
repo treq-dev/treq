@@ -200,8 +200,9 @@ describe("PrDetailPanel close PR", () => {
     api.ghClosePr.mockReset();
   });
 
-  it("asks for confirmation before closing and does nothing on cancel", async () => {
+  it("closes the PR on one click, with no confirmation dialog", async () => {
     api.ghViewPr.mockResolvedValue(makeDetailPr({ is_draft: false }));
+    api.ghClosePr.mockResolvedValue(undefined);
 
     render(
       <PrDetailPanel
@@ -213,13 +214,11 @@ describe("PrDetailPanel close PR", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
-    expect(await screen.findByText("Close pull request #42?")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: /keep open/i }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Close pull request #42?")).toBeNull();
+      expect(api.ghClosePr).toHaveBeenCalledWith("acme/treq", 42);
     });
-    expect(api.ghClosePr).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("shows a loading state on the Close PR button while the request is in flight", async () => {
@@ -242,14 +241,10 @@ describe("PrDetailPanel close PR", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
-    await user.click(
-      await screen.findByRole("button", { name: /close pull request/i }),
-    );
 
     const closing = await screen.findByRole("button", { name: /closing/i });
     expect(closing).toBeDisabled();
     expect(closing).toHaveAttribute("aria-busy", "true");
-    expect(screen.queryByText("Close pull request #42?")).toBeNull();
 
     resolveClose();
     await waitFor(() => {
@@ -276,32 +271,28 @@ describe("PrDetailPanel refreshes the workspace PR status", () => {
     { action: /reopen pr/i, state: "CLOSED", draft: false },
     { action: /convert to draft/i, state: "OPEN", draft: false },
     { action: /ready for review/i, state: "OPEN", draft: true },
-  ])(
-    "re-fetches the head branch PR status after $action",
-    async ({ action, state, draft }) => {
-      api.ghViewPr.mockResolvedValue(makeDetailPr({ state, is_draft: draft }));
+  ])("re-fetches the head branch PR status after $action", async ({
+    action,
+    state,
+    draft,
+  }) => {
+    api.ghViewPr.mockResolvedValue(makeDetailPr({ state, is_draft: draft }));
 
-      render(
-        <PrDetailPanel
-          repoPath="/tmp/repo"
-          repoFullName="acme/treq"
-          prNumber={42}
-          onClose={() => {}}
-        />,
-      );
+    render(
+      <PrDetailPanel
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        prNumber={42}
+        onClose={() => {}}
+      />,
+    );
 
-      await user.click(await screen.findByRole("button", { name: action }));
-      if (action.test("Close PR")) {
-        await user.click(
-          await screen.findByRole("button", { name: /close pull request/i }),
-        );
-      }
+    await user.click(await screen.findByRole("button", { name: action }));
 
-      await waitFor(() => {
-        expect(api.getPrInfoViaGh).toHaveBeenCalledWith("/tmp/repo", "feat");
-      });
-    },
-  );
+    await waitFor(() => {
+      expect(api.getPrInfoViaGh).toHaveBeenCalledWith("/tmp/repo", "feat");
+    });
+  });
 });
 
 describe("GitHub detail load failures", () => {
@@ -383,9 +374,6 @@ describe("GitHub detail action failures", () => {
     renderPr();
 
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
-    await user.click(
-      await screen.findByRole("button", { name: /close pull request/i }),
-    );
 
     expect(
       await screen.findByText("Failed to close pull request"),
