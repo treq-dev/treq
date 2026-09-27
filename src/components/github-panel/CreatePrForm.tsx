@@ -1,15 +1,37 @@
 import { useState } from "react";
 import useSWR from "swr";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { useMutation } from "../../hooks/useMutation";
 import { invalidatePrStatuses } from "../../hooks/useMergeQueueStatus";
 import { getRepoDefaultBranch, ghCreatePr } from "../../lib/api";
 import { invalidateQueries } from "../../lib/swr-cache";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
-import { Switch } from "../ui/switch";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Textarea } from "../ui/textarea";
+
+// Mirrors GitHub's split button: the menu picks the PR type and the main
+// button then creates that type.
+const PR_TYPES = {
+  ready: {
+    button: "Create Pull Request",
+    item: "Create pull request",
+    description: "Open a pull request that is ready for review",
+  },
+  draft: {
+    button: "Draft Pull Request",
+    item: "Create draft pull request",
+    description: "Cannot be merged until marked ready for review",
+  },
+} as const;
+
+type PrType = keyof typeof PR_TYPES;
 
 export function CreatePrForm({
   repoPath,
@@ -28,7 +50,8 @@ export function CreatePrForm({
   // branch once that loads.
   const [editedBase, setEditedBase] = useState<string | null>(null);
   const [head, setHead] = useState("");
-  const [draft, setDraft] = useState(false);
+  const [prType, setPrType] = useState<PrType>("ready");
+  const draft = prType === "draft";
 
   const { data: defaultBranch } = useSWR(
     repoPath ? ["repo-default-branch", repoPath] : null,
@@ -76,31 +99,56 @@ export function CreatePrForm({
         rows={4}
         className="text-base"
       />
-      <div className="flex items-center gap-2">
-        <Switch
-          id="create-pr-draft"
-          aria-label="Create as draft"
-          checked={draft}
-          onCheckedChange={(checked) => setDraft(checked)}
-        />
-        <Label htmlFor="create-pr-draft" className="text-base">
-          Create as draft
-        </Label>
-      </div>
       <div className="flex gap-2">
-        <Button
-          size="sm"
-          className="text-base"
-          disabled={
-            !title.trim() || !head.trim() || !base.trim() || create.isPending
-          }
-          onClick={() => create.mutate()}
-        >
-          {create.isPending ? (
-            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-          ) : null}
-          {draft ? "Create Draft Pull Request" : "Create Pull Request"}
-        </Button>
+        <div className="inline-flex items-center">
+          <Button
+            size="sm"
+            className="text-base rounded-r-none"
+            disabled={
+              !title.trim() || !head.trim() || !base.trim() || create.isPending
+            }
+            onClick={() => create.mutate()}
+          >
+            {create.isPending ? (
+              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+            ) : null}
+            {PR_TYPES[prType].button}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                className="rounded-l-none border-l border-white/20 px-1.5"
+                disabled={create.isPending}
+                aria-label="Pull request type"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={4} className="w-80">
+              <DropdownMenuRadioGroup
+                value={prType}
+                onValueChange={(value) => setPrType(value as PrType)}
+              >
+                {(Object.keys(PR_TYPES) as PrType[]).map((type) => (
+                  <DropdownMenuRadioItem
+                    key={type}
+                    value={type}
+                    closeOnClick
+                    className="items-start"
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">{PR_TYPES[type].item}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {PR_TYPES[type].description}
+                      </span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <Button
           size="sm"
           variant="ghost"

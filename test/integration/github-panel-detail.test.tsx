@@ -432,7 +432,34 @@ describe("CreatePrForm", () => {
     await user.type(base, "main");
   }
 
-  it("creates a draft PR when Create as draft is on", async () => {
+  it("creates a ready-for-review PR by default", async () => {
+    render(
+      <CreatePrForm
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        onSuccess={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await fillForm();
+    await user.click(
+      screen.getByRole("button", { name: /^create pull request$/i }),
+    );
+
+    await waitFor(() => {
+      expect(api.ghCreatePr).toHaveBeenCalledWith(
+        "acme/treq",
+        "Add thing",
+        "",
+        "main",
+        "feat/thing",
+        false,
+      );
+    });
+  });
+
+  it("creates a draft PR after choosing draft from the dropdown", async () => {
     const onSuccess = vi.fn();
     render(
       <CreatePrForm
@@ -444,9 +471,18 @@ describe("CreatePrForm", () => {
     );
 
     await fillForm();
-    await user.click(screen.getByRole("switch", { name: /create as draft/i }));
+    expect(screen.queryByRole("switch")).toBeNull();
     await user.click(
-      screen.getByRole("button", { name: /create draft pull request/i }),
+      screen.getByRole("button", { name: /pull request type/i }),
+    );
+    await user.click(
+      await screen.findByRole("menuitemradio", {
+        name: /create draft pull request/i,
+      }),
+    );
+    expect(api.ghCreatePr).not.toHaveBeenCalled();
+    await user.click(
+      await screen.findByRole("button", { name: /^draft pull request$/i }),
     );
 
     await waitFor(() => {
