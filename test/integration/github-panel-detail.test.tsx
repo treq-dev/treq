@@ -2,10 +2,8 @@ import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IssueDetailPanel } from "../../src/components/github-panel/IssueDetail";
-import {
-  CreatePrForm,
-  PrDetailPanel,
-} from "../../src/components/github-panel/PrDetail";
+import { CreatePrForm } from "../../src/components/github-panel/CreatePrForm";
+import { PrDetailPanel } from "../../src/components/github-panel/PrDetail";
 import { render, screen, waitFor } from "../test-utils";
 
 const api = vi.hoisted(() => ({
