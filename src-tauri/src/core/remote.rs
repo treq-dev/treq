@@ -86,6 +86,10 @@ pub struct RemoteRepository {
 /// refresh status/changes/commits/conflicts rather than merge or reconcile
 /// anything. This is stale-state notification only, never conflict
 /// resolution.
+///
+/// Reading the marker snapshots the workspace's working copy first, so file
+/// edits made outside jj (an editor, a terminal, an agent) also move it. An
+/// idle workspace keeps the same marker and gains no new operations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceChangeMarker {
   pub operation_id: String,
@@ -1625,7 +1629,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       let id = workspace_id(workspace.as_ref())?;
       let workspace_path = resolve_workspace_path(&repo, id)?;
       json(Ok::<_, String>(WorkspaceChangeMarker {
-        operation_id: crate::jj::jj_head_operation_id(&workspace_path)
+        operation_id: crate::jj::jj_snapshot_head_operation_id(&workspace_path)
           .map_err(|error| format!("jj_command_failed: {error}"))?,
       }))
     }
@@ -3074,6 +3078,43 @@ mod tests {
       before.operation_id, after.operation_id,
       "operation id must change after a mutation so a foreign client can detect it"
     );
+  }
+
+  #[test]
+  fn change_marker_detects_out_of_band_file_writes_and_stays_stable_when_idle() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo_path = repo_dir.path().to_str().unwrap().to_string();
+    execute_local_request(TreqCommandRequest::InitRepo {
+      repo: repo_path.clone(),
+      idempotency_key: "init-1".into(),
+    })
+    .unwrap();
+    let marker = || -> String {
+      let value = execute_local_request(TreqCommandRequest::WorkspaceChangeMarker {
+        repo: repo_path.clone(),
+        workspace: None,
+      })
+      .unwrap();
+      serde_json::from_value::<WorkspaceChangeMarker>(value)
+        .unwrap()
+        .operation_id
+    };
+
+    let first = marker();
+    let second = marker();
+    assert_eq!(first, second, "an idle repo must return a stable marker");
+    assert_eq!(
+      crate::jj::jj_head_operation_id(&repo_path).unwrap(),
+      first,
+      "polling an idle repo must not add operations"
+    );
+
+    // A terminal or agent writing a file never runs jj, so only the snapshot
+    // taken while reading the marker can surface it.
+    std::fs::write(repo_dir.path().join("agent-output.txt"), "edited\n").unwrap();
+    let after_write = marker();
+    assert_ne!(first, after_write);
+    assert_eq!(marker(), after_write);
   }
 
   fn uuid_like() -> String {

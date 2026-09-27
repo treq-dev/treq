@@ -19,6 +19,9 @@ export function invalidateRemoteRepositoryData() {
     void invalidateQueries(["workspace-diff"]);
     void invalidateQueries(["linear-commits"]);
     void invalidateQueries(["workspace-commits"]);
+    void invalidateQueries(["workspace-status"]);
+    void invalidateQueries(["workspace-overview"]);
+    void invalidateQueries(["commit-diff-viewer-commits"]);
     return;
   }
   const key = repositoryCacheKey(repo);
@@ -28,6 +31,12 @@ export function invalidateRemoteRepositoryData() {
   void invalidateQueries(["workspace-diff"]);
   void invalidateQueries(["linear-commits", key]);
   void invalidateQueries(["workspace-commits", key]);
+  // The selected workspace's status (which carries its conflict state) and
+  // overview are keyed by the repository cache key. The commits list is keyed
+  // by the remote repo path, so it is refreshed unscoped like the diff keys.
+  void invalidateQueries(["workspace-status", key]);
+  void invalidateQueries(["workspace-overview", key]);
+  void invalidateQueries(["commit-diff-viewer-commits"]);
   void invalidateQueries(["repo-branch", key]);
   void invalidateQueries(["repo-status", key]);
   void invalidateQueries(["remote-review"]);
