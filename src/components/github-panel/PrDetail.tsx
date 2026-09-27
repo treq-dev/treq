@@ -11,7 +11,10 @@ import {
   X,
 } from "lucide-react";
 import { CiStatusButton } from "../CiStatusIndicator";
-import { usePrChecksForPr } from "../../hooks/useMergeQueueStatus";
+import {
+  invalidatePrStatuses,
+  usePrChecksForPr,
+} from "../../hooks/useMergeQueueStatus";
 import { useToast } from "../ui/toast";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -125,6 +128,13 @@ export function PrDetailPanel({
     },
   });
 
+  // The workspace PR badge, View PR button, and Create PR button read the
+  // backend PR-status cache, which only the poller refreshes. Re-fetch the
+  // head branch so a state change here shows up there right away.
+  const refreshWorkspacePrStatus = () => {
+    if (pr) void invalidatePrStatuses(repoPath, pr.head_ref_name);
+  };
+
   const addComment = useMutation({
     mutationFn: () => ghCreatePrComment(repoFullName, prNumber, commentBody),
     onSuccess: () => {
@@ -139,6 +149,7 @@ export function PrDetailPanel({
     onSuccess: () => {
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
+      refreshWorkspacePrStatus();
     },
     onError: ghErrorToast("Failed to close pull request"),
   });
@@ -148,6 +159,7 @@ export function PrDetailPanel({
     onSuccess: () => {
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
+      refreshWorkspacePrStatus();
     },
     onError: ghErrorToast("Failed to reopen pull request"),
   });
@@ -157,7 +169,7 @@ export function PrDetailPanel({
     onSuccess: () => {
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
-      void invalidateQueries(["pr-info-gh"]);
+      refreshWorkspacePrStatus();
     },
     onError: (error, draft) =>
       ghErrorToast(
@@ -426,6 +438,7 @@ export function CreatePrForm({
     mutationFn: () => ghCreatePr(repoFullName, title, body, base, head),
     onSuccess: (prNumber) => {
       void invalidateQueries(["gh-prs", repoFullName]);
+      void invalidatePrStatuses(repoPath, head);
       onSuccess(prNumber);
     },
   });
