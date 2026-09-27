@@ -441,7 +441,7 @@ export function useFileActions({
     commitPending: pendingAction !== null,
     pendingAction,
     canCreatePr,
-    hasPr: !!prInfo,
+    hasPr: prInfo?.state === "OPEN",
     handleDiscardAll,
     handleDiscardFiles,
     handleCopyLineLocation,
