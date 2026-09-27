@@ -682,7 +682,15 @@ pub fn get_pr_checks_via_gh_impl(
 ) -> Result<Option<PrCiStatus>, String> {
   let mut cmd = std::process::Command::new(gh_path);
   cmd
-    .args(["pr", "checks", branch_name, "--json", CHECK_JSON_FIELDS])
+    // `--` keeps a branch name that starts with `-` from being read as a flag.
+    .args([
+      "pr",
+      "checks",
+      "--json",
+      CHECK_JSON_FIELDS,
+      "--",
+      branch_name,
+    ])
     .current_dir(repo_path)
     .env("PATH", extended_path);
   let output = spawn_with_etxtbsy_retry(cmd)?;
@@ -769,12 +777,14 @@ pub fn get_pr_info_via_gh_impl(
 
   let mut cmd = std::process::Command::new(gh_path);
   cmd
+    // `--` keeps a branch name that starts with `-` from being read as a flag.
     .args([
       "pr",
       "view",
-      branch_name,
       "--json",
       "number,title,state,url,headRefName,baseRefName,mergeStateStatus,isDraft",
+      "--",
+      branch_name,
     ])
     .current_dir(repo_path)
     .env("PATH", extended_path);
@@ -1267,7 +1277,7 @@ mod tests {
     let expected_dir = expected_dir.display();
     let script = format!(
       r#"test "$PWD" = "{expected_dir}" || exit 8
-test "$*" = "pr view feat --json number,title,state,url,headRefName,baseRefName,mergeStateStatus,isDraft" || exit 9
+test "$*" = "pr view --json number,title,state,url,headRefName,baseRefName,mergeStateStatus,isDraft -- feat" || exit 9
 echo '{{"number":42,"title":"My PR","state":"OPEN","url":"https://github.com/o/r/pull/42","headRefName":"feat","baseRefName":"main","mergeStateStatus":null,"isDraft":false}}'"#,
     );
     let gh_path = write_fake_gh(&bin_dir, &script);
@@ -1280,6 +1290,38 @@ echo '{{"number":42,"title":"My PR","state":"OPEN","url":"https://github.com/o/r
     );
 
     assert!(result.unwrap().is_some());
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn get_pr_info_passes_dash_prefixed_branch_as_positional() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "pr view --json number,title,state,url,headRefName,baseRefName,mergeStateStatus,isDraft -- --web" || exit 9
+echo 'no pull requests found for branch "--web"' >&2
+exit 1"#,
+    );
+
+    let result = get_pr_info_via_gh_impl(&gh_path, "/tmp", "--web", "/usr/bin:/bin").unwrap();
+
+    assert!(result.is_none());
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn get_pr_checks_passes_dash_prefixed_branch_as_positional() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "pr checks --json name,bucket,link,startedAt,completedAt -- --web" || exit 9
+echo 'no pull requests found for branch "--web"' >&2
+exit 1"#,
+    );
+
+    let result = get_pr_checks_via_gh_impl(&gh_path, "/tmp", "--web", "/usr/bin:/bin").unwrap();
+
+    assert!(result.is_none());
   }
 
   #[test]
@@ -1608,7 +1650,7 @@ echo '[]'"#,
     let expected_dir = expected_dir.display();
     let script = format!(
       r#"test "$PWD" = "{expected_dir}" || exit 8
-test "$*" = "pr checks feat --json name,bucket,link,startedAt,completedAt" || exit 9
+test "$*" = "pr checks --json name,bucket,link,startedAt,completedAt -- feat" || exit 9
 echo '[{{"name":"build","bucket":"pass","link":"https://x/1"}}]'"#,
     );
     let gh_path = write_fake_gh(&bin_dir, &script);
