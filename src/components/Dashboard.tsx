@@ -1102,18 +1102,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
       setViewMode("linear");
     }
+    // A disabled tracker's route falls back to the previous view, so a stale
+    // URL or turning the preview off mid-view never leaves a blank pane.
+    const trackerRouteEnabled: Record<TrackerProvider, boolean> = {
+      trello: trelloIntegrationEnabled,
+      jira: jiraIntegrationEnabled,
+    };
     for (const { id, basePath } of Object.values(TRACKER_PROVIDERS)) {
-      if (viewMode === id && !location.startsWith(basePath)) {
+      const enabled = trackerRouteEnabled[id];
+      if (viewMode === id && (!enabled || !location.startsWith(basePath))) {
         setViewMode(previousViewModeRef.current);
       }
-      if (location.startsWith(basePath) && viewMode !== id) {
+      if (enabled && location.startsWith(basePath) && viewMode !== id) {
         if (viewMode !== "github" && viewMode !== "artifacts") {
           previousViewModeRef.current = viewMode;
         }
         setViewMode(id);
       }
     }
-  }, [location, viewMode]);
+  }, [location, viewMode, trelloIntegrationEnabled, jiraIntegrationEnabled]);
 
   // The reverse also happens: leaving "github" through a non-URL action (e.g.
   // clicking a workspace in the sidebar) should clear the now-stale
