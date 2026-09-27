@@ -3343,6 +3343,21 @@ fn reconcile_single_workspace(workspace_path: &str) -> Result<(), JjError> {
   let repo = block_on(workspace.repo_loader().load_at_head())
     .map_err(|e| JjError::InitFailed(format!("Failed to load repo: {}", e)))?;
 
+  reconcile_loaded_workspace(&mut workspace, &repo)
+}
+
+/// Checks out `repo`'s WC commit if the working copy is behind it.
+///
+/// `repo` is loaded before the working-copy lock is taken, so a concurrent
+/// command (e.g. a snapshot) can move the working copy to a newer operation in
+/// between. jj reports that as `WorkingCopyFreshness::Updated`: the working
+/// copy is current and `repo` is the stale side. Checking out `repo`'s older WC
+/// commit there would revert the disk to the older tree and delete files the
+/// snapshot had just recorded, so that case keeps the working copy as it is.
+fn reconcile_loaded_workspace(
+  workspace: &mut Workspace,
+  repo: &Arc<ReadonlyRepo>,
+) -> Result<(), JjError> {
   let workspace_name = workspace.workspace_name().to_owned();
 
   let wc_commit_id = match repo.view().get_wc_commit_id(&workspace_name) {
@@ -3361,7 +3376,7 @@ fn reconcile_single_workspace(workspace_path: &str) -> Result<(), JjError> {
   let freshness = block_on(WorkingCopyFreshness::check_stale(
     locked_ws.locked_wc(),
     &wc_commit,
-    &repo,
+    repo,
   ))
   .map_err(|e| JjError::InitFailed(format!("Failed to check staleness: {}", e)))?;
 
@@ -3370,7 +3385,13 @@ fn reconcile_single_workspace(workspace_path: &str) -> Result<(), JjError> {
       block_on(locked_ws.finish(repo.op_id().clone()))
         .map_err(|e| JjError::InitFailed(format!("Failed to finish wc: {}", e)))?;
     }
-    _ => {
+    WorkingCopyFreshness::Updated(_) => {
+      // `repo` is the stale side here; keep the working copy's newer operation.
+      let wc_op_id = locked_ws.locked_wc().old_operation_id().clone();
+      block_on(locked_ws.finish(wc_op_id))
+        .map_err(|e| JjError::InitFailed(format!("Failed to finish wc: {}", e)))?;
+    }
+    WorkingCopyFreshness::WorkingCopyStale | WorkingCopyFreshness::SiblingOperation => {
       block_on(locked_ws.locked_wc().check_out(&wc_commit))
         .map_err(|e| JjError::InitFailed(format!("Failed to check out: {}", e)))?;
       block_on(locked_ws.finish(repo.op_id().clone()))
@@ -3506,9 +3527,17 @@ pub fn is_workspace_stale(workspace_path: &str) -> Result<bool, JjError> {
     &repo,
   ))
   .map_err(|e| JjError::InitFailed(format!("Failed to check staleness: {}", e)))?;
-  block_on(locked_ws.finish(repo.op_id().clone()))
+  // `Updated`: `repo` is stale, not the working copy (see `reconcile_loaded_workspace`).
+  let finish_op_id = match freshness {
+    WorkingCopyFreshness::Updated(_) => locked_ws.locked_wc().old_operation_id().clone(),
+    _ => repo.op_id().clone(),
+  };
+  block_on(locked_ws.finish(finish_op_id))
     .map_err(|e| JjError::InitFailed(format!("Failed to finish wc: {}", e)))?;
-  Ok(!matches!(freshness, WorkingCopyFreshness::Fresh))
+  Ok(matches!(
+    freshness,
+    WorkingCopyFreshness::WorkingCopyStale | WorkingCopyFreshness::SiblingOperation
+  ))
 }
 
 /// Update a stale working copy using jj workspace update-stale
@@ -9328,6 +9357,40 @@ mod tests {
       is_bookmark_tracked(workspace_path, "main", "origin").expect("tracked check"),
       "main@origin should become tracked"
     );
+  }
+
+  #[test]
+  fn reconcile_keeps_files_a_concurrent_snapshot_recorded_after_repo_load() {
+    let temp = TempDir::new().expect("tempdir");
+    init_git_repo(&temp);
+    let workspace_path = temp.path().to_str().expect("utf8 path");
+    init_jj_for_git_repo(workspace_path).expect("init jj for git repo");
+    jj_get_changed_files(workspace_path).expect("initial snapshot");
+
+    // Load the repo the way reconcile does, before its working-copy lock.
+    let settings = create_user_settings(workspace_path).expect("settings");
+    let mut workspace = Workspace::load(
+      &settings,
+      temp.path(),
+      &StoreFactories::default(),
+      &default_working_copy_factories(),
+    )
+    .expect("load workspace");
+    let repo_before_snapshot = block_on(workspace.repo_loader().load_at_head()).expect("load repo");
+
+    // A concurrent snapshot moves the working copy past the loaded repo.
+    fs::write(temp.path().join("new.txt"), "hello\n").expect("write file");
+    let changed = jj_get_changed_files(workspace_path).expect("snapshot new file");
+    assert!(changed.iter().any(|change| change.path == "new.txt"));
+
+    reconcile_loaded_workspace(&mut workspace, &repo_before_snapshot).expect("reconcile");
+
+    assert!(
+      temp.path().join("new.txt").exists(),
+      "reconcile must not check out the older WC commit over a newer snapshot"
+    );
+    let changed = jj_get_changed_files(workspace_path).expect("snapshot after reconcile");
+    assert!(changed.iter().any(|change| change.path == "new.txt"));
   }
 
   #[test]
