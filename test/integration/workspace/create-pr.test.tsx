@@ -448,6 +448,48 @@ describe("ShowWorkspace - Create PR", () => {
     ).not.toBeInTheDocument();
   }, 30_000);
 
+  it("reports a push failure after committing as a push error, not a PR error", async () => {
+    const workspaceId = await createWorkspace(repoPath, "feat/push-fails");
+    const workspace = (await getWorkspaces(repoPath)).find(
+      (candidate) => candidate.id === workspaceId,
+    )!;
+    writeWorkspaceFile(
+      resolveWorkspacePath(repoPath, workspace.workspace_path),
+      "feature.txt",
+      "feature content\n",
+    );
+    setOriginUrl(repoPath, "https://github.com/acme/treq.git");
+    vi.mocked(pushWorkspaceToRemote).mockRejectedValueOnce(
+      new Error("remote rejected"),
+    );
+
+    render(<Dashboard />);
+    await openWorkspace("feat/push-fails");
+    await user.click(await screen.findByRole("tab", { name: /changes/i }));
+    await screen.findAllByText("feature.txt");
+    await user.type(
+      await screen.findByPlaceholderText("Message"),
+      "Add feature",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /more commit options/i }),
+    );
+    const commitAndCreatePr = await screen.findByRole("menuitem", {
+      name: /commit and create pr/i,
+    });
+    await waitFor(() => expect(commitAndCreatePr).toBeEnabled());
+    await user.click(commitAndCreatePr);
+
+    expect(
+      await screen.findByText("Committed, but failed to push", undefined, {
+        timeout: 15_000,
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("remote rejected")).toBeVisible();
+    expect(screen.queryByText("Failed to create PR")).toBeNull();
+    expect(ghCreatePr).not.toHaveBeenCalled();
+  }, 30_000);
+
   it("creates a draft PR from the dropdown", async () => {
     const { title, description } = await setupPushedWorkspaceWithGitHub();
     render(<Dashboard />);
