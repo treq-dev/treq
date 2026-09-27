@@ -23,6 +23,8 @@ function defaultFlags(): PreviewFlags {
     workspaceScheduling: previewFeatureDefault("workspaceScheduling"),
     remoteSsh: previewFeatureDefault("remoteSsh"),
     linearIntegration: previewFeatureDefault("linearIntegration"),
+    trelloIntegration: previewFeatureDefault("trelloIntegration"),
+    jiraIntegration: previewFeatureDefault("jiraIntegration"),
     logs: previewFeatureDefault("logs"),
     checks: previewFeatureDefault("checks"),
     browser: previewFeatureDefault("browser"),

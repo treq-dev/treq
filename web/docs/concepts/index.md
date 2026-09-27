@@ -15,5 +15,6 @@ Treq organizes work around workspaces inside your Git repository. Each workspace
 - [Changes and Reviews](/docs/concepts/changes-and-reviews) describes workspace diffs, local comments, and agent handoff.
 - [GitHub Integration](/docs/concepts/github-integration) covers pull requests, CI checks, review threads, and the in-progress merge queue.
 - [Linear Integration](/docs/concepts/linear-integration) covers Linear issues, auto-kickoff, and workspace creation.
+- [Trello and Jira Integrations](/docs/concepts/trello-and-jira-integrations) covers Trello cards, Jira issues, and workspace kickoff.
 - [Agent Sessions](/docs/concepts/agent-sessions) covers supported agents, task modes, and workspace isolation.
 - [Terminal Sessions](/docs/concepts/terminal-sessions) explains how shells and agents run in a workspace.

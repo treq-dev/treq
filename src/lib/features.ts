@@ -7,6 +7,8 @@ export const PREVIEW_FEATURE_IDS = [
   "workspaceScheduling",
   "remoteSsh",
   "linearIntegration",
+  "trelloIntegration",
+  "jiraIntegration",
   "logs",
   "checks",
   "browser",
@@ -41,6 +43,16 @@ export const PREVIEW_FEATURES: readonly PreviewFeature[] = [
     id: "linearIntegration",
     title: "Linear integration",
     docsPath: "/docs/concepts/linear-integration",
+  },
+  {
+    id: "trelloIntegration",
+    title: "Trello integration",
+    docsPath: "/docs/concepts/trello-and-jira-integrations",
+  },
+  {
+    id: "jiraIntegration",
+    title: "Jira integration",
+    docsPath: "/docs/concepts/trello-and-jira-integrations",
   },
   {
     id: "logs",

@@ -11,6 +11,7 @@ import { CircleDot, X } from "lucide-react";
 import { FilePicker } from "./FilePicker";
 import { TaskInputMentionDropdown } from "./task-input/TaskInputMentionDropdown";
 import { TaskInputToolbar } from "./task-input/TaskInputToolbar";
+import { TrackerItemChip } from "./task-input/TrackerItemChip";
 import {
   createSession,
   getSetting,
@@ -22,10 +23,13 @@ import {
 import {
   formatPromptWithLinearIssue,
   formatPromptWithGitHubIssue,
+  formatPromptWithTrackerItem,
   type GitHubIssueAttachment,
   type LinearIssueAttachment,
+  type TrackerItemAttachment,
 } from "../lib/promptAttachments";
 import { linearOpenOrCreateWorkspaceFromIssue } from "../lib/api-linear";
+import { trackerOpenOrCreateWorkspaceFromItem } from "../lib/api-tracker";
 import { useToast } from "./ui/toast";
 import { useDebounce } from "../hooks/useDebounce";
 import { cn } from "../lib/utils";
@@ -44,6 +48,9 @@ interface TaskInputProps {
   initialGitHubIssue?: GitHubIssueAttachment | null;
   initialLinearIssue?: LinearIssueAttachment | null;
   onLinearIssueChange?: (issue: LinearIssueAttachment | null) => void;
+  /** Pre-attach a Trello card or Jira issue; submitting opens its workspace. */
+  initialTrackerItem?: TrackerItemAttachment | null;
+  onTrackerItemChange?: (item: TrackerItemAttachment | null) => void;
 }
 
 export const TaskInput: React.FC<TaskInputProps> = ({
@@ -56,6 +63,8 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   initialGitHubIssue = null,
   initialLinearIssue = null,
   onLinearIssueChange,
+  initialTrackerItem = null,
+  onTrackerItemChange,
 }) => {
   const [taskText, setTaskText] = useState(initialText ?? "");
   const [githubIssue, setGithubIssue] = useState<GitHubIssueAttachment | null>(
@@ -63,6 +72,9 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   );
   const [linearIssue, setLinearIssue] = useState<LinearIssueAttachment | null>(
     initialLinearIssue,
+  );
+  const [trackerItem, setTrackerItem] = useState<TrackerItemAttachment | null>(
+    initialTrackerItem,
   );
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -277,13 +289,15 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   const [, submitTask, submitting] = useActionState(
     async (_prev: null, mode: "plan" | "acceptEdits") => {
       const trimmed = taskText.trim();
-      if (!trimmed && !githubIssue && !linearIssue) return null;
+      if (!trimmed && !githubIssue && !linearIssue && !trackerItem) return null;
 
-      const pendingPrompt = linearIssue
-        ? formatPromptWithLinearIssue(trimmed, linearIssue)
-        : githubIssue
-          ? formatPromptWithGitHubIssue(trimmed, githubIssue)
-          : trimmed;
+      const pendingPrompt = trackerItem
+        ? formatPromptWithTrackerItem(trimmed, trackerItem)
+        : linearIssue
+          ? formatPromptWithLinearIssue(trimmed, linearIssue)
+          : githubIssue
+            ? formatPromptWithGitHubIssue(trimmed, githubIssue)
+            : trimmed;
 
       try {
         if (saveAsRepoDefault && selectedAgent !== configuredDefaultAgent) {
@@ -312,6 +326,20 @@ export const TaskInput: React.FC<TaskInputProps> = ({
             );
           targetWorkspaceId = result.workspace_id;
         }
+        if (trackerItem) {
+          const results = await trackerOpenOrCreateWorkspaceFromItem(
+            repoPath,
+            trackerItem,
+          );
+          const result =
+            results.find((item) => item.item_id === trackerItem.id) ??
+            results[0];
+          if (!result)
+            throw new Error(
+              `Failed to create workspace for ${trackerItem.key}`,
+            );
+          targetWorkspaceId = result.workspace_id;
+        }
 
         const dbSessionId = await createSession(
           repoPath,
@@ -335,6 +363,7 @@ export const TaskInput: React.FC<TaskInputProps> = ({
         setTaskText("");
         setGithubIssue(null);
         setLinearIssue(null);
+        setTrackerItem(null);
         setShowSaveAsRepoDefault(false);
       } catch (error) {
         addToast({
@@ -388,7 +417,11 @@ export const TaskInput: React.FC<TaskInputProps> = ({
     }
   };
 
-  const isEmpty = taskText.trim().length === 0 && !githubIssue && !linearIssue;
+  const isEmpty =
+    taskText.trim().length === 0 &&
+    !githubIssue &&
+    !linearIssue &&
+    !trackerItem;
 
   return (
     <>
@@ -444,6 +477,15 @@ export const TaskInput: React.FC<TaskInputProps> = ({
                 </button>
               </span>
             </div>
+          )}
+          {trackerItem && (
+            <TrackerItemChip
+              item={trackerItem}
+              onRemove={() => {
+                setTrackerItem(null);
+                onTrackerItemChange?.(null);
+              }}
+            />
           )}
           <textarea
             ref={textareaRef}

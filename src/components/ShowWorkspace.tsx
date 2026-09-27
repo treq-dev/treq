@@ -109,6 +109,8 @@ import { CommitDiffViewer } from "./CommitDiffViewer";
 import { CreatePrButtonGroup } from "./CreatePrButtonGroup";
 import { FileBrowser } from "./FileBrowser";
 import { LinearCommitHistory } from "./LinearCommitHistory";
+import { TRACKER_ICONS } from "./trackerIcons";
+import { TRACKER_PROVIDERS, type TrackerProvider } from "../lib/trackers";
 import { LocDiffMarker } from "./LocDiffMarker";
 import { MarkdownContent } from "./MarkdownContent";
 import {
@@ -244,6 +246,10 @@ export const ShowWorkspace = ({
   const { addToast } = useToast();
   const workspaceScheduling = usePreviewFeature("workspaceScheduling");
   const linearIntegration = usePreviewFeature("linearIntegration");
+  const trackerEnabled: Record<TrackerProvider, boolean> = {
+    trello: usePreviewFeature("trelloIntegration"),
+    jira: usePreviewFeature("jiraIntegration"),
+  };
   const logsEnabled = usePreviewFeature("logs");
   const browserEnabled = usePreviewFeature("browser");
   const { fontSize } = useTerminalSettingsStore();
@@ -1792,6 +1798,10 @@ export const ShowWorkspace = ({
             linear_issue_key?: string;
             linear_issue_url?: string;
             linear_issue_title?: string;
+            tracker_provider?: TrackerProvider;
+            tracker_item_key?: string;
+            tracker_item_url?: string;
+            tracker_item_title?: string;
           };
         } catch {
           return null;
@@ -1852,6 +1862,30 @@ export const ShowWorkspace = ({
                     {workspaceMetadata.linear_issue_key}
                   </button>
                 )}
+              {workspace &&
+                workspaceMetadata?.tracker_provider &&
+                workspaceMetadata.tracker_provider in TRACKER_PROVIDERS &&
+                trackerEnabled[workspaceMetadata.tracker_provider] &&
+                workspaceMetadata.tracker_item_key &&
+                workspaceMetadata.tracker_item_url &&
+                (() => {
+                  const TrackerIcon =
+                    TRACKER_ICONS[workspaceMetadata.tracker_provider];
+                  return (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void openUrl(workspaceMetadata.tracker_item_url!)
+                      }
+                      data-testid="tracker-item-badge"
+                      title={workspaceMetadata.tracker_item_title}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors shrink-0"
+                    >
+                      <TrackerIcon className="w-3 h-3" />
+                      {workspaceMetadata.tracker_item_key}
+                    </button>
+                  );
+                })()}
               {workspace && workspace.branch_name !== defaultBranch && (
                 <>
                   <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />

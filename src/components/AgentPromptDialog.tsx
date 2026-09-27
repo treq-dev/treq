@@ -5,7 +5,9 @@ import type { Workspace } from "../lib/api";
 import type {
   GitHubIssueAttachment,
   LinearIssueAttachment,
+  TrackerItemAttachment,
 } from "../lib/promptAttachments";
+import { TRACKER_PROVIDERS } from "../lib/trackers";
 import type { SessionCreationInfo } from "../types/sessions";
 import { cn } from "../lib/utils";
 import { TaskInput } from "./TaskInput";
@@ -27,6 +29,7 @@ interface AgentPromptDialogProps {
   /** Pre-attach a GitHub issue chip when starting a prompt from an issue. */
   initialGitHubIssue?: GitHubIssueAttachment | null;
   initialLinearIssue?: LinearIssueAttachment | null;
+  initialTrackerItem?: TrackerItemAttachment | null;
 }
 
 export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
@@ -40,6 +43,7 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
   initialWorkspaceId = null,
   initialGitHubIssue = null,
   initialLinearIssue = null,
+  initialTrackerItem = null,
 }) => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(
     null,
@@ -48,6 +52,7 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
   // A Linear issue always runs in its own workspace (opened or created from
   // the issue's branch), so the picker is hidden while one is attached.
   const [linearIssue, setLinearIssue] = useState(initialLinearIssue);
+  const [trackerItem, setTrackerItem] = useState(initialTrackerItem);
   // Bump on every closed -> open transition so TaskInput remounts with a
   // fresh initialPrompt instead of keeping stale text from a prior open.
   const [taskInputKey, setTaskInputKey] = useState(0);
@@ -61,10 +66,17 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
           : null,
       );
       setLinearIssue(initialLinearIssue);
+      setTrackerItem(initialTrackerItem);
       setTaskInputKey((key) => key + 1);
     }
     wasOpenRef.current = open;
-  }, [open, initialWorkspaceId, initialLinearIssue, workspaces]);
+  }, [
+    open,
+    initialWorkspaceId,
+    initialLinearIssue,
+    initialTrackerItem,
+    workspaces,
+  ]);
 
   const selectableWorkspaces = workspaces.filter(
     (ws) => ws.branch_name !== defaultBranch,
@@ -82,7 +94,15 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
           <DialogTitle>Start a new agent session</DialogTitle>
         </DialogHeader>
 
-        {linearIssue ? (
+        {trackerItem ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <GitBranch className="h-4 w-4 shrink-0" />
+            Opens a workspace for {trackerItem.key}
+            {trackerItem.includeSubItems
+              ? ` and its ${TRACKER_PROVIDERS[trackerItem.provider].subItemNoun}`
+              : ""}
+          </p>
+        ) : linearIssue ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <GitBranch className="h-4 w-4 shrink-0" />
             Opens a workspace for {linearIssue.identifier}
@@ -172,6 +192,8 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
           initialGitHubIssue={initialGitHubIssue}
           initialLinearIssue={initialLinearIssue}
           onLinearIssueChange={setLinearIssue}
+          initialTrackerItem={initialTrackerItem}
+          onTrackerItemChange={setTrackerItem}
         />
       </DialogContent>
     </Dialog>
