@@ -348,7 +348,7 @@ export function useFileActions({
       const committed = await performCommit(commitMsg);
       if (!committed) return null;
       await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
-      return ghCreatePr(
+      const number = await ghCreatePr(
         remoteInfo.full_name,
         deriveConventionalPrTitle(commitMsg, workspace.branch_name),
         workspace.description ?? "",
@@ -356,6 +356,10 @@ export function useFileActions({
         workspace.branch_name,
         false,
       );
+      // Stay pending until the new PR is in the status cache so neither
+      // create-PR surface re-enables before the header switches to View PR.
+      await invalidatePrStatuses(repoPath!, workspace.branch_name);
+      return number;
     },
   });
 
@@ -364,7 +368,6 @@ export function useFileActions({
     try {
       const number = await createPrMutation.mutateAsync(commitMsg);
       if (number == null) return;
-      await invalidatePrStatuses(repoPath!, workspace.branch_name);
       await invalidateQueries();
       const prUrl = `https://github.com/${remoteInfo.full_name}/pull/${number}`;
       addToast({
