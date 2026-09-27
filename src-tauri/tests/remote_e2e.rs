@@ -1,58 +1,64 @@
-//! Phase 8 real-API end-to-end tests for the Remote SSH control plane
-//! (prds/remote-development.md, "Phase 8: Test infrastructure against real APIs").
+//! Real-provider end-to-end tests for the managed-compute provider adapter
+//! (prds/remote-development.md, "Engineering and operational requirements":
+//! real-provider integration tests use isolated test resources and safe
+//! cleanup).
 //!
-//! Everything in this file talks to *real* vendor/control-plane APIs -
-//! nothing here is mocked. That is the entire point of this file: it is the
-//! non-mocked counterpart to `src-tauri/src/core/remote_provider_sprites.rs`'s
-//! `wiremock`-based unit tests, which stay exactly as they are.
+//! Everything in this file talks to the *real* Fly Sprites API. Nothing here
+//! is mocked. It is the non-mocked counterpart to the `wiremock` unit tests
+//! in `src-tauri/src/core/remote_provider_sprites.rs`.
 //!
 //! ## Running this suite
 //!
-//! Every test here is gated on real credentials. With no credentials set,
-//! `cargo test --test remote_e2e` compiles the harness and runs only the
+//! Every live test here is gated on real credentials. With no credentials
+//! set, `cargo test --test remote_e2e` compiles the harness and runs only the
 //! local (non-ignored) gate tests. Live tests are `#[ignore]` so missing
-//! credentials are an explicit skip, not a passing acceptance run. Execute
-//! them with:
+//! credentials are an explicit skip, not a passing acceptance run. Run them
+//! with:
 //! `TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1`
 //! See `remote_e2e_README.md`.
 //!
-//! Required environment variables (all must be set to run *any* Fly-backed
-//! test in this file):
+//! Environment variables:
 //!
-//! - `TREQ_REMOTE_E2E=1`: explicit opt-in; refuses to run even with other
-//!   vars set, so a stray `FLY_TEST_API_TOKEN` in a shared CI environment
-//!   can never accidentally trigger spend.
-//! - `FLY_TEST_API_TOKEN`: a Fly API token scoped to a disposable test
-//!   organization/app.
-//! - `FLY_TEST_API_BASE_URL`: defaults to `https://api.machines.dev/v1` if
-//!   unset but `TREQ_REMOTE_E2E=1` and the token are present.
-//! - `FLY_TEST_APP_NAME`: the Fly app that owns test machines. Must be a
-//!   dedicated test app, never a production app name.
-//!
-//! See `remote_e2e_README.md` in this directory for the full
-//! acceptance-criteria-to-test mapping.
+//! - `TREQ_REMOTE_E2E=1`: explicit opt-in. Nothing runs without it, so a
+//!   stray token in a shared CI environment can never trigger spend.
+//! - `SPRITES_TEST_API_TOKEN`: a Sprites API token for a dedicated test
+//!   organization. Sprites tokens are organization-scoped, so this must
+//!   never be a token for an organization that holds real user Sprites.
+//! - `SPRITES_TEST_API_URL`: optional, defaults to `https://api.sprites.dev`.
+//! - `TREQ_REMOTE_E2E_IDLE_PAUSE_TIMEOUT_SECS`: optional upper bound on how
+//!   long the suspend/wake test waits for the Sprite to pause on its own
+//!   (default 600).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use serde_json::Value;
 use treq_lib::core::remote_provider::{
   CreateInstanceRequest, ManagedComputeProvider, ManagedInstanceState, ProviderError, RegionCode,
   ReplaceInstanceRequest, SizePreset,
 };
 use treq_lib::core::remote_provider_sprites::{SpritesConfig, SpritesProvider};
 
-/// Every resource this suite creates carries this prefix in place of a
-/// display name / tag field so a cleanup pass (`scripts/remote-e2e-cleanup.ts`)
-/// can find and remove it by substring match, independent of which test
-/// created it or whether that test's own compensating cleanup ran.
+/// Every resource this suite creates carries this prefix so a cleanup pass
+/// (`scripts/remote-e2e-cleanup.ts`) can find and remove it by name,
+/// independent of which test created it or whether that test's own
+/// compensating cleanup ran.
 pub const E2E_TAG_PREFIX: &str = "treq-e2e-";
 
-/// Hard cap on how many test instances this suite will have alive
-/// concurrently against the real provider, enforced in-process (not just
-/// documented) via `ConcurrencyGuard` below. Overridable for a wider CI
-/// account via `TREQ_REMOTE_E2E_MAX_CONCURRENCY`, but the default is
-/// deliberately small: this suite creates real billable resources.
+/// The adapter names a Sprite `dev-treq-<owner>`, and this suite uses an
+/// e2e tag as the owner. The cleanup script matches on exactly this shape.
+const E2E_SPRITE_NAME_PREFIX: &str = "dev-treq-treq-e2e-";
+
+const DEFAULT_API_URL: &str = "https://api.sprites.dev";
+
+const LIVE: &str =
+  "live Sprites; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1";
+
+/// Hard cap on how many test Sprites this suite will have alive at once,
+/// enforced in-process via `ConcurrencyGuard`. Overridable for a wider test
+/// organization via `TREQ_REMOTE_E2E_MAX_CONCURRENCY`. The default is small
+/// because every Sprite here is a real billable resource.
 fn max_concurrent_instances() -> usize {
   std::env::var("TREQ_REMOTE_E2E_MAX_CONCURRENCY")
     .ok()
@@ -60,18 +66,24 @@ fn max_concurrent_instances() -> usize {
     .unwrap_or(2)
 }
 
-/// Every provisioning test in this file must request the smallest size
-/// preset. This is spend control, not a test-fidelity concern: preset
-/// selection logic itself is covered by mocked unit tests and by the
-/// `size_preset` field round-tripping through `ProviderInstance`.
-const E2E_SIZE_PRESET: SizePreset = SizePreset::Small;
+/// Sprites pause about 30 seconds after the last activity, then fall from
+/// warm to cold on their own. The bound is generous so that a slow provider
+/// day does not flake the nightly run, and finite so a Sprite that never
+/// pauses fails the test instead of hanging CI.
+fn idle_pause_timeout() -> Duration {
+  Duration::from_secs(
+    std::env::var("TREQ_REMOTE_E2E_IDLE_PAUSE_TIMEOUT_SECS")
+      .ok()
+      .and_then(|v| v.parse().ok())
+      .unwrap_or(600),
+  )
+}
 
 static ACTIVE_INSTANCES: AtomicUsize = AtomicUsize::new(0);
 
 /// RAII concurrency-cap guard. Acquired before any real `create_instance`
-/// call in this file and held for the lifetime of that provider-side
-/// resource; dropping it (including on panic/early-return) releases the
-/// slot so a failed test cannot permanently wedge the suite's cap.
+/// call and held for the lifetime of that Sprite. Dropping it (including on
+/// panic) releases the slot so a failed test cannot wedge the cap.
 struct ConcurrencyGuard;
 
 impl ConcurrencyGuard {
@@ -80,7 +92,7 @@ impl ConcurrencyGuard {
       let current = ACTIVE_INSTANCES.load(Ordering::SeqCst);
       if current >= max_concurrent_instances() {
         panic!(
-          "remote e2e concurrency cap ({}) reached; refusing to provision another real test instance",
+          "remote e2e concurrency cap ({}) reached; refusing to provision another real test Sprite",
           max_concurrent_instances()
         );
       }
@@ -100,82 +112,66 @@ impl Drop for ConcurrencyGuard {
   }
 }
 
-/// Compensating-cleanup guard for a single provider-side instance. Deletes
-/// the instance on drop (test success, test failure, or panic-triggered
-/// unwind, since this suite does not use `catch_unwind` to suppress panics).
-/// This is the PRD's "always run compensating cleanup" requirement for the
-/// per-test path; `scripts/remote-e2e-cleanup.ts` is the backstop for
-/// anything this misses (process killed with SIGKILL, container OOM, etc).
-struct InstanceCleanupGuard<'a> {
-  provider: &'a SpritesProvider,
+/// Compensating cleanup for one Sprite. Deletes it on drop, which covers
+/// test success, test failure, and panic unwind. `scripts/remote-e2e-cleanup.ts`
+/// is the backstop for anything this misses (SIGKILL, runner loss).
+struct InstanceCleanupGuard {
+  config: SpritesConfig,
   provider_resource_id: Option<String>,
   _concurrency: ConcurrencyGuard,
 }
 
-impl<'a> InstanceCleanupGuard<'a> {
-  fn new(provider: &'a SpritesProvider, provider_resource_id: String) -> Self {
+impl InstanceCleanupGuard {
+  fn new(config: &SpritesConfig, provider_resource_id: String) -> Self {
     Self {
-      provider,
+      config: config.clone(),
       provider_resource_id: Some(provider_resource_id),
       _concurrency: ConcurrencyGuard::acquire(),
     }
   }
 }
 
-impl Drop for InstanceCleanupGuard<'_> {
+impl Drop for InstanceCleanupGuard {
   fn drop(&mut self) {
-    if let Some(id) = self.provider_resource_id.take() {
-      // Best-effort synchronous cleanup from a Drop impl: build a throwaway
-      // current-thread runtime rather than requiring the caller's runtime to
-      // still be alive (it may not be, during unwind). Errors are logged,
-      // never panicked on - a cleanup failure must not mask the original
-      // test failure, and the scheduled cleanup script is the backstop.
-      let provider_resource_id = id.clone();
-      let result = std::thread::spawn({
-        let base_url = self.provider.config_base_url();
-        let api_token = self.provider.config_api_token();
-        let app_name = self.provider.config_app_name();
-        move || {
-          let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("failed to build cleanup runtime");
-          rt.block_on(async move {
-            let provider = SpritesProvider::new(SpritesConfig {
-              base_url,
-              api_token,
-              app_name,
-              request_timeout: Duration::from_secs(30),
-            })
-            .expect("failed to rebuild provider for cleanup");
-            provider.delete_instance(&provider_resource_id).await
-          })
-        }
+    let Some(id) = self.provider_resource_id.take() else {
+      return;
+    };
+    // Drop cannot await, and the test's runtime may already be shutting
+    // down during unwind, so run the delete on a throwaway runtime in its
+    // own thread. Errors are logged and never panicked on: a cleanup
+    // failure must not hide the original test failure.
+    let config = self.config.clone();
+    let target = id.clone();
+    let result = std::thread::spawn(move || {
+      let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build cleanup runtime");
+      rt.block_on(async move {
+        let provider =
+          SpritesProvider::new(config).expect("failed to rebuild provider for cleanup");
+        provider.delete_instance(&target).await
       })
-      .join();
+    })
+    .join();
 
-      match result {
-        Ok(Ok(())) => eprintln!("[remote-e2e cleanup] deleted instance {id}"),
-        Ok(Err(ProviderError::NotFound)) => {
-          eprintln!("[remote-e2e cleanup] instance {id} already gone")
-        }
-        Ok(Err(err)) => eprintln!(
-          "[remote-e2e cleanup] FAILED to delete instance {id}: {err:?} - \
-           scripts/remote-e2e-cleanup.ts must catch this on its next run"
-        ),
-        Err(_) => eprintln!(
-          "[remote-e2e cleanup] cleanup thread panicked for instance {id} - \
-           scripts/remote-e2e-cleanup.ts must catch this on its next run"
-        ),
-      }
+    match result {
+      Ok(Ok(())) => eprintln!("[remote-e2e cleanup] deleted Sprite {id}"),
+      Ok(Err(err)) => eprintln!(
+        "[remote-e2e cleanup] FAILED to delete Sprite {id}: {err:?} - \
+         scripts/remote-e2e-cleanup.ts must catch this on its next run"
+      ),
+      Err(_) => eprintln!(
+        "[remote-e2e cleanup] cleanup thread panicked for Sprite {id} - \
+         scripts/remote-e2e-cleanup.ts must catch this on its next run"
+      ),
     }
   }
 }
 
-/// Central skip gate. Every `#[tokio::test]` below calls this first and
-/// returns early (test passes, prints why) when it is `None`. This is the
-/// "skip gracefully rather than fake success" contract: a test body never
-/// runs, and therefore never asserts anything, when credentials are absent.
+/// Central skip gate. Every live test calls this first and returns early
+/// when it is `None`, so a test body never asserts anything without
+/// credentials.
 fn e2e_config() -> Option<SpritesConfig> {
   static PRINT_BANNER: Once = Once::new();
 
@@ -188,15 +184,17 @@ fn e2e_config() -> Option<SpritesConfig> {
     });
     return None;
   }
-  let api_token = std::env::var("FLY_TEST_API_TOKEN").ok()?;
-  let app_name = std::env::var("FLY_TEST_APP_NAME").ok()?;
-  let base_url = std::env::var("FLY_TEST_API_BASE_URL")
-    .unwrap_or_else(|_| "https://api.machines.dev/v1".to_string());
+  let api_token = std::env::var("SPRITES_TEST_API_TOKEN")
+    .ok()
+    .filter(|v| !v.is_empty())?;
+  let base_url = std::env::var("SPRITES_TEST_API_URL")
+    .ok()
+    .filter(|v| !v.is_empty())
+    .unwrap_or_else(|| DEFAULT_API_URL.to_string());
   Some(SpritesConfig {
     base_url,
     api_token,
-    app_name,
-    request_timeout: Duration::from_secs(30),
+    request_timeout: Duration::from_secs(60),
   })
 }
 
@@ -206,7 +204,7 @@ macro_rules! require_e2e {
       Some(cfg) => cfg,
       None => {
         eprintln!(
-          "[remote-e2e] SKIP {}: missing TREQ_REMOTE_E2E=1 / FLY_TEST_API_TOKEN / FLY_TEST_APP_NAME",
+          "[remote-e2e] SKIP {}: missing TREQ_REMOTE_E2E=1 / SPRITES_TEST_API_TOKEN",
           module_path!()
         );
         return;
@@ -219,21 +217,183 @@ fn e2e_tag() -> String {
   format!("{}{}", E2E_TAG_PREFIX, uuid::Uuid::new_v4())
 }
 
-fn e2e_idempotency_key() -> String {
-  format!("{}{}", E2E_TAG_PREFIX, uuid::Uuid::new_v4())
+/// Sprites ignore region and machine size: the platform sizes every Sprite
+/// itself. The request type still carries both fields, so this suite passes
+/// fixed placeholders and never asserts on them.
+fn create_request(owner_user_id: String) -> CreateInstanceRequest {
+  CreateInstanceRequest {
+    // Not a real Supabase user id. The raw adapter only uses it to derive
+    // the Sprite name, which keeps the e2e tag greppable for cleanup.
+    owner_user_id,
+    region: RegionCode::UsEast,
+    size_preset: SizePreset::Small,
+    manifest_version: 1,
+    idempotency_key: e2e_tag(),
+  }
 }
 
-fn e2e_owner_user_id() -> String {
-  // Not a real Supabase user id - the raw provider adapter tested here does
-  // not look this field up against auth.users, it only forwards it into
-  // vendor metadata/tags. Tagged with the e2e prefix for the same
-  // greppability reason as everything else in this file.
-  e2e_tag()
+/// Creates one tagged Sprite and its cleanup guard.
+async fn create_tagged(
+  cfg: &SpritesConfig,
+  provider: &SpritesProvider,
+) -> (
+  treq_lib::core::remote_provider::ProviderInstance,
+  InstanceCleanupGuard,
+) {
+  let instance = provider
+    .create_instance(create_request(e2e_tag()))
+    .await
+    .expect("create_instance should succeed against the real Sprites API");
+  let guard = InstanceCleanupGuard::new(cfg, instance.provider_resource_id.clone());
+  (instance, guard)
+}
+
+/// Polls the adapter until the Sprite is usable. A Sprite that is still
+/// being created maps to Provisioning. A new Sprite with no work yet may
+/// already report `cold` (mapped to Suspended); that is usable too, because
+/// the next command wakes it. Tests that need it running run a command.
+async fn wait_until_ready(provider: &SpritesProvider, name: &str) {
+  let deadline = Instant::now() + Duration::from_secs(5 * 60);
+  loop {
+    let snapshot = provider
+      .get_instance(name)
+      .await
+      .expect("get_instance while waiting for readiness");
+    match snapshot.state {
+      ManagedInstanceState::Ready | ManagedInstanceState::Suspended => return,
+      ManagedInstanceState::Failed | ManagedInstanceState::Degraded => {
+        panic!("Sprite {name} never became ready: {:?}", snapshot.state)
+      }
+      _ => {}
+    }
+    assert!(
+      Instant::now() < deadline,
+      "Sprite {name} did not become ready within 5 minutes (last state {:?})",
+      snapshot.state
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+  }
+}
+
+fn http() -> reqwest::Client {
+  reqwest::Client::builder()
+    .timeout(Duration::from_secs(120))
+    .build()
+    .expect("http client")
+}
+
+fn sprite_url(cfg: &SpritesConfig, name: &str) -> String {
+  format!(
+    "{}/v1/sprites/{}",
+    cfg.base_url.trim_end_matches('/'),
+    urlencoding::encode(name)
+  )
+}
+
+fn request_id(response: &reqwest::Response) -> String {
+  response
+    .headers()
+    .get("fly-request-id")
+    .or_else(|| response.headers().get("x-request-id"))
+    .and_then(|v| v.to_str().ok())
+    .unwrap_or("(none)")
+    .to_string()
+}
+
+/// Reads the raw vendor record for a Sprite. The adapter maps both `warm`
+/// and `running` to Ready, because a warm Sprite resumes in well under a
+/// second. The suspend/wake test needs the finer vendor status to prove the
+/// Sprite really paused and really resumed.
+async fn vendor_sprite(cfg: &SpritesConfig, name: &str) -> Value {
+  let response = http()
+    .get(sprite_url(cfg, name))
+    .bearer_auth(&cfg.api_token)
+    .send()
+    .await
+    .expect("GET sprite");
+  let rid = request_id(&response);
+  let status = response.status();
+  let body: Value = response.json().await.unwrap_or(Value::Null);
+  assert!(
+    status.is_success(),
+    "GET sprite {name} failed: {status} request_id={rid} body={body}"
+  );
+  body
+}
+
+fn vendor_status(sprite: &Value) -> String {
+  sprite["status"].as_str().unwrap_or_default().to_string()
+}
+
+/// Runs a command in the Sprite through the vendor's non-TTY exec endpoint
+/// and returns its raw response body. This is the reachability check the
+/// provider itself offers; the managed SSH path is covered separately by
+/// `remote_e2e_native.rs`.
+async fn exec(cfg: &SpritesConfig, name: &str, argv: &[&str]) -> String {
+  let mut query: Vec<(&str, &str)> = argv.iter().map(|arg| ("cmd", *arg)).collect();
+  if let Some(first) = argv.first() {
+    query.push(("path", first));
+  }
+  let response = http()
+    .post(format!("{}/exec", sprite_url(cfg, name)))
+    .bearer_auth(&cfg.api_token)
+    .query(&query)
+    .send()
+    .await
+    .expect("POST exec");
+  let rid = request_id(&response);
+  let status = response.status();
+  let body = response.text().await.unwrap_or_default();
+  assert!(
+    status.is_success(),
+    "exec {argv:?} on {name} failed: {status} request_id={rid} body={body}"
+  );
+  body
+}
+
+/// Lists Sprite names that start with `prefix`, following pagination.
+async fn list_sprite_names(cfg: &SpritesConfig, prefix: &str) -> Vec<String> {
+  let mut names = Vec::new();
+  let mut continuation: Option<String> = None;
+  loop {
+    let mut query = vec![
+      ("prefix", prefix.to_string()),
+      ("max_results", "500".to_string()),
+    ];
+    if let Some(token) = &continuation {
+      query.push(("continuation_token", token.clone()));
+    }
+    let response = http()
+      .get(format!("{}/v1/sprites", cfg.base_url.trim_end_matches('/')))
+      .bearer_auth(&cfg.api_token)
+      .query(&query)
+      .send()
+      .await
+      .expect("GET sprites");
+    let rid = request_id(&response);
+    let status = response.status();
+    let body: Value = response.json().await.unwrap_or(Value::Null);
+    assert!(
+      status.is_success(),
+      "list sprites failed: {status} request_id={rid} body={body}"
+    );
+    for sprite in body["sprites"].as_array().cloned().unwrap_or_default() {
+      if let Some(name) = sprite["name"].as_str() {
+        names.push(name.to_string());
+      }
+    }
+    continuation = body["next_continuation_token"]
+      .as_str()
+      .filter(|_| body["has_more"].as_bool() == Some(true))
+      .map(str::to_string);
+    if continuation.is_none() {
+      return names;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Acceptance criteria 1, 2: exactly-one-instance provisioning, idempotent
-// concurrent provisioning.
+// Local gate tests. These always run and never touch the network.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -241,403 +401,314 @@ fn e2e_tag_shape_matches_cleanup_script() {
   let tag = e2e_tag();
   assert!(tag.starts_with(E2E_TAG_PREFIX));
   assert_eq!(tag.len(), E2E_TAG_PREFIX.len() + 36);
+  // The adapter derives `dev-treq-<owner>`; the cleanup script only deletes
+  // names of exactly this shape, and Sprite names are capped at 63 chars.
+  let name = format!("dev-treq-{tag}");
+  assert!(name.starts_with(E2E_SPRITE_NAME_PREFIX));
+  assert!(name.len() <= 63);
 }
 
 #[test]
 fn live_suite_is_ignored_without_explicit_opt_in() {
   if std::env::var("TREQ_REMOTE_E2E").as_deref() != Ok("1") {
-    eprintln!(
-      "[remote-e2e] SKIP live tests: not opted in. Run with TREQ_REMOTE_E2E=1 \
-       cargo test --test remote_e2e -- --ignored --test-threads=1"
-    );
+    eprintln!("[remote-e2e] SKIP live tests: not opted in. Run with {LIVE}");
   }
-}
-
-#[tokio::test]
-#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
-async fn provisions_instance_with_selected_region_and_size() {
-  let cfg = require_e2e!();
-  let provider = SpritesProvider::new(cfg).expect("failed to build provider");
-
-  let request = CreateInstanceRequest {
-    owner_user_id: e2e_owner_user_id(),
-    region: RegionCode::UsEast,
-    size_preset: E2E_SIZE_PRESET,
-    manifest_version: 1,
-    idempotency_key: e2e_idempotency_key(),
-  };
-
-  let instance = provider
-    .create_instance(request.clone())
-    .await
-    .expect("create_instance should succeed against the real Fly test API");
-  let _cleanup = InstanceCleanupGuard::new(&provider, instance.provider_resource_id.clone());
-
-  assert_eq!(instance.region, RegionCode::UsEast);
-  assert_eq!(instance.size_preset, E2E_SIZE_PRESET);
-  assert!(!matches!(instance.state, ManagedInstanceState::Failed));
-
-  // PRD: "capture provider request identifiers". Assert the real vendor
-  // actually sent one and the adapter actually captured it - not just that
-  // the field exists.
-  let request_id = provider
-    .last_request_id()
-    .expect("real Fly API response should carry a fly-request-id header");
-  assert!(!request_id.is_empty());
-  eprintln!("[remote-e2e] create_instance provider request id: {request_id}");
-}
-
-#[tokio::test]
-#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
-async fn repeated_create_with_same_idempotency_key_does_not_duplicate_instance() {
-  let cfg = require_e2e!();
-  let provider = SpritesProvider::new(cfg).expect("failed to build provider");
-
-  let request = CreateInstanceRequest {
-    owner_user_id: e2e_owner_user_id(),
-    region: RegionCode::UsEast,
-    size_preset: E2E_SIZE_PRESET,
-    manifest_version: 1,
-    idempotency_key: e2e_idempotency_key(),
-  };
-
-  let first = provider
-    .create_instance(request.clone())
-    .await
-    .expect("first create_instance should succeed");
-  let _cleanup = InstanceCleanupGuard::new(&provider, first.provider_resource_id.clone());
-
-  // Fire several concurrent repeats of the exact same idempotency key, the
-  // way a client retry storm or a flaky network would. Every one of them
-  // must resolve to the same provider resource, never a second machine.
-  let mut handles = Vec::new();
-  for _ in 0..3 {
-    let provider_clone_request = request.clone();
-    let cfg_for_task = SpritesConfig {
-      base_url: provider.config_base_url(),
-      api_token: provider.config_api_token(),
-      app_name: provider.config_app_name(),
-      request_timeout: Duration::from_secs(30),
-    };
-    handles.push(tokio::spawn(async move {
-      let provider = SpritesProvider::new(cfg_for_task).unwrap();
-      provider.create_instance(provider_clone_request).await
-    }));
-  }
-
-  for handle in handles {
-    let outcome = handle.await.expect("task panicked");
-    match outcome {
-      Ok(instance) => assert_eq!(
-        instance.provider_resource_id, first.provider_resource_id,
-        "a repeated create with the same idempotency key must return the same resource, not a duplicate"
-      ),
-      Err(ProviderError::AlreadyExists) => {
-        // Also an acceptable idempotent outcome depending on adapter
-        // semantics, as long as no second machine was actually created -
-        // verified below via get_instance.
-      }
-      Err(other) => panic!("unexpected error on repeated idempotent create: {other:?}"),
-    }
-  }
-
-  let verified = provider
-    .get_instance(&first.provider_resource_id)
-    .await
-    .expect("instance should still be gettable after concurrent repeats");
-  assert_eq!(verified.provider_resource_id, first.provider_resource_id);
 }
 
 // ---------------------------------------------------------------------------
-// Acceptance criterion 13: wake from vendor auto-suspension.
+// Managed setup (acceptance criterion 1): provisioning is idempotent,
+// reaches readiness, and the Sprite is reachable.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
-async fn wake_on_a_running_instance_is_not_suspension_recovery() {
-  let cfg = require_e2e!();
-  let provider = SpritesProvider::new(cfg).expect("failed to build provider");
-
-  let request = CreateInstanceRequest {
-    owner_user_id: e2e_owner_user_id(),
-    region: RegionCode::UsEast,
-    size_preset: E2E_SIZE_PRESET,
-    manifest_version: 1,
-    idempotency_key: e2e_idempotency_key(),
-  };
-  let instance = provider
-    .create_instance(request)
-    .await
-    .expect("create_instance should succeed");
-  let _cleanup = InstanceCleanupGuard::new(&provider, instance.provider_resource_id.clone());
-
-  // Ordinary wake against a running machine is not vendor-suspension
-  // recovery. The suspend-then-wake test below (or the soak gated on
-  // TREQ_REMOTE_E2E_SOAK=1) is the only proof of that path.
-  let before = provider
-    .get_instance(&instance.provider_resource_id)
-    .await
-    .expect("get_instance should succeed before wake");
-  assert!(
-    !matches!(before.state, ManagedInstanceState::Suspended),
-    "this test must not run against an already-suspended instance"
-  );
-  provider
-    .wake_instance(&instance.provider_resource_id)
-    .await
-    .expect("wake_instance should succeed (idempotent no-op on an already-running machine)");
-
-  let after = provider
-    .get_instance(&instance.provider_resource_id)
-    .await
-    .expect("get_instance should succeed after wake");
-  assert!(!matches!(after.state, ManagedInstanceState::Failed));
-}
-
-// ---------------------------------------------------------------------------
-// Acceptance criterion 14: reprovision increments generation / replaces
-// the instance.
-// ---------------------------------------------------------------------------
-
-async fn try_force_suspend(
-  cfg: &SpritesConfig,
-  provider_resource_id: &str,
-) -> Result<bool, String> {
-  let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(30))
-    .build()
-    .map_err(|err| err.to_string())?;
-  let url = format!(
-    "{}/apps/{}/machines/{}/suspend",
-    cfg.base_url.trim_end_matches('/'),
-    cfg.app_name,
-    provider_resource_id
-  );
-  let response = client
-    .post(&url)
-    .bearer_auth(&cfg.api_token)
-    .send()
-    .await
-    .map_err(|err| err.to_string())?;
-  let request_id = response
-    .headers()
-    .get("fly-request-id")
-    .and_then(|v| v.to_str().ok())
-    .unwrap_or("(none)");
-  eprintln!(
-    "[remote-e2e] force-suspend status={} fly-request-id={request_id}",
-    response.status()
-  );
-  if response.status().as_u16() == 404 || response.status().as_u16() == 501 {
-    return Ok(false);
-  }
-  if !response.status().is_success() {
-    return Err(format!(
-      "suspend failed: {} {}",
-      response.status(),
-      response.text().await.unwrap_or_default()
-    ));
-  }
-  Ok(true)
-}
-
-#[tokio::test]
-#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
-async fn suspends_via_provider_test_api_then_wakes() {
+#[ignore = "live Sprites; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
+async fn provisions_a_sprite_that_becomes_ready_and_runs_commands() {
   let cfg = require_e2e!();
   let provider = SpritesProvider::new(cfg.clone()).expect("failed to build provider");
 
-  let request = CreateInstanceRequest {
-    owner_user_id: e2e_owner_user_id(),
-    region: RegionCode::UsEast,
-    size_preset: E2E_SIZE_PRESET,
-    manifest_version: 1,
-    idempotency_key: e2e_idempotency_key(),
-  };
-  let instance = provider
-    .create_instance(request)
-    .await
-    .expect("create_instance should succeed");
-  let _cleanup = InstanceCleanupGuard::new(&provider, instance.provider_resource_id.clone());
+  let (instance, _cleanup) = create_tagged(&cfg, &provider).await;
+  assert!(
+    instance
+      .provider_resource_id
+      .starts_with(E2E_SPRITE_NAME_PREFIX),
+    "unexpected Sprite name {}",
+    instance.provider_resource_id
+  );
+  assert!(!matches!(instance.state, ManagedInstanceState::Failed));
 
-  match try_force_suspend(&cfg, &instance.provider_resource_id).await {
-    Ok(false) => {
-      eprintln!(
-        "[remote-e2e] SKIP suspends_via_provider_test_api_then_wakes: \
-         provider test suspend API is unavailable. Set TREQ_REMOTE_E2E_SOAK=1 \
-         on the Deno soak test for idle-timer recovery. Ordinary wake is not proof."
-      );
-      return;
-    }
-    Ok(true) => {}
-    Err(err) => panic!("{err}"),
+  // Every lifecycle call must be traceable in the vendor's logs.
+  let request_id = provider
+    .last_request_id()
+    .expect("the Sprites API should return a request id header");
+  assert!(!request_id.is_empty());
+  eprintln!("[remote-e2e] create_instance request id: {request_id}");
+
+  wait_until_ready(&provider, &instance.provider_resource_id).await;
+
+  let marker = e2e_tag();
+  let out = exec(
+    &cfg,
+    &instance.provider_resource_id,
+    &["echo", marker.as_str()],
+  )
+  .await;
+  assert!(
+    out.contains(&marker),
+    "exec output should echo the marker; got {out:?}"
+  );
+}
+
+#[tokio::test]
+#[ignore = "live Sprites; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
+async fn repeated_and_concurrent_creates_for_one_owner_resolve_to_one_sprite() {
+  let cfg = require_e2e!();
+  let provider = SpritesProvider::new(cfg.clone()).expect("failed to build provider");
+
+  // The adapter derives the Sprite name from the owner, so the owner is the
+  // idempotency identity. A fresh idempotency key per call models a client
+  // that retried after losing the first response.
+  let owner = e2e_tag();
+  let first = provider
+    .create_instance(create_request(owner.clone()))
+    .await
+    .expect("first create_instance should succeed");
+  let _cleanup = InstanceCleanupGuard::new(&cfg, first.provider_resource_id.clone());
+
+  let mut handles = Vec::new();
+  for _ in 0..3 {
+    let cfg = cfg.clone();
+    let request = create_request(owner.clone());
+    handles.push(tokio::spawn(async move {
+      SpritesProvider::new(cfg)
+        .unwrap()
+        .create_instance(request)
+        .await
+    }));
+  }
+  for handle in handles {
+    let outcome = handle.await.expect("task panicked");
+    let instance = outcome.unwrap_or_else(|err| {
+      panic!(
+        "a repeated create for the same owner must resolve to the existing Sprite, got {err:?}"
+      )
+    });
+    assert_eq!(
+      instance.provider_resource_id, first.provider_resource_id,
+      "a repeated create must return the same Sprite, not a new one"
+    );
   }
 
-  let mut suspended = false;
-  for _ in 0..30 {
-    let snapshot = provider
-      .get_instance(&instance.provider_resource_id)
-      .await
-      .expect("get_instance during suspend wait");
-    if matches!(snapshot.state, ManagedInstanceState::Suspended) {
-      suspended = true;
+  let matching = list_sprite_names(&cfg, &first.provider_resource_id).await;
+  assert_eq!(
+    matching
+      .iter()
+      .filter(|name| **name == first.provider_resource_id)
+      .count(),
+    1,
+    "exactly one Sprite must exist for the owner, found {matching:?}"
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Normal managed lifecycle recovery (acceptance criterion 10): a paused
+// Sprite is woken and reconnected without being recreated.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "live Sprites; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
+async fn idle_paused_sprite_wakes_and_reconnects_without_recreation() {
+  let cfg = require_e2e!();
+  let provider = SpritesProvider::new(cfg.clone()).expect("failed to build provider");
+
+  let (instance, _cleanup) = create_tagged(&cfg, &provider).await;
+  let name = instance.provider_resource_id.clone();
+  wait_until_ready(&provider, &name).await;
+
+  // Leave durable state behind so the reconnect step can prove it reached
+  // the same Sprite rather than a fresh one with the same name.
+  let marker = e2e_tag();
+  exec(
+    &cfg,
+    &name,
+    &[
+      "sh",
+      "-c",
+      &format!("printf %s {marker} > \"$HOME/.treq-e2e-marker\""),
+    ],
+  )
+  .await;
+  let identity_before = vendor_sprite(&cfg, &name).await;
+
+  // Sprites have no suspend endpoint. They pause on their own once idle, so
+  // stop all activity and poll metadata (which is not activity) until the
+  // vendor reports `warm` or `cold`.
+  let deadline = Instant::now() + idle_pause_timeout();
+  let mut paused_status = String::new();
+  while Instant::now() < deadline {
+    let status = vendor_status(&vendor_sprite(&cfg, &name).await);
+    if status == "warm" || status == "cold" {
+      paused_status = status;
       break;
     }
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
   }
   assert!(
-    suspended,
-    "provider suspend API did not yield a Suspended state"
+    !paused_status.is_empty(),
+    "Sprite {name} did not pause within {:?} of going idle",
+    idle_pause_timeout()
   );
+  eprintln!("[remote-e2e] Sprite {name} paused as {paused_status}");
 
+  // Wake through the adapter only. If wake were a no-op (for example a
+  // metadata read), the Sprite would stay paused and this check would fail.
+  provider
+    .wake_instance(&name)
+    .await
+    .expect("wake_instance on a paused Sprite should succeed");
+  // Allow a few seconds for the vendor's status record to catch up. These
+  // metadata reads are not activity, so they cannot wake the Sprite
+  // themselves and cannot mask a no-op wake.
+  let wake_deadline = Instant::now() + Duration::from_secs(20);
+  let mut status_after_wake = vendor_status(&vendor_sprite(&cfg, &name).await);
+  while status_after_wake != "running" && Instant::now() < wake_deadline {
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    status_after_wake = vendor_status(&vendor_sprite(&cfg, &name).await);
+  }
+  assert_eq!(
+    status_after_wake, "running",
+    "wake_instance must resume a paused Sprite, but it is still {status_after_wake}"
+  );
+  let after = provider
+    .get_instance(&name)
+    .await
+    .expect("get_instance after wake");
+  assert_eq!(after.state, ManagedInstanceState::Ready);
+
+  // Reconnect: same vendor identity, same durable filesystem.
+  let identity_after = vendor_sprite(&cfg, &name).await;
+  assert_eq!(
+    identity_before["id"], identity_after["id"],
+    "wake must not recreate the Sprite"
+  );
+  assert_eq!(identity_before["created_at"], identity_after["created_at"]);
+  let read_back = exec(&cfg, &name, &["sh", "-c", "cat \"$HOME/.treq-e2e-marker\""]).await;
+  assert!(
+    read_back.contains(&marker),
+    "the file written before the pause must survive wake; got {read_back:?}"
+  );
+}
+
+#[tokio::test]
+#[ignore = "live Sprites; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
+async fn wake_on_a_running_sprite_is_a_harmless_no_op() {
+  let cfg = require_e2e!();
+  let provider = SpritesProvider::new(cfg.clone()).expect("failed to build provider");
+
+  let (instance, _cleanup) = create_tagged(&cfg, &provider).await;
+  wait_until_ready(&provider, &instance.provider_resource_id).await;
+  // Make sure it is running right now, well inside the idle window.
+  exec(&cfg, &instance.provider_resource_id, &["true"]).await;
+
+  // Clients call wake before reconnecting without knowing whether the Sprite
+  // paused, so waking a running Sprite must succeed and change nothing.
   provider
     .wake_instance(&instance.provider_resource_id)
     .await
-    .expect("wake after forced suspend should succeed");
+    .expect("wake_instance on a running Sprite should succeed");
   let after = provider
     .get_instance(&instance.provider_resource_id)
     .await
     .expect("get_instance after wake");
-  assert!(!matches!(after.state, ManagedInstanceState::Failed));
+  assert_eq!(after.provider_resource_id, instance.provider_resource_id);
+  assert_eq!(after.state, ManagedInstanceState::Ready);
 }
 
+// ---------------------------------------------------------------------------
+// Repair: reprovisioning a Sprite repairs it in place. The Sprite's
+// filesystem is the user's durable environment, so repair must keep the
+// same provider identity (and therefore the same generation) and the same
+// files. Host trust across repair is covered in remote_e2e_native.rs.
+// ---------------------------------------------------------------------------
+
 #[tokio::test]
-#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
-async fn reprovision_replaces_instance_and_can_change_region_and_size() {
+#[ignore = "live Sprites; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
+async fn reprovision_repairs_the_sprite_in_place() {
   let cfg = require_e2e!();
-  let provider = SpritesProvider::new(cfg).expect("failed to build provider");
+  let provider = SpritesProvider::new(cfg.clone()).expect("failed to build provider");
 
-  let create_request = CreateInstanceRequest {
-    owner_user_id: e2e_owner_user_id(),
-    region: RegionCode::UsEast,
-    size_preset: SizePreset::Small,
-    manifest_version: 1,
-    idempotency_key: e2e_idempotency_key(),
-  };
-  let original = provider
-    .create_instance(create_request)
-    .await
-    .expect("create_instance should succeed");
-  let mut cleanup = InstanceCleanupGuard::new(&provider, original.provider_resource_id.clone());
+  let (original, _cleanup) = create_tagged(&cfg, &provider).await;
+  let name = original.provider_resource_id.clone();
+  wait_until_ready(&provider, &name).await;
+  let marker = e2e_tag();
+  exec(
+    &cfg,
+    &name,
+    &[
+      "sh",
+      "-c",
+      &format!("printf %s {marker} > \"$HOME/.treq-e2e-marker\""),
+    ],
+  )
+  .await;
+  let identity_before = vendor_sprite(&cfg, &name).await;
 
-  let replace_request = ReplaceInstanceRequest {
-    provider_resource_id: original.provider_resource_id.clone(),
-    region: RegionCode::UsEast,
-    size_preset: SizePreset::Small,
-    manifest_version: 1,
-    idempotency_key: e2e_idempotency_key(),
-  };
   let replaced = provider
-    .replace_instance(replace_request)
+    .replace_instance(ReplaceInstanceRequest {
+      provider_resource_id: name.clone(),
+      region: RegionCode::UsEast,
+      size_preset: SizePreset::Small,
+      manifest_version: 2,
+      idempotency_key: e2e_tag(),
+    })
     .await
-    .expect("replace_instance should succeed against the real Fly test API");
+    .expect("replace_instance should succeed against the real Sprites API");
 
-  // The domain-level "generation" counter lives in control-plane storage,
-  // not in ProviderInstance - this call proves the adapter can actually
-  // produce a new provider resource id (the control plane increments
-  // generation whenever provider_resource_id changes across a replace).
-  // A same-in-place replace is also an acceptable outcome for providers
-  // that support live resize, so only assert the call succeeded and the
-  // result is trackable and cleanup-safe either way.
-  cleanup.provider_resource_id = Some(replaced.provider_resource_id.clone());
+  // The control plane bumps the generation only when the provider resource
+  // id changes. For Sprites it must not change.
+  assert_eq!(replaced.provider_resource_id, name);
   assert!(!matches!(replaced.state, ManagedInstanceState::Failed));
-}
-
-// ---------------------------------------------------------------------------
-// Acceptance criterion 16 / PRD "teardown and orphan-resource detection":
-// deleting an instance actually removes it from the provider's inventory.
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
-async fn delete_instance_removes_it_from_provider_inventory() {
-  let cfg = require_e2e!();
-  let provider = SpritesProvider::new(cfg).expect("failed to build provider");
-
-  let request = CreateInstanceRequest {
-    owner_user_id: e2e_owner_user_id(),
-    region: RegionCode::UsEast,
-    size_preset: E2E_SIZE_PRESET,
-    manifest_version: 1,
-    idempotency_key: e2e_idempotency_key(),
-  };
-  let instance = provider
-    .create_instance(request)
-    .await
-    .expect("create_instance should succeed");
-  let mut cleanup = InstanceCleanupGuard::new(&provider, instance.provider_resource_id.clone());
-
-  provider
-    .delete_instance(&instance.provider_resource_id)
-    .await
-    .expect("delete_instance should succeed");
-  // Already deleted - do not double-delete from the guard.
-  cleanup.provider_resource_id = None;
-
-  let after_delete = provider.get_instance(&instance.provider_resource_id).await;
+  let identity_after = vendor_sprite(&cfg, &name).await;
+  assert_eq!(identity_before["id"], identity_after["id"]);
+  let read_back = exec(&cfg, &name, &["sh", "-c", "cat \"$HOME/.treq-e2e-marker\""]).await;
   assert!(
-    matches!(after_delete, Err(ProviderError::NotFound)),
-    "a deleted instance must not still be visible to get_instance (orphan-resource detection depends on this): {after_delete:?}"
+    read_back.contains(&marker),
+    "repair must keep the Sprite's files; got {read_back:?}"
   );
 }
 
 // ---------------------------------------------------------------------------
-// Acceptance criterion 1 (region/size preset provisioning coverage):
-// exercise every offered region and size preset at least once. This test is
-// intentionally the most expensive one in the file - guarded doubly by the
-// concurrency cap and by only running the full matrix when explicitly asked.
+// Teardown and orphan-resource detection: deleting a Sprite removes it from
+// the provider's inventory, and a repeated delete is safe.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "live Fly; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
-async fn provisions_across_every_region_at_the_base_allocation() {
+#[ignore = "live Sprites; TREQ_REMOTE_E2E=1 cargo test --test remote_e2e -- --ignored --test-threads=1"]
+async fn delete_removes_the_sprite_from_provider_inventory() {
   let cfg = require_e2e!();
-  if std::env::var("TREQ_REMOTE_E2E_FULL_MATRIX").as_deref() != Ok("1") {
-    eprintln!(
-      "[remote-e2e] SKIP provisions_across_every_region_at_the_base_allocation: \
-       set TREQ_REMOTE_E2E_FULL_MATRIX=1 to run the full region matrix \
-       (this creates and tears down one instance per region)."
-    );
-    return;
-  }
-  let provider = SpritesProvider::new(cfg).expect("failed to build provider");
+  let provider = SpritesProvider::new(cfg.clone()).expect("failed to build provider");
 
-  // PRD "Resource quotas": every managed instance is provisioned at the
-  // fixed base allocation (5 GB disk / 1 vCPU / 2 GB RAM) regardless of
-  // requested `size_preset` in this delivery - add-on purchase beyond the
-  // base allocation does not exist yet. `size_preset` still selects a
-  // region-independent request shape, but the vendor guest spec the
-  // adapter actually sends is always the base allocation (see
-  // `SpritesProvider::size_to_guest`), so a real-API round trip should
-  // always come back reporting the base preset regardless of what was
-  // requested.
-  for region in [
-    RegionCode::UsEast,
-    RegionCode::UsWest,
-    RegionCode::EuWest,
-    RegionCode::ApSoutheast,
-  ] {
-    for requested in [SizePreset::Small, SizePreset::Medium, SizePreset::Large] {
-      let request = CreateInstanceRequest {
-        owner_user_id: e2e_owner_user_id(),
-        region,
-        size_preset: requested,
-        manifest_version: 1,
-        idempotency_key: e2e_idempotency_key(),
-      };
-      let instance = provider
-        .create_instance(request)
-        .await
-        .unwrap_or_else(|err| {
-          panic!("create_instance failed for {region:?}/{requested:?}: {err:?}")
-        });
-      let _cleanup = InstanceCleanupGuard::new(&provider, instance.provider_resource_id.clone());
-      assert_eq!(instance.region, region);
-      assert_eq!(
-        instance.size_preset,
-        treq_lib::core::remote_provider::BASE_ALLOCATION.preset,
-        "requested {requested:?} but the base allocation must always be what's actually provisioned"
-      );
-    }
-  }
+  let (instance, mut cleanup) = create_tagged(&cfg, &provider).await;
+  let name = instance.provider_resource_id.clone();
+
+  provider
+    .delete_instance(&name)
+    .await
+    .expect("delete_instance should succeed");
+  // Already deleted, so the guard must not delete again.
+  cleanup.provider_resource_id = None;
+
+  let after_delete = provider.get_instance(&name).await;
+  assert!(
+    matches!(after_delete, Err(ProviderError::NotFound)),
+    "a deleted Sprite must not still be visible to get_instance: {after_delete:?}"
+  );
+  let listed = list_sprite_names(&cfg, &name).await;
+  assert!(
+    !listed.contains(&name),
+    "a deleted Sprite must not appear in the inventory listing that orphan cleanup scans: {listed:?}"
+  );
+  provider
+    .delete_instance(&name)
+    .await
+    .expect("deleting an already-deleted Sprite must be idempotent");
 }

@@ -5,14 +5,14 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   APPLY_TARGET_KIND,
-  decideFlyMachine,
+  decideSprite,
   decideTaggedResource,
   evaluateEnvGate,
   isE2eTagged,
   mapWithConcurrency,
   parseArgs,
   planAuthUserCleanup,
-  planFlyMachineCleanup,
+  planSpriteCleanup,
   cutoffFromMinAge,
 } from "./lib/remote-e2e-cleanup.ts";
 
@@ -83,12 +83,11 @@ Deno.test("refuses ambiguous untagged resources rather than deleting them", () =
   assertEquals(decision.action, "refuse");
 });
 
-Deno.test("fly machines named from rust e2e owner ids are tagged", () => {
-  const decision = decideFlyMachine(
+Deno.test("sprites named from rust e2e owner ids are tagged", () => {
+  const decision = decideSprite(
     {
-      id: "m1",
-      name: `treq-${E2E_NAME}`,
-      state: "started",
+      name: `dev-treq-${E2E_NAME}`,
+      status: "warm",
       created_at: "2026-09-04T08:00:00.000Z",
     },
     CUTOFF,
@@ -97,13 +96,12 @@ Deno.test("fly machines named from rust e2e owner ids are tagged", () => {
   assertEquals(decision.action, "delete");
 });
 
-Deno.test("fly machines named after a known e2e auth user id are tagged", () => {
+Deno.test("sprites named after a known e2e auth user id are tagged", () => {
   const userId = "11111111-2222-4333-8444-555555555555";
-  const decision = decideFlyMachine(
+  const decision = decideSprite(
     {
-      id: "m2",
-      name: `treq-${userId}`,
-      state: "stopped",
+      name: `dev-treq-${userId}`,
+      status: "cold",
       created_at: "2026-09-04T08:00:00.000Z",
     },
     CUTOFF,
@@ -112,17 +110,31 @@ Deno.test("fly machines named after a known e2e auth user id are tagged", () => 
   assertEquals(decision.action, "delete");
 });
 
-Deno.test("fly machines without a tag or known e2e user are refused", () => {
-  const decision = decideFlyMachine(
+Deno.test("sprites without a tag or known e2e user are refused", () => {
+  const decision = decideSprite(
     {
-      id: "m3",
-      name: "treq-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-      state: "started",
+      name: "dev-treq-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      status: "running",
       created_at: "2026-09-04T08:00:00.000Z",
     },
     CUTOFF,
     new Set(),
   );
+  assertEquals(decision.action, "refuse");
+});
+
+Deno.test("legacy Fly Machine names are no longer treated as e2e sprites", () => {
+  const decision = decideSprite(
+    {
+      name: `treq-${E2E_NAME}`,
+      status: "cold",
+      created_at: "2026-09-04T08:00:00.000Z",
+    },
+    CUTOFF,
+    new Set(),
+  );
+  // Only the adapters' `dev-treq-` names map to e2e owners. Anything else
+  // is left for a human to look at.
   assertEquals(decision.action, "refuse");
 });
 
@@ -160,19 +172,18 @@ Deno.test("apply mode requires the dedicated-test target kind", () => {
     cleanupTargetKind: APPLY_TARGET_KIND,
   });
   assertEquals(ok.ok, true);
-  if (ok.ok) assertEquals(ok.flyScanEnabled, false);
+  if (ok.ok) assertEquals(ok.spriteScanEnabled, false);
 });
 
-Deno.test("fly scan is enabled only with a separately scoped cleanup token and app", () => {
+Deno.test("sprite scan is enabled only with a separately scoped cleanup token", () => {
   const result = evaluateEnvGate({
     mode: "dry-run",
     supabaseUrl: "https://example.supabase.co",
     supabaseServiceRoleKey: "key",
-    flyCleanupToken: "fly_cleanup_token",
-    flyCleanupAppName: "treq-e2e-app",
+    spritesCleanupToken: "sprites_cleanup_token",
   });
   assertEquals(result.ok, true);
-  if (result.ok) assertEquals(result.flyScanEnabled, true);
+  if (result.ok) assertEquals(result.spriteScanEnabled, true);
 });
 
 Deno.test("dry-run plans deletions without invoking a deleter", () => {
@@ -208,27 +219,26 @@ Deno.test("cutoffFromMinAge is the expected safety window", () => {
   assertEquals(cutoff.toISOString(), "2026-09-04T10:00:00.000Z");
 });
 
-Deno.test("fixture fly inventory is classified before any provider call", () => {
+Deno.test("fixture sprite inventory is classified before any provider call", () => {
   const fixtures = [
     {
-      id: "keep-young",
-      name: `treq-${E2E_NAME}`,
-      state: "started",
+      name: `dev-treq-${E2E_NAME}`,
+      status: "running",
       created_at: "2026-09-04T11:30:00.000Z",
     },
     {
-      id: "delete-old",
-      name: `treq-${E2E_NAME}`,
-      state: "stopped",
+      name: "dev-treq-treq-e2e-11111111-2222-4333-8444-555555555555",
+      status: "cold",
       created_at: "2026-09-01T00:00:00.000Z",
     },
     {
-      id: "refuse-ambiguous",
-      name: "unrelated-machine",
-      state: "started",
+      name: "dev-treq-unrelated-sprite",
+      status: "warm",
       created_at: "2026-01-01T00:00:00.000Z",
     },
   ];
-  const plan = planFlyMachineCleanup(fixtures, CUTOFF, new Set());
+  const plan = planSpriteCleanup(fixtures, CUTOFF, new Set());
   assertEquals(plan.map((item) => item.decision.action), ["skip", "delete", "refuse"]);
+  // Sprites are deleted by name, so the plan must carry the name as the id.
+  assertEquals(plan[1].id, "dev-treq-treq-e2e-11111111-2222-4333-8444-555555555555");
 });

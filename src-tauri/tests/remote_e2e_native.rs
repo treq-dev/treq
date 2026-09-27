@@ -252,11 +252,10 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     &instance_url,
     &access,
     &api_headers,
+    // No region or size: Sprites size every VM themselves.
     serde_json::json!({
       "action": "ensure",
-      "idempotency_key": e2e_tag(),
-      "region": "us_east",
-      "size_preset": "small"
+      "idempotency_key": e2e_tag()
     }),
   )
   .await;
@@ -307,7 +306,7 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     serde_json::json!({ "action": "status" }),
   )
   .await
-  .1["instance"]["id"]
+  .1["instance"]["instance_id"]
     .as_str()
     .expect("instance id")
     .to_string();
@@ -329,23 +328,7 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   std::fs::write(&cert_path, cert_line).expect("write cert");
 
   let endpoint_json = &issue_json["endpoint"];
-  let host_keys = endpoint_json["host_keys"]
-    .as_array()
-    .cloned()
-    .unwrap_or_default()
-    .into_iter()
-    .map(|row| TrustedHostKey {
-      algorithm: row["algorithm"]
-        .as_str()
-        .unwrap_or("ssh-ed25519")
-        .to_string(),
-      fingerprint_sha256: row["fingerprint_sha256"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string(),
-      comment: row["comment"].as_str().map(str::to_string),
-    })
-    .collect::<Vec<_>>();
+  let host_keys = host_keys_from(endpoint_json);
   assert!(
     !host_keys.is_empty(),
     "certificate response must include trusted host keys"
@@ -469,6 +452,7 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   )
   .await;
 
+  // Plain reconnect: a fresh connection pool reaches the same repository.
   drop(pool);
   let pool2 = SshConnectionPool::new();
   let inspect_again = exec_typed(
@@ -480,16 +464,80 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   )
   .await;
   assert!(!inspect_again.is_null());
+  drop(pool2);
 
+  // Normal managed lifecycle recovery (acceptance criterion 10). Sprites
+  // have no suspend call; they pause about 30 seconds after the last
+  // activity and drop open TCP connections when they do. With every pool
+  // closed, wait out the idle window, then wake through the control plane
+  // and reconnect. The repository must still be there: nothing was
+  // recreated and nothing was re-registered.
+  let idle = idle_pause_wait();
+  eprintln!("[remote-e2e-native] idling {idle:?} so the Sprite pauses");
+  tokio::time::sleep(idle).await;
+  let (_, paused_json) = json_post(
+    &instance_url,
+    &access,
+    &api_headers,
+    serde_json::json!({ "action": "status" }),
+  )
+  .await;
+  eprintln!(
+    "[remote-e2e-native] status after idle: {}",
+    paused_json["instance"]["status"]
+  );
+  let provider_id_before = paused_json["instance"]["provider_resource_id"].clone();
+  let (wake_status, wake_json) = json_post(
+    &instance_url,
+    &access,
+    &api_headers,
+    serde_json::json!({ "action": "wake", "idempotency_key": e2e_tag() }),
+  )
+  .await;
+  assert_eq!(wake_status, 200, "wake failed: {wake_json}");
+  let (_, woken_json) = json_post(
+    &instance_url,
+    &access,
+    &api_headers,
+    serde_json::json!({ "action": "status" }),
+  )
+  .await;
+  assert_eq!(
+    woken_json["instance"]["status"], "ready",
+    "instance must be ready after wake: {woken_json}"
+  );
+  assert_eq!(
+    woken_json["instance"]["provider_resource_id"], provider_id_before,
+    "wake must not recreate the VM"
+  );
+  let pool_after_wake = SshConnectionPool::new();
+  let inspect_after_wake = exec_typed(
+    &pool_after_wake,
+    &endpoint,
+    TreqCommandRequest::InspectRepository {
+      repo: repo_a.clone(),
+    },
+  )
+  .await;
+  assert!(
+    !inspect_after_wake.is_null(),
+    "repository must be reachable after wake without re-registration"
+  );
+  drop(pool_after_wake);
+
+  // Repair. Sprites repair in place, so the provider identity and the
+  // generation stay the same and so do the VM's SSH host keys. If a future
+  // provider does replace the VM, the generation must increase and the
+  // control plane must hand out the new host keys at that generation. In
+  // both cases the client pins exactly what the control plane returns.
+  let generation_before = managed_generation(&endpoint);
   let (repro_status, repro_json) = json_post(
     &instance_url,
     &access,
     &api_headers,
     serde_json::json!({
       "action": "reprovision",
-      "idempotency_key": e2e_tag(),
-      "region": "us_east",
-      "size_preset": "small"
+      "idempotency_key": e2e_tag()
     }),
   )
   .await;
@@ -510,32 +558,47 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     issue2_status, 200,
     "reissue after reprovision failed: {issue2}"
   );
-  let new_fp = issue2["endpoint"]["host_keys"][0]["fingerprint_sha256"]
-    .as_str()
-    .unwrap_or_default();
-  let old_fp = endpoint.host_keys[0].fingerprint_sha256.clone();
-  if !old_fp.is_empty() && !new_fp.is_empty() {
-    assert_ne!(old_fp, new_fp, "reprovision must rotate host key trust");
+  let generation_after = issue2["endpoint"]["source"]["generation"]
+    .as_u64()
+    .unwrap_or(generation_before);
+  let host_keys_after = host_keys_from(&issue2["endpoint"]);
+  assert!(
+    !host_keys_after.is_empty(),
+    "reissued certificate response must include trusted host keys"
+  );
+  let fingerprints = |keys: &[TrustedHostKey]| {
+    let mut fps: Vec<String> = keys.iter().map(|k| k.fingerprint_sha256.clone()).collect();
+    fps.sort();
+    fps
+  };
+  if generation_after == generation_before {
+    assert_eq!(
+      fingerprints(&endpoint.host_keys),
+      fingerprints(&host_keys_after),
+      "an in-place repair must not change host trust at the same generation"
+    );
+  } else {
+    assert!(
+      generation_after > generation_before,
+      "generation must never go backwards: {generation_before} -> {generation_after}"
+    );
   }
+
   std::fs::write(
     &cert_path,
-    issue2["certificate"].as_str().unwrap_or_default(),
+    issue2["certificate"]
+      .as_str()
+      .expect("reissued certificate"),
   )
-  .ok();
+  .expect("write reissued cert");
   endpoint.hostname = issue2["endpoint"]["hostname"]
     .as_str()
     .unwrap_or(&endpoint.hostname)
     .to_string();
-  endpoint.host_keys = vec![TrustedHostKey {
-    algorithm: "ssh-ed25519".to_string(),
-    fingerprint_sha256: new_fp.to_string(),
-    comment: None,
-  }];
+  endpoint.host_keys = host_keys_after;
   endpoint.source = SshEndpointSource::Managed {
     provider: "fly_sprites".to_string(),
-    generation: issue2["endpoint"]["source"]["generation"]
-      .as_u64()
-      .unwrap_or(1),
+    generation: generation_after,
   };
   let pool3 = SshConnectionPool::new();
   let after_repro = exec_typed(
@@ -544,6 +607,48 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     TreqCommandRequest::InspectRepository { repo: repo_a },
   )
   .await;
-  let _ = after_repro;
+  assert!(
+    !after_repro.is_null(),
+    "repository must survive an in-place repair"
+  );
   drop(cleanup);
+}
+
+/// How long the lifecycle step leaves the VM idle before waking it. The
+/// provider pauses an idle Sprite after about 30 seconds; the default adds
+/// margin. Overridable with `TREQ_REMOTE_E2E_IDLE_PAUSE_WAIT_SECS`.
+fn idle_pause_wait() -> Duration {
+  Duration::from_secs(
+    std::env::var("TREQ_REMOTE_E2E_IDLE_PAUSE_WAIT_SECS")
+      .ok()
+      .and_then(|v| v.parse().ok())
+      .unwrap_or(90),
+  )
+}
+
+fn managed_generation(endpoint: &SshEndpoint) -> u64 {
+  match &endpoint.source {
+    SshEndpointSource::Managed { generation, .. } => *generation,
+    _ => 0,
+  }
+}
+
+fn host_keys_from(endpoint_json: &Value) -> Vec<TrustedHostKey> {
+  endpoint_json["host_keys"]
+    .as_array()
+    .cloned()
+    .unwrap_or_default()
+    .into_iter()
+    .map(|row| TrustedHostKey {
+      algorithm: row["algorithm"]
+        .as_str()
+        .unwrap_or("ssh-ed25519")
+        .to_string(),
+      fingerprint_sha256: row["fingerprint_sha256"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string(),
+      comment: row["comment"].as_str().map(str::to_string),
+    })
+    .collect()
 }

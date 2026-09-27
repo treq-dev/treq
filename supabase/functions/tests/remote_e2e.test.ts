@@ -30,13 +30,13 @@
 //                                            REMOTE_ADMIN_API_KEY function
 //                                            secret, for remote-admin calls.
 //
-// The test project's own Edge Function secrets (FLY_SPRITES_API_TOKEN,
-// FLY_SPRITES_APP_NAME, the SSH CA key material, etc.) are configured on the
-// Supabase side per the project's normal `supabase secrets set` flow, not
-// passed through this test process - this suite only ever holds Supabase
-// keys and the admin API key, never the Fly token or the CA private key,
-// matching "Provider credentials are server-side secrets. Clients never
-// receive Fly or other vendor API tokens."
+// The test project's own Edge Function secrets (SPRITES_API_URL,
+// SPRITES_API_TOKEN for the dedicated Sprites test organization, the SSH CA
+// key material, etc.) are configured on the Supabase side per the project's
+// normal `supabase secrets set` flow, not passed through this test process.
+// This suite only ever holds Supabase keys and the admin API key, never the
+// Sprites token or the CA private key: provider credentials are server-side
+// secrets and clients never receive vendor API tokens.
 //
 // See remote_e2e_README.md (in src-tauri/tests/) for the acceptance-criteria
 // mapping covering both this file and remote_e2e.rs.
@@ -80,6 +80,20 @@ function e2eConfig(): {
 
 function e2eTag(): string {
   return `${E2E_TAG_PREFIX}${crypto.randomUUID()}`;
+}
+
+interface InstanceJson {
+  instance_id?: string;
+  status?: string;
+  generation?: number;
+  provider_resource_id?: string | null;
+  endpoint_id?: string | null;
+}
+
+/** remote-instance nests the instance row under `instance` (with `id`
+ * renamed to `instance_id`) in ensure and status responses. */
+function instanceOf(json: Record<string, unknown>): InstanceJson | null {
+  return (json.instance as InstanceJson | null | undefined) ?? null;
 }
 
 /** Creates a disposable, uniquely-tagged test user via the admin API and
@@ -213,8 +227,6 @@ e2eTest("repeated ensure calls with the same idempotency key provision exactly o
       callFunction(cfg, "remote-instance", user.accessToken, {
         action: "ensure",
         idempotency_key: idempotencyKey,
-        region: "us_east",
-        size_preset: "small",
       })
     );
     const results = await Promise.all(requests);
@@ -241,44 +253,20 @@ e2eTest("a second ensure with a different idempotency key still returns the same
     const first = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (first.status !== 200) throw new Error(`first ensure failed: ${JSON.stringify(first.json)}`);
     const second = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_west",
-      size_preset: "small",
     });
     if (second.status !== 200) throw new Error(`second ensure failed: ${JSON.stringify(second.json)}`);
-    const firstId = String((first.json.instance as { id?: string } | undefined)?.id ?? first.json.instance_id ?? "");
-    const secondId = String((second.json.instance as { id?: string } | undefined)?.id ?? second.json.instance_id ?? "");
+    const firstId = instanceOf(first.json)?.instance_id ?? "";
+    const secondId = instanceOf(second.json)?.instance_id ?? "";
     if (!firstId || firstId !== secondId) {
       throw new Error(`one-instance enforcement failed: ${firstId} vs ${secondId}`);
     }
   } finally {
     await callFunction(cfg, "remote-instance", user.accessToken, { action: "delete", idempotency_key: e2eTag() }).catch(() => {});
-    await user.cleanup();
-  }
-});
-
-e2eTest("size presets above the base allocation are rejected as a structured quota error", async (cfg) => {
-  const user = await createE2eTestUser(cfg);
-  try {
-    const oversized = await callFunction(cfg, "remote-instance", user.accessToken, {
-      action: "ensure",
-      idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "medium",
-    });
-    if (oversized.status !== 422) {
-      throw new Error(`expected 422 quota error, got ${oversized.status} ${JSON.stringify(oversized.json)}`);
-    }
-    if (oversized.json.code !== "size_preset_exceeds_base_allocation") {
-      throw new Error(`expected structured quota code, got ${JSON.stringify(oversized.json)}`);
-    }
-  } finally {
     await user.cleanup();
   }
 });
@@ -300,18 +288,15 @@ e2eTest("list_regions and list_sizes return the dedicated catalog", async (cfg) 
 });
 
 // ---------------------------------------------------------------------------
-// Acceptance criteria 1, 3: region/size preset provisioning + expanded
-// readiness reaching "ready".
+// Acceptance criterion 1: provisioning reaches "ready".
 // ---------------------------------------------------------------------------
 
-e2eTest("provisions with a selected region and size preset and reaches ready", async (cfg) => {
+e2eTest("provisions a managed instance that reaches ready", async (cfg) => {
   const user = await createE2eTestUser(cfg);
   try {
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
 
@@ -322,7 +307,7 @@ e2eTest("provisions with a selected region and size preset and reaches ready", a
     let lastStatus = "";
     while (Date.now() < deadline) {
       const poll = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
-      lastStatus = String(poll.json.status ?? "");
+      lastStatus = instanceOf(poll.json)?.status ?? "";
       if (["ready", "degraded", "failed"].includes(lastStatus)) break;
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
@@ -331,18 +316,9 @@ e2eTest("provisions with a selected region and size preset and reaches ready", a
     }
 
     const ready = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
-    const instance = ready.json.instance as {
-      disk_quota_gb?: number;
-      vcpu_quota?: number;
-      ram_quota_gb?: number;
-      generation?: number;
-      status?: string;
-    } | null;
+    const instance = instanceOf(ready.json);
     if (!instance || instance.status !== "ready") {
       throw new Error(`expanded readiness status missing ready instance: ${JSON.stringify(ready.json)}`);
-    }
-    if (instance.disk_quota_gb !== 5 || instance.vcpu_quota !== 1 || instance.ram_quota_gb !== 2) {
-      throw new Error(`base allocation not recorded on the instance: ${JSON.stringify(instance)}`);
     }
     if (typeof instance.generation !== "number") {
       throw new Error("ready instance must report a generation");
@@ -381,11 +357,9 @@ e2eTest("issues a short-lived certificate for a registered client key and reject
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
-    const instanceId = String(ensure.json.instance_id ?? "");
+    const instanceId = instanceOf(ensure.json)?.instance_id ?? "";
 
     const issue = await callFunction(cfg, "remote-ssh-trust", user.accessToken, {
       action: "issue_certificate",
@@ -438,10 +412,8 @@ e2eTest("issued certificates carry a bounded, short expiry", async (cfg) => {
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
-    const instanceId = String(ensure.json.instance_id ?? "");
+    const instanceId = instanceOf(ensure.json)?.instance_id ?? "";
 
     const issue = await callFunction(cfg, "remote-ssh-trust", user.accessToken, {
       action: "issue_certificate",
@@ -483,10 +455,8 @@ e2eTest("silent renewal issues a fresh certificate and is audited distinctly fro
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
-    const instanceId = String(ensure.json.instance_id ?? "");
+    const instanceId = instanceOf(ensure.json)?.instance_id ?? "";
 
     const first = await callFunction(cfg, "remote-ssh-trust", user.accessToken, {
       action: "issue_certificate",
@@ -534,42 +504,57 @@ e2eTest("a forced cutoff report is recorded in the audit trail", async (cfg) => 
 });
 
 // ---------------------------------------------------------------------------
-// Acceptance criterion 14: reprovision increments generation and rotates
-// host trust.
+// Repair: reprovisioning a Sprite repairs it in place. The Sprite's
+// filesystem is the user's environment, so the provider identity, the
+// generation, and the pinned host keys all stay the same.
 // ---------------------------------------------------------------------------
 
-e2eTest("reprovisioning increments the instance generation and rotates the host key", async (cfg) => {
+e2eTest("reprovisioning repairs the Sprite in place and keeps host trust", async (cfg) => {
   const user = await createE2eTestUser(cfg);
+  const admin = createClient(cfg.url, cfg.serviceRoleKey);
+  const activeFingerprints = async (endpointId: string | null | undefined) => {
+    if (!endpointId) return [];
+    const { data, error } = await admin
+      .from("remote_endpoint_host_keys")
+      .select("fingerprint_sha256")
+      .eq("endpoint_id", endpointId)
+      .is("revoked_at", null);
+    if (error) throw new Error(`failed to read host keys: ${error.message}`);
+    return (data ?? []).map((row: { fingerprint_sha256: string }) => row.fingerprint_sha256).sort();
+  };
   try {
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
 
-    const before = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
-    const generationBefore = Number(before.json.generation ?? 0);
-    const fingerprintBefore = String(before.json.host_key_fingerprint ?? "");
+    const before = instanceOf((await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" })).json);
+    const keysBefore = await activeFingerprints(before?.endpoint_id);
 
     const reprovision = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "reprovision",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (reprovision.status !== 200) throw new Error(`reprovision failed: ${JSON.stringify(reprovision.json)}`);
 
-    const after = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
-    const generationAfter = Number(after.json.generation ?? 0);
-    const fingerprintAfter = String(after.json.host_key_fingerprint ?? "");
+    const after = instanceOf((await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" })).json);
+    const keysAfter = await activeFingerprints(after?.endpoint_id);
 
-    if (!(generationAfter > generationBefore)) {
-      throw new Error(`reprovision must increment generation: before=${generationBefore} after=${generationAfter}`);
+    if (!before?.provider_resource_id || after?.provider_resource_id !== before.provider_resource_id) {
+      throw new Error(
+        `repair must keep the same Sprite: before=${before?.provider_resource_id} after=${after?.provider_resource_id}`,
+      );
     }
-    if (fingerprintBefore && fingerprintBefore === fingerprintAfter) {
-      throw new Error("reprovision replaced the instance but the host key fingerprint did not change");
+    if (after?.generation !== before.generation) {
+      throw new Error(
+        `the generation changes only when the provider resource changes: before=${before.generation} after=${after?.generation}`,
+      );
+    }
+    if (JSON.stringify(keysBefore) !== JSON.stringify(keysAfter)) {
+      throw new Error(
+        `an in-place repair must not change pinned host keys: before=${keysBefore} after=${keysAfter}`,
+      );
     }
 
     await callFunction(cfg, "remote-instance", user.accessToken, { action: "delete", idempotency_key: e2eTag() });
@@ -588,20 +573,21 @@ e2eTest("wake is accepted as an idempotent control-plane call and is not treated
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
 
     // An ordinary wake against a non-suspended instance proves the control-
-    // plane path only. It is explicitly not evidence of vendor-suspension
-    // recovery; that coverage is the soak test below and the Fly suspend
-    // API test in remote_e2e.rs.
-    const wake = await callFunction(cfg, "remote-instance", user.accessToken, { action: "wake" });
+    // plane path only. It is not evidence of recovery from a pause; that is
+    // the soak test below and the idle-pause test in remote_e2e.rs.
+    const wake = await callFunction(cfg, "remote-instance", user.accessToken, {
+      action: "wake",
+      idempotency_key: e2eTag(),
+    });
     if (wake.status !== 200) throw new Error(`wake failed: ${JSON.stringify(wake.json)}`);
     const after = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
-    if (String(after.json.instance ? (after.json.instance as { status?: string }).status : after.json.status) === "suspended") {
-      throw new Error("ordinary wake test observed a suspended instance; do not count this as recovery proof");
+    const afterStatus = instanceOf(after.json)?.status;
+    if (afterStatus !== "ready") {
+      throw new Error(`wake must leave the instance ready, got ${afterStatus}: ${JSON.stringify(after.json)}`);
     }
 
     await callFunction(cfg, "remote-instance", user.accessToken, { action: "delete", idempotency_key: e2eTag() });
@@ -610,14 +596,12 @@ e2eTest("wake is accepted as an idempotent control-plane call and is not treated
   }
 });
 
-e2eTest("scheduled soak waits for vendor auto-suspension then wakes", async (cfg) => {
+e2eTest("soak waits for the Sprite to go cold, then wakes it without recreating it", async (cfg) => {
   const user = await createE2eTestUser(cfg);
   try {
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
 
@@ -625,16 +609,32 @@ e2eTest("scheduled soak waits for vendor auto-suspension then wakes", async (cfg
     let observed = "";
     while (Date.now() < deadline) {
       const poll = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
-      const instance = poll.json.instance as { status?: string } | null;
-      observed = String(instance?.status ?? poll.json.status ?? "");
+      observed = instanceOf(poll.json)?.status ?? "";
       if (observed === "suspended") break;
       await new Promise((resolve) => setTimeout(resolve, 60_000));
     }
     if (observed !== "suspended") {
       throw new Error(`soak never observed vendor suspension (last status: ${observed || "timed out"})`);
     }
-    const wake = await callFunction(cfg, "remote-instance", user.accessToken, { action: "wake" });
+    const beforeWake = instanceOf(
+      (await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" })).json,
+    );
+    const wake = await callFunction(cfg, "remote-instance", user.accessToken, {
+      action: "wake",
+      idempotency_key: e2eTag(),
+    });
     if (wake.status !== 200) throw new Error(`wake after soak suspension failed: ${JSON.stringify(wake.json)}`);
+    // A wake that only reads metadata leaves a cold Sprite cold. Status
+    // re-reads the provider, so it catches that.
+    const afterWake = instanceOf(
+      (await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" })).json,
+    );
+    if (afterWake?.status !== "ready") {
+      throw new Error(`wake must resume a cold Sprite, but status is ${afterWake?.status}`);
+    }
+    if (afterWake.provider_resource_id !== beforeWake?.provider_resource_id) {
+      throw new Error("wake must not recreate the Sprite");
+    }
   } finally {
     await callFunction(cfg, "remote-instance", user.accessToken, { action: "delete", idempotency_key: e2eTag() }).catch(() => {});
     await user.cleanup();
@@ -652,8 +652,6 @@ e2eTest("lifecycle operations are correlated in audit events without leaking sec
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
 
@@ -670,7 +668,7 @@ e2eTest("lifecycle operations are correlated in audit events without leaking sec
       const serializedDetail = JSON.stringify(event.detail ?? {});
       // Sensitive-data redaction: private key material, CA private key, and
       // raw provider tokens must never appear in an audit record.
-      const forbiddenSubstrings = ["PRIVATE KEY", "BEGIN OPENSSH", "fly_api_token", "service_role"];
+      const forbiddenSubstrings = ["PRIVATE KEY", "BEGIN OPENSSH", "fly_api_token", "sprites_api_token", "service_role"];
       for (const forbidden of forbiddenSubstrings) {
         if (serializedDetail.toLowerCase().includes(forbidden.toLowerCase())) {
           throw new Error(`audit event ${event.event_type} detail appears to contain sensitive material: matched "${forbidden}"`);
@@ -694,8 +692,6 @@ e2eTest("delete tears down the instance and it no longer appears as active", asy
     const ensure = await callFunction(cfg, "remote-instance", user.accessToken, {
       action: "ensure",
       idempotency_key: e2eTag(),
-      region: "us_east",
-      size_preset: "small",
     });
     if (ensure.status !== 200) throw new Error(`ensure failed: ${JSON.stringify(ensure.json)}`);
 
@@ -706,7 +702,8 @@ e2eTest("delete tears down the instance and it no longer appears as active", asy
     if (del.status !== 200) throw new Error(`delete failed: ${JSON.stringify(del.json)}`);
 
     const status = await callFunction(cfg, "remote-instance", user.accessToken, { action: "status" });
-    if (status.json.status !== "deleted" && status.json.status !== "unprovisioned") {
+    const remaining = instanceOf(status.json);
+    if (remaining && remaining.status !== "deleted" && remaining.status !== "unprovisioned") {
       throw new Error(`expected the instance to read back as deleted/unprovisioned, got: ${JSON.stringify(status.json)}`);
     }
   } finally {

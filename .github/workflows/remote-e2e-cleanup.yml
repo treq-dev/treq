@@ -3,7 +3,7 @@ name: Remote SSH e2e cleanup
 # Dry-run orphan scan for the dedicated Remote SSH test project.
 # Apply is never the default. Live deletes require workflow_dispatch with
 # apply=true plus repository secrets for the dedicated test project and a
-# separately scoped Fly cleanup token.
+# separately scoped Sprites cleanup token.
 
 on:
   schedule:
@@ -35,9 +35,8 @@ jobs:
           SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
           SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
           TREQ_REMOTE_E2E_CLEANUP_TARGET: ${{ secrets.TREQ_REMOTE_E2E_CLEANUP_TARGET }}
-          FLY_E2E_CLEANUP_API_TOKEN: ${{ secrets.FLY_E2E_CLEANUP_API_TOKEN }}
-          FLY_E2E_CLEANUP_APP_NAME: ${{ secrets.FLY_E2E_CLEANUP_APP_NAME }}
-          FLY_E2E_CLEANUP_API_BASE_URL: ${{ secrets.FLY_E2E_CLEANUP_API_BASE_URL }}
+          SPRITES_E2E_CLEANUP_API_TOKEN: ${{ secrets.SPRITES_E2E_CLEANUP_API_TOKEN }}
+          SPRITES_E2E_CLEANUP_API_URL: ${{ secrets.SPRITES_E2E_CLEANUP_API_URL }}
         run: |
           if [ -z "$SUPABASE_TEST_URL" ] || [ -z "$SUPABASE_TEST_SERVICE_ROLE_KEY" ]; then
             echo "SKIP: dedicated test-project cleanup secrets are not configured"
