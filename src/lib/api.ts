@@ -31,7 +31,11 @@ import type {
 } from "./api-types";
 import { enqueueJjExclusive } from "./enqueue-jj-exclusive";
 import {
+  assertLocalOperation,
   transportCreateCommit,
+  transportGetCommitDiff,
+  transportGetCommitFileDiff,
+  transportGetWorkspaceFileHunks,
   transportGetRepoCurrentBranch,
   transportGetRepoDefaultBranch,
   transportGetWorkspaces,
@@ -45,6 +49,17 @@ import {
   transportListRepoBranches,
   transportListWorkspaceStatuses,
 } from "./repository-adapter";
+import {
+  transportCreateWorkspace,
+  transportDeleteWorkspace,
+  transportMoveWorkspaceChanges,
+  transportPushWorkspace,
+  transportRenameWorkspace,
+  transportRestoreFile,
+  transportSetWorkspaceTargetBranch,
+  transportSplitWorkingCopy,
+  transportUpdateWorkspace,
+} from "./repository-adapter-mutations";
 import { currentWindowLabel } from "./window-label";
 
 export * from "./api-browser";
@@ -79,24 +94,33 @@ export const createWorkspace = (
   sourceBranch?: string,
   metadata?: string,
 ): Promise<number> =>
-  invoke("create_workspace", {
-    repoPath,
-    branchName,
-    sourceBranch: sourceBranch ?? null,
-    metadata: metadata ?? null,
-  });
+  transportCreateWorkspace(repoPath, branchName, sourceBranch, metadata, () =>
+    invoke("create_workspace", {
+      repoPath,
+      branchName,
+      sourceBranch: sourceBranch ?? null,
+      metadata: metadata ?? null,
+    }),
+  );
 
 export const deleteWorkspace = (repoPath: string, id: number): Promise<void> =>
-  invoke("delete_workspace", {
-    repoPath,
-    id,
-  });
+  transportDeleteWorkspace(repoPath, id, () =>
+    invoke("delete_workspace", {
+      repoPath,
+      id,
+    }),
+  );
 
-export const archiveWorkspace = (repoPath: string, id: number): Promise<void> =>
-  invoke("archive_workspace", {
+export const archiveWorkspace = async (
+  repoPath: string,
+  id: number,
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Archiving a workspace");
+  return invoke("archive_workspace", {
     repoPath,
     id,
   });
+};
 
 export const ensureWorkspaceIndexed = (
   repoPath: string,
@@ -216,11 +240,13 @@ export const getWorkspaceFileHunks = (
   filePath: string,
 ): Promise<JjDiffHunk[]> =>
   enqueueJjExclusive(() =>
-    invoke("get_workspace_file_hunks", {
-      repoPath,
-      workspaceId,
-      filePath,
-    }),
+    transportGetWorkspaceFileHunks(repoPath, workspaceId, filePath, () =>
+      invoke("get_workspace_file_hunks", {
+        repoPath,
+        workspaceId,
+        filePath,
+      }),
+    ),
   );
 
 export interface WorkspaceFileHunksBatchFile {
@@ -282,22 +308,32 @@ export const jjRestoreFile = (
   workspacePath: string,
   filePath: string,
 ): Promise<string> =>
-  invoke("jj_restore_file", {
-    workspacePath,
-    filePath,
-  });
+  transportRestoreFile(workspacePath, filePath, () =>
+    invoke("jj_restore_file", {
+      workspacePath,
+      filePath,
+    }),
+  );
 
-export const jjRestoreAll = (workspacePath: string): Promise<string> =>
-  invoke("jj_restore_all", { workspacePath });
+export const jjRestoreAll = async (workspacePath: string): Promise<string> => {
+  assertLocalOperation(workspacePath, "Discarding all changes");
+  return invoke("jj_restore_all", { workspacePath });
+};
 
-export const jjSnapshotWorkingCopy = (workspacePath: string): Promise<string> =>
-  invoke("jj_snapshot_working_copy", { workspacePath });
+export const jjSnapshotWorkingCopy = async (
+  workspacePath: string,
+): Promise<string> => {
+  assertLocalOperation(workspacePath, "Snapshotting the working copy");
+  return invoke("jj_snapshot_working_copy", { workspacePath });
+};
 
-export const jjRestoreSnapshot = (
+export const jjRestoreSnapshot = async (
   workspacePath: string,
   snapshotId: string,
-): Promise<string> =>
-  invoke("jj_restore_snapshot", { workspacePath, snapshotId });
+): Promise<string> => {
+  assertLocalOperation(workspacePath, "Restoring a working-copy snapshot");
+  return invoke("jj_restore_snapshot", { workspacePath, snapshotId });
+};
 
 export const createCommit = (
   repoPath: string,
@@ -334,25 +370,29 @@ export const jjSplit = (
   message: string,
   filePaths: string[],
 ): Promise<string> =>
-  invoke("jj_split", {
-    workspacePath,
-    message,
-    filePaths,
-  });
+  transportSplitWorkingCopy(workspacePath, message, filePaths, () =>
+    invoke("jj_split", {
+      workspacePath,
+      message,
+      filePaths,
+    }),
+  );
 
 export const listRepoBranches = (repoPath: string): Promise<JjBranch[]> =>
   transportListRepoBranches(repoPath, () =>
     invoke("list_repo_branches", { repoPath }),
   );
 
-export const switchRepoBranch = (
+export const switchRepoBranch = async (
   repoPath: string,
   bookmarkName: string,
-): Promise<string> =>
-  invoke("switch_repo_branch", {
+): Promise<string> => {
+  assertLocalOperation(repoPath, "Switching the repository branch");
+  return invoke("switch_repo_branch", {
     repoPath,
     bookmarkName,
   });
+};
 
 export interface SyncStatus {
   ahead: number;
@@ -364,14 +404,16 @@ export const jjGitFetchBackground = (repoPath: string): Promise<void> =>
     invoke("jj_git_fetch_background", { repoPath }),
   );
 
-export const pullWorkspaceFromRemote = (
+export const pullWorkspaceFromRemote = async (
   repoPath: string,
   workspaceId: number | null,
-): Promise<PullWorkspaceResult> =>
-  invoke("pull_workspace_from_remote", {
+): Promise<PullWorkspaceResult> => {
+  assertLocalOperation(repoPath, "Pulling a workspace");
+  return invoke("pull_workspace_from_remote", {
     repoPath,
     workspaceId,
   });
+};
 
 export const checkBranchExists = (
   repoPath: string,
@@ -387,7 +429,9 @@ export const getCommitDiff = (
   workspaceId: number | null,
   revision: string,
 ): Promise<JjRevisionDiff> =>
-  invoke("get_commit_diff", { repoPath, workspaceId, revision });
+  transportGetCommitDiff(repoPath, workspaceId, revision, () =>
+    invoke("get_commit_diff", { repoPath, workspaceId, revision }),
+  );
 
 export const getCommitFileDiff = (
   repoPath: string,
@@ -395,18 +439,22 @@ export const getCommitFileDiff = (
   revision: string,
   filePath: string,
 ): Promise<JjFileDiff> =>
-  invoke("get_commit_file_diff", {
-    repoPath,
-    workspaceId,
-    revision,
-    filePath,
-  });
+  transportGetCommitFileDiff(repoPath, workspaceId, revision, filePath, () =>
+    invoke("get_commit_file_diff", {
+      repoPath,
+      workspaceId,
+      revision,
+      filePath,
+    }),
+  );
 
-export const jjGetCommitsAhead = (
+export const jjGetCommitsAhead = async (
   workspacePath: string,
   targetBranch: string,
-): Promise<JjCommitsAhead> =>
-  invoke("jj_get_commits_ahead", { workspacePath, targetBranch });
+): Promise<JjCommitsAhead> => {
+  assertLocalOperation(workspacePath, "Merge preview");
+  return invoke("jj_get_commits_ahead", { workspacePath, targetBranch });
+};
 
 export const getWorkspaceDiff = (
   repoPath: string,
@@ -444,12 +492,19 @@ export const moveWorkspaceChanges = (
   destinationBranch: string,
   request: WorkspaceMoveRequest,
 ): Promise<WorkspaceMoveResult> =>
-  invoke("move_workspace_changes", {
+  transportMoveWorkspaceChanges(
     repoPath,
     sourceBranch,
     destinationBranch,
     request,
-  });
+    () =>
+      invoke("move_workspace_changes", {
+        repoPath,
+        sourceBranch,
+        destinationBranch,
+        request,
+      }),
+  );
 
 export const renameWorkspace = (
   repoPath: string,
@@ -457,34 +512,40 @@ export const renameWorkspace = (
   newBranchName: string,
   dryRun: boolean,
 ): Promise<RenameWorkspaceResult> =>
-  invoke("rename_workspace", {
-    repoPath,
-    workspaceId,
-    newBranchName,
-    dryRun,
-  });
+  transportRenameWorkspace(repoPath, workspaceId, newBranchName, dryRun, () =>
+    invoke("rename_workspace", {
+      repoPath,
+      workspaceId,
+      newBranchName,
+      dryRun,
+    }),
+  );
 
-export const mergeWorkspace = (
+export const mergeWorkspace = async (
   repoPath: string,
   workspaceId: number,
   message: string,
   mergeStrategy: MergeStrategy,
-): Promise<void> =>
-  invoke("merge_workspace", {
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Merging a workspace");
+  return invoke("merge_workspace", {
     repoPath,
     workspaceId,
     message,
     mergeStrategy,
   });
+};
 
 export const pushWorkspaceToRemote = (
   repoPath: string,
   workspaceId: number | null,
 ): Promise<string> =>
-  invoke("push_workspace_to_remote", {
-    repoPath,
-    workspaceId,
-  });
+  transportPushWorkspace(repoPath, workspaceId, () =>
+    invoke("push_workspace_to_remote", {
+      repoPath,
+      workspaceId,
+    }),
+  );
 
 export const listWorkspaceStatuses = (
   repoPath: string,
@@ -513,24 +574,32 @@ export const updateWorkspace = (
   title?: string,
   description?: string,
 ): Promise<Workspace> =>
-  invoke("update_workspace", {
+  transportUpdateWorkspace(
     repoPath,
     workspaceId,
-    ...(targetBranch !== undefined && { targetBranch }),
-    ...(title !== undefined && { title }),
-    ...(description !== undefined && { description }),
-  });
+    { targetBranch, title, description },
+    () =>
+      invoke("update_workspace", {
+        repoPath,
+        workspaceId,
+        ...(targetBranch !== undefined && { targetBranch }),
+        ...(title !== undefined && { title }),
+        ...(description !== undefined && { description }),
+      }),
+  );
 
-export const scheduleWorkspaces = (
+export const scheduleWorkspaces = async (
   repoPath: string,
   workspaceIds: number[],
   hiddenUntil: string | null,
-): Promise<Workspace[]> =>
-  invoke("schedule_workspaces", {
+): Promise<Workspace[]> => {
+  assertLocalOperation(repoPath, "Scheduling workspaces");
+  return invoke("schedule_workspaces", {
     repoPath,
     workspaceIds,
     hiddenUntil,
   });
+};
 
 export const setWorkspaceTargetBranch = (
   repoPath: string,
@@ -538,63 +607,73 @@ export const setWorkspaceTargetBranch = (
   id: number,
   targetBranch: string,
 ): Promise<JjRebaseResult> =>
-  invoke("set_workspace_target_branch", {
-    repoPath,
-    workspacePath,
-    id,
-    targetBranch,
-  });
+  transportSetWorkspaceTargetBranch(repoPath, id, targetBranch, () =>
+    invoke("set_workspace_target_branch", {
+      repoPath,
+      workspacePath,
+      id,
+      targetBranch,
+    }),
+  );
 
 // Kept for compatibility with existing mocks/consumers while unused in app runtime.
 // Intentionally left empty.
 
-export const checkAndRebaseWorkspaces = (
+export const checkAndRebaseWorkspaces = async (
   repoPath: string,
   workspaceId?: number | null,
   defaultBranch?: string | null,
   force?: boolean,
-): Promise<SingleRebaseResult> =>
-  invoke("check_and_rebase_workspaces", {
+): Promise<SingleRebaseResult> => {
+  assertLocalOperation(repoPath, "Rebasing workspaces");
+  return invoke("check_and_rebase_workspaces", {
     repoPath,
     workspaceId: workspaceId ?? null,
     defaultBranch: defaultBranch ?? null,
     force: force ?? null,
   });
+};
 
-export const resolveBookmarkConflict = (
+export const resolveBookmarkConflict = async (
   repoPath: string,
   workspaceId: number,
   workspacePath: string,
   branchName: string,
-): Promise<BookmarkConflictResolutionResult> =>
-  invoke("resolve_workspace_bookmark_conflict", {
+): Promise<BookmarkConflictResolutionResult> => {
+  assertLocalOperation(repoPath, "Resolving a bookmark conflict");
+  return invoke("resolve_workspace_bookmark_conflict", {
     repoPath,
     workspaceId,
     workspacePath,
     branchName,
   });
+};
 
-export const rebaseHomeRepoBranch = (
+export const rebaseHomeRepoBranch = async (
   repoPath: string,
   currentBranch: string,
   targetBranch: string,
-): Promise<JjRebaseResult> =>
-  invoke("rebase_home_repo_branch", {
+): Promise<JjRebaseResult> => {
+  assertLocalOperation(repoPath, "Rebasing the repository branch");
+  return invoke("rebase_home_repo_branch", {
     repoPath,
     currentBranch,
     targetBranch,
   });
+};
 
-export const dryRunHomeRepoRebase = (
+export const dryRunHomeRepoRebase = async (
   repoPath: string,
   currentBranch: string,
   targetBranch: string,
-): Promise<HomeRebaseDryRunResult> =>
-  invoke("dry_run_home_repo_rebase", {
+): Promise<HomeRebaseDryRunResult> => {
+  assertLocalOperation(repoPath, "Rebasing the repository branch");
+  return invoke("dry_run_home_repo_rebase", {
     repoPath,
     currentBranch,
     targetBranch,
   });
+};
 
 // Remote SSH API
 

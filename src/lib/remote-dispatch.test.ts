@@ -48,8 +48,12 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "PtyList",
       "PtyStop",
       "PtyAttachCommand",
+      "WorkspaceDiff",
+      "CommitDiff",
+      "CommitFileDiff",
+      "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(40);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(44);
   });
 
   it("is exhaustive over the request union", () => {
@@ -209,6 +213,10 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
         cols: 80,
         rows: 24,
       },
+      { kind: "WorkspaceDiff", repo: "/r", workspace: "1" },
+      { kind: "CommitDiff", repo: "/r", revision: "c" },
+      { kind: "CommitFileDiff", repo: "/r", revision: "c", path: "a" },
+      { kind: "SearchFiles", repo: "/r", query: "a", limit: 4 },
     ];
     const seen = new Set(samples.map((r) => treqCommandKind(r)));
     expect([...seen].sort()).toEqual([...TREQ_COMMAND_KINDS].sort());

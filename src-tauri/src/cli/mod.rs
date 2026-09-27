@@ -259,6 +259,18 @@ pub(crate) fn parse_remote_command_request(
   let target = get_arg_value(matches, "target");
   let value = get_arg_value(matches, "value");
   let idempotency_key = get_arg_value(matches, "idempotency-key");
+  let parse_hunks =
+    |raw: Option<&String>| -> Result<Vec<crate::core::workspaces::HunkSpec>, String> {
+      match raw {
+        Some(raw) => raw
+          .split(',')
+          .map(str::trim)
+          .filter(|s| !s.is_empty())
+          .map(crate::core::workspaces::parse_hunk_spec)
+          .collect(),
+        None => Ok(vec![]),
+      }
+    };
   let require_workspace = || {
     workspace
       .clone()
@@ -296,6 +308,7 @@ pub(crate) fn parse_remote_command_request(
       repo,
       branch_name: require_value("branch name")?,
       source_branch: target,
+      metadata: get_arg_value(matches, "metadata"),
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
     ("workspace", "rename") => Ok(TreqCommandRequest::RenameWorkspace {
@@ -308,6 +321,7 @@ pub(crate) fn parse_remote_command_request(
       repo,
       workspace: require_workspace()?,
       target_branch: target,
+      title: get_arg_value(matches, "title"),
       description: value,
     }),
     ("workspace", "delete") => Ok(TreqCommandRequest::DeleteWorkspace {
@@ -318,6 +332,8 @@ pub(crate) fn parse_remote_command_request(
       repo,
       workspace: require_workspace()?,
       destination: require_target("destination workspace/branch")?,
+      files: split_csv(get_arg_value(matches, "files")),
+      hunks: parse_hunks(path.as_ref())?,
       commits: split_csv(value),
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
@@ -328,6 +344,27 @@ pub(crate) fn parse_remote_command_request(
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
     ("changes", "list") => Ok(TreqCommandRequest::ListChanges { repo, workspace }),
+    ("changes", "workspace-diff") => Ok(TreqCommandRequest::WorkspaceDiff {
+      repo,
+      workspace: require_workspace()?,
+    }),
+    ("commits", "diff") => Ok(TreqCommandRequest::CommitDiff {
+      repo,
+      workspace,
+      revision: require_target("revision")?,
+    }),
+    ("commits", "file-diff") => Ok(TreqCommandRequest::CommitFileDiff {
+      repo,
+      workspace,
+      revision: require_target("revision")?,
+      path: path.ok_or_else(|| "--path is required".to_string())?,
+    }),
+    ("file", "search") => Ok(TreqCommandRequest::SearchFiles {
+      repo,
+      workspace,
+      query: value.unwrap_or_default(),
+      limit: optional_usize(matches, "limit")?,
+    }),
     ("changes", "diff") => Ok(TreqCommandRequest::DiffFile {
       repo,
       workspace,
@@ -365,6 +402,7 @@ pub(crate) fn parse_remote_command_request(
       repo,
       workspace,
       message: require_value("commit message")?,
+      base_change_id: target,
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
     ("commits", "describe") => Ok(TreqCommandRequest::DescribeCommit {
@@ -373,25 +411,15 @@ pub(crate) fn parse_remote_command_request(
       commit: require_target("commit change id")?,
       message: require_value("description")?,
     }),
-    ("commits", "split") => {
-      let hunks = match &path {
-        Some(raw) => raw
-          .split(',')
-          .map(str::trim)
-          .filter(|s| !s.is_empty())
-          .map(crate::core::workspaces::parse_hunk_spec)
-          .collect::<Result<Vec<_>, _>>()?,
-        None => vec![],
-      };
-      Ok(TreqCommandRequest::SplitCommit {
-        repo,
-        workspace: require_workspace()?,
-        commit: require_target("commit change id")?,
-        files: split_csv(value),
-        hunks,
-        idempotency_key: require_idempotency_key(idempotency_key)?,
-      })
-    }
+    ("commits", "split") => Ok(TreqCommandRequest::SplitCommit {
+      repo,
+      workspace: require_workspace()?,
+      commit: require_target("commit change id")?,
+      files: split_csv(value),
+      hunks: parse_hunks(path.as_ref())?,
+      message: get_arg_value(matches, "message").unwrap_or_default(),
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
     ("commits", "move") => Ok(TreqCommandRequest::MoveCommit {
       repo,
       workspace: require_workspace()?,

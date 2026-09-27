@@ -19,6 +19,19 @@ import type {
   StashEntry,
 } from "./api-types";
 import type { ConflictCommentRecord } from "./api-types-review";
+import {
+  assertLocalOperation,
+  remoteRepositoryContaining,
+  transportReadFile,
+  transportSearchWorkspaceFiles,
+} from "./repository-adapter";
+import {
+  transportAbandonCommit,
+  transportDescribeCommit,
+  transportGetCommitDescription,
+  transportMoveCommit,
+  transportResolveCommit,
+} from "./repository-adapter-mutations";
 import { currentWindowLabel } from "./window-label";
 
 export * from "./api-pr-status";
@@ -30,16 +43,18 @@ export const setGitSubmoduleSynced = (
 ): Promise<void> =>
   invoke("set_git_submodule_synced", { repoPath, path, enabled });
 
-export const startResolveConflicts = (
+export const startResolveConflicts = async (
   repoPath: string,
   workspaceId: number | null,
   changeIds?: string[] | null,
-): Promise<ResolveConflictsSession> =>
-  invoke("start_resolve_conflicts", {
+): Promise<ResolveConflictsSession> => {
+  assertLocalOperation(repoPath, "Starting a conflict resolution session");
+  return invoke("start_resolve_conflicts", {
     repoPath,
     workspaceId,
     changeIds: changeIds ?? null,
   });
+};
 
 export const buildResolveAgentPrompt = (
   userPrompt: string,
@@ -55,11 +70,13 @@ export const resolveCommit = (
   revision: string,
   sides: string[],
 ): Promise<ResolveCommitResult> =>
-  invoke("resolve_commit", {
-    repoPath,
-    revision,
-    sides,
-  });
+  transportResolveCommit(repoPath, revision, sides, () =>
+    invoke("resolve_commit", {
+      repoPath,
+      revision,
+      sides,
+    }),
+  );
 
 export const ptyCreateSession = (
   sessionId: string,
@@ -233,7 +250,7 @@ export const remotePtyReattach = (
 
 // File System API
 export const readFile = (path: string): Promise<string> =>
-  invoke("read_file", { path });
+  transportReadFile(path, () => invoke("read_file", { path }));
 
 export const writeSendReviewImage = (
   repoPath: string,
@@ -319,12 +336,14 @@ export const searchWorkspaceFiles = (
   query: string,
   limit?: number,
 ): Promise<FileSearchResult[]> =>
-  invoke("search_workspace_files", {
-    repoPath,
-    workspaceId,
-    query,
-    limit: limit ?? 50,
-  });
+  transportSearchWorkspaceFiles(repoPath, workspaceId, query, limit ?? 50, () =>
+    invoke("search_workspace_files", {
+      repoPath,
+      workspaceId,
+      query,
+      limit: limit ?? 50,
+    }),
+  );
 
 // Folder picker
 export const selectFolder = async (): Promise<string | null> =>
@@ -509,11 +528,25 @@ export const clearPendingReview = (
   workspaceId: number,
 ): Promise<void> => invoke("clear_pending_review", { repoPath, workspaceId });
 
-export const loadFileBrowserReview = (
+// The file browser's draft review lives in the repository's `.treq/local.db`.
+// No typed command exposes that table on a remote host, so a remote draft is
+// kept in memory for this session instead of writing a local database for a
+// path that only exists remotely.
+const remoteFileBrowserReviews = new Map<string, FileBrowserPendingReview>();
+
+function remoteReviewKey(repoPath: string, workspaceId: number): string | null {
+  return remoteRepositoryContaining(repoPath)
+    ? JSON.stringify([repoPath, workspaceId])
+    : null;
+}
+
+export const loadFileBrowserReview = async (
   repoPath: string,
   workspaceId: number,
-): Promise<FileBrowserPendingReview | null> =>
-  invoke("load_file_browser_review", { repoPath, workspaceId }).then(
+): Promise<FileBrowserPendingReview | null> => {
+  const remoteKey = remoteReviewKey(repoPath, workspaceId);
+  if (remoteKey) return remoteFileBrowserReviews.get(remoteKey) ?? null;
+  return invoke("load_file_browser_review", { repoPath, workspaceId }).then(
     (review) => {
       if (!review) return null;
       const normalized = { ...review } as FileBrowserPendingReview & {
@@ -525,25 +558,47 @@ export const loadFileBrowserReview = (
       return normalized as FileBrowserPendingReview;
     },
   );
+};
 
-export const saveFileBrowserReview = (
+export const saveFileBrowserReview = async (
   repoPath: string,
   workspaceId: number,
   comments: LineComment[],
   summaryText?: string,
-): Promise<number> =>
-  invoke("save_file_browser_review", {
+): Promise<number> => {
+  const remoteKey = remoteReviewKey(repoPath, workspaceId);
+  if (remoteKey) {
+    const now = new Date().toISOString();
+    const previous = remoteFileBrowserReviews.get(remoteKey);
+    remoteFileBrowserReviews.set(remoteKey, {
+      id: previous?.id ?? remoteFileBrowserReviews.size + 1,
+      workspace_id: workspaceId,
+      comments,
+      summary_text: summaryText ?? null,
+      created_at: previous?.created_at ?? now,
+      updated_at: now,
+    });
+    return remoteFileBrowserReviews.get(remoteKey)!.id;
+  }
+  return invoke("save_file_browser_review", {
     repoPath,
     workspaceId,
     comments: JSON.stringify(comments),
     summaryText: summaryText ?? null,
   });
+};
 
-export const clearFileBrowserReview = (
+export const clearFileBrowserReview = async (
   repoPath: string,
   workspaceId: number,
-): Promise<void> =>
-  invoke("clear_file_browser_review", { repoPath, workspaceId });
+): Promise<void> => {
+  const remoteKey = remoteReviewKey(repoPath, workspaceId);
+  if (remoteKey) {
+    remoteFileBrowserReviews.delete(remoteKey);
+    return;
+  }
+  return invoke("clear_file_browser_review", { repoPath, workspaceId });
+};
 
 // File Watcher API
 export const startFileWatcher = (
@@ -565,75 +620,90 @@ export const moveCommitToExistingWorkspace = (
   commitChangeId: string,
   targetWorkspaceId: number,
 ): Promise<void> =>
-  invoke("move_commit_to_existing_workspace", {
-    repoPath,
-    sourceWorkspaceId,
-    commitChangeId,
+  transportMoveCommit(
+    { repoPath, workspaceId: sourceWorkspaceId, commitChangeId },
     targetWorkspaceId,
-  });
+    () =>
+      invoke("move_commit_to_existing_workspace", {
+        repoPath,
+        sourceWorkspaceId,
+        commitChangeId,
+        targetWorkspaceId,
+      }),
+  );
 
 export const abandonCommit = (
   repoPath: string,
   workspaceId: number,
   commitChangeId: string,
 ): Promise<string> =>
-  invoke("abandon_commit", {
-    repoPath,
-    workspaceId,
-    commitChangeId,
-  });
+  transportAbandonCommit({ repoPath, workspaceId, commitChangeId }, () =>
+    invoke("abandon_commit", {
+      repoPath,
+      workspaceId,
+      commitChangeId,
+    }),
+  );
 
-export const undoRepoOperation = (
+export const undoRepoOperation = async (
   repoPath: string,
   workspaceId: number | null,
   operationId: string,
-): Promise<string> =>
-  invoke("undo_repo_operation", {
+): Promise<string> => {
+  assertLocalOperation(repoPath, "Undoing an operation");
+  return invoke("undo_repo_operation", {
     repoPath,
     workspaceId,
     operationId,
   });
+};
 
 /**
  * Undo the latest commit in a workspace's own lineage (not the working copy,
  * not a commit on the target branch). Must be undone sequentially from the tip.
  */
-export const undoCommit = (
+export const undoCommit = async (
   repoPath: string,
   workspaceId: number,
   commitChangeId: string,
-): Promise<void> =>
-  invoke("undo_commit", {
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Undoing a commit");
+  return invoke("undo_commit", {
     repoPath,
     workspaceId,
     commitChangeId,
   });
+};
 
 /**
  * Revert a commit by creating a new commit that reverses its changes on top
  * of the workspace's current tip. Can target any commit except the working copy.
  */
-export const revertCommit = (
+export const revertCommit = async (
   repoPath: string,
   workspaceId: number,
   commitChangeId: string,
-): Promise<void> =>
-  invoke("revert_commit", {
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Reverting a commit");
+  return invoke("revert_commit", {
     repoPath,
     workspaceId,
     commitChangeId,
   });
+};
 
 export const getCommitDescription = (
   repoPath: string,
   workspaceId: number,
   commitChangeId: string,
 ): Promise<string> =>
-  invoke("get_commit_description", {
-    repoPath,
-    workspaceId,
-    commitChangeId,
-  });
+  transportGetCommitDescription({ repoPath, workspaceId, commitChangeId }, () =>
+    invoke("get_commit_description", {
+      repoPath,
+      workspaceId,
+      commitChangeId,
+    }),
+  );
 
 export const describeCommit = (
   repoPath: string,
@@ -641,14 +711,19 @@ export const describeCommit = (
   commitChangeId: string,
   description: string,
 ): Promise<void> =>
-  invoke("describe_commit", {
-    repoPath,
-    workspaceId,
-    commitChangeId,
+  transportDescribeCommit(
+    { repoPath, workspaceId, commitChangeId },
     description,
-  });
+    () =>
+      invoke("describe_commit", {
+        repoPath,
+        workspaceId,
+        commitChangeId,
+        description,
+      }),
+  );
 
-export const shiftCommitTimestamp = (
+export const shiftCommitTimestamp = async (
   repoPath: string,
   workspaceId: number,
   commitChangeId: string,
@@ -658,8 +733,9 @@ export const shiftCommitTimestamp = (
     minutes?: number;
     toDay?: string | null;
   },
-): Promise<void> =>
-  invoke("shift_commit_timestamp", {
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Shifting commit timestamps");
+  return invoke("shift_commit_timestamp", {
     repoPath,
     workspaceId,
     commitChangeId,
@@ -668,15 +744,18 @@ export const shiftCommitTimestamp = (
     minutes: shift.minutes ?? 0,
     toDay: shift.toDay ?? null,
   });
+};
 
-export const shiftMutableCommitsToNow = (
+export const shiftMutableCommitsToNow = async (
   repoPath: string,
   workspaceId: number,
-): Promise<void> =>
-  invoke("shift_mutable_commits_to_now", {
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Shifting commit timestamps");
+  return invoke("shift_mutable_commits_to_now", {
     repoPath,
     workspaceId,
   });
+};
 
 export const getTreqBinDir = (): Promise<string> => invoke("get_treq_bin_dir");
 

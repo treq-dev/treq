@@ -9,6 +9,8 @@ export function RemoteCapabilityNotice({
     !capabilities.shell.supported && capabilities.shell.reason,
     !capabilities.splitCommit.supported && capabilities.splitCommit.reason,
     !capabilities.agentInput.supported && capabilities.agentInput.reason,
+    !capabilities.mergeWorkspace.supported &&
+      capabilities.mergeWorkspace.reason,
   ].filter((value): value is string => Boolean(value));
 
   if (messages.length === 0) return null;

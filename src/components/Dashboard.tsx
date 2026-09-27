@@ -1100,6 +1100,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [viewMode, location, navigate]);
 
   const handleOpenMergePreview = () => {
+    if (!remoteCaps.mergeWorkspace.supported) {
+      addToast({
+        title: "Merge unavailable",
+        description: remoteCaps.mergeWorkspace.reason,
+        type: "warning",
+      });
+      return;
+    }
     if (selectedWorkspace) {
       setMergeWorkspace(selectedWorkspace);
       setViewMode("merge-preview");

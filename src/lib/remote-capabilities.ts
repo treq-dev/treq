@@ -9,6 +9,9 @@ export const NATIVE_REMOTE_PTY_AVAILABLE = false;
 export const NATIVE_REMOTE_PTY_REASON =
   "Interactive remote terminals require native SSH PTY support, which is not available yet. System ssh is not used as a fallback.";
 
+export const REMOTE_MERGE_REASON =
+  "Merging a remote workspace is not available yet. Push the branch and merge it from your hosting provider instead.";
+
 export interface ActionCapability {
   supported: boolean;
   reason?: string;
@@ -20,6 +23,7 @@ export interface RemoteCapabilities {
   agentLifecycle: ActionCapability;
   splitCommit: ActionCapability;
   agentInput: ActionCapability;
+  mergeWorkspace: ActionCapability;
 }
 
 export function remoteCapabilities(): RemoteCapabilities {
@@ -33,8 +37,11 @@ export function remoteCapabilities(): RemoteCapabilities {
       reason: NATIVE_REMOTE_PTY_REASON,
     },
     agentLifecycle: { supported: true },
+    // Routed through the typed `SplitCommit` command (whole files of a
+    // workspace's working copy).
     splitCommit: { supported: true },
     agentInput: { supported: true },
+    mergeWorkspace: { supported: false, reason: REMOTE_MERGE_REASON },
   };
 }
 
@@ -45,6 +52,7 @@ export function localCapabilities(): RemoteCapabilities {
     agentLifecycle: { supported: true },
     splitCommit: { supported: true },
     agentInput: { supported: true },
+    mergeWorkspace: { supported: true },
   };
 }
 
