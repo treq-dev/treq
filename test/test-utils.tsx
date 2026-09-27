@@ -20,9 +20,11 @@ const AllTheProviders = ({ children }: { children: ReactNode }) => {
   const swrConfig = useMemo(() => createTestSWRConfig(), []);
   return (
     <Router hook={useHashLocation}>
-      <AppStoreEffects />
       <ToastProvider>
         <SWRConfig value={swrConfig}>
+          {/* Inside SWRConfig so settings hydration uses this render's cache,
+              not SWR's global cache shared by every test in the file. */}
+          <AppStoreEffects />
           <SWRMutateScope>{children}</SWRMutateScope>
         </SWRConfig>
       </ToastProvider>
