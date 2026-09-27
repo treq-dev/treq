@@ -2085,9 +2085,13 @@ export const ShowWorkspace = ({
                       repoPath={effectiveRepoPath}
                       workspace={workspace}
                       baseBranch={targetBranch ?? defaultTargetBranch}
+                      // Diverged means the branch was rewritten locally (e.g.
+                      // rebased). jj_push is lease-protected and refuses a
+                      // conflicted bookmark, so pushing here is safe.
                       needsPush={
                         workspace.not_on_remote ||
-                        workspaceStatusData?.remote_sync.type === "Ahead"
+                        workspaceStatusData?.remote_sync.type === "Ahead" ||
+                        workspaceStatusData?.remote_sync.type === "Diverged"
                       }
                       hasCommits={
                         hasWorkspaceCommits ||
