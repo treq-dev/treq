@@ -5,6 +5,7 @@ import {
   isRemoteRepository,
   repositoryCacheKey,
 } from "../lib/active-repository";
+import { scheduleRefreshWorkspaceChanges } from "../lib/change-file-drag";
 import { transportChangeMarker } from "../lib/repository-adapter";
 import { dispatch } from "../lib/remote-dispatch";
 import { invalidateRemoteRepositoryData } from "../lib/remote-mutation-ui";
@@ -82,6 +83,12 @@ export function useRemoteChangeMarkerWatch(
     if (operationId !== lastSeenOperationId.current) {
       lastSeenOperationId.current = operationId;
       invalidateRemoteRepositoryData();
+      // The changes diff viewer and file browser load outside SWR. They
+      // reload on the same event the local file watcher sends, scoped to the
+      // workspace whose marker moved.
+      scheduleRefreshWorkspaceChanges(
+        workspaceId == null ? undefined : { workspaceId },
+      );
     }
-  }, [data?.operation_id, remoteRepo]);
+  }, [data?.operation_id, remoteRepo, workspaceId]);
 }

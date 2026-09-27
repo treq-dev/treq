@@ -217,6 +217,89 @@ pub fn jj_head_operation_id(workspace_path: &str) -> Result<String, JjError> {
   Ok(loaded.repo.op_id().hex())
 }
 
+/// Snapshots the workspace's working copy, then returns the head operation id.
+///
+/// [`jj_head_operation_id`] alone only moves when something runs jj. An
+/// editor, terminal, or agent that writes files directly leaves the operation
+/// log untouched, so a client polling that id never sees the edit. This does
+/// what the jj CLI does before every command: record disk contents into the
+/// working-copy commit first. A snapshot commits an operation only when the
+/// tree actually changed, so polling an idle workspace returns the same id
+/// every time and adds nothing to the operation log. Unchanged files cost a
+/// `stat` each, because jj's tree state caches mtime and size.
+///
+/// The home workspace goes through the same Git HEAD/refs reconciliation that
+/// [`jj_get_changed_files`] runs, so a `git commit` or `git switch` in a
+/// terminal is picked up as well. Other workspaces use the repo root for
+/// ignore rules, matching [`jj_get_changed_files`], so this read and the
+/// changed-files read never disagree about which new files to track.
+///
+/// A stale working copy (another workspace rewrote its commit) is left alone:
+/// snapshotting it would record old disk contents over the newer commit.
+pub fn jj_snapshot_head_operation_id(workspace_path: &str) -> Result<String, JjError> {
+  if !Path::new(workspace_path).join(".jj").exists() {
+    return jj_head_operation_id(workspace_path);
+  }
+  let Some(repo_path) = derive_repo_path_from_workspace(workspace_path) else {
+    reconcile_colocated_home_repo(workspace_path)?;
+    return jj_head_operation_id(workspace_path);
+  };
+  with_working_copy_lock(workspace_path, || {
+    let mut loaded = load_workspace_repo(workspace_path)?;
+    snapshot_fresh_working_copy(&mut loaded, &repo_path)?;
+    Ok(loaded.repo.op_id().hex())
+  })
+}
+
+fn snapshot_fresh_working_copy(
+  loaded: &mut LoadedWorkspaceRepo,
+  ignore_root: &str,
+) -> Result<(), JjError> {
+  let Some(wc_commit) = get_workspace_wc_commit(loaded)? else {
+    return Ok(());
+  };
+  let workspace_name = loaded.workspace.workspace_name().to_owned();
+  let mut locked_ws = loaded
+    .workspace
+    .start_working_copy_mutation()
+    .map_err(|e| JjError::IoError(format!("Failed to lock working copy: {e}")))?;
+  let freshness = block_on(WorkingCopyFreshness::check_stale(
+    locked_ws.locked_wc(),
+    &wc_commit,
+    &loaded.repo,
+  ))
+  .map_err(|e| JjError::IoError(format!("Failed to check staleness: {e}")))?;
+  if !matches!(freshness, WorkingCopyFreshness::Fresh) {
+    // Dropping the lock without `finish` leaves the working-copy state as it
+    // was; the stale-workspace recovery flow owns updating it.
+    return Ok(());
+  }
+  let matcher = repo_root_matcher();
+  let opts = snapshot_options_for_all_paths(ignore_root, &matcher);
+  let (new_tree, _) = block_on(locked_ws.locked_wc().snapshot(&opts))
+    .map_err(|e| JjError::IoError(format!("Failed to snapshot working copy: {e}")))?;
+  if new_tree.tree_ids() != wc_commit.tree_ids() {
+    let mut tx = loaded.repo.start_transaction();
+    let rewritten = block_on(
+      tx.repo_mut()
+        .rewrite_commit(&wc_commit)
+        .set_tree(new_tree)
+        .write(),
+    )
+    .map_err(|e| JjError::IoError(format!("Failed to write working-copy snapshot: {e}")))?;
+    tx.repo_mut()
+      .set_wc_commit(workspace_name, rewritten.id().clone())
+      .map_err(|e| JjError::IoError(format!("Failed to set working-copy commit: {e}")))?;
+    block_on(tx.repo_mut().rebase_descendants())
+      .map_err(|e| JjError::IoError(format!("Failed to rebase after snapshot: {e}")))?;
+    loaded.repo = block_on(tx.commit("snapshot working copy"))
+      .map_err(|e| JjError::IoError(format!("Failed to commit working-copy snapshot: {e}")))?;
+  }
+  block_on(locked_ws.finish(loaded.repo.op_id().clone()))
+    .map_err(|e| JjError::IoError(format!("Failed to finish working-copy snapshot: {e}")))?;
+  Ok(())
+}
+
 fn load_workspace_repo(workspace_path: &str) -> Result<LoadedWorkspaceRepo, JjError> {
   let repo_path_opt = derive_repo_path_from_workspace(workspace_path);
   let settings_path = repo_path_opt.as_deref().unwrap_or(workspace_path);
@@ -8902,6 +8985,42 @@ mod tests {
     assert_eq!(
       jj_head_operation_id(repo_path).expect("operation after"),
       before
+    );
+  }
+
+  #[test]
+  fn snapshot_head_operation_id_sees_child_workspace_file_edits() {
+    let temp = init_colocated_repo_with_two_branches();
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    let child_name = create_workspace(
+      repo_path,
+      "child",
+      "child",
+      true,
+      None,
+      Some("branch-a"),
+      None,
+    )
+    .expect("create child workspace");
+    let child_dir = temp.path().join(".treq/workspaces").join(child_name);
+    let child_path = child_dir.to_string_lossy().into_owned();
+
+    let idle = jj_snapshot_head_operation_id(&child_path).expect("idle marker");
+    assert_eq!(
+      jj_snapshot_head_operation_id(&child_path).expect("repeat marker"),
+      idle
+    );
+    assert_eq!(jj_head_operation_id(&child_path).expect("head op"), idle);
+
+    fs::write(child_dir.join("base.txt"), "edited outside jj\n").expect("edit file");
+    let edited = jj_snapshot_head_operation_id(&child_path).expect("edited marker");
+    assert_ne!(edited, idle);
+    let changes = jj_get_changed_files(&child_path).expect("changed files");
+    assert!(changes.iter().any(|change| change.path == "base.txt"));
+    assert_eq!(
+      jj_head_operation_id(&child_path).expect("head op after read"),
+      edited,
+      "the changed-files read must agree with the marker snapshot"
     );
   }
 
