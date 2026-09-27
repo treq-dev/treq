@@ -174,120 +174,155 @@ pub fn get_git_remote_url(repo_path: String) -> Result<Option<GitRemoteInfo>, St
   crate::github::get_git_remote_url_impl(&repo_path)
 }
 
+/// Run a `gh` subprocess on the blocking pool. Sync Tauri commands execute on
+/// the main thread, so a network call there freezes the window until `gh`
+/// returns.
+async fn run_gh_blocking<T, F>(task: &'static str, f: F) -> Result<T, String>
+where
+  T: Send + 'static,
+  F: FnOnce(&str, &str) -> Result<T, String> + Send + 'static,
+{
+  let gh = gh_bin()?;
+  let extended_path = get_extended_path();
+  tauri::async_runtime::spawn_blocking(move || f(&gh, &extended_path))
+    .await
+    .map_err(|e| format!("Failed to join {task} task: {e}"))?
+}
+
 #[tauri::command]
-pub fn gh_list_issues(
+pub async fn gh_list_issues(
   repo_full_name: String,
   state: String,
   limit: Option<u32>,
   page: Option<u32>,
 ) -> Result<GhListPage<GhIssue>, String> {
-  let gh = gh_bin()?;
-  crate::github::gh_list_issues_impl(
-    &gh,
-    &repo_full_name,
-    &state,
-    limit.unwrap_or(crate::github::GH_LIST_PAGE_SIZE),
-    page.unwrap_or(1),
-    &get_extended_path(),
-  )
+  run_gh_blocking("gh_list_issues", move |gh, path| {
+    crate::github::gh_list_issues_impl(
+      gh,
+      &repo_full_name,
+      &state,
+      limit.unwrap_or(crate::github::GH_LIST_PAGE_SIZE),
+      page.unwrap_or(1),
+      path,
+    )
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_view_issue(repo_full_name: String, issue_number: u64) -> Result<GhIssue, String> {
-  let gh = gh_bin()?;
-  crate::github::gh_view_issue_impl(&gh, &repo_full_name, issue_number, &get_extended_path())
+pub async fn gh_view_issue(repo_full_name: String, issue_number: u64) -> Result<GhIssue, String> {
+  run_gh_blocking("gh_view_issue", move |gh, path| {
+    crate::github::gh_view_issue_impl(gh, &repo_full_name, issue_number, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_create_issue(repo_full_name: String, title: String, body: String) -> Result<u64, String> {
-  let gh = gh_bin()?;
-  crate::github::gh_create_issue_impl(&gh, &repo_full_name, &title, &body, &get_extended_path())
+pub async fn gh_create_issue(
+  repo_full_name: String,
+  title: String,
+  body: String,
+) -> Result<u64, String> {
+  run_gh_blocking("gh_create_issue", move |gh, path| {
+    crate::github::gh_create_issue_impl(gh, &repo_full_name, &title, &body, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_create_issue_comment(
+pub async fn gh_create_issue_comment(
   repo_full_name: String,
   issue_number: u64,
   body: String,
 ) -> Result<(), String> {
-  let gh = gh_bin()?;
-  crate::github::gh_create_issue_comment_impl(
-    &gh,
-    &repo_full_name,
-    issue_number,
-    &body,
-    &get_extended_path(),
-  )
+  run_gh_blocking("gh_create_issue_comment", move |gh, path| {
+    crate::github::gh_create_issue_comment_impl(gh, &repo_full_name, issue_number, &body, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_close_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
-  let gh = gh_bin()?;
-  crate::github::gh_close_issue_impl(&gh, &repo_full_name, issue_number, &get_extended_path())
+pub async fn gh_close_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
+  run_gh_blocking("gh_close_issue", move |gh, path| {
+    crate::github::gh_close_issue_impl(gh, &repo_full_name, issue_number, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_reopen_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
-  let gh = gh_bin()?;
-  crate::github::gh_reopen_issue_impl(&gh, &repo_full_name, issue_number, &get_extended_path())
+pub async fn gh_reopen_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
+  run_gh_blocking("gh_reopen_issue", move |gh, path| {
+    crate::github::gh_reopen_issue_impl(gh, &repo_full_name, issue_number, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_list_prs(
+pub async fn gh_list_prs(
   repo_full_name: String,
   state: String,
   limit: Option<u32>,
   page: Option<u32>,
 ) -> Result<GhListPage<GhPullRequest>, String> {
-  let gh = gh_bin()?;
-  crate::github::gh_list_prs_impl(
-    &gh,
-    &repo_full_name,
-    &state,
-    limit.unwrap_or(crate::github::GH_LIST_PAGE_SIZE),
-    page.unwrap_or(1),
-    &get_extended_path(),
-  )
+  run_gh_blocking("gh_list_prs", move |gh, path| {
+    crate::github::gh_list_prs_impl(
+      gh,
+      &repo_full_name,
+      &state,
+      limit.unwrap_or(crate::github::GH_LIST_PAGE_SIZE),
+      page.unwrap_or(1),
+      path,
+    )
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_view_pr(repo_full_name: String, pr_number: u64) -> Result<GhPullRequest, String> {
-  let gh = gh_bin()?;
-  crate::github::gh_view_pr_impl(&gh, &repo_full_name, pr_number, &get_extended_path())
+pub async fn gh_view_pr(repo_full_name: String, pr_number: u64) -> Result<GhPullRequest, String> {
+  run_gh_blocking("gh_view_pr", move |gh, path| {
+    crate::github::gh_view_pr_impl(gh, &repo_full_name, pr_number, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_create_pr_comment(
+pub async fn gh_create_pr_comment(
   repo_full_name: String,
   pr_number: u64,
   body: String,
 ) -> Result<(), String> {
-  let gh = gh_bin()?;
-  crate::github::gh_create_pr_comment_impl(
-    &gh,
-    &repo_full_name,
-    pr_number,
-    &body,
-    &get_extended_path(),
-  )
+  run_gh_blocking("gh_create_pr_comment", move |gh, path| {
+    crate::github::gh_create_pr_comment_impl(gh, &repo_full_name, pr_number, &body, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_close_pr(repo_full_name: String, pr_number: u64) -> Result<(), String> {
-  let gh = gh_bin()?;
-  crate::github::gh_close_pr_impl(&gh, &repo_full_name, pr_number, &get_extended_path())
+pub async fn gh_close_pr(repo_full_name: String, pr_number: u64) -> Result<(), String> {
+  run_gh_blocking("gh_close_pr", move |gh, path| {
+    crate::github::gh_close_pr_impl(gh, &repo_full_name, pr_number, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_reopen_pr(repo_full_name: String, pr_number: u64) -> Result<(), String> {
-  let gh = gh_bin()?;
-  crate::github::gh_reopen_pr_impl(&gh, &repo_full_name, pr_number, &get_extended_path())
+pub async fn gh_reopen_pr(repo_full_name: String, pr_number: u64) -> Result<(), String> {
+  run_gh_blocking("gh_reopen_pr", move |gh, path| {
+    crate::github::gh_reopen_pr_impl(gh, &repo_full_name, pr_number, path)
+  })
+  .await
 }
 
 #[tauri::command]
-pub fn gh_set_pr_draft(repo_full_name: String, pr_number: u64, draft: bool) -> Result<(), String> {
-  let gh = gh_bin()?;
-  crate::github::gh_set_pr_draft_impl(&gh, &repo_full_name, pr_number, draft, &get_extended_path())
+pub async fn gh_set_pr_draft(
+  repo_full_name: String,
+  pr_number: u64,
+  draft: bool,
+) -> Result<(), String> {
+  run_gh_blocking("gh_set_pr_draft", move |gh, path| {
+    crate::github::gh_set_pr_draft_impl(gh, &repo_full_name, pr_number, draft, path)
+  })
+  .await
 }
 
 /// List every review-comment thread on a PR, including resolved/outdated
