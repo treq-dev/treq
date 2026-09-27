@@ -31,6 +31,18 @@ const { mockEdgeFn, mockRpc, queueEnabled } = vi.hoisted(() => {
     ),
   };
 });
+const mockFeatures = vi.hoisted(() => ({ mergeQueue: true }));
+vi.mock("../../src/lib/features", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/lib/features")>();
+  return {
+    ...actual,
+    FEATURES: Object.assign(mockFeatures, {
+      ...actual.FEATURES,
+      ...mockFeatures,
+    }),
+  };
+});
 vi.mock("../../src/lib/supabase", () => ({
   supabase: {
     rpc: mockRpc,
@@ -272,6 +284,8 @@ describe("useEnqueueWorkspace", () => {
 
   beforeEach(() => {
     mockEdgeFn.mockReset();
+    mockRpc.mockClear();
+    mockFeatures.mergeQueue = true;
     queueEnabled.current = true;
     vi.mocked(api.startPrStatusPolling).mockClear();
     vi.mocked(api.refreshPrBranchStatus).mockClear();
@@ -386,6 +400,30 @@ describe("useEnqueueWorkspace", () => {
 
     await expect(result.current.enqueue.mutateAsync()).rejects.toThrow(
       "Repository or branch not detected",
+    );
+    expect(mockEdgeFn).not.toHaveBeenCalled();
+  });
+
+  it("skips the opt-in lookup and refuses to enqueue when the flag is off", async () => {
+    mockFeatures.mergeQueue = false;
+    vi.mocked(api.getCachedPrInfo).mockResolvedValue(OPEN_PR);
+    mockEdgeFn.mockResolvedValue({ error: null });
+
+    const { result } = renderHook(() => useEnqueueWorkspace(repoPath, "feat"), {
+      wrapper: makeWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.remoteInfo).toBeTruthy();
+      expect(result.current.enqueue.isPending).toBe(false);
+    });
+
+    await expect(result.current.enqueue.mutateAsync()).rejects.toThrow(
+      /not enabled for this repository/i,
+    );
+    expect(mockRpc).not.toHaveBeenCalledWith(
+      "get_merge_queue_enabled",
+      expect.anything(),
     );
     expect(mockEdgeFn).not.toHaveBeenCalled();
   });
