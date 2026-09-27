@@ -1,19 +1,20 @@
-import { useIsMutating, useMutation } from "../../../hooks/useMutation";
+import { useIsMutating } from "../../../hooks/useMutation";
 import { peekActiveRepository } from "../../../lib/active-repository";
 import { remoteCapabilities } from "../../../lib/remote-capabilities";
 import { invalidateQueries } from "../../../lib/swr-cache";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import {
+  PushAfterCommitError,
+  useCreateWorkspacePr,
+} from "../../../hooks/useCreateWorkspacePr";
+import {
   createPrMutationKey,
-  invalidatePrStatuses,
   useGitRemoteInfo,
   usePrInfoViaGh,
 } from "../../../hooks/useMergeQueueStatus";
 import {
   createCommit,
   getWorkspaceFileLines,
-  ghCreatePr,
   jjRestoreAll,
   jjRestoreFile,
   jjRestoreSnapshot,
@@ -47,14 +48,6 @@ interface UseFileActionsParams {
   refreshCommittedChanges: () => void;
   setCommittedSectionCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   addToast: ReturnType<typeof useToast>["addToast"];
-}
-
-/** The commit landed but the push before PR creation failed. */
-class PushAfterCommitError extends Error {
-  constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause));
-    this.name = "PushAfterCommitError";
-  }
 }
 
 export function useFileActions({
@@ -349,34 +342,7 @@ export function useFileActions({
     }
   };
 
-  const createPrMutation = useMutation({
-    mutationKey: createPrMutationKey(repoPath, workspaceId),
-    mutationFn: async (commitMsg: string) => {
-      if (!remoteInfo || !workspace || !baseBranch) {
-        throw new Error("No GitHub remote or target branch detected");
-      }
-      // performCommit shows its own toast when it fails.
-      const committed = await performCommit(commitMsg);
-      if (!committed) return null;
-      try {
-        await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
-      } catch (error) {
-        throw new PushAfterCommitError(error);
-      }
-      const number = await ghCreatePr(
-        remoteInfo.full_name,
-        deriveConventionalPrTitle(commitMsg, workspace.branch_name),
-        workspace.description ?? "",
-        baseBranch,
-        workspace.branch_name,
-        false,
-      );
-      // Stay pending until the new PR is in the status cache so neither
-      // create-PR surface re-enables before the header switches to View PR.
-      await invalidatePrStatuses(repoPath!, workspace.branch_name);
-      return number;
-    },
-  });
+  const { createPr } = useCreateWorkspacePr(repoPath, workspaceId);
 
   const handleCommitAndCreatePR = async (commitMsg: string) => {
     if (!remoteInfo || !workspace || !baseBranch) {
@@ -387,30 +353,24 @@ export function useFileActions({
       });
       return;
     }
-    try {
-      const number = await createPrMutation.mutateAsync(commitMsg);
-      if (number == null) return;
-      await invalidateQueries();
-      const prUrl = `https://github.com/${remoteInfo.full_name}/pull/${number}`;
-      addToast({
-        title: "Pull request created",
-        description: `#${number}`,
-        type: "success",
-        action: {
-          label: "Open in Web",
-          onClick: () => openUrl(prUrl),
-        },
-      });
-    } catch (error) {
-      addToast({
-        title:
-          error instanceof PushAfterCommitError
-            ? "Committed, but failed to push"
-            : "Failed to create PR",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    }
+    await createPr({
+      repoFullName: remoteInfo.full_name,
+      branchName: workspace.branch_name,
+      baseBranch,
+      body: workspace.description ?? "",
+      draft: false,
+      prepare: async () => {
+        // performCommit shows its own toast when it fails.
+        const committed = await performCommit(commitMsg);
+        if (!committed) return null;
+        try {
+          await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
+        } catch (error) {
+          throw new PushAfterCommitError(error);
+        }
+        return deriveConventionalPrTitle(commitMsg, workspace.branch_name);
+      },
+    });
   };
 
   const handleExpandContext = async (
