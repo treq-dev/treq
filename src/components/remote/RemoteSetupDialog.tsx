@@ -88,10 +88,10 @@ export function RemoteSetupDialog({
                 className="rounded-lg border border-border/60 p-4 text-left hover:border-primary/60 hover:bg-muted/40"
                 onClick={() => setMode("managed")}
               >
-                <div className="font-medium">Treq-managed Sprite</div>
+                <div className="font-medium">Treq-managed VM</div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Treq provisions and maintains one persistent development
-                  Sprite for your account.
+                  Treq provisions and maintains one persistent development VM
+                  for your account.
                 </p>
               </button>
               <button
@@ -112,10 +112,10 @@ export function RemoteSetupDialog({
         {mode === "managed" && (
           <>
             <DialogHeader>
-              <DialogTitle>Treq-managed Sprite</DialogTitle>
+              <DialogTitle>Treq-managed VM</DialogTitle>
               <DialogDescription>
-                Treq manages lifecycle and runs typed commands through the
-                authenticated Sprites API.
+                Treq manages the VM lifecycle. Commands run over managed SSH
+                with short-lived certificates.
               </DialogDescription>
             </DialogHeader>
             <RemoteManagedSetupPanel
