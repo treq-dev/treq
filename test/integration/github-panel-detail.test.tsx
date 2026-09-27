@@ -2,6 +2,7 @@ import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IssueDetailPanel } from "../../src/components/github-panel/IssueDetail";
+import { CreatePrForm } from "../../src/components/github-panel/CreatePrForm";
 import { PrDetailPanel } from "../../src/components/github-panel/PrDetail";
 import { render, screen, waitFor } from "../test-utils";
 
@@ -16,6 +17,7 @@ const api = vi.hoisted(() => ({
   ghReopenPr: vi.fn(),
   getPrInfoViaGh: vi.fn(),
   getPrChecksViaGh: vi.fn(),
+  ghCreatePr: vi.fn(),
   getWorkspaces: vi.fn(),
   openOrCreateWorkspaceFromPr: vi.fn(),
 }));
@@ -34,6 +36,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
     ghReopenPr: api.ghReopenPr,
     getPrInfoViaGh: api.getPrInfoViaGh,
     getPrChecksViaGh: api.getPrChecksViaGh,
+    ghCreatePr: api.ghCreatePr,
     getWorkspaces: api.getWorkspaces,
     openOrCreateWorkspaceFromPr: api.openOrCreateWorkspaceFromPr,
   };
@@ -197,6 +200,28 @@ describe("PrDetailPanel close PR", () => {
     api.ghClosePr.mockReset();
   });
 
+  it("asks for confirmation before closing and does nothing on cancel", async () => {
+    api.ghViewPr.mockResolvedValue(makeDetailPr({ is_draft: false }));
+
+    render(
+      <PrDetailPanel
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        prNumber={42}
+        onClose={() => {}}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /close pr/i }));
+    expect(await screen.findByText("Close pull request #42?")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /keep open/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Close pull request #42?")).toBeNull();
+    });
+    expect(api.ghClosePr).not.toHaveBeenCalled();
+  });
+
   it("shows a loading state on the Close PR button while the request is in flight", async () => {
     let resolveClose: () => void = () => {};
     api.ghViewPr.mockResolvedValue(makeDetailPr({ is_draft: false }));
@@ -217,6 +242,9 @@ describe("PrDetailPanel close PR", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
+    await user.click(
+      await screen.findByRole("button", { name: /close pull request/i }),
+    );
 
     const closing = await screen.findByRole("button", { name: /closing/i });
     expect(closing).toBeDisabled();
@@ -264,6 +292,11 @@ describe("PrDetailPanel refreshes the workspace PR status", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: action }));
+    if (action.test("Close PR")) {
+      await user.click(
+        await screen.findByRole("button", { name: /close pull request/i }),
+      );
+    }
 
     await waitFor(() => {
       expect(api.getPrInfoViaGh).toHaveBeenCalledWith("/tmp/repo", "feat");
@@ -350,6 +383,9 @@ describe("GitHub detail action failures", () => {
     renderPr();
 
     await user.click(await screen.findByRole("button", { name: /close pr/i }));
+    await user.click(
+      await screen.findByRole("button", { name: /close pull request/i }),
+    );
 
     expect(
       await screen.findByText("Failed to close pull request"),
@@ -389,5 +425,71 @@ describe("GitHub detail action failures", () => {
 
     expect(await screen.findByText("Failed to close issue")).toBeVisible();
     expect(screen.getByText("gh: issue is locked")).toBeVisible();
+  });
+});
+
+describe("CreatePrForm", () => {
+  let user: ReturnType<typeof userEvent.setup>;
+
+  beforeEach(() => {
+    user = userEvent.setup();
+    api.ghCreatePr.mockReset().mockResolvedValue(7);
+  });
+
+  async function fillForm() {
+    await user.type(screen.getByPlaceholderText("Title"), "Add thing");
+    await user.type(screen.getByPlaceholderText("Head branch"), "feat/thing");
+    const base = screen.getByPlaceholderText("Base branch");
+    await user.clear(base);
+    await user.type(base, "main");
+  }
+
+  it("creates a draft PR when Create as draft is on", async () => {
+    const onSuccess = vi.fn();
+    render(
+      <CreatePrForm
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        onSuccess={onSuccess}
+        onCancel={() => {}}
+      />,
+    );
+
+    await fillForm();
+    await user.click(screen.getByRole("switch", { name: /create as draft/i }));
+    await user.click(
+      screen.getByRole("button", { name: /create draft pull request/i }),
+    );
+
+    await waitFor(() => {
+      expect(api.ghCreatePr).toHaveBeenCalledWith(
+        "acme/treq",
+        "Add thing",
+        "",
+        "main",
+        "feat/thing",
+        true,
+      );
+    });
+    expect(onSuccess).toHaveBeenCalledWith(7);
+  });
+
+  it("shows the gh error message without an Error prefix", async () => {
+    api.ghCreatePr.mockRejectedValue(new Error("gh: head branch not found"));
+    render(
+      <CreatePrForm
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        onSuccess={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await fillForm();
+    await user.click(
+      screen.getByRole("button", { name: /^create pull request$/i }),
+    );
+
+    expect(await screen.findByText("gh: head branch not found")).toBeVisible();
   });
 });

@@ -80,6 +80,34 @@ function applyPrStatusesToQueryCache(payload: {
   }
 }
 
+/**
+ * Apply backend `pr-statuses-updated` events for `repoPath` to the SWR cache.
+ * `listen` resolves asynchronously, so an unmount can land before the
+ * unlisten handle exists; the handle is then released as soon as it arrives.
+ */
+function usePrStatusesUpdatedListener(repoPath: string | undefined) {
+  useEffect(() => {
+    if (!repoPath) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<PrStatusesPayload>("pr-statuses-updated", (event) => {
+      if (event.payload.repo_path !== repoPath) return;
+      applyPrStatusesToQueryCache({
+        repoPath,
+        statuses: event.payload.statuses,
+        ciStatuses: event.payload.ci_statuses,
+      });
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [repoPath]);
+}
+
 export function useGitRemoteInfo(repoPath: string | undefined) {
   return useSWR(
     repoPath ? ["git-remote-info", repoPath] : null,
@@ -102,23 +130,7 @@ export function usePrStatusPolling(repoPath: string | undefined) {
     };
   }, [repoPath]);
 
-  useEffect(() => {
-    if (!repoPath) return;
-    let unlisten: (() => void) | undefined;
-    void listen<PrStatusesPayload>("pr-statuses-updated", (event) => {
-      if (event.payload.repo_path !== repoPath) return;
-      applyPrStatusesToQueryCache({
-        repoPath,
-        statuses: event.payload.statuses,
-        ciStatuses: event.payload.ci_statuses,
-      });
-    }).then((fn) => {
-      unlisten = fn;
-    });
-    return () => {
-      unlisten?.();
-    };
-  }, [repoPath]);
+  usePrStatusesUpdatedListener(repoPath);
 
   return useSWR(
     repoPath ? cachedPrStatusesKey(repoPath) : null,
@@ -159,23 +171,7 @@ export function usePrInfoViaGh(
     }
   }, [repoPath, branchName]);
 
-  useEffect(() => {
-    if (!repoPath) return;
-    let unlisten: (() => void) | undefined;
-    void listen<PrStatusesPayload>("pr-statuses-updated", (event) => {
-      if (event.payload.repo_path !== repoPath) return;
-      applyPrStatusesToQueryCache({
-        repoPath,
-        statuses: event.payload.statuses,
-        ciStatuses: event.payload.ci_statuses,
-      });
-    }).then((fn) => {
-      unlisten = fn;
-    });
-    return () => {
-      unlisten?.();
-    };
-  }, [repoPath]);
+  usePrStatusesUpdatedListener(repoPath);
 
   return useSWR<PrInfo | null>(
     repoPath && branchName ? ["pr-info-gh", repoPath, branchName] : null,
@@ -223,23 +219,7 @@ export function usePrCiStatus(
     }
   }, [repoPath, branchName]);
 
-  useEffect(() => {
-    if (!repoPath) return;
-    let unlisten: (() => void) | undefined;
-    void listen<PrStatusesPayload>("pr-statuses-updated", (event) => {
-      if (event.payload.repo_path !== repoPath) return;
-      applyPrStatusesToQueryCache({
-        repoPath,
-        statuses: event.payload.statuses,
-        ciStatuses: event.payload.ci_statuses,
-      });
-    }).then((fn) => {
-      unlisten = fn;
-    });
-    return () => {
-      unlisten?.();
-    };
-  }, [repoPath]);
+  usePrStatusesUpdatedListener(repoPath);
 
   return useSWR<PrCiStatus | null>(
     repoPath && branchName ? ["pr-ci-status", repoPath, branchName] : null,
