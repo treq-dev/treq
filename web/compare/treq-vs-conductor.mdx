@@ -22,9 +22,9 @@ Treq is a Stacking ADE built around dependent workspaces, human review, automati
 | Stacked changes | Core workflow | Not emphasized publicly |
 | Auto-rebase | Core workflow | Not emphasized publicly |
 | Agent support | Claude, Codex, and Cursor shown today | Claude, Codex, Cursor, and OpenCode |
-| Cloud | Not shipped. Merge queue and GitHub integration are [coming soon](/pricing) | Cloud early access |
+| Cloud | Not shipped. GitHub integration for private repos is [coming soon](/pricing) | Cloud early access |
 | Open source | Apache 2.0 | No public OSS repo surfaced |
-| Pricing | Free desktop, [Pro](/pricing) listed for GitHub and merge queue | Download-first, public self-serve pricing not disclosed |
+| Pricing | Free desktop, [Pro](/pricing) listed for GitHub on private repos | Download-first, public self-serve pricing not disclosed |
 
 ## What Each Product Does
 
@@ -55,13 +55,13 @@ Conductor's public strength is commercial and product momentum. It presents a cl
 
 Treq's workflow starts with the stack. A workspace can target another workspace, so dependent changes retain their merge order while agents work. That is how Treq splits a large feature into smaller PRs without letting them drift. Review comments return to the agent. Automatic rebasing keeps higher layers current when a lower layer changes. Conflicts stay inside [changes and reviews](/docs/concepts/changes-and-reviews), not a separate merge ritual.
 
-Platform scope also differs. Both products currently speak to Mac users. Conductor's Mac-first story is the product. Treq's open-source packaging makes inspection and contribution part of the adoption path. Cloud workspaces exist as early access in Conductor's public materials. Treq's public cloud story is GitHub integration and a Treq-managed merge queue on the [roadmap](/roadmap), not a hosted agent farm.
+Platform scope also differs. Both products currently speak to Mac users. Conductor's Mac-first story is the product. Treq's open-source packaging makes inspection and contribution part of the adoption path. Cloud workspaces exist as early access in Conductor's public materials. Treq's public cloud story is GitHub integration on the [roadmap](/roadmap), not a hosted agent farm.
 
 Treq review drafts live in a local database on your machine. Conductor does not match that local-only review model in public copy. That matters if you do not want first-pass agent review sitting in a hosted product.
 
 ## Pricing and Licensing
 
-Treq's desktop app is free and open source under Apache 2.0. [Pricing](/pricing) lists Free and Pro. Pro is $15 per user per month for GitHub on private repos and merge queue. Those GitHub features are marked coming soon. The desktop workspace manager stays free on both plans.
+Treq's desktop app is free and open source under Apache 2.0. [Pricing](/pricing) lists Free and Pro. Pro is $15 per user per month for GitHub on private repos. That GitHub feature is marked coming soon. The desktop workspace manager stays free on both plans.
 
 Conductor's site is download-first. Launch copy has described free use with an existing Claude login. Team and commercial terms also exist. Public self-serve pricing is not a clear bottom-funnel page in the same way as products with published Pro tiers.
 

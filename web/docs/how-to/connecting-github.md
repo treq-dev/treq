@@ -10,7 +10,7 @@ Free users connect through the local [GitHub CLI](https://cli.github.com/) (`gh`
 
 :::note[Work in progress]
 
-The Treq GitHub App is still under development. App-backed flows such as connected-repo management and the merge queue are incomplete.
+The Treq GitHub App is still under development. App-backed flows such as connected-repo management are incomplete.
 
 :::
 
@@ -46,22 +46,6 @@ Without a working `gh` session, Free-tier Create PR, View PR, the GitHub panel, 
 Back in the desktop app, Connected repositories should list the repos the App can see for your plan. If a repo is missing, re-open Manage GitHub and adjust the App's repository access on GitHub.
 
 Pro users do not need `gh` installed for App-backed connection. If `gh` is present and authenticated, Treq may still use it for some fetches.
-
-## Enable the Merge Queue for a Repo
-
-:::note[Work in progress]
-
-The merge queue is not fully shipped. The Integrations toggle may appear while the end-to-end product is still incomplete.
-
-:::
-
-The merge queue needs Pro, an App-linked repository, and an opt-in under Settings → Integrations:
-
-1. Open the repository in Treq.
-2. Go to Settings → Integrations.
-3. Under GitHub, turn on **Merge queue**, or choose **Enable merge queue** when the control is available.
-
-If the toggle is missing, the page states the blocker: no GitHub remote, Free plan, or App not installed on that `owner/repo`. See [Using the Merge Queue](/docs/how-to/using-the-merge-queue).
 
 ## Verify the Connection
 

@@ -12,7 +12,7 @@ const PRICING_SCHEMA = {
   '@type': 'Product',
   name: 'Treq',
   description:
-    'AI workspace manager for developers. Free for open source developers on public GitHub repos. Pro adds private repos and merge queue.',
+    'AI workspace manager for developers. Free for open source developers on public GitHub repos. Pro adds private repos.',
   url: 'https://treq.dev/pricing',
   brand: {
     '@type': 'Brand',
@@ -25,7 +25,7 @@ const PRICING_SCHEMA = {
       price: '0',
       priceCurrency: 'USD',
       description:
-        'Desktop app for open source developers, with GitHub integration for public repositories. No merge queue.',
+        'Desktop app for open source developers, with GitHub integration for public repositories.',
     },
     {
       '@type': 'Offer',
@@ -34,7 +34,7 @@ const PRICING_SCHEMA = {
       priceCurrency: 'USD',
       unitText: 'user/month',
       description:
-        'GitHub integration for all repositories, plus merge queue. Billed per user per month.',
+        'GitHub integration for all repositories. Billed per user per month.',
     },
   ],
 };
@@ -57,7 +57,6 @@ const FREE_FEATURES: PlanFeature[] = [
 const PRO_FEATURES: PlanFeature[] = [
   {text: 'Full desktop app', included: true},
   {text: 'GitHub integration for all repos', included: true, comingSoon: true},
-  {text: 'Merge queue', included: true, comingSoon: true},
 ];
 
 type ComparisonCell = {
@@ -83,12 +82,6 @@ const COMPARISON_ROWS: ComparisonRow[] = [
     comingSoon: true,
     free: {included: true, detail: 'Public repos only'},
     pro: {included: true, detail: 'All repos'},
-  },
-  {
-    feature: 'Merge queue',
-    comingSoon: true,
-    free: {included: false},
-    pro: {included: true},
   },
 ];
 
@@ -297,7 +290,7 @@ export default function PricingPage(): ReactNode {
   return (
     <Layout
       title="Pricing"
-      description="Treq pricing. Free for open source developers on public GitHub repos. Pro is $15/user/month for all repos and merge queue."
+      description="Treq pricing. Free for open source developers on public GitHub repos. Pro is $15/user/month for all repos."
     >
       <Head>
         <script type="application/ld+json">

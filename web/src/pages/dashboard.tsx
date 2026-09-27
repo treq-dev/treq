@@ -66,6 +66,19 @@ function defaultConfig(repoId: number, defaultBranch: string): MergeQueueConfig 
 
 // ── Repo config panel ────────────────────────────────────────────────────────
 
+function RepoRow({ repo }: { repo: GithubRepo }) {
+  return (
+    <div style={styles.repoCard}>
+      <div style={styles.repoHeader}>
+        <div style={styles.repoMeta}>
+          <span style={styles.repoName}>{repo.full_name}</span>
+          {repo.private && <span style={styles.privateBadge}>private</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RepoConfigPanel({
   repo,
   onSave,
@@ -307,8 +320,9 @@ function RepoConfigPanel({
 function IntegrationsTab() {
   const { siteConfig } = useDocusaurusContext();
   const flags = siteConfig.customFields?.featureFlags as
-    | { mergeQueue?: boolean }
+    | { githubApp?: boolean; mergeQueue?: boolean }
     | undefined;
+  const githubAppEnabled = Boolean(flags?.githubApp);
   const mergeQueueEnabled = Boolean(flags?.mergeQueue);
 
   const [repos, setRepos] = useState<GithubRepo[]>([]);
@@ -318,7 +332,7 @@ function IntegrationsTab() {
   // Installation linking requires a server-created single-use intent; the
   // opaque state travels through GitHub's install flow back to our callback.
   const startInstall = useCallback(async () => {
-    if (!mergeQueueEnabled) return;
+    if (!githubAppEnabled) return;
     setInstallError(null);
     const { data, error } = await supabase.functions.invoke(
       "create-github-install-intent",
@@ -329,7 +343,7 @@ function IntegrationsTab() {
       return;
     }
     window.location.href = `${GITHUB_APP_INSTALL_URL}?state=${encodeURIComponent(data.state)}`;
-  }, [mergeQueueEnabled]);
+  }, [githubAppEnabled]);
 
   const loadRepos = useCallback(async () => {
     setLoadingRepos(true);
@@ -372,10 +386,6 @@ function IntegrationsTab() {
                 <li>Stacked PRs</li>
                 <li>Issues and PR management</li>
                 <li>
-                  Merge Queue{" "}
-                  <span style={styles.featureProBadge}>PRO</span>
-                </li>
-                <li>
                   GitHub App Integration{" "}
                   <span style={styles.featureProBadge}>PRO</span>
                 </li>
@@ -388,9 +398,9 @@ function IntegrationsTab() {
             ) : (
               <div>
                 <span
-                  title={!mergeQueueEnabled ? "Coming Soon" : undefined}
+                  title={!githubAppEnabled ? "Coming Soon" : undefined}
                   style={
-                    !mergeQueueEnabled
+                    !githubAppEnabled
                       ? { display: "inline-block", cursor: "not-allowed" }
                       : undefined
                   }
@@ -398,11 +408,11 @@ function IntegrationsTab() {
                   <button
                     type="button"
                     onClick={startInstall}
-                    disabled={!mergeQueueEnabled}
+                    disabled={!githubAppEnabled}
                     style={{
                       ...styles.primaryButton,
                       border: "none",
-                      ...(!mergeQueueEnabled
+                      ...(!githubAppEnabled
                         ? styles.primaryButtonDisabled
                         : { cursor: "pointer" }),
                     }}
@@ -410,7 +420,7 @@ function IntegrationsTab() {
                     Install GitHub App
                   </button>
                 </span>
-                {!mergeQueueEnabled && (
+                {!githubAppEnabled && (
                   <div style={styles.comingSoonSubtext}>Coming Soon</div>
                 )}
               </div>
@@ -430,7 +440,7 @@ function IntegrationsTab() {
               <span style={styles.repoSectionTitle}>
                 {repos.length} {repos.length === 1 ? "repository" : "repositories"}
               </span>
-              {mergeQueueEnabled && (
+              {githubAppEnabled && (
                 <a
                   href={GITHUB_APP_INSTALL_URL}
                   style={styles.manageLink}
@@ -444,9 +454,13 @@ function IntegrationsTab() {
             {loadingRepos ? (
               <div style={styles.loadingText}>Loading repositories…</div>
             ) : (
-              repos.map((repo) => (
-                <RepoConfigPanel key={repo.id} repo={repo} />
-              ))
+              repos.map((repo) =>
+                mergeQueueEnabled ? (
+                  <RepoConfigPanel key={repo.id} repo={repo} />
+                ) : (
+                  <RepoRow key={repo.id} repo={repo} />
+                )
+              )
             )}
           </div>
         )}
