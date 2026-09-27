@@ -1,5 +1,5 @@
-// Edge function: managed compute instance lifecycle for Remote SSH Control
-// (prds/remote-ssh.md, Phase 2: Sprites provisioning).
+// Edge function: managed compute instance lifecycle for Remote Development
+// (prds/remote-development.md, Phase 2: Sprites provisioning).
 //
 // POST body: { action, idempotency_key?, region?, size_preset? }
 // action:

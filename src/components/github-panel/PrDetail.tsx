@@ -13,14 +13,21 @@ import {
 import { CiStatusButton } from "../CiStatusIndicator";
 import { usePrChecksForPr } from "../../hooks/useMergeQueueStatus";
 import { useToast } from "../ui/toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import {
-  getRepoDefaultBranch,
   getWorkspaces,
   ghClosePr,
-  ghCreatePr,
   ghCreatePrComment,
   ghReopenPr,
   ghSetPrDraft,
@@ -37,6 +44,7 @@ import {
   LabelChip,
   OpenInWebButton,
   StateChip,
+  useGhErrorToast,
 } from "./shared";
 
 /** Branch glyph (Lucide GitBranch, upright — not the sidebar's Y-flipped form). */
@@ -71,7 +79,9 @@ export function PrDetailPanel({
   onOpenWorkspace?: (workspaceId: number) => void;
 }) {
   const { addToast } = useToast();
+  const ghErrorToast = useGhErrorToast();
   const [commentBody, setCommentBody] = useState("");
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
 
   const {
     data: pr,
@@ -129,6 +139,7 @@ export function PrDetailPanel({
       setCommentBody("");
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
     },
+    onError: ghErrorToast("Failed to post comment"),
   });
 
   const closePr = useMutation({
@@ -137,6 +148,7 @@ export function PrDetailPanel({
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
     },
+    onError: ghErrorToast("Failed to close pull request"),
   });
 
   const reopenPr = useMutation({
@@ -145,6 +157,7 @@ export function PrDetailPanel({
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
     },
+    onError: ghErrorToast("Failed to reopen pull request"),
   });
 
   const setDraft = useMutation({
@@ -154,6 +167,12 @@ export function PrDetailPanel({
       void invalidateQueries(["gh-prs", repoFullName]);
       void invalidateQueries(["pr-info-gh"]);
     },
+    onError: (error, draft) =>
+      ghErrorToast(
+        draft
+          ? "Failed to convert to draft"
+          : "Failed to mark ready for review",
+      )(error),
   });
 
   return (
@@ -357,7 +376,7 @@ export function PrDetailPanel({
                     className="text-base"
                     disabled={closePr.isPending}
                     aria-busy={closePr.isPending}
-                    onClick={() => closePr.mutate()}
+                    onClick={() => setConfirmCloseOpen(true)}
                   >
                     {closePr.isPending ? (
                       <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -383,99 +402,23 @@ export function PrDetailPanel({
           </div>
         </div>
       )}
-    </div>
-  );
-}
 
-export function CreatePrForm({
-  repoPath,
-  repoFullName,
-  onSuccess,
-  onCancel,
-}: {
-  repoPath: string;
-  repoFullName: string;
-  onSuccess: (prNumber: number) => void;
-  onCancel: () => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  // null until the user edits it, so the field follows the repo's default
-  // branch once that loads.
-  const [editedBase, setEditedBase] = useState<string | null>(null);
-  const [head, setHead] = useState("");
-
-  const { data: defaultBranch } = useSWR(
-    repoPath ? ["repo-default-branch", repoPath] : null,
-    () => getRepoDefaultBranch(repoPath),
-  );
-  const base = editedBase ?? defaultBranch ?? "";
-
-  const create = useMutation({
-    mutationFn: () => ghCreatePr(repoFullName, title, body, base, head),
-    onSuccess: (prNumber) => {
-      void invalidateQueries(["gh-prs", repoFullName]);
-      onSuccess(prNumber);
-    },
-  });
-
-  return (
-    <div className="p-4 space-y-3 border-b border-border">
-      <h3 className="text-base font-semibold">New Pull Request</h3>
-      <Input
-        placeholder="Title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        className="text-base"
-      />
-      <div className="flex gap-2 items-center">
-        <Input
-          placeholder="Head branch"
-          value={head}
-          onChange={(e) => setHead(e.target.value)}
-          className="text-base font-mono"
-        />
-        <span className="text-muted-foreground text-base shrink-0">→</span>
-        <Input
-          placeholder="Base branch"
-          value={base}
-          onChange={(e) => setEditedBase(e.target.value)}
-          className="text-base font-mono"
-        />
-      </div>
-      <Textarea
-        placeholder="Description (optional)"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        rows={4}
-        className="text-base"
-      />
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          className="text-base"
-          disabled={
-            !title.trim() || !head.trim() || !base.trim() || create.isPending
-          }
-          onClick={() => create.mutate()}
-        >
-          {create.isPending ? (
-            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-          ) : null}
-          Create Pull Request
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="text-base"
-          onClick={onCancel}
-        >
-          Cancel
-        </Button>
-      </div>
-      {create.isError && (
-        <p className="text-base text-destructive">{String(create.error)}</p>
-      )}
+      <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close pull request #{prNumber}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              GitHub notifies the author and reviewers. You can reopen it later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep open</AlertDialogCancel>
+            <AlertDialogAction onClick={() => closePr.mutate()}>
+              Close pull request
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

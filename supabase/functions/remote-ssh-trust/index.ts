@@ -1,5 +1,5 @@
-// Edge function: SSH trust and authentication for Remote SSH Control
-// (prds/remote-ssh.md, Phase 3: "SSH trust and authentication").
+// Edge function: SSH trust and authentication for Remote Development
+// (prds/remote-development.md, Phase 3: "SSH trust and authentication").
 //
 // POST body: { action, idempotency_key?, ...action-specific fields }
 // action:
@@ -342,6 +342,10 @@ async function handleIssueCertificate(
     .from("remote_endpoint_host_keys")
     .select("algorithm, fingerprint_sha256, comment")
     .eq("endpoint_id", endpointRow.id)
+    // The service role bypasses RLS, so filter on owner here too. A host
+    // key owned by anyone else must never be served as trusted for this
+    // user's endpoint, even if such a row were written by mistake.
+    .eq("owner_user_id", ownerUserId)
     .is("revoked_at", null)
     .order("generation", { ascending: false });
   if (hostKeyError) throw new Error(`failed to read host keys: ${hostKeyError.message}`);

@@ -13,7 +13,6 @@ pub mod files;
 pub mod idempotency_store;
 pub mod pty_remote_supervisor;
 pub mod remote;
-pub mod remote_bootstrap;
 pub mod remote_control_plane;
 pub mod remote_device_key;
 pub mod remote_local_keys;

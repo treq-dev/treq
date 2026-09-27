@@ -1,7 +1,7 @@
 -- Remote SSH control-plane schema (Phase 1: contracts and idempotency only).
 --
 -- No Edge Function reads or writes these tables yet; this migration only
--- fixes the shape of control-plane state per prds/remote-ssh.md so later
+-- fixes the shape of control-plane state per prds/remote-development.md so later
 -- phases (Sprites provisioning, certificate issuance) build on stable
 -- storage. Every table is scoped to auth.uid() ownership and RLS is enabled
 -- on all of them, matching the "Apply RLS to all instance, key, endpoint,

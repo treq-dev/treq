@@ -1,6 +1,6 @@
 // Local persistence for user-managed SSH endpoints and the remote
 // repositories opened on them. User-managed endpoints do not go through the
-// control plane (prds/remote-ssh.md, "User modes" - no certificate issuance
+// control plane (prds/remote-development.md, "User modes" - no certificate issuance
 // required), so they are recorded on-device, keyed by endpoint id, using the
 // same `getSetting`/`setSetting` local settings store the app already uses
 // for "last opened remote repo" and recent-host memory.

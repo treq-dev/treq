@@ -1,5 +1,5 @@
 // Client for the `remote-instance` and `remote-ssh-trust` Supabase Edge
-// Functions (prds/remote-ssh.md, Phases 2-3). This is the only place the
+// Functions (prds/remote-development.md, Phases 2-3). This is the only place the
 // frontend talks to the managed-VM control plane; UI components go through
 // the hooks in `src/hooks/useRemoteInstance.ts` instead of calling these
 // directly, so caching/query-key rules stay in one place.
@@ -78,26 +78,6 @@ async function invokeRemoteTrust<T>(
   });
   if (error) throw await remoteFunctionError(error);
   return data as T;
-}
-
-export async function execManagedSprite<T>(request: {
-  instance_id: string;
-  argv: string[];
-  cwd?: string;
-  timeout_ms?: number;
-}): Promise<T> {
-  const { data, error } = await supabase.functions.invoke(
-    "remote-sprite-exec",
-    {
-      body: request,
-    },
-  );
-  if (error) throw await remoteFunctionError(error);
-  const result = data as { exit_code: number; stdout: string; stderr: string };
-  if (result.exit_code !== 0) {
-    throw new Error(result.stderr || `Remote Treq exited ${result.exit_code}`);
-  }
-  return JSON.parse(result.stdout) as T;
 }
 
 // -- Instance lifecycle (remote-instance) -----------------------------------

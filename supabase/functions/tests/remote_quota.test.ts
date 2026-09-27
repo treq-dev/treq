@@ -1,6 +1,6 @@
 // Local, non-network unit tests for the base resource quota (5 GB disk /
 // 1 vCPU / 2 GB RAM) enforced by the Remote SSH control plane
-// (prds/remote-ssh.md, "Instance lifecycle" > "Resource quotas").
+// (prds/remote-development.md, "Instance lifecycle" > "Resource quotas").
 //
 // Unlike remote_e2e.test.ts, this suite never talks to a Supabase project
 // or the Fly Sprites API - it exercises the pure catalog/adapter logic that

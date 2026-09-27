@@ -1,5 +1,5 @@
 // Managed-VM certificate-authenticated SSH connection state machine
-// (prds/remote-ssh.md, "SSH identity and certificates" > "Managed VM
+// (prds/remote-development.md, "SSH identity and certificates" > "Managed VM
 // certificate flow"). This is the single cohesive service the managed setup
 // UI drives: it takes a selected local SSH identity, registers its public
 // key, provisions or reuses the one managed instance, polls readiness,
