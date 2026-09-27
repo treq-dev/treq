@@ -2,8 +2,9 @@ import { useState } from "react";
 import useSWR from "swr";
 import { Loader2 } from "lucide-react";
 import { useMutation } from "../../hooks/useMutation";
-import { invalidateQueries } from "../../lib/swr-cache";
+import { invalidatePrStatuses } from "../../hooks/useMergeQueueStatus";
 import { getRepoDefaultBranch, ghCreatePr } from "../../lib/api";
+import { invalidateQueries } from "../../lib/swr-cache";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -39,6 +40,7 @@ export function CreatePrForm({
     mutationFn: () => ghCreatePr(repoFullName, title, body, base, head, draft),
     onSuccess: (prNumber) => {
       void invalidateQueries(["gh-prs", repoFullName]);
+      void invalidatePrStatuses(repoPath, head);
       onSuccess(prNumber);
     },
   });
