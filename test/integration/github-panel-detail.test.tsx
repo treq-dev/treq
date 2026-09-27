@@ -2,7 +2,10 @@ import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IssueDetailPanel } from "../../src/components/github-panel/IssueDetail";
-import { PrDetailPanel } from "../../src/components/github-panel/PrDetail";
+import {
+  CreatePrForm,
+  PrDetailPanel,
+} from "../../src/components/github-panel/PrDetail";
 import { render, screen, waitFor } from "../test-utils";
 
 const api = vi.hoisted(() => ({
@@ -13,6 +16,7 @@ const api = vi.hoisted(() => ({
   ghCreatePrComment: vi.fn(),
   ghSetPrDraft: vi.fn(),
   ghClosePr: vi.fn(),
+  ghCreatePr: vi.fn(),
   getWorkspaces: vi.fn(),
   openOrCreateWorkspaceFromPr: vi.fn(),
 }));
@@ -28,6 +32,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
     ghCreatePrComment: api.ghCreatePrComment,
     ghSetPrDraft: api.ghSetPrDraft,
     ghClosePr: api.ghClosePr,
+    ghCreatePr: api.ghCreatePr,
     getWorkspaces: api.getWorkspaces,
     openOrCreateWorkspaceFromPr: api.openOrCreateWorkspaceFromPr,
   };
@@ -341,5 +346,71 @@ describe("GitHub detail action failures", () => {
 
     expect(await screen.findByText("Failed to close issue")).toBeVisible();
     expect(screen.getByText("gh: issue is locked")).toBeVisible();
+  });
+});
+
+describe("CreatePrForm", () => {
+  let user: ReturnType<typeof userEvent.setup>;
+
+  beforeEach(() => {
+    user = userEvent.setup();
+    api.ghCreatePr.mockReset().mockResolvedValue(7);
+  });
+
+  async function fillForm() {
+    await user.type(screen.getByPlaceholderText("Title"), "Add thing");
+    await user.type(screen.getByPlaceholderText("Head branch"), "feat/thing");
+    const base = screen.getByPlaceholderText("Base branch");
+    await user.clear(base);
+    await user.type(base, "main");
+  }
+
+  it("creates a draft PR when Create as draft is on", async () => {
+    const onSuccess = vi.fn();
+    render(
+      <CreatePrForm
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        onSuccess={onSuccess}
+        onCancel={() => {}}
+      />,
+    );
+
+    await fillForm();
+    await user.click(screen.getByRole("switch", { name: /create as draft/i }));
+    await user.click(
+      screen.getByRole("button", { name: /create draft pull request/i }),
+    );
+
+    await waitFor(() => {
+      expect(api.ghCreatePr).toHaveBeenCalledWith(
+        "acme/treq",
+        "Add thing",
+        "",
+        "main",
+        "feat/thing",
+        true,
+      );
+    });
+    expect(onSuccess).toHaveBeenCalledWith(7);
+  });
+
+  it("shows the gh error message without an Error prefix", async () => {
+    api.ghCreatePr.mockRejectedValue(new Error("gh: head branch not found"));
+    render(
+      <CreatePrForm
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        onSuccess={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await fillForm();
+    await user.click(
+      screen.getByRole("button", { name: /^create pull request$/i }),
+    );
+
+    expect(await screen.findByText("gh: head branch not found")).toBeVisible();
   });
 });
