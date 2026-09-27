@@ -9,7 +9,7 @@ import type {
 } from "../lib/promptAttachments";
 import { TRACKER_PROVIDERS } from "../lib/trackers";
 import type { SessionCreationInfo } from "../types/sessions";
-import { cn } from "../lib/utils";
+import { cn, getFullWorkspacePath } from "../lib/utils";
 import { TaskInput } from "./TaskInput";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -186,7 +186,11 @@ export const AgentPromptDialog: React.FC<AgentPromptDialogProps> = ({
           key={taskInputKey}
           repoPath={repoPath}
           workspaceId={selectedWorkspace?.id ?? null}
-          workingDirectory={selectedWorkspace?.workspace_path ?? repoPath}
+          workingDirectory={
+            selectedWorkspace
+              ? getFullWorkspacePath(selectedWorkspace)
+              : repoPath
+          }
           onSessionCreated={handleSessionCreated}
           initialText={initialPrompt}
           initialGitHubIssue={initialGitHubIssue}
