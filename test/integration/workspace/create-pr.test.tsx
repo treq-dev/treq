@@ -9,6 +9,7 @@ import {
   getWorkspaces,
   ghCreatePr,
   getPrInfoViaGh,
+  getWorkspaceStatus,
   pushWorkspaceToRemote,
   updateWorkspace,
 } from "../../../src/lib/api";
@@ -42,6 +43,7 @@ vi.mock("../../../src/lib/api", async (importOriginal) => {
       (repoPath: string, workspaceId: number | null) =>
         original.pushWorkspaceToRemote(repoPath, workspaceId),
     ),
+    getWorkspaceStatus: vi.fn(original.getWorkspaceStatus),
   };
 });
 
@@ -49,7 +51,11 @@ describe("ShowWorkspace - Create PR", () => {
   let repoPath: string;
   let user: ReturnType<typeof userEvent.setup>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import("../../../src/lib/api")>(
+      "../../../src/lib/api",
+    );
+    vi.mocked(getWorkspaceStatus).mockImplementation(actual.getWorkspaceStatus);
     ({ repoPath } = createTestRepo(true));
     openRepo(repoPath);
     user = userEvent.setup();
@@ -331,6 +337,31 @@ describe("ShowWorkspace - Create PR", () => {
     await waitFor(() => {
       expect(ghCreatePr).toHaveBeenCalled();
     });
+  }, 30_000);
+
+  it("pushes a rewritten (diverged) branch before creating a PR", async () => {
+    const { workspace } = await setupPushedWorkspaceWithGitHub();
+    const actual = await vi.importActual<typeof import("../../../src/lib/api")>(
+      "../../../src/lib/api",
+    );
+    vi.mocked(getWorkspaceStatus).mockImplementation(async (...args) => ({
+      ...(await actual.getWorkspaceStatus(...args)),
+      remote_sync: { type: "Diverged", data: { ahead: 1, behind: 1 } },
+    }));
+    vi.mocked(pushWorkspaceToRemote).mockClear();
+    vi.mocked(pushWorkspaceToRemote).mockResolvedValueOnce("pushed");
+    render(<Dashboard />);
+
+    const header = await openWorkspace("feat/create-pr");
+    await user.click(await findEnabledCreatePr(header));
+
+    await waitFor(() => {
+      expect(ghCreatePr).toHaveBeenCalled();
+    });
+    expect(pushWorkspaceToRemote).toHaveBeenCalledWith(repoPath, workspace.id);
+    expect(
+      vi.mocked(pushWorkspaceToRemote).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(ghCreatePr).mock.invocationCallOrder[0]);
   }, 30_000);
 
   it("hides Create PR when there is no GitHub remote", async () => {
