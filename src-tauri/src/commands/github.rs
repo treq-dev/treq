@@ -10,7 +10,8 @@ fn gh_bin() -> Result<String, String> {
 }
 
 /// Run `gh pr view` for the given branch in the given repo directory.
-/// Returns None if gh is not installed, not authenticated, or no PR exists.
+/// Returns None if no PR exists for the branch. Returns Err if gh is
+/// missing, not authenticated, or fails otherwise.
 /// Also updates the background PR-status cache so sidebar reads stay fresh.
 /// Runs off the UI/command thread via `spawn_blocking`.
 #[tauri::command]
@@ -122,8 +123,8 @@ pub fn refresh_pr_branch_status(repo_path: String, branch_name: String) -> Resul
 
 /// Run `gh pr checks` for the given branch in the given repo directory and
 /// roll the individual check runs up into an overall CI status.
-/// Returns None if gh is not installed, not authenticated, there is no PR,
-/// or the PR has no checks reported yet.
+/// Returns None if there is no PR or the PR has no checks reported yet.
+/// Returns Err if gh is missing, not authenticated, or fails otherwise.
 /// Prefer cache reads for UI polling; this force-fetches and warms the cache.
 /// Runs off the UI/command thread via `spawn_blocking`.
 #[tauri::command]
@@ -455,7 +456,7 @@ mod tests {
     let bin_dir = TempDir::new().unwrap();
     let gh_path = write_fake_gh(
       &bin_dir,
-      r#"test "$*" = "pr create --repo owner/repo --title T --body B --base main --head feat" || exit 9
+      r#"test "$*" = "pr create --repo owner/repo --title T --body-file - --base main --head feat" || exit 9
 echo 'https://github.com/owner/repo/pull/42'"#,
     );
 

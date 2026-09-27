@@ -1,5 +1,4 @@
-// Boot manifest registry, mirroring
-// `core::remote_bootstrap::manifest_for_version` in src-tauri. Kept as a
+// Boot manifest registry, kept as a
 // small static table (not fetched from the vendor) so the control plane can
 // pin exactly which dependency versions a given `manifest_version` installs.
 
@@ -35,10 +34,9 @@ export function manifestForVersion(version: number): BootManifest | null {
   return MANIFESTS[version] ?? null;
 }
 
-// The exec entrypoint installed as a Fly machine's `init.exec`. Mirrors
-// `core::remote_bootstrap::bootstrap_command` so a machine created through
-// this Edge Function boots with the same idempotent bootstrap script as one
-// created by the Rust adapter directly.
+// The exec entrypoint installed as a Fly machine's `init.exec`, so a
+// machine created through this Edge Function boots with an idempotent
+// bootstrap script.
 export function bootstrapCommand(manifestVersion: number): string[] {
   return ["/bin/sh", "-c", bootstrapScript(manifestVersion)];
 }
