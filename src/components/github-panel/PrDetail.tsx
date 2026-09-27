@@ -11,18 +11,11 @@ import {
   X,
 } from "lucide-react";
 import { CiStatusButton } from "../CiStatusIndicator";
-import { usePrChecksForPr } from "../../hooks/useMergeQueueStatus";
-import { useToast } from "../ui/toast";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
+  invalidatePrStatuses,
+  usePrChecksForPr,
+} from "../../hooks/useMergeQueueStatus";
+import { useToast } from "../ui/toast";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import {
@@ -81,7 +74,6 @@ export function PrDetailPanel({
   const { addToast } = useToast();
   const ghErrorToast = useGhErrorToast();
   const [commentBody, setCommentBody] = useState("");
-  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
 
   const {
     data: pr,
@@ -133,6 +125,13 @@ export function PrDetailPanel({
     },
   });
 
+  // The workspace PR badge, View PR button, and Create PR button read the
+  // backend PR-status cache, which only the poller refreshes. Re-fetch the
+  // head branch so a state change here shows up there right away.
+  const refreshWorkspacePrStatus = () => {
+    if (pr) void invalidatePrStatuses(repoPath, pr.head_ref_name);
+  };
+
   const addComment = useMutation({
     mutationFn: () => ghCreatePrComment(repoFullName, prNumber, commentBody),
     onSuccess: () => {
@@ -147,6 +146,7 @@ export function PrDetailPanel({
     onSuccess: () => {
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
+      refreshWorkspacePrStatus();
     },
     onError: ghErrorToast("Failed to close pull request"),
   });
@@ -156,6 +156,7 @@ export function PrDetailPanel({
     onSuccess: () => {
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
+      refreshWorkspacePrStatus();
     },
     onError: ghErrorToast("Failed to reopen pull request"),
   });
@@ -165,7 +166,7 @@ export function PrDetailPanel({
     onSuccess: () => {
       void invalidateQueries(["gh-pr", repoFullName, prNumber]);
       void invalidateQueries(["gh-prs", repoFullName]);
-      void invalidateQueries(["pr-info-gh"]);
+      refreshWorkspacePrStatus();
     },
     onError: (error, draft) =>
       ghErrorToast(
@@ -376,7 +377,7 @@ export function PrDetailPanel({
                     className="text-base"
                     disabled={closePr.isPending}
                     aria-busy={closePr.isPending}
-                    onClick={() => setConfirmCloseOpen(true)}
+                    onClick={() => closePr.mutate()}
                   >
                     {closePr.isPending ? (
                       <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -402,23 +403,6 @@ export function PrDetailPanel({
           </div>
         </div>
       )}
-
-      <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close pull request #{prNumber}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              GitHub notifies the author and reviewers. You can reopen it later.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep open</AlertDialogCancel>
-            <AlertDialogAction onClick={() => closePr.mutate()}>
-              Close pull request
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
