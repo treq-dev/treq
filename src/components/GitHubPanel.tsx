@@ -36,7 +36,8 @@ import { cn } from "../lib/utils";
 import { useAuthStore } from "../stores/authStore";
 import { CreateIssueForm, IssueDetailPanel } from "./github-panel/IssueDetail";
 import { MergeQueueTab } from "./github-panel/MergeQueueTab";
-import { CreatePrForm, PrDetailPanel } from "./github-panel/PrDetail";
+import { CreatePrForm } from "./github-panel/CreatePrForm";
+import { PrDetailPanel } from "./github-panel/PrDetail";
 import {
   EmptyState,
   ErrorState,
