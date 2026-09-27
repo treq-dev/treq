@@ -894,6 +894,7 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       repo: repo(),
       workspace: Some("1".into()),
     },
+    R::MachineUsage { root: repo() },
     R::ProbeRepo { repo: repo() },
     R::CloneRepo {
       repo_url: "git@example.com:x.git".into(),
