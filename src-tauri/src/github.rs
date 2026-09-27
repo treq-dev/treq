@@ -223,6 +223,56 @@ fn run_gh(
   spawn_with_etxtbsy_retry(cmd)
 }
 
+/// Run `gh` with `stdin` piped in. Used for `--body-file -` so a body is
+/// never an argv value: Linux caps a single argument at 128 KiB, and a body
+/// passed on stdin cannot be mistaken for a flag.
+fn run_gh_with_stdin(
+  gh_path: &str,
+  args: &[&str],
+  stdin: &str,
+  extended_path: &str,
+) -> Result<std::process::Output, String> {
+  use std::io::Write;
+  use std::process::Stdio;
+
+  let mut cmd = std::process::Command::new(gh_path);
+  cmd
+    .args(args)
+    .env("PATH", extended_path)
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+  let mut attempt = 0;
+  let mut child = loop {
+    match cmd.spawn() {
+      Ok(child) => break child,
+      Err(e) if e.raw_os_error() == Some(ETXTBSY) && attempt < 5 => {
+        attempt += 1;
+        std::thread::sleep(std::time::Duration::from_millis(20 * attempt as u64));
+      }
+      Err(e) => return Err(e.to_string()),
+    }
+  };
+  let mut pipe = child
+    .stdin
+    .take()
+    .ok_or_else(|| "Failed to open gh stdin".to_string())?;
+  let data = stdin.as_bytes().to_vec();
+  // Separate thread: a large body must not deadlock against gh's output pipes.
+  let writer = std::thread::spawn(move || pipe.write_all(&data));
+  let output = child.wait_with_output().map_err(|e| e.to_string())?;
+  let written = writer
+    .join()
+    .map_err(|_| "gh stdin writer panicked".to_string())?;
+  // Broken pipe: gh exited unread; on failure check_gh_output reports gh's error.
+  match written {
+    Err(e) if output.status.success() && e.kind() != std::io::ErrorKind::BrokenPipe => {
+      Err(format!("Failed to write gh stdin: {e}"))
+    }
+    _ => Ok(output),
+  }
+}
+
 fn check_gh_output(output: std::process::Output) -> Result<Vec<u8>, String> {
   if output.status.success() {
     Ok(output.stdout)
@@ -323,7 +373,7 @@ pub fn gh_create_issue_impl(
   body: &str,
   extended_path: &str,
 ) -> Result<u64, String> {
-  let out = run_gh(
+  let out = run_gh_with_stdin(
     gh_path,
     &[
       "issue",
@@ -332,9 +382,10 @@ pub fn gh_create_issue_impl(
       repo_full_name,
       "--title",
       title,
-      "--body",
-      body,
+      "--body-file",
+      "-",
     ],
+    body,
     extended_path,
   )?;
   let bytes = check_gh_output(out)?;
@@ -355,7 +406,7 @@ pub fn gh_create_issue_comment_impl(
   extended_path: &str,
 ) -> Result<(), String> {
   let num = issue_number.to_string();
-  let out = run_gh(
+  let out = run_gh_with_stdin(
     gh_path,
     &[
       "issue",
@@ -363,9 +414,10 @@ pub fn gh_create_issue_comment_impl(
       &num,
       "--repo",
       repo_full_name,
-      "--body",
-      body,
+      "--body-file",
+      "-",
     ],
+    body,
     extended_path,
   )?;
   check_gh_output(out).map(|_| ())
@@ -463,7 +515,7 @@ pub fn gh_create_pr_comment_impl(
   extended_path: &str,
 ) -> Result<(), String> {
   let num = pr_number.to_string();
-  let out = run_gh(
+  let out = run_gh_with_stdin(
     gh_path,
     &[
       "pr",
@@ -471,9 +523,10 @@ pub fn gh_create_pr_comment_impl(
       &num,
       "--repo",
       repo_full_name,
-      "--body",
-      body,
+      "--body-file",
+      "-",
     ],
+    body,
     extended_path,
   )?;
   check_gh_output(out).map(|_| ())
@@ -544,8 +597,8 @@ pub fn gh_create_pr_impl(
     repo_full_name,
     "--title",
     title,
-    "--body",
-    body,
+    "--body-file",
+    "-",
     "--base",
     base_branch,
     "--head",
@@ -554,7 +607,7 @@ pub fn gh_create_pr_impl(
   if draft {
     args.push("--draft");
   }
-  let out = run_gh(gh_path, &args, extended_path)?;
+  let out = run_gh_with_stdin(gh_path, &args, body, extended_path)?;
   let bytes = check_gh_output(out)?;
   let text = String::from_utf8_lossy(&bytes);
   for line in text.lines() {
@@ -1329,7 +1382,7 @@ echo '{{"number":42,"title":"My PR","state":"OPEN","url":"https://github.com/o/r
     let bin_dir = TempDir::new().unwrap();
     let gh_path = write_fake_gh(
       &bin_dir,
-      r#"test "$*" = "pr create --repo owner/repo --title T --body B --base main --head feat --draft" || exit 9
+      r#"test "$*" = "pr create --repo owner/repo --title T --body-file - --base main --head feat --draft" || exit 9
 echo 'https://github.com/owner/repo/pull/7'"#,
     );
 
@@ -1353,7 +1406,7 @@ echo 'https://github.com/owner/repo/pull/7'"#,
     let bin_dir = TempDir::new().unwrap();
     let gh_path = write_fake_gh(
       &bin_dir,
-      r#"test "$*" = "pr create --repo owner/repo --title T --body B --base main --head feat" || exit 9
+      r#"test "$*" = "pr create --repo owner/repo --title T --body-file - --base main --head feat" || exit 9
 echo 'https://github.com/owner/repo/pull/8'"#,
     );
 
@@ -1369,6 +1422,120 @@ echo 'https://github.com/owner/repo/pull/8'"#,
     )
     .unwrap();
     assert_eq!(number, 8);
+  }
+
+  /// Over Linux's 128 KiB MAX_ARG_STRLEN and starts with `--`: unsafe as argv.
+  fn oversized_body() -> String {
+    format!("--not-a-flag\n{}", "x".repeat(200_000))
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_pr_sends_body_over_stdin() {
+    let bin_dir = TempDir::new().unwrap();
+    let body_path = bin_dir.path().join("body");
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        "cat > '{}'\necho 'https://github.com/owner/repo/pull/9'",
+        body_path.display()
+      ),
+    );
+    let body = oversized_body();
+
+    let number = gh_create_pr_impl(
+      &gh_path,
+      "owner/repo",
+      "T",
+      &body,
+      "main",
+      "feat",
+      false,
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    assert_eq!(number, 9);
+    assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_pr_comment_sends_body_over_stdin() {
+    let bin_dir = TempDir::new().unwrap();
+    let body_path = bin_dir.path().join("body");
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        "test \"$*\" = \"pr comment 5 --repo owner/repo --body-file -\" || exit 9\ncat > '{}'",
+        body_path.display()
+      ),
+    );
+    let body = oversized_body();
+
+    gh_create_pr_comment_impl(&gh_path, "owner/repo", 5, &body, "/usr/bin:/bin").unwrap();
+
+    assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_issue_sends_body_over_stdin() {
+    let bin_dir = TempDir::new().unwrap();
+    let body_path = bin_dir.path().join("body");
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        "test \"$*\" = \"issue create --repo owner/repo --title T --body-file -\" || exit 9\ncat > '{}'\necho 'https://github.com/owner/repo/issues/3'",
+        body_path.display()
+      ),
+    );
+    let body = oversized_body();
+
+    let number = gh_create_issue_impl(&gh_path, "owner/repo", "T", &body, "/usr/bin:/bin").unwrap();
+
+    assert_eq!(number, 3);
+    assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_issue_comment_sends_body_over_stdin() {
+    let bin_dir = TempDir::new().unwrap();
+    let body_path = bin_dir.path().join("body");
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        "test \"$*\" = \"issue comment 4 --repo owner/repo --body-file -\" || exit 9\ncat > '{}'",
+        body_path.display()
+      ),
+    );
+    let body = oversized_body();
+
+    gh_create_issue_comment_impl(&gh_path, "owner/repo", 4, &body, "/usr/bin:/bin").unwrap();
+
+    assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_pr_reports_gh_error_when_gh_exits_without_reading_body() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(&bin_dir, "echo 'no permission' >&2\nexit 1");
+
+    let err = gh_create_pr_impl(
+      &gh_path,
+      "owner/repo",
+      "T",
+      &oversized_body(),
+      "main",
+      "feat",
+      false,
+      "/usr/bin:/bin",
+    )
+    .unwrap_err();
+
+    assert!(err.contains("no permission"), "{err}");
   }
 
   #[test]

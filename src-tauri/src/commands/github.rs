@@ -421,7 +421,7 @@ mod tests {
     let bin_dir = TempDir::new().unwrap();
     let gh_path = write_fake_gh(
       &bin_dir,
-      r#"test "$*" = "pr create --repo owner/repo --title T --body B --base main --head feat" || exit 9
+      r#"test "$*" = "pr create --repo owner/repo --title T --body-file - --base main --head feat" || exit 9
 echo 'https://github.com/owner/repo/pull/42'"#,
     );
 
