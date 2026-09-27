@@ -6,7 +6,7 @@ import {
   openRepo,
   writeRepoFile,
 } from "../utils";
-import { render, screen } from "../test-utils";
+import { act, render, screen, waitFor } from "../test-utils";
 import { Dashboard } from "../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
 import {
@@ -16,7 +16,12 @@ import {
   setSetting,
   trustRepo,
 } from "../../src/lib/api";
+import {
+  trackerListItems,
+  trackerStartAutoKickoffPolling,
+} from "../../src/lib/api-tracker";
 import { previewSettingKey } from "../../src/lib/features";
+import { useFeaturePreviewStore } from "../../src/stores/featurePreviewStore";
 
 describe("feature preview settings", () => {
   let user: ReturnType<typeof userEvent.setup>;
@@ -49,6 +54,35 @@ describe("feature preview settings", () => {
     expect(screen.getByRole("button", { name: "Logs" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Checks" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Browser" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Trello integration" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Jira integration" }),
+    ).toBeTruthy();
+  });
+
+  it("hides Trello and Jira from the sidebar and Integrations when disabled", async () => {
+    await openFeaturePreview();
+    await user.click(await screen.findByRole("tab", { name: /integrations/i }));
+    expect(
+      await screen.findByTestId("trello-integration-settings"),
+    ).toBeTruthy();
+    expect(screen.getByTestId("jira-integration-settings")).toBeTruthy();
+
+    await user.click(
+      await screen.findByRole("tab", { name: /feature preview/i }),
+    );
+    await user.click(
+      screen.getByRole("switch", { name: "Trello integration" }),
+    );
+    await user.click(screen.getByRole("switch", { name: "Jira integration" }));
+    await user.click(await screen.findByRole("tab", { name: /integrations/i }));
+
+    expect(screen.queryByTestId("trello-integration-settings")).toBeNull();
+    expect(screen.queryByTestId("jira-integration-settings")).toBeNull();
+    expect(screen.queryByTestId("trello-sidebar-item")).toBeNull();
+    expect(screen.queryByTestId("jira-sidebar-item")).toBeNull();
   });
 
   it("hides Logs, Checks, and the Diff/Browser switcher when disabled", async () => {
@@ -94,6 +128,38 @@ describe("feature preview settings", () => {
   });
 });
 
+describe("tracker preview routes", () => {
+  let user: ReturnType<typeof userEvent.setup>;
+
+  beforeEach(async () => {
+    const { repoPath } = createTestRepo(false);
+    openRepo(repoPath);
+    user = userEvent.setup();
+    await setSetting(previewSettingKey("trelloIntegration"), "true");
+    useFeaturePreviewStore.getState().hydrateFlags({
+      [previewSettingKey("trelloIntegration")]: "true",
+    });
+  });
+
+  it("leaves the Trello panel when Trello integration is turned off", async () => {
+    render(<Dashboard />);
+
+    await user.click(await screen.findByTestId("trello-sidebar-item"));
+    expect(await screen.findByTestId("trello-panel")).toBeTruthy();
+
+    act(() => {
+      void useFeaturePreviewStore
+        .getState()
+        .setPreviewFeature("trelloIntegration", false);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("trello-panel")).toBeNull();
+      expect(window.location.pathname.startsWith("/trello")).toBe(false);
+    });
+  });
+});
+
 describe("feature preview onboarding", () => {
   it("hides Open via SSH when remote SSH is off", async () => {
     const { setSetting } = await import("../../src/lib/api");
@@ -124,6 +190,19 @@ describe("feature preview rust gates", () => {
     await expect(
       scheduleWorkspaces(repoPath, [workspaceId], "2099-01-01T00:00:00Z"),
     ).rejects.toThrow(/workspaceScheduling/);
+  });
+
+  it("rejects Trello and Jira commands when their preview flags are off", async () => {
+    const { repoPath } = createTestRepo(false);
+    await setSetting(previewSettingKey("trelloIntegration"), "false");
+    await setSetting(previewSettingKey("jiraIntegration"), "false");
+
+    await expect(trackerListItems("trello", repoPath)).rejects.toThrow(
+      /trelloIntegration/,
+    );
+    await expect(
+      trackerStartAutoKickoffPolling("jira", repoPath),
+    ).rejects.toThrow(/jiraIntegration/);
   });
 
   it("rejects workflow checks when the preview flag is off", async () => {

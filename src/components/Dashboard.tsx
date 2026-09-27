@@ -98,10 +98,13 @@ import {
 } from "../lib/agent-review-launch";
 import { LINEAR_BASE_PATH } from "../lib/linearRoutes";
 import { useLinearAutoKickoff } from "../hooks/useLinearAutoKickoff";
+import { useTrackerAutoKickoff } from "../hooks/useTrackerAutoKickoff";
+import { TRACKER_PROVIDERS, type TrackerProvider } from "../lib/trackers";
 import { openRepositoryAtPath as openRepositoryAtPathShared } from "../lib/open-repository";
 import type {
   GitHubIssueAttachment,
   LinearIssueAttachment,
+  TrackerItemAttachment,
 } from "../lib/promptAttachments";
 import {
   deleteInstance as deleteManagedInstance,
@@ -172,6 +175,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GitHubPanel } from "./GitHubPanel";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { LinearPanel } from "./LinearPanel";
+import { TrackerPanel } from "./TrackerPanel";
 import { MergePreviewPage } from "./MergePreviewPage";
 import { Onboarding } from "./Onboarding";
 import { PromptHistoryModal } from "./PromptHistoryModal";
@@ -254,7 +258,8 @@ type ViewMode =
   | "artifacts"
   | "merge-preview"
   | "github"
-  | "linear";
+  | "linear"
+  | TrackerProvider;
 
 type SessionOpenOptions = {
   initialPrompt?: string;
@@ -291,6 +296,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [location, navigate] = useLocation();
   const remoteSshEnabled = usePreviewFeature("remoteSsh");
   const linearIntegrationEnabled = usePreviewFeature("linearIntegration");
+  const trelloIntegrationEnabled = usePreviewFeature("trelloIntegration");
+  const jiraIntegrationEnabled = usePreviewFeature("jiraIntegration");
+  const trackerEnabled: Record<TrackerProvider, boolean> = {
+    trello: trelloIntegrationEnabled,
+    jira: jiraIntegrationEnabled,
+  };
   const previousViewModeRef = useRef<ViewMode>(
     initialViewMode === "settings" ? "show-workspace" : initialViewMode,
   );
@@ -312,6 +323,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     workspaceId: number | null;
     githubIssue?: GitHubIssueAttachment | null;
     linearIssue?: LinearIssueAttachment | null;
+    trackerItem?: TrackerItemAttachment | null;
   } | null>(null);
   const [showBranchSwitcher, setShowBranchSwitcher] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
@@ -740,6 +752,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
     dataRepoPath,
     linearIntegrationEnabled && !isRemoteActive,
   );
+  useTrackerAutoKickoff(
+    "trello",
+    dataRepoPath,
+    trelloIntegrationEnabled && !isRemoteActive,
+  );
+  useTrackerAutoKickoff(
+    "jira",
+    dataRepoPath,
+    jiraIntegrationEnabled && !isRemoteActive,
+  );
   const cutoffReason = useRemoteCutoffStore((s) =>
     activeRepository?.endpointId
       ? s.cutoffs[activeRepository.endpointId]
@@ -1071,6 +1093,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     navigate(LINEAR_BASE_PATH);
   };
 
+  const openTracker = (provider: TrackerProvider) => {
+    if (viewMode !== provider) {
+      previousViewModeRef.current = viewMode;
+    }
+    setViewMode(provider);
+    navigate(TRACKER_PROVIDERS[provider].basePath);
+  };
+
   const openGitHubPr = (prNumber: number, prState: string) => {
     if (viewMode !== "github") {
       previousViewModeRef.current = viewMode;
@@ -1104,7 +1134,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
       setViewMode("linear");
     }
-  }, [location, viewMode]);
+    // A disabled tracker's route falls back to the previous view, so a stale
+    // URL or turning the preview off mid-view never leaves a blank pane.
+    const trackerRouteEnabled: Record<TrackerProvider, boolean> = {
+      trello: trelloIntegrationEnabled,
+      jira: jiraIntegrationEnabled,
+    };
+    for (const { id, basePath } of Object.values(TRACKER_PROVIDERS)) {
+      const enabled = trackerRouteEnabled[id];
+      if (viewMode === id && (!enabled || !location.startsWith(basePath))) {
+        setViewMode(previousViewModeRef.current);
+      }
+      if (enabled && location.startsWith(basePath) && viewMode !== id) {
+        if (viewMode !== "github" && viewMode !== "artifacts") {
+          previousViewModeRef.current = viewMode;
+        }
+        setViewMode(id);
+      }
+    }
+  }, [location, viewMode, trelloIntegrationEnabled, jiraIntegrationEnabled]);
 
   // The reverse also happens: leaving "github" through a non-URL action (e.g.
   // clicking a workspace in the sidebar) should clear the now-stale
@@ -1119,7 +1167,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
       viewMode !== "artifacts";
     const leftLinear =
       previousViewModeForUrlRef.current === "linear" && viewMode !== "linear";
+    const leftTracker = Object.values(TRACKER_PROVIDERS).find(
+      ({ id }) => previousViewModeForUrlRef.current === id && viewMode !== id,
+    );
     previousViewModeForUrlRef.current = viewMode;
+    if (leftTracker && location.startsWith(leftTracker.basePath)) {
+      navigate("/", { replace: true });
+    }
     if (leftGitHub && location.startsWith(GITHUB_BASE_PATH)) {
       navigate("/", { replace: true });
     }
@@ -1916,6 +1970,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleStartPromptFromLinearIssue = (issue: LinearIssueAttachment) => {
     setRunPromptRequest({ workspaceId: null, linearIssue: issue });
+    setShowAgentPromptDialog(true);
+  };
+
+  const handleStartPromptFromTrackerItem = (item: TrackerItemAttachment) => {
+    setRunPromptRequest({ workspaceId: null, trackerItem: item });
     setShowAgentPromptDialog(true);
   };
 
@@ -2748,6 +2807,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onDropChangeFiles={handleDropChangeFiles}
             onOpenGitHub={openGitHub}
             onOpenLinear={linearIntegrationEnabled ? openLinear : undefined}
+            onOpenTrello={
+              trelloIntegrationEnabled ? () => openTracker("trello") : undefined
+            }
+            onOpenJira={
+              jiraIntegrationEnabled ? () => openTracker("jira") : undefined
+            }
             onOpenArtifacts={openArtifacts}
             currentPage={
               viewMode === "settings"
@@ -2756,8 +2821,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   ? "github"
                   : viewMode === "artifacts"
                     ? "artifacts"
-                    : viewMode === "linear"
-                      ? "linear"
+                    : viewMode === "linear" ||
+                        viewMode === "trello" ||
+                        viewMode === "jira"
+                      ? viewMode
                       : viewMode === "session" || viewMode === "show-workspace"
                         ? "session"
                         : undefined
@@ -3024,6 +3091,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 />
               )}
 
+              {/* Trello / Jira Panels */}
+              {(viewMode === "trello" || viewMode === "jira") &&
+                trackerEnabled[viewMode] && (
+                  <TrackerPanel
+                    key={viewMode}
+                    provider={viewMode}
+                    repoPath={dataRepoPath}
+                    onStartPromptFromItem={handleStartPromptFromTrackerItem}
+                  />
+                )}
+
               {/* Merge Preview View */}
               {viewMode === "merge-preview" && mergeWorkspace && (
                 <MergePreviewPage
@@ -3196,6 +3274,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             initialWorkspaceId={runPromptRequest?.workspaceId ?? null}
             initialGitHubIssue={runPromptRequest?.githubIssue ?? null}
             initialLinearIssue={runPromptRequest?.linearIssue ?? null}
+            initialTrackerItem={runPromptRequest?.trackerItem ?? null}
           />
 
           <PromptHistoryModal

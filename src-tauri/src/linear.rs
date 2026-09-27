@@ -1,10 +1,6 @@
-use crate::lock_ext::LockExt;
+use crate::tracker::{KickoffLedger, KickoffPoller, MAX_KICKOFF_ATTEMPTS};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LinearIssue {
@@ -790,114 +786,8 @@ pub async fn linear_list_document_comments_impl(
   fetch_comments_for_entity(api_key, CommentEntity::Document, document_id).await
 }
 
-const KICKOFF_POLL_INTERVAL: Duration = Duration::from_secs(60);
-
-struct LinearAutoKickoffInner {
-  watched: Mutex<std::collections::HashSet<String>>,
-  shutdown: AtomicBool,
-  loop_started: AtomicBool,
-  wake: (Mutex<()>, std::sync::Condvar),
-}
-
-pub struct LinearAutoKickoffPoller {
-  inner: Arc<LinearAutoKickoffInner>,
-}
-
-impl LinearAutoKickoffPoller {
-  #[allow(clippy::new_without_default)]
-  pub fn new() -> Self {
-    Self {
-      inner: Arc::new(LinearAutoKickoffInner {
-        watched: Mutex::new(std::collections::HashSet::new()),
-        shutdown: AtomicBool::new(false),
-        loop_started: AtomicBool::new(false),
-        wake: (Mutex::new(()), std::sync::Condvar::new()),
-      }),
-    }
-  }
-
-  pub fn ensure_started(&self) {
-    if self
-      .inner
-      .loop_started
-      .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-      .is_err()
-    {
-      return;
-    }
-    let inner = Arc::clone(&self.inner);
-    thread::Builder::new()
-      .name("linear-kickoff-poller".into())
-      .spawn(move || kickoff_background_loop(inner))
-      .expect("failed to spawn linear-kickoff-poller thread");
-  }
-
-  pub fn watch_repo(&self, repo_path: &str) {
-    {
-      let mut watched = self.inner.watched.lock_or_recover();
-      watched.insert(repo_path.to_string());
-    }
-    self.ensure_started();
-    self.request_wake();
-  }
-
-  fn request_wake(&self) {
-    self.inner.wake.1.notify_one();
-  }
-}
-
-fn kickoff_background_loop(inner: Arc<LinearAutoKickoffInner>) {
-  use std::time::Instant;
-  let mut last_poll: Option<Instant> = None;
-
-  loop {
-    if inner.shutdown.load(Ordering::SeqCst) {
-      break;
-    }
-
-    let now = Instant::now();
-    let poll_due = last_poll
-      .map(|t| now.duration_since(t) >= KICKOFF_POLL_INTERVAL)
-      .unwrap_or(true);
-
-    if poll_due {
-      let repos: Vec<String> = inner.watched.lock_or_recover().iter().cloned().collect();
-      for repo_path in repos {
-        if inner.shutdown.load(Ordering::SeqCst) {
-          break;
-        }
-        if let Err(e) = poll_linear_kickoff(&repo_path) {
-          log::warn!("linear-kickoff: failed for {repo_path}: {e}");
-        }
-      }
-      last_poll = Some(Instant::now());
-    }
-
-    if inner.shutdown.load(Ordering::SeqCst) {
-      break;
-    }
-
-    let wait = last_poll
-      .map(|t| {
-        let elapsed = now.duration_since(t);
-        KICKOFF_POLL_INTERVAL.saturating_sub(elapsed)
-      })
-      .unwrap_or(Duration::ZERO)
-      .max(Duration::from_millis(5));
-
-    let (lock, cvar) = &inner.wake;
-    let guard = lock.lock_or_recover();
-    let _ = cvar
-      .wait_timeout_while(guard, wait, |_| !inner.shutdown.load(Ordering::SeqCst))
-      .unwrap();
-  }
-}
-
 fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
-  let db_path =
-    std::env::var("TREQ_APP_DB_PATH").map_err(|_| "TREQ_APP_DB_PATH not set".to_string())?;
-  let db = crate::db::Database::new(std::path::PathBuf::from(db_path))
-    .map_err(|e| format!("Failed to open database: {e}"))?;
+  let db = crate::tracker::open_app_db()?;
 
   if !crate::core::feature_preview::is_enabled(
     &db,
@@ -933,7 +823,7 @@ fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
     .map(|issue| issue.id)
     .collect();
 
-  let mut ledger = KickoffLedger::load(&db, repo_path)?;
+  let mut ledger = KickoffLedger::load(&db, repo_path, HANDLED_KEY, FAILURES_KEY)?;
   for issue_id in ledger.due(&labeled_ids) {
     match rt.block_on(kickoff_linear_issue_internal(
       &db, repo_path, &api_key, &issue_id, false,
@@ -947,76 +837,11 @@ fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
       }
     }
   }
-  ledger.save(&db, repo_path)
+  ledger.save(&db, repo_path, HANDLED_KEY, FAILURES_KEY)
 }
 
-const MAX_KICKOFF_ATTEMPTS: u32 = 3;
-
-/// Per-repo record of which labeled issues were kicked off and which keep
-/// failing. Failures retry on later polls up to `MAX_KICKOFF_ATTEMPTS`.
-/// Removing and re-adding the label resets an issue.
-#[derive(Default)]
-struct KickoffLedger {
-  handled: std::collections::HashSet<String>,
-  failures: HashMap<String, u32>,
-}
-
-impl KickoffLedger {
-  const HANDLED_KEY: &'static str = "linear_handled_issue_ids";
-  const FAILURES_KEY: &'static str = "linear_kickoff_failures";
-
-  fn load(db: &crate::db::Database, repo_path: &str) -> Result<Self, String> {
-    let read = |key: &str| {
-      db.get_repo_setting(repo_path, key)
-        .map_err(|e| format!("Failed to read {key}: {e}"))
-    };
-    Ok(Self {
-      handled: read(Self::HANDLED_KEY)?
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default(),
-      failures: read(Self::FAILURES_KEY)?
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default(),
-    })
-  }
-
-  fn save(&self, db: &crate::db::Database, repo_path: &str) -> Result<(), String> {
-    let write = |key: &str, json: Result<String, serde_json::Error>| {
-      let json = json.map_err(|e| format!("Failed to serialize {key}: {e}"))?;
-      db.set_repo_setting(repo_path, key, &json)
-        .map_err(|e| format!("Failed to save {key}: {e}"))
-    };
-    write(Self::HANDLED_KEY, serde_json::to_string(&self.handled))?;
-    write(Self::FAILURES_KEY, serde_json::to_string(&self.failures))
-  }
-
-  /// Returns the labeled issues still owed an attempt. Entries for issues no
-  /// longer labeled are dropped, which keeps the stored sets bounded.
-  fn due(&mut self, labeled_ids: &[String]) -> Vec<String> {
-    let labeled: std::collections::HashSet<&str> = labeled_ids.iter().map(String::as_str).collect();
-    self.handled.retain(|id| labeled.contains(id.as_str()));
-    self.failures.retain(|id, _| labeled.contains(id.as_str()));
-    labeled_ids
-      .iter()
-      .filter(|id| {
-        !self.handled.contains(*id)
-          && self.failures.get(*id).copied().unwrap_or(0) < MAX_KICKOFF_ATTEMPTS
-      })
-      .cloned()
-      .collect()
-  }
-
-  fn record_success(&mut self, issue_id: &str) {
-    self.failures.remove(issue_id);
-    self.handled.insert(issue_id.to_string());
-  }
-
-  fn record_failure(&mut self, issue_id: &str) -> u32 {
-    let attempts = self.failures.entry(issue_id.to_string()).or_insert(0);
-    *attempts += 1;
-    *attempts
-  }
-}
+const HANDLED_KEY: &str = "linear_handled_issue_ids";
+const FAILURES_KEY: &str = "linear_kickoff_failures";
 
 async fn kickoff_linear_issue_internal(
   db: &crate::db::Database,
@@ -1063,11 +888,10 @@ async fn kickoff_linear_issue_internal(
   Ok(results)
 }
 
-static GLOBAL_KICKOFF_POLLER: std::sync::OnceLock<LinearAutoKickoffPoller> =
-  std::sync::OnceLock::new();
+static GLOBAL_KICKOFF_POLLER: std::sync::OnceLock<KickoffPoller> = std::sync::OnceLock::new();
 
-pub fn kickoff_poller() -> &'static LinearAutoKickoffPoller {
-  GLOBAL_KICKOFF_POLLER.get_or_init(LinearAutoKickoffPoller::new)
+pub fn kickoff_poller() -> &'static KickoffPoller {
+  GLOBAL_KICKOFF_POLLER.get_or_init(|| KickoffPoller::new("linear", poll_linear_kickoff))
 }
 
 #[cfg(test)]
@@ -1176,47 +1000,5 @@ mod tests {
     assert!(!query.contains(HOSTILE));
     assert!(query.contains("document(id: $id)"));
     assert_eq!(body["variables"]["id"], HOSTILE);
-  }
-
-  fn ids(values: &[&str]) -> Vec<String> {
-    values.iter().map(|v| v.to_string()).collect()
-  }
-
-  #[test]
-  fn kickoff_ledger_skips_handled_issues() {
-    let mut ledger = KickoffLedger::default();
-    ledger.record_success("a");
-    assert_eq!(ledger.due(&ids(&["a", "b"])), ids(&["b"]));
-  }
-
-  #[test]
-  fn kickoff_ledger_retries_failures_until_attempt_cap() {
-    let mut ledger = KickoffLedger::default();
-    for _ in 1..MAX_KICKOFF_ATTEMPTS {
-      ledger.record_failure("a");
-      assert_eq!(ledger.due(&ids(&["a"])), ids(&["a"]));
-    }
-    ledger.record_failure("a");
-    assert!(ledger.due(&ids(&["a"])).is_empty());
-  }
-
-  #[test]
-  fn kickoff_ledger_success_clears_failure_count() {
-    let mut ledger = KickoffLedger::default();
-    ledger.record_failure("a");
-    ledger.record_success("a");
-    assert!(!ledger.failures.contains_key("a"));
-  }
-
-  #[test]
-  fn kickoff_ledger_forgets_issues_that_lost_the_label() {
-    let mut ledger = KickoffLedger::default();
-    ledger.record_success("a");
-    for _ in 0..MAX_KICKOFF_ATTEMPTS {
-      ledger.record_failure("b");
-    }
-    assert!(ledger.due(&ids(&["c"])) == ids(&["c"]));
-    assert!(ledger.handled.is_empty());
-    assert!(ledger.failures.is_empty());
   }
 }

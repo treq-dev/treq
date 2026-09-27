@@ -25,6 +25,7 @@ pub mod session;
 pub mod settings;
 pub mod skills;
 pub mod stash;
+pub mod tracker;
 pub mod workspace;
 
 // Re-export all commands for convenient access
@@ -53,4 +54,5 @@ pub use session::*;
 pub use settings::*;
 pub use skills::*;
 pub use stash::*;
+pub use tracker::*;
 pub use workspace::*;

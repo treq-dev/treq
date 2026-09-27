@@ -175,6 +175,15 @@ pub struct WorkspaceMetadata {
   pub linear_issue_url: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub linear_issue_title: Option<String>,
+  /// Issue-tracker item this workspace was kicked off from (`trello`, `jira`).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tracker_provider: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tracker_item_key: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tracker_item_url: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tracker_item_title: Option<String>,
 }
 
 /// Parse the creation metadata JSON sent by the frontend/NAPI callers.
@@ -358,6 +367,46 @@ pub fn merge_linear_issue_metadata(
     .ok_or_else(|| format!("Workspace not found after update: {workspace_id}"))
 }
 
+pub fn merge_tracker_item_metadata_json(
+  existing: Option<&str>,
+  provider: &str,
+  item_key: &str,
+  item_url: &str,
+  item_title: &str,
+) -> Result<String, String> {
+  let mut metadata = parse_workspace_metadata(existing);
+  metadata.tracker_provider = Some(provider.to_string());
+  metadata.tracker_item_key = Some(item_key.to_string());
+  metadata.tracker_item_url = Some(item_url.to_string());
+  metadata.tracker_item_title = Some(item_title.to_string());
+  serde_json::to_string(&metadata).map_err(|e| format!("Failed to serialize metadata: {e}"))
+}
+
+pub fn merge_tracker_item_metadata(
+  repo_path: &str,
+  workspace_id: i64,
+  provider: &str,
+  item_key: &str,
+  item_url: &str,
+  item_title: &str,
+) -> Result<local_db::Workspace, String> {
+  let existing_workspace = local_db::get_workspace_by_id(repo_path, workspace_id)?
+    .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+
+  let new_json = merge_tracker_item_metadata_json(
+    existing_workspace.metadata.as_deref(),
+    provider,
+    item_key,
+    item_url,
+    item_title,
+  )?;
+
+  local_db::set_workspace_metadata(repo_path, workspace_id, &new_json)?;
+
+  local_db::get_workspace_by_id(repo_path, workspace_id)?
+    .ok_or_else(|| format!("Workspace not found after update: {workspace_id}"))
+}
+
 pub fn parse_hunk_spec(raw: &str) -> Result<HunkSpec, String> {
   let (file_path, range) = raw
     .rsplit_once(':')
@@ -506,7 +555,7 @@ pub fn open_or_create_workspace_from_pr(
   Ok((updated, true))
 }
 
-pub fn open_or_create_workspace_from_linear_issue(
+pub fn open_or_create_workspace_from_issue(
   repo_path: &str,
   branch_name: &str,
   base_branch: &str,
@@ -1339,8 +1388,8 @@ pub fn workspace_status(
 #[cfg(test)]
 mod tests {
   use super::{
-    is_workspace_hidden, merge_linear_issue_metadata_json, parse_hunk_spec,
-    parse_workspace_metadata, plan_workspace_target_move,
+    is_workspace_hidden, merge_linear_issue_metadata_json, merge_tracker_item_metadata_json,
+    parse_hunk_spec, parse_workspace_metadata, plan_workspace_target_move,
     resolve_workspace_diff_base_revision_from_last_rebased,
     resolve_workspace_diff_conflict_marker_style,
     resolve_workspace_diff_tip_revision_from_workspace_state,
@@ -1455,7 +1504,7 @@ mod tests {
     let temp = TempDir::new().expect("tempdir");
     let repo_path = init_workspace_creation_repo(&temp);
 
-    let (created, was_created) = super::open_or_create_workspace_from_linear_issue(
+    let (created, was_created) = super::open_or_create_workspace_from_issue(
       &repo_path,
       "ty/treq-281-linear-integration",
       "main",
@@ -1473,7 +1522,7 @@ mod tests {
       Some("Implement the issue workflow")
     );
 
-    let (reopened, was_created) = super::open_or_create_workspace_from_linear_issue(
+    let (reopened, was_created) = super::open_or_create_workspace_from_issue(
       &repo_path,
       "ty/treq-281-linear-integration",
       "main",
@@ -1834,6 +1883,28 @@ mod tests {
     let repo_path = temp_dir.path().to_str().unwrap();
     assert!(schedule_workspaces(repo_path, &[], Some("2026-12-01T09:00:00Z")).is_err());
     assert!(schedule_workspaces(repo_path, &[1], Some("tomorrow")).is_err());
+  }
+
+  #[test]
+  fn merge_tracker_item_metadata_preserves_linear_fields() {
+    let existing = merge_linear_issue_metadata_json(None, "ENG-1", "https://l/ENG-1", "L").unwrap();
+    let result = merge_tracker_item_metadata_json(
+      Some(&existing),
+      "jira",
+      "OPS-7",
+      "https://acme.atlassian.net/browse/OPS-7",
+      "Rotate keys",
+    )
+    .unwrap();
+    let parsed: WorkspaceMetadata = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed.linear_issue_key.as_deref(), Some("ENG-1"));
+    assert_eq!(parsed.tracker_provider.as_deref(), Some("jira"));
+    assert_eq!(parsed.tracker_item_key.as_deref(), Some("OPS-7"));
+    assert_eq!(
+      parsed.tracker_item_url.as_deref(),
+      Some("https://acme.atlassian.net/browse/OPS-7")
+    );
+    assert_eq!(parsed.tracker_item_title.as_deref(), Some("Rotate keys"));
   }
 
   #[test]

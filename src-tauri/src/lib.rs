@@ -11,6 +11,7 @@ pub mod core;
 pub mod db;
 pub mod file_indexer;
 pub mod github;
+pub mod jira;
 pub mod jj;
 pub mod linear;
 pub mod local_db;
@@ -22,6 +23,8 @@ pub mod repo_config;
 pub mod review_aggregate;
 pub mod send_dispatch;
 pub mod telemetry;
+pub mod tracker;
+pub mod trello;
 
 use agent_runtime::{
   parse_agent_request_from_url, route_agent_deep_link, route_agent_dispatch_request,
@@ -56,6 +59,8 @@ use crate::core::remote_control_plane::SshEndpoint;
 use crate::core::remote_pty::PtyLaunchSpec;
 #[cfg(feature = "tauri-test")]
 use crate::core::skills::SkillInstallScope;
+#[cfg(feature = "tauri-test")]
+use crate::tracker::TrackerProvider;
 #[cfg(feature = "tauri-test")]
 use commands::RemoteExecState;
 #[cfg(feature = "tauri-test")]
@@ -966,6 +971,11 @@ pub fn run() {
             commands::linear_list_issue_comments,
             commands::linear_list_project_comments,
             commands::linear_list_document_comments,
+            commands::tracker_list_containers,
+            commands::tracker_list_items,
+            commands::tracker_get_viewer,
+            commands::tracker_open_or_create_workspace_from_item,
+            commands::tracker_start_auto_kickoff_polling,
             commands::load_repo_yaml_config,
             commands::list_workflows,
             commands::run_workflow_job,

@@ -50,6 +50,7 @@ import {
 import { TooltipProvider } from "./ui/tooltip";
 import { WorkspaceSidebarHeaderActions } from "./WorkspaceSidebarHeaderActions";
 import { WorkspaceSidebarItem } from "./WorkspaceSidebarItem";
+import { TRACKER_ICONS } from "./trackerIcons";
 import { WorkspaceSidebarPanelButton } from "./WorkspaceSidebarPanelButton";
 import { WorkspaceSidebarResizeHandle } from "./WorkspaceSidebarResizeHandle";
 
@@ -73,6 +74,8 @@ interface WorkspaceSidebarProps {
   onOpenBranchSwitcher?: () => void;
   onOpenGitHub?: () => void;
   onOpenLinear?: () => void;
+  onOpenTrello?: () => void;
+  onOpenJira?: () => void;
   onOpenArtifacts?: () => void;
   currentPage?: string;
   onAddBefore?: (workspace: Workspace) => void;
@@ -104,6 +107,8 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   onOpenBranchSwitcher,
   onOpenGitHub,
   onOpenLinear,
+  onOpenTrello,
+  onOpenJira,
   onOpenArtifacts,
   currentPage,
   onAddAfter,
@@ -290,6 +295,8 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   const workspaceSelectionActive =
     currentPage !== "github" &&
     currentPage !== "linear" &&
+    currentPage !== "trello" &&
+    currentPage !== "jira" &&
     currentPage !== "settings" &&
     currentPage !== "artifacts";
   const isHomeSelected =
@@ -372,6 +379,28 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                     icon={ListTodo}
                     label="Linear"
                     testId="linear-sidebar-item"
+                  />
+                )}
+
+                {onOpenTrello && (
+                  <WorkspaceSidebarPanelButton
+                    page="trello"
+                    currentPage={currentPage}
+                    onClick={onOpenTrello}
+                    icon={TRACKER_ICONS.trello}
+                    label="Trello"
+                    testId="trello-sidebar-item"
+                  />
+                )}
+
+                {onOpenJira && (
+                  <WorkspaceSidebarPanelButton
+                    page="jira"
+                    currentPage={currentPage}
+                    onClick={onOpenJira}
+                    icon={TRACKER_ICONS.jira}
+                    label="Jira"
+                    testId="jira-sidebar-item"
                   />
                 )}
               </SidebarMenu>
