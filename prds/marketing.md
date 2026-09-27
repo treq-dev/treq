@@ -4,7 +4,7 @@
 
 Draft.
 
-This document proposes the go-to-market contract for Treq. It defines the audiences, what marketing may claim, the acquisition channels, and the gates between phases. The owner approves each open decision in [Open decisions](#open-decisions) before the plan is Active.
+This document proposes the go-to-market contract for Treq. It defines the audiences, what marketing may claim, the acquisition channels, and the gates between phases. The owner approves each remaining item in [Open decisions](#open-decisions) before the plan is Active.
 
 Approval of this strategy does not authorize spending money, sending outreach, or creating external accounts. Each of those needs its own approval.
 
@@ -12,11 +12,20 @@ The plan skips a user-validation phase. There is no interview program or positio
 
 The automation that runs this plan lives in [Ziinc/biz-tools](https://github.com/Ziinc/biz-tools). The `gtm` and `content` blocks for `treq` in its `config.yaml` must match this document.
 
+## Approved decisions
+
+Approved by the owner on 2026-09-27:
+
+1. No cash budget. Marketing is organic only.
+2. Four marketing hours per week.
+3. Treq supports macOS, Windows, and Linux. Every page states all three platforms.
+4. Collect emails for the private alpha, with explicit consent.
+
 ## Summary
 
-Treq is the open-source Stacking Agent Development Environment. Each coding agent gets its own workspace, branches stack, and Treq rebases dependent work when the base moves. The desktop app is free. Pro is a cloud subscription at US$15 per user per month that adds GitHub integration for private repositories and the Treq-managed merge queue.
+Treq is the open-source Stacking Agent Development Environment. Each coding agent gets its own workspace, branches stack, and Treq rebases dependent work when the base moves. The desktop app is free. Pro is a cloud subscription at US$15 per user per month that adds GitHub integration for private repositories.
 
-Marketing has one job: bring engineers who run several coding agents on one repository to the download, and move teams that need private repositories onto Pro. Organic search carries acquisition. Roadmap milestones supply the launch moments. Paid acquisition waits for conversion evidence.
+Marketing has one job: bring engineers who run several coding agents on one repository to the download, and move teams that need private repositories onto Pro. Organic search carries acquisition. Roadmap milestones supply the launch moments. A private alpha list collects the engineers who want early access. There is no cash budget, so every channel runs on founder time.
 
 ## Product truth
 
@@ -35,7 +44,6 @@ Marketing copy may only claim what the product does today. Check claims against 
 
 ### Not shipped
 
-- The Treq-managed merge queue. The roadmap lists it as work in progress.
 - Workspace Checks.
 - SSH Remote Development and Treq-managed VMs. See [Remote Development](./remote-development.md).
 - Mobile apps. See [Mobile](./mobile.md).
@@ -44,9 +52,8 @@ Marketing copy may only claim what the product does today. Check claims against 
 
 Fix these before any amplification. A visitor who finds a false claim stops trusting the rest of the page.
 
-1. The pricing page sells merge queue as part of Pro, but the merge queue has not shipped. Label it as coming, or remove it from the Pro list until it ships.
-2. A pricing FAQ answer says GitHub integration is coming soon, but GitHub integration has partly shipped. Rewrite the answer to match the roadmap.
-3. The comparison pages describe Treq as currently marketed for macOS. The homepage and installation guide list Windows and Linux builds. Pick one platform statement and apply it to every page.
+1. A pricing FAQ answer says GitHub integration is coming soon, but GitHub integration has partly shipped. Rewrite the answer to match the roadmap.
+2. The comparison pages describe Treq as currently marketed for macOS. Treq supports macOS, Windows, and Linux. Update every comparison page to state all three platforms.
 
 ## Positioning
 
@@ -76,9 +83,9 @@ These are hypotheses. The plan tests them with acquisition data, not interviews:
 | Plan | Price | Who it serves |
 | --- | --- | --- |
 | Free | US$0 | Open-source developers. Full desktop app and GitHub integration for public repositories. |
-| Pro | US$15 per user per month | Teams with private repositories. GitHub integration for all repositories, Linear OAuth, and the merge queue when it ships. |
+| Pro | US$15 per user per month | Teams with private repositories. GitHub integration for all repositories and Linear OAuth. |
 
-The conversion path is: search or community post, then site page, then download from GitHub Releases, then account creation, then GitHub connection, then Pro subscription. The trigger to buy Pro is connecting a private repository. The merge queue becomes a second trigger when it ships.
+The conversion path is: search or community post, then site page, then download from GitHub Releases, then account creation, then GitHub connection, then Pro subscription. The trigger to buy Pro is connecting a private repository.
 
 Do not change prices, add discounts, or add plans through this document. Each of those needs a separate decision.
 
@@ -88,8 +95,9 @@ Do not change prices, add discounts, or add plans through this document. Each of
 | --- | --- | --- | --- |
 | 1 | Organic search | Learn articles, comparison pages, free tools under `/tools/`, skills directory | biz-tools daily keyword report and weekly Draft content PRs |
 | 2 | GitHub | README, release notes, changelog | Release notes follow `cliff.toml` |
-| 3 | Developer communities | One post per launch moment, written for that community's rules | None. The owner posts by hand. |
-| 4 | Integration directories | Linear integration listing, GitHub App listing | None |
+| 3 | Private alpha list | Signup form on treq.dev, alpha invitations, alpha update emails | Signup counts reported in the GTM digest |
+| 4 | Developer communities | One post per launch moment, written for that community's rules | None. The owner posts by hand. |
+| 5 | Integration directories | Linear integration listing, GitHub App listing | None |
 
 Organic search leads because it compounds and costs founder time, not cash. The free tools and the skills directory attract searchers who are not yet looking for Treq. Each of those pages must link to the relevant Learn article and to the download.
 
@@ -119,11 +127,20 @@ Each roadmap milestone gets one launch:
 
 | Milestone | Roadmap target | Launch assets |
 | --- | --- | --- |
-| Treq-managed merge queue | 2026 Q3 | Changelog entry, Learn article on stacked merge queues, comparison page update against GitHub's native merge queue, community post |
 | Workspace Checks | 2026 Q3 | Changelog entry, Learn article on quality gates for agent output, community post |
 | SSH Remote Development | 2026 Q4 | Changelog entry, docs, Learn article, community post |
 
-A launch waits for the feature to ship and for the site copy to match it. A roadmap date never overrides that rule.
+A launch waits for the feature to ship and for the site copy to match it. A roadmap date never overrides that rule. Private alpha members hear about each launch first.
+
+## Private alpha list
+
+The site collects email addresses from engineers who want early access to the private alpha. The list has one purpose: alpha invitations and alpha updates.
+
+- The signup form states that purpose and asks for explicit consent. The consent record stores the date and the form version.
+- Each email includes a one-click unsubscribe. An unsubscribe stops every later send.
+- The list stays separate from account and billing email. Joining the list does not create an account.
+- Store only the email address, the consent record, and the signup page. Do not add tracking pixels.
+- The owner invites alpha members in batches and approves each send by hand.
 
 ## Phases and exit gates
 
@@ -131,9 +148,9 @@ The phases match `gtm.phases` for `treq` in biz-tools `config.yaml`. The weekly 
 
 | Phase | Exit gates |
 | --- | --- |
-| Foundation: measurement and content engine | Search Console, Bing, and GA4 collection enabled in biz-tools. Stripe collection enabled for Pro revenue. The three site-copy conflicts fixed. Draft content producing reviewed pull requests weekly for 4 consecutive weeks. A baseline of weekly organic clicks and weekly download clicks recorded. |
+| Foundation: measurement and content engine | Search Console, Bing, and GA4 collection enabled in biz-tools. Stripe collection enabled for Pro revenue. The two site-copy conflicts fixed. Private alpha signup form live with consent and unsubscribe. Draft content producing reviewed pull requests weekly for 4 consecutive weeks. A baseline of weekly organic clicks and weekly download clicks recorded. |
 | Acquisition: organic growth | Weekly organic clicks reach twice the foundation baseline. At least five Learn or comparison pages each bring 20 or more clicks per week. |
-| Conversion: Free to Pro | Merge queue shipped. The first 10 paying Pro seats. Monthly Pro churn measured for three months. |
+| Conversion: Free to Pro | The first 10 paying Pro seats. Monthly Pro churn measured for three months. |
 
 The acquisition and conversion thresholds are working proposals, pending approval. Once the foundation baseline exists, the acquisition gates become metric gates in biz-tools config. Until then they stay manual.
 
@@ -147,6 +164,7 @@ The desktop app has no telemetry, and marketing must not add any. The funnel is 
 | Visit | GA4 on treq.dev | Sessions and landing pages |
 | Download intent | GA4 | Outbound clicks to GitHub Releases |
 | Download | GitHub Releases API | Asset download counts per release |
+| Join alpha | Alpha signup store | New consented signups and unsubscribes per week |
 | Sign up | Supabase | New accounts per week |
 | Connect | Supabase | Accounts with a GitHub connection |
 | Buy | Stripe | New Pro seats, net revenue, refunds |
@@ -161,13 +179,14 @@ biz-tools already covers the keyword report, content drafting, the GTM digest, a
 1. A GitHub Releases adapter that records asset download counts per release.
 2. A Supabase adapter that reports weekly account creations and GitHub connections as aggregate counts. It must not export personal data.
 3. A GA4 outbound-click event for the download link, so the digest can count download intent.
-4. Metric gates in biz-tools config for the acquisition phase, once the baseline exists.
+4. An adapter that reports weekly alpha signups and unsubscribes as aggregate counts.
+5. Metric gates in biz-tools config for the acquisition phase, once the baseline exists.
 
 ## Non-goals
 
 - A user interview or positioning-test program before execution.
 - Telemetry in the desktop app.
-- Paid advertising before the conversion phase shows paying Pro seats.
+- Any cash spend, including paid advertising and sponsorships.
 - Referral rewards, affiliate programs, or a custom marketing CMS.
 - Publishing drafted content without owner review.
 - Marketing features that are not shipped.
@@ -176,12 +195,8 @@ biz-tools already covers the keyword report, content drafting, the GTM digest, a
 
 | ID | Decision | Options | Recommendation |
 | --- | --- | --- | --- |
-| T01 | Marketing cash budget | A: none, organic only. B: a small monthly ceiling for sponsorships. C: a paid-ads test budget. | A until the conversion phase starts. |
-| T02 | Weekly founder hours for marketing | A: 2 hours. B: 4 hours. C: 8 hours. | B. Two hours for draft review, one for launches and communities, one for the digest and site fixes. |
-| T03 | Platform statement | A: all three desktop platforms. B: macOS first, others available. | Whichever matches release quality today. Apply it to every page. |
-| T04 | Merge queue on the pricing page | A: remove until shipped. B: keep, labeled as coming. | B, so the Pro value is clear without a false claim. |
-| T05 | Email list | A: none. B: a release-notes list with explicit consent. | A until launch moments are frequent enough to fill a list. |
 | T06 | Acquisition and conversion thresholds | The working proposals in [Phases and exit gates](#phases-and-exit-gates), or other numbers. | Approve the proposals and revisit them at the foundation exit. |
+| T07 | Private alpha scope | Which features the private alpha covers, and the signup store. | Owner to define before the signup form ships. |
 
 ## Risks
 
@@ -189,6 +204,6 @@ biz-tools already covers the keyword report, content drafting, the GTM digest, a
 | --- | --- | --- |
 | Content drafts contain wrong product claims | Review finds errors in more than one draft in a month | Tighten the avoid list and the product truth section. Lower the weekly draft count. |
 | Traffic without downloads | Organic clicks grow while download clicks stay flat | Review landing pages for a clear next step. Check that the traffic matches the audiences. |
-| Downloads without Pro conversion | Accounts grow but Pro seats do not | Check whether visitors have private repositories. Revisit Pro value after the merge queue ships. |
+| Downloads without Pro conversion | Accounts grow but Pro seats do not | Check whether visitors have private repositories. Revisit which features Pro includes. |
 | Competitor pages go stale | A competitor changes features or pricing | Re-check each comparison page once a quarter. |
-| Marketing work crowds out product work | Marketing time exceeds the approved hours for three weeks | Cut community posts first, then draft volume. |
+| Marketing work crowds out product work | Marketing time exceeds four hours per week for three weeks | Cut community posts first, then draft volume. |
