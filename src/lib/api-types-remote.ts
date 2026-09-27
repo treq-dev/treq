@@ -72,6 +72,17 @@ export interface WorkspaceChangeMarker {
   operation_id: string;
 }
 
+/**
+ * Machine-wide usage from `MachineUsage` (mirrors `MachineUsageReport` in
+ * `src-tauri/src/core/remote.rs`). `disk_used_bytes` is the same figure the
+ * disk quota is enforced against.
+ */
+export interface MachineUsageReport {
+  repository_count: number;
+  workspace_count: number;
+  disk_used_bytes: number;
+}
+
 export type RepositoryLocation =
   | { type: "local"; path: string }
   | { type: "ssh"; host: string; path: string };

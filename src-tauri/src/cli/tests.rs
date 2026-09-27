@@ -772,6 +772,21 @@ fn parses_every_newly_exposed_remote_mutation_at_the_cli_boundary() {
 }
 
 #[test]
+fn parses_repo_usage_into_machine_usage_request() {
+  let request = parse_remote_command_request(
+    "repo",
+    &remote_matches(&[("action", "usage"), ("repo", "/srv/repos")]),
+  )
+  .unwrap();
+  assert_eq!(
+    request,
+    crate::core::remote::TreqCommandRequest::MachineUsage {
+      root: "/srv/repos".into()
+    }
+  );
+}
+
+#[test]
 fn rejects_unknown_remote_action_and_arbitrary_command_kinds() {
   let error = parse_remote_command_request(
     "repo",
@@ -879,6 +894,7 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       repo: repo(),
       workspace: Some("1".into()),
     },
+    R::MachineUsage { root: repo() },
     R::ProbeRepo { repo: repo() },
     R::CloneRepo {
       repo_url: "git@example.com:x.git".into(),

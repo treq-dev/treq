@@ -80,6 +80,13 @@ async function invokeRemoteTrust<T>(
   return data as T;
 }
 
+/**
+ * Home directory of the managed SSH user on the cloud workspace. Mirrors
+ * `MANAGED_SSH_USER_HOME` in `supabase/functions/_shared/remote/ssh-vm-config.ts`.
+ * Repositories cloned over managed SSH live under it.
+ */
+export const MANAGED_REPOSITORIES_ROOT = "/home/treq";
+
 // -- Instance lifecycle (remote-instance) -----------------------------------
 
 export const getInstanceStatus = (): Promise<InstanceStatusResponse> =>
