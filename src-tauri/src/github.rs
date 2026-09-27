@@ -672,8 +672,8 @@ fn rollup_pr_checks(raw: Vec<GhCheck>) -> Option<PrCiStatus> {
 
 /// Run `gh pr checks` for the given branch in the given repo directory and
 /// roll the individual check runs up into an overall CI status.
-/// Returns None if gh is not installed, not authenticated, there is no PR,
-/// or the PR has no checks reported yet.
+/// Returns None if there is no PR or the PR has no checks reported yet.
+/// Returns Err if gh is missing, not authenticated, or fails otherwise.
 pub fn get_pr_checks_via_gh_impl(
   gh_path: &str,
   repo_path: &str,
@@ -745,7 +745,8 @@ pub fn get_pr_checks_for_pr_impl(
 }
 
 /// Run `gh pr view` for the given branch in the given repo directory.
-/// Returns None if gh is not installed, not authenticated, or no PR exists.
+/// Returns None if no PR exists for the branch. Returns Err if gh is
+/// missing, not authenticated, or fails otherwise.
 /// The `gh_path` argument is the resolved path to the gh binary.
 pub fn get_pr_info_via_gh_impl(
   gh_path: &str,
