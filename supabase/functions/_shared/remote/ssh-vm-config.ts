@@ -1,5 +1,5 @@
 // Shell command generators for configuring SSH trust on an already-booted
-// managed VM, mirroring `core::remote_bootstrap` in src-tauri. These are run
+// managed VM. These are run
 // through `ManagedComputeProvider.execOnMachine`, not interpolated from
 // frontend text (PRD "Do not interpolate frontend text into remote shell
 // scripts") - every value here is server-generated: a CA public key line or
