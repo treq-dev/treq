@@ -4,6 +4,7 @@ import {
   type WorkspaceMoveRequest,
   applyStash,
   createWorkspace,
+  getRepoCurrentBranch,
   getWorkspaces,
   moveWorkspaceChanges,
   setWorkspaceTargetBranch,
@@ -329,26 +330,35 @@ export function useWorkspaceDialogSubmit(
       }
 
       {
-        let targetWorkspacePath: string | undefined;
+        let hasTargetWorkspace = false;
         if (targetBranch) {
           const existingTarget = allWorkspaces.find(
             (w) => w.branch_name === targetBranch,
           );
-          if (!existingTarget) {
-            const targetWsId = await createWorkspace(
-              repoPath,
-              targetBranch,
-              undefined,
-              JSON.stringify({ description: `Workspace for ${targetBranch}` }),
-            );
-            const updatedWorkspaces = await getWorkspaces(repoPath);
-            const createdTarget = updatedWorkspaces.find(
-              (w) => w.id === targetWsId,
-            );
-            if (createdTarget)
-              targetWorkspacePath = createdTarget.workspace_path;
+          if (existingTarget) {
+            hasTargetWorkspace = true;
           } else {
-            targetWorkspacePath = existingTarget.workspace_path;
+            // The home repo's own branch is checked out in the home working
+            // copy, so it needs no workspace of its own. Creating one
+            // registers a duplicate and makes the next Stack fail.
+            const { current_branch: homeBranch } =
+              await getRepoCurrentBranch(repoPath);
+            if (targetBranch === homeBranch) {
+              hasTargetWorkspace = true;
+            } else {
+              const targetWsId = await createWorkspace(
+                repoPath,
+                targetBranch,
+                undefined,
+                JSON.stringify({
+                  description: `Workspace for ${targetBranch}`,
+                }),
+              );
+              const updatedWorkspaces = await getWorkspaces(repoPath);
+              hasTargetWorkspace = updatedWorkspaces.some(
+                (w) => w.id === targetWsId,
+              );
+            }
           }
         }
 
@@ -371,7 +381,7 @@ export function useWorkspaceDialogSubmit(
           metadata,
         );
 
-        if (targetBranch && targetWorkspacePath) {
+        if (targetBranch && hasTargetWorkspace) {
           const updatedWorkspaces = await getWorkspaces(repoPath);
           const createdWorkspace = updatedWorkspaces.find(
             (w) => w.id === workspaceId,
