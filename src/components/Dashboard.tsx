@@ -120,10 +120,8 @@ import {
 import {
   listUserManagedEndpoints,
   saveUserManagedEndpoint,
-  trustedHostKeyFromFingerprint,
-  publicKeyAuthentication,
+  sshEndpointFromUserManaged,
   type SavedRemoteRepositoryRecord,
-  type UserManagedEndpointRecord,
 } from "../lib/remote-endpoints";
 import {
   dispatchMutationOverSsh,
@@ -230,21 +228,6 @@ import {
   WorkspaceTerminalPane,
   type WorkspaceTerminalPaneHandle,
 } from "./WorkspaceTerminalPane";
-
-function sshEndpointFromUserManaged(
-  record: UserManagedEndpointRecord,
-): SshEndpoint {
-  return {
-    id: record.id,
-    instance_id: null,
-    source: { type: "user_managed" },
-    hostname: record.hostname,
-    port: record.port,
-    username: record.username,
-    host_keys: [trustedHostKeyFromFingerprint(record.host_key_fingerprint)],
-    authentication: publicKeyAuthentication(record.auth_identity_reference),
-  };
-}
 
 function generationFromEndpoint(
   endpoint: SshEndpoint,
@@ -377,7 +360,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [activeRemoteRepo, setActiveRemoteRepo] =
     useState<RemoteRepository | null>(null);
 
-  // -- Phase 6: remote setup flow (managed + user-owned endpoints) ---------
+  // -- Remote setup flow (managed + user-owned endpoints) ------------------
   const [showRemoteSetupDialog, setShowRemoteSetupDialog] = useState(false);
   const [instanceStatus, setInstanceStatus] =
     useState<InstanceStatusResponse | null>(null);
