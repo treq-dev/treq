@@ -947,9 +947,44 @@ fn forget_workspace_record(
             .map_err(|e| format!("Failed to archive workspace in db: {}", e))?;
         }
       }
-      Ok(Some(workspace_path_str))
+      Ok(Some(move_workspace_dir_to_trash(
+        repo_path,
+        &workspace_path,
+        *workspace_id,
+      )))
     }
     _ => Err(format!("Workspace not found in database: {}", workspace_id)),
+  }
+}
+
+/// Move a forgotten workspace directory out of `.treq/workspaces/` so its slot
+/// is free at once. Callers may delete the returned path in the background; a
+/// workspace recreated under the same name will not share that path. Falls back
+/// to the original path when the rename fails (e.g. the directory is gone).
+fn move_workspace_dir_to_trash(repo_path: &str, workspace_dir: &Path, workspace_id: i64) -> String {
+  let original = workspace_dir.to_string_lossy().to_string();
+  if !workspace_dir.exists() {
+    return original;
+  }
+  let Some(name) = workspace_dir.file_name().and_then(|n| n.to_str()) else {
+    return original;
+  };
+  let trash_dir = Path::new(repo_path).join(".treq").join("trash");
+  if let Err(e) = std::fs::create_dir_all(&trash_dir) {
+    tracing::warn!("Failed to create workspace trash dir: {}", e);
+    return original;
+  }
+  let stamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_nanos())
+    .unwrap_or_default();
+  let target = trash_dir.join(format!("{name}-{workspace_id}-{stamp}"));
+  match std::fs::rename(workspace_dir, &target) {
+    Ok(()) => target.to_string_lossy().to_string(),
+    Err(e) => {
+      tracing::warn!("Failed to move workspace dir to trash: {}", e);
+      original
+    }
   }
 }
 
@@ -1482,6 +1517,91 @@ mod tests {
       crate::jj::jj_get_commit_id(&repo_path, "fix/example").expect("bookmark target unchanged"),
       before
     );
+  }
+
+  #[test]
+  fn create_workspace_reuses_branch_name_after_archive() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let first = super::create_workspace(&repo_path, "fix/reuse", None, None, None, None, None)
+      .expect("create workspace");
+    super::archive_workspace(&repo_path, &first.id).expect("archive workspace");
+
+    let second = super::create_workspace(&repo_path, "fix/reuse", None, None, None, None, None)
+      .expect("recreate archived branch name");
+
+    assert_ne!(second.id, first.id);
+    assert!(temp
+      .path()
+      .join(".treq/workspaces")
+      .join(&second.workspace_path)
+      .exists());
+    let live = super::list_workspaces(&repo_path).expect("list workspaces");
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].id, second.id);
+  }
+
+  #[test]
+  fn archive_moves_directory_out_before_background_removal() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let first = super::create_workspace(&repo_path, "fix/race", None, None, None, None, None)
+      .expect("create workspace");
+    let workspace_dir = temp
+      .path()
+      .join(".treq/workspaces")
+      .join(&first.workspace_path);
+
+    let leftover = super::archive_workspace_leaving_directory(&repo_path, &first.id)
+      .expect("archive workspace")
+      .expect("leftover directory");
+
+    // The directory is out of the workspace slot before the caller deletes it,
+    // so an immediate recreate cannot race the background removal.
+    assert!(!workspace_dir.exists());
+    let second = super::create_workspace(&repo_path, "fix/race", None, None, None, None, None)
+      .expect("recreate while removal is pending");
+    let marker = workspace_dir.join("keep-me.txt");
+    fs::write(&marker, "new work").expect("write marker");
+
+    crate::jj::remove_workspace_directory_only(&leftover).expect("background removal");
+
+    assert_eq!(second.workspace_path, first.workspace_path);
+    assert_eq!(fs::read_to_string(marker).expect("marker"), "new work");
+  }
+
+  #[test]
+  fn open_or_create_workspace_from_pr_ignores_archived_workspace() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let first = super::create_workspace(&repo_path, "fix/pr", None, None, None, None, None)
+      .expect("create workspace");
+    super::archive_workspace(&repo_path, &first.id).expect("archive workspace");
+
+    let (workspace, created) =
+      super::open_or_create_workspace_from_pr(&repo_path, "fix/pr", "main", None, None)
+        .expect("open PR workspace");
+
+    assert!(created);
+    assert_ne!(workspace.id, first.id);
+    assert!(!workspace.archived);
+  }
+
+  #[test]
+  fn open_or_create_workspace_from_issue_ignores_archived_workspace() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let (first, _) =
+      super::open_or_create_workspace_from_issue(&repo_path, "ty/eng-1", "main", "Issue", None)
+        .expect("create issue workspace");
+    super::archive_workspace(&repo_path, &first.id).expect("archive workspace");
+
+    let (workspace, created) =
+      super::open_or_create_workspace_from_issue(&repo_path, "ty/eng-1", "main", "Issue", None)
+        .expect("reopen issue workspace");
+
+    assert!(created);
+    assert_ne!(workspace.id, first.id);
   }
 
   #[test]

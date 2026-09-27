@@ -1024,7 +1024,7 @@ pub fn get_workspace_by_branch(
   let conn = get_connection(repo_path)?;
   let mut stmt = conn
     .prepare(&format!(
-      "SELECT {WORKSPACE_SELECT_COLUMNS} FROM workspaces WHERE branch_name = ?1"
+      "SELECT {WORKSPACE_SELECT_COLUMNS} FROM workspaces WHERE branch_name = ?1 AND COALESCE(archived, 0) = 0"
     ))
     .map_err(|e| format!("Failed to prepare workspace query: {}", e))?;
 
@@ -1034,6 +1034,20 @@ pub fn get_workspace_by_branch(
     .map_err(|e| format!("Failed to query workspace by branch: {}", e))?;
 
   Ok(workspace)
+}
+
+/// Archived rows keep their record but no longer own a directory. Move such a
+/// row off `workspace_path` so a new workspace can take the same slot without
+/// hitting the UNIQUE constraint.
+fn release_archived_workspace_path(conn: &Connection, workspace_path: &str) -> Result<(), String> {
+  conn
+    .execute(
+      "UPDATE workspaces SET workspace_path = workspace_path || '#archived-' || id
+       WHERE workspace_path = ?1 AND COALESCE(archived, 0) = 1",
+      [workspace_path],
+    )
+    .map_err(|e| format!("Failed to release archived workspace path: {}", e))?;
+  Ok(())
 }
 
 pub fn add_workspace(
@@ -1065,6 +1079,7 @@ pub fn add_workspace(
     }
   });
 
+  release_archived_workspace_path(&conn, &workspace_path)?;
   conn.execute(
         "INSERT INTO workspaces (workspace_name, workspace_path, branch_name, created_at, refreshed_at, description, moved_files, sparse_patterns)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -1305,6 +1320,7 @@ pub fn upsert_workspace_discovery(
   let conn = get_connection(repo_path)?;
   let created_at = refreshed_at.to_string();
 
+  release_archived_workspace_path(&conn, workspace_path)?;
   conn.execute(
         "INSERT INTO workspaces (workspace_name, workspace_path, branch_name, created_at, refreshed_at)
          VALUES (?1, ?2, ?3, ?4, ?5)
@@ -1352,6 +1368,7 @@ pub fn sync_discovered_workspaces(
     let discovered_has_canonical_bookmark = workspace.branch_name != workspace.workspace_name;
     let update_branch_name = discovered_has_canonical_bookmark || !workspace.has_conflicts;
     let update_workspace_name = !workspace.has_conflicts;
+    release_archived_workspace_path(&tx, &workspace.workspace_path)?;
     tx.execute(
             "INSERT INTO workspaces (workspace_name, workspace_path, branch_name, created_at, refreshed_at)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -1380,7 +1397,7 @@ pub fn sync_discovered_workspaces(
     .collect();
   let mut stmt = conn
     .prepare(&format!(
-      "SELECT {WORKSPACE_SELECT_COLUMNS} FROM workspaces ORDER BY branch_name COLLATE NOCASE ASC"
+      "SELECT {WORKSPACE_SELECT_COLUMNS} FROM workspaces WHERE COALESCE(archived, 0) = 0 ORDER BY branch_name COLLATE NOCASE ASC"
     ))
     .map_err(|e| format!("Failed to prepare synced workspaces query: {}", e))?;
 
@@ -2532,6 +2549,86 @@ mod tests {
 
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].relative_path, "src-tauri/.gitignore");
+  }
+
+  fn add_archived_workspace(repo_path: &str, path: &str, branch: &str) -> i64 {
+    let id = add_workspace(
+      repo_path,
+      path.to_string(),
+      path.to_string(),
+      branch.to_string(),
+      None,
+      None,
+      None,
+    )
+    .expect("register workspace");
+    archive_workspace(repo_path, id).expect("archive workspace");
+    id
+  }
+
+  #[test]
+  fn get_workspace_by_branch_ignores_archived_rows() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    init_local_db(repo_path).expect("initialize database");
+    add_archived_workspace(repo_path, "fix-example", "fix/example");
+
+    assert!(get_workspace_by_branch(repo_path, "fix/example")
+      .expect("lookup")
+      .is_none());
+  }
+
+  #[test]
+  fn add_workspace_reuses_path_held_by_archived_row() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    init_local_db(repo_path).expect("initialize database");
+    let archived_id = add_archived_workspace(repo_path, "fix-example", "fix/example");
+
+    let live_id = add_workspace(
+      repo_path,
+      "fix-example".to_string(),
+      "fix-example".to_string(),
+      "fix/example".to_string(),
+      None,
+      None,
+      None,
+    )
+    .expect("register workspace at a path held by an archived row");
+
+    assert_ne!(live_id, archived_id);
+    let live = get_workspace_by_branch(repo_path, "fix/example")
+      .expect("lookup")
+      .expect("live workspace");
+    assert_eq!(live.id, live_id);
+    assert_eq!(live.workspace_path, "fix-example");
+    let archived = get_workspace_by_id(repo_path, archived_id)
+      .expect("lookup archived")
+      .expect("archived row kept");
+    assert!(archived.archived);
+    assert_ne!(archived.workspace_path, "fix-example");
+  }
+
+  #[test]
+  fn discovery_does_not_revive_archived_row_at_same_path() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    init_local_db(repo_path).expect("initialize database");
+    let archived_id = add_archived_workspace(repo_path, "fix-example", "fix/example");
+
+    let discovered = vec![crate::jj::DiscoveredWorkspace {
+      workspace_name: "fix-example".to_string(),
+      workspace_path: "fix-example".to_string(),
+      branch_name: "fix/example".to_string(),
+      has_conflicts: false,
+      last_activity_at: None,
+    }];
+    let workspaces = sync_discovered_workspaces(repo_path, &discovered, "2026-08-08T00:00:00Z")
+      .expect("sync discovery");
+
+    assert_eq!(workspaces.len(), 1);
+    assert_ne!(workspaces[0].id, archived_id);
+    assert!(!workspaces[0].archived);
   }
 
   #[test]
