@@ -1,6 +1,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { useMutation } from "../../hooks/useMutation";
+import { useRepositoryCacheKey } from "../../lib/active-repository-context";
 import { invalidateQueries } from "../../lib/swr-cache";
 import {
   GitBranch,
@@ -83,8 +84,9 @@ export function PrDetailPanel({
     ghViewPr(repoFullName, prNumber),
   );
 
+  const repoCacheKey = useRepositoryCacheKey(repoPath);
   const { data: workspaces = [] } = useSWR(
-    repoPath ? ["workspaces", repoPath] : null,
+    repoPath ? ["workspaces", repoCacheKey] : null,
     () => getWorkspaces(repoPath),
   );
 
@@ -106,7 +108,7 @@ export function PrDetailPanel({
       );
     },
     onSuccess: async (result) => {
-      await invalidateQueries(["workspaces", repoPath]);
+      await invalidateQueries(["workspaces", repoCacheKey]);
       addToast({
         title: result.created ? "Workspace created" : "Workspace opened",
         description: result.created

@@ -1052,6 +1052,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setActiveSessionId(null);
   };
 
+  // Leave the workspace view only when the workspace on screen was removed.
+  const leaveRemovedWorkspaces = (removedIds: ReadonlySet<number>) => {
+    if (selectedWorkspace && removedIds.has(selectedWorkspace.id)) {
+      handleReturnToDashboard();
+    }
+  };
+
   const openSettings = (tab?: string) => {
     void tab;
     if (viewMode !== "settings") {
@@ -1409,6 +1416,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [workspaces]);
 
+  // A workspace removed outside this view (CLI, another window) must not stay
+  // open. Only react to ids that were listed before, so a workspace selected
+  // right after creation is not dropped while the list catches up.
+  const listedWorkspaceIdsRef = useRef<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    const previous = listedWorkspaceIdsRef.current;
+    const current = new Set(workspaces.map((w) => w.id));
+    listedWorkspaceIdsRef.current = current;
+    if (
+      selectedWorkspace &&
+      previous.has(selectedWorkspace.id) &&
+      !current.has(selectedWorkspace.id)
+    ) {
+      handleReturnToDashboard();
+    }
+  }, [workspaces]);
+
   const { data: workspaceStatuses = [] } = useSWR(
     queryRepoKey ? ["workspace-statuses", queryRepoKey] : null,
     () => listWorkspaceStatuses(dataRepoPath),
@@ -1436,10 +1460,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
       );
       void invalidateQueries(["workspaces", queryRepoKey]);
       invalidateQueries(["workspace-statuses", queryRepoKey]);
-      handleReturnToDashboard(); // Navigate to dashboard & clear selected workspace
+      leaveRemovedWorkspaces(new Set([workspace.id]));
       addToast({
-        title: "Workspace Archived",
-        description: "Workspace has been archived successfully",
+        title: "Workspace Deleted",
+        description: "Workspace has been deleted",
         type: "success",
       });
     },
@@ -1462,7 +1486,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       );
       void invalidateQueries(["workspaces", queryRepoKey]);
       invalidateQueries(["workspace-statuses", queryRepoKey]);
-      handleReturnToDashboard();
+      leaveRemovedWorkspaces(new Set([workspace.id]));
       addToast({
         title: "Workspace Archived",
         description: "Workspace directory removed; record kept",
@@ -1906,6 +1930,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       !workspaces.some((ws) => ws.id === sessionData.workspaceId)
     ) {
       void invalidateQueries(["workspaces", queryRepoKey]);
+      invalidateQueries(["workspace-statuses", queryRepoKey]);
     }
     setActiveSessionId(sessionData.sessionId);
     if (
@@ -2471,42 +2496,58 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (archivingWorkspaceIds.size > 0 || exitingWorkspaceIds.size > 0) {
       return;
     }
-    const count = selectedWorkspaceIds.size;
     const workspacesToArchive = workspaces.filter((w) =>
       selectedWorkspaceIds.has(w.id),
     );
     const ids = new Set(workspacesToArchive.map((w) => w.id));
     setArchivingWorkspaceIds(ids);
-    try {
-      await Promise.all(
-        workspacesToArchive.map((workspace) =>
-          archiveWorkspace(workspace.repo_path, workspace.id),
-        ),
+    // Settle every archive: a failure must not skip cleanup for the others,
+    // which the backend has already archived.
+    const results = await Promise.allSettled(
+      workspacesToArchive.map((workspace) =>
+        archiveWorkspace(workspace.repo_path, workspace.id),
+      ),
+    );
+    const archived = workspacesToArchive.filter(
+      (_, index) => results[index].status === "fulfilled",
+    );
+    const failures = results.flatMap((result) =>
+      result.status === "rejected"
+        ? [
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason),
+          ]
+        : [],
+    );
+    for (const workspace of archived) {
+      terminalPaneRef.current?.closeTerminalsForWorkspace(
+        getFullWorkspacePath(workspace),
       );
-      for (const workspace of workspacesToArchive) {
-        terminalPaneRef.current?.closeTerminalsForWorkspace(
-          getFullWorkspacePath(workspace),
-        );
-      }
-      setArchivingWorkspaceIds(new Set());
-      setExitingWorkspaceIds(ids);
+    }
+    const archivedIds = new Set(archived.map((w) => w.id));
+    setArchivingWorkspaceIds(new Set());
+    setExitingWorkspaceIds(archivedIds);
+    if (archived.length > 0) {
+      const n = archived.length;
       addToast({
-        title: `${count} Workspace${count > 1 ? "s" : ""} Archived`,
-        description: `Successfully archived ${count} workspace${
-          count > 1 ? "s" : ""
-        }`,
+        title: `${n} Workspace${n > 1 ? "s" : ""} Archived`,
+        description: `Successfully archived ${n} workspace${n > 1 ? "s" : ""}`,
         type: "success",
       });
+    }
+    if (failures.length > 0) {
+      addToast({
+        title: "Archive Failed",
+        description: failures.join("\n"),
+        type: "error",
+      });
+    }
+    if (archived.length > 0) {
       await new Promise((resolve) => setTimeout(resolve, 220));
       await invalidateQueries(["workspaces", queryRepoKey]);
       invalidateQueries(["workspace-statuses", queryRepoKey]);
-      handleReturnToDashboard();
-    } catch (error) {
-      addToast({
-        title: "Archive Failed",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      leaveRemovedWorkspaces(archivedIds);
     }
     setSelectedWorkspaceIds(new Set());
     setArchivingWorkspaceIds(new Set());
@@ -3069,8 +3110,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   onStartPromptFromIssue={handleStartPromptFromIssue}
                   onOpenWorkspace={async (workspaceId) => {
                     await invalidateQueries(["workspaces", queryRepoKey]);
+                    invalidateQueries(["workspace-statuses", queryRepoKey]);
                     const updatedWorkspaces = await fetchAndCache(
-                      ["workspaces", repoPath],
+                      ["workspaces", queryRepoKey],
                       () => getWorkspaces(dataRepoPath),
                     );
                     const workspace = updatedWorkspaces.find(
@@ -3200,7 +3242,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               await invalidateQueries(["workspaces", queryRepoKey]);
               invalidateQueries(["workspace-statuses", queryRepoKey]);
               const updatedWorkspaces = await fetchAndCache(
-                ["workspaces", repoPath],
+                ["workspaces", queryRepoKey],
                 () => getWorkspaces(dataRepoPath),
               );
               const newWorkspace = updatedWorkspaces.find(

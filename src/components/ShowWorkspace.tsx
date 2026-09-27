@@ -691,7 +691,7 @@ export const ShowWorkspace = ({
           effectiveRepoPath,
           workspace.id,
         ]);
-        void invalidateQueries(["workspace-statuses", effectiveRepoPath]);
+        void invalidateQueries(["workspace-statuses", repoCacheKey]);
         void invalidateQueries(
           reviewChangeCountQueryKey(effectiveRepoPath, workspace.id),
         );
@@ -764,8 +764,8 @@ export const ShowWorkspace = ({
       });
 
       // Invalidate sidebar queries so hierarchy updates
-      void invalidateQueries(["workspaces", effectiveRepoPath]);
-      void invalidateQueries(["workspace-statuses", effectiveRepoPath]);
+      void invalidateQueries(["workspaces", repoCacheKey]);
+      void invalidateQueries(["workspace-statuses", repoCacheKey]);
       void invalidateQueries([
         "workspace-status",
         effectiveRepoPath,
@@ -1034,8 +1034,8 @@ export const ShowWorkspace = ({
         });
       }
 
-      void invalidateQueries(["workspaces", effectiveRepoPath]);
-      void invalidateQueries(["workspace-statuses", effectiveRepoPath]);
+      void invalidateQueries(["workspaces", repoCacheKey]);
+      void invalidateQueries(["workspace-statuses", repoCacheKey]);
     } catch (error) {
       addToast({
         title: "Force rebase failed",
