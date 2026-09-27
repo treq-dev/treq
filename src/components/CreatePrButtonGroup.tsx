@@ -68,7 +68,7 @@ export function CreatePrButtonGroup({
       if (needsPush) {
         await pushWorkspaceToRemote(repoPath, workspace.id);
       }
-      return ghCreatePr(
+      const number = await ghCreatePr(
         remoteInfo.full_name,
         title,
         body,
@@ -76,6 +76,11 @@ export function CreatePrButtonGroup({
         workspace.branch_name,
         draft,
       );
+      // Stay pending until the new PR is in the status cache. Until then
+      // prInfo is still null, so the button would re-enable and a second
+      // click would try to create the same PR again.
+      await invalidatePrStatuses(repoPath, workspace.branch_name);
+      return number;
     },
   });
   const otherCreatePrActive = useIsMutating(
@@ -91,7 +96,6 @@ export function CreatePrButtonGroup({
   const createPr = async (draft: boolean) => {
     try {
       const number = await createPrMutation.mutateAsync(draft);
-      await invalidatePrStatuses(repoPath, workspace.branch_name);
       // Broad refresh so `not_on_remote`/sync status update everywhere,
       // matching the existing manual "Push to remote" flow.
       void invalidateQueries();

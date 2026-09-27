@@ -274,6 +274,34 @@ describe("ShowWorkspace - Create PR", () => {
     ).toBeLessThan(vi.mocked(ghCreatePr).mock.invocationCallOrder[0]);
   });
 
+  it("keeps Create PR disabled until the new PR's status has loaded", async () => {
+    await setupPushedWorkspaceWithGitHub();
+    let resolvePrInfo: () => void = () => {};
+    vi.mocked(getPrInfoViaGh).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePrInfo = () => resolve(null);
+        }),
+    );
+    render(<Dashboard />);
+
+    const header = await openWorkspace("feat/create-pr");
+    await user.click(await findEnabledCreatePr(header));
+
+    await waitFor(() => {
+      expect(ghCreatePr).toHaveBeenCalledTimes(1);
+    });
+    const pending = await within(header).findByRole("button", {
+      name: /creating/i,
+    });
+    expect(pending).toBeDisabled();
+    expect(screen.queryByText("Pull request created")).toBeNull();
+
+    resolvePrInfo();
+    expect(await screen.findByText("Pull request created")).toBeVisible();
+    expect(ghCreatePr).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
   it.each([
     "CLOSED",
     "MERGED",
