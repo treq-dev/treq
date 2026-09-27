@@ -13,6 +13,7 @@ import { TaskInputMentionDropdown } from "./task-input/TaskInputMentionDropdown"
 import { TaskInputToolbar } from "./task-input/TaskInputToolbar";
 import {
   createSession,
+  ensureWorkspaceIndexed,
   getSetting,
   getRepoSetting,
   searchWorkspaceFiles,
@@ -133,8 +134,20 @@ export const TaskInput: React.FC<TaskInputProps> = ({
     }
   }, [taskText]);
 
+  // The mention search reads the file index, so build it the first time the
+  // user types an @ (same key as FilePicker, so the two share one run).
+  const { data: mentionIndexReady = false } = useSWR(
+    mentionQuery !== null
+      ? ["ensure-workspace-indexed", repoPath, workspaceId, workingDirectory]
+      : null,
+    () =>
+      ensureWorkspaceIndexed(repoPath, workspaceId, workingDirectory).then(
+        () => true,
+      ),
+  );
+
   const { data: mentionResults = [] } = useSWR(
-    debouncedMentionQuery !== null
+    debouncedMentionQuery !== null && mentionIndexReady
       ? ["task-mentions", repoPath, workspaceId, debouncedMentionQuery]
       : null,
     () =>

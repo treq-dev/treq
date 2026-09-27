@@ -7,7 +7,6 @@ import { createTestRepo, openRepo } from "../../../test/utils";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import {
-  ensureWorkspaceIndexed,
   getRepoSetting,
   getSessions,
 } from "../../../src/lib/api";
@@ -116,34 +115,20 @@ it("inserts an @-mentioned file and submits with Cmd+Enter", async () => {
     const dialog = await openPromptDialog(user);
     const textarea = within(dialog).getByPlaceholderText("Describe a task...");
 
-    // Known gap: TaskInput searches the file index without building it, so
-    // on a fresh repo the mention dropdown stays empty until something else
-    // (the file browser or Cmd+P picker) has indexed the workspace.
+    // Fresh repo: nothing else has indexed the workspace yet, so typing @
+    // must build the index itself before suggestions appear.
     await user.type(textarea, "Update @READ");
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    expect(
-      within(dialog).queryByRole("button", { name: "README.md" }),
-    ).not.toBeInTheDocument();
-
-    await captureDocument(document, {
-      name: "agent-prompt-dialog-options-03-mention-unindexed",
-      expectations: [
-        "Known gap: the prompt reads 'Update @READ' but no Files dropdown appears, because the workspace has not been indexed yet.",
-      ],
-    });
-
-    // Stands in for the user having opened the file browser or picker.
-    await ensureWorkspaceIndexed(repoPath, null, repoPath);
-    await user.type(textarea, "M");
-    const suggestion = await within(dialog).findByRole("button", {
-      name: "README.md",
-    });
+    const suggestion = await within(dialog).findByRole(
+      "button",
+      { name: "README.md" },
+      { timeout: 10000 },
+    );
     expect(suggestion).toBeInTheDocument();
 
     await captureDocument(document, {
-      name: "agent-prompt-dialog-options-04-mention-dropdown",
+      name: "agent-prompt-dialog-options-03-mention-dropdown",
       expectations: [
-        "Below the typed text 'Update @READM', a 'FILES' dropdown inside the prompt input lists README.md.",
+        "Below the typed text 'Update @READ', a 'FILES' dropdown inside the prompt input lists README.md.",
         "The README.md row is highlighted as the current selection.",
       ],
     });
@@ -153,7 +138,7 @@ it("inserts an @-mentioned file and submits with Cmd+Enter", async () => {
     await user.type(textarea, "with install steps");
 
     await captureDocument(document, {
-      name: "agent-prompt-dialog-options-05-mention-inserted",
+      name: "agent-prompt-dialog-options-04-mention-inserted",
       expectations: [
         "The prompt reads 'Update @README.md with install steps' and the Files dropdown is closed.",
       ],
