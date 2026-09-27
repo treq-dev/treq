@@ -86,9 +86,7 @@ describe("remote workspace UI", () => {
       ).findByRole("button", { name: defaultBranch }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
-    expect(screen.getByTestId("remote-capability-notice")).toHaveTextContent(
-      "native SSH PTY",
-    );
+    expect(screen.queryByTestId("remote-capability-notice")).toBeNull();
   });
 
   it("selects a remote workspace from the sidebar", async () => {
@@ -127,9 +125,7 @@ describe("remote workspace UI", () => {
     await user.click(await screen.findByTitle("remote-change.txt"));
     expect(await screen.findByText(/hello remote/)).toBeTruthy();
     await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
-    expect(screen.getByTestId("remote-capability-notice")).toHaveTextContent(
-      "Interactive remote terminals require native SSH PTY support",
-    );
+    expect(screen.queryByTestId("remote-capability-notice")).toBeNull();
   });
 
   it("shows remote conflicts in the workspace review UI", async () => {
