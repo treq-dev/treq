@@ -71,7 +71,7 @@ it("opens the agent prompt dialog with a GitHub issue chip from issue detail", a
 	const user = userEvent.setup();
 	render(<Dashboard />);
 
-	await user.click(await screen.findByRole("button", { name: "GitHub" }));
+	await user.click(await screen.findByRole("button", { name: "Github" }));
 	await screen.findByText("Fix the login redirect");
 	await user.click(await screen.findByText("Fix the login redirect"));
 	await screen.findByText("Issue #42");

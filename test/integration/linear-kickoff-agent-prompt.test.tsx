@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "../../src/components/Dashboard";
 import type { LinearIssue } from "../../src/lib/api-linear";
 import { render, screen, within } from "../test-utils";
-import { createTestRepo, openRepo } from "../utils";
+import { createWorkspace } from "../../src/lib/api";
+import { createTestRepo, findSidebarBranchElement, openRepo } from "../utils";
 
 const linearApi = vi.hoisted(() => ({
   linearListIssues: vi.fn(),
   linearListTeams: vi.fn(),
   linearGetViewer: vi.fn(),
+  linearOpenOrCreateWorkspaceFromIssue: vi.fn(),
 }));
 
 vi.mock("../../src/lib/api-linear", async (importOriginal) => ({
@@ -31,9 +33,10 @@ const issue: LinearIssue = {
 
 describe("Linear issue kickoff", () => {
   let user: ReturnType<typeof userEvent.setup>;
+  let repoPath: string;
 
   beforeEach(() => {
-    const { repoPath } = createTestRepo(false);
+    ({ repoPath } = createTestRepo(false));
     openRepo(repoPath);
     user = userEvent.setup();
     linearApi.linearListTeams.mockResolvedValue([]);
@@ -61,5 +64,36 @@ describe("Linear issue kickoff", () => {
     expect(
       within(dialog).getByRole("button", { name: /^edit$/i }),
     ).toBeEnabled();
+  }, 60000);
+
+  it("lists the Linear issue's new workspace in the sidebar after submit", async () => {
+    linearApi.linearOpenOrCreateWorkspaceFromIssue.mockImplementation(
+      async (path: string) => {
+        const workspaceId = await createWorkspace(path, issue.branch_name);
+        return [
+          { issue_id: issue.id, workspace_id: workspaceId, created: true },
+        ];
+      },
+    );
+    render(<Dashboard />);
+
+    await user.click(await screen.findByTestId("linear-sidebar-item"));
+    await user.click(await screen.findByRole("tab", { name: "Kanban" }));
+    await user.click(await screen.findByRole("button", { name: "Kick off" }));
+    const dialog = (
+      await screen.findByRole("heading", { name: "Start a new agent session" })
+    ).closest('[data-testid="modal"]') as HTMLElement;
+    await user.type(
+      within(dialog).getByPlaceholderText("Describe a task..."),
+      "Implement CRUD",
+    );
+    await user.click(within(dialog).getByRole("button", { name: /^edit$/i }));
+
+    expect(linearApi.linearOpenOrCreateWorkspaceFromIssue).toHaveBeenCalledWith(
+      repoPath,
+      issue.id,
+      false,
+    );
+    expect(await findSidebarBranchElement(issue.branch_name)).toBeTruthy();
   }, 60000);
 });
