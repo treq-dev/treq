@@ -1844,8 +1844,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
   };
   match request {
     TreqCommandRequest::InspectRepository { repo } => json(inspect_repository_path(&repo)),
-    // These return defaults for a path that is not a repository, so check
-    // first rather than report an empty or made-up result.
+    // These return defaults for a non-repository path, so fail first instead.
     TreqCommandRequest::RepositoryStatus { repo } => {
       require_existing_repo(&repo)?;
       json(crate::core::workspaces::workspace_status(&repo, None))

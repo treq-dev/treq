@@ -3311,8 +3311,7 @@ pub fn move_workspace_changes(
     }
   }
 
-  // Only files with changes in the source move; the rest are reported instead
-  // of being counted as moved.
+  // Only files changed in the source move; the rest become warnings.
   let mut files = Vec::new();
   if !request.files.is_empty() {
     // Record the source changes before the filesystem transfer so tracked
