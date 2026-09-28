@@ -2654,7 +2654,10 @@ pub fn rename_workspace(
   {
     return Ok(RenameWorkspaceResult {
       success: false,
-      message: format!("A workspace already uses branch '{}'", new_branch_name),
+      message: format!(
+        "Branch '{}' already exists for another workspace",
+        new_branch_name
+      ),
       workspace: None,
       updated_children_ids: vec![],
     });
