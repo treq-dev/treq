@@ -247,6 +247,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Vitest's on-disk module cache (experimental.fsModuleCache in
+      # vitest.integration.base.ts). Restored after `npm ci`, which empties
+      # node_modules. Entries are keyed by file content, so a cache from an
+      # older commit is safe to reuse; the key only picks the newest one.
+      - name: Vitest module cache
+        if: matrix.task == 'test:integration'
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.experimental-vitest-cache
+          key: vitest-fsmc-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            vitest-fsmc-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
       - uses: Swatinem/rust-cache@v2
         if: matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true'
         with:
