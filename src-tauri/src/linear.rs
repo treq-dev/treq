@@ -119,11 +119,26 @@ const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
 const LINEAR_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const LINEAR_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+// Tests point requests at a local mock server and shorten the timeout.
+// `#[tokio::test]` runs on one thread, so a thread-local stays test-scoped.
+#[cfg(test)]
+thread_local! {
+  static TEST_ENDPOINT: std::cell::RefCell<Option<(String, Duration)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
+fn linear_endpoint() -> (String, Duration) {
+  #[cfg(test)]
+  if let Some(endpoint) = TEST_ENDPOINT.with(|e| e.borrow().clone()) {
+    return endpoint;
+  }
+  (LINEAR_GRAPHQL_URL.to_string(), LINEAR_REQUEST_TIMEOUT)
+}
+
 fn linear_http_client() -> &'static reqwest::Client {
   static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
   CLIENT.get_or_init(|| {
     reqwest::Client::builder()
-      .timeout(LINEAR_REQUEST_TIMEOUT)
       .connect_timeout(LINEAR_CONNECT_TIMEOUT)
       .build()
       .unwrap_or_else(|_| reqwest::Client::new())
@@ -137,8 +152,10 @@ async fn linear_graphql<T: DeserializeOwned>(
   body: &serde_json::Value,
   what: &str,
 ) -> Result<T, String> {
+  let (url, timeout) = linear_endpoint();
   let response = linear_http_client()
-    .post(LINEAR_GRAPHQL_URL)
+    .post(url)
+    .timeout(timeout)
     .header("Authorization", api_key)
     .json(body)
     .send()
@@ -1057,5 +1074,78 @@ mod tests {
       parse_graphql_response::<ViewerOnly>(reqwest::StatusCode::BAD_GATEWAY, r#"{"data":null}"#)
         .unwrap_err();
     assert!(err.contains("502"), "{err}");
+  }
+
+  struct TestEndpointGuard;
+
+  impl Drop for TestEndpointGuard {
+    fn drop(&mut self) {
+      TEST_ENDPOINT.with(|e| *e.borrow_mut() = None);
+    }
+  }
+
+  fn use_mock_endpoint(server: &wiremock::MockServer, timeout: Duration) -> TestEndpointGuard {
+    TEST_ENDPOINT.with(|e| *e.borrow_mut() = Some((server.uri(), timeout)));
+    TestEndpointGuard
+  }
+
+  #[tokio::test]
+  async fn stalled_linear_request_times_out() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .respond_with(
+        ResponseTemplate::new(200)
+          .set_body_string(r#"{"data":{"viewer":{"id":"u1","name":"Ada"}}}"#)
+          .set_delay(Duration::from_secs(5)),
+      )
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_millis(200));
+
+    let result = tokio::time::timeout(
+      Duration::from_secs(3),
+      linear_get_viewer_impl("lin_api_test"),
+    )
+    .await
+    .expect("the request must fail on its own timeout, not hang");
+    let err = result.expect_err("a stalled request is an error");
+    assert!(err.contains("timed out"), "{err}");
+  }
+
+  #[tokio::test]
+  async fn unauthorized_html_response_reports_the_api_key() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(401).set_body_string("<html>Unauthorized</html>"))
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let err = linear_get_viewer_impl("lin_api_bad").await.unwrap_err();
+    assert!(err.contains("rejected the API key"), "{err}");
+  }
+
+  #[tokio::test]
+  async fn api_key_is_sent_bare_in_authorization_header() {
+    use wiremock::{
+      matchers::{header, method},
+      Mock, MockServer, ResponseTemplate,
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(header("authorization", "lin_api_test"))
+      .respond_with(
+        ResponseTemplate::new(200)
+          .set_body_string(r#"{"data":{"viewer":{"id":"u1","name":"Ada"}}}"#),
+      )
+      .expect(1)
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let viewer = linear_get_viewer_impl("lin_api_test").await.unwrap();
+    assert_eq!(viewer.id, "u1");
   }
 }
