@@ -36,7 +36,6 @@ describe("create dialog branch check", () => {
       "feat-a work",
     );
     await pushWorkspaceToRemote(repoPath, featA);
-    // Keep the branch but free the name; a live workspace's name is rejected outright.
     await archiveWorkspace(repoPath, featA);
 
     render(<Dashboard />);
