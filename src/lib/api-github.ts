@@ -34,10 +34,15 @@ export const ghCreateIssueComment = (
 ): Promise<void> =>
   invoke("gh_create_issue_comment", { repoFullName, issueNumber, body });
 
+/** Reasons `gh issue close --reason` accepts. */
+export type IssueCloseReason = "completed" | "not planned";
+
 export const ghCloseIssue = (
   repoFullName: string,
   issueNumber: number,
-): Promise<void> => invoke("gh_close_issue", { repoFullName, issueNumber });
+  reason?: IssueCloseReason,
+): Promise<void> =>
+  invoke("gh_close_issue", { repoFullName, issueNumber, reason });
 
 export const ghReopenIssue = (
   repoFullName: string,

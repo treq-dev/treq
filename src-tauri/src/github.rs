@@ -433,18 +433,25 @@ pub fn gh_create_issue_comment_impl(
   check_gh_output(out).map(|_| ())
 }
 
+/// Close reasons `gh issue close --reason` accepts.
+const ISSUE_CLOSE_REASONS: [&str; 2] = ["completed", "not planned"];
+
 pub fn gh_close_issue_impl(
   gh_path: &str,
   repo_full_name: &str,
   issue_number: u64,
+  reason: Option<&str>,
   extended_path: &str,
 ) -> Result<(), String> {
   let num = issue_number.to_string();
-  let out = run_gh(
-    gh_path,
-    &["issue", "close", &num, "--repo", repo_full_name],
-    extended_path,
-  )?;
+  let mut args = vec!["issue", "close", &num, "--repo", repo_full_name];
+  if let Some(reason) = reason {
+    if !ISSUE_CLOSE_REASONS.contains(&reason) {
+      return Err(format!("Unknown issue close reason: {reason}"));
+    }
+    args.extend(["--reason", reason]);
+  }
+  let out = run_gh(gh_path, &args, extended_path)?;
   check_gh_output(out).map(|_| ())
 }
 
@@ -1600,6 +1607,57 @@ echo 'https://github.com/owner/repo/pull/8'"#,
     .unwrap();
 
     assert_eq!(number, 5);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_close_issue_passes_the_close_reason() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "issue close 4 --repo owner/repo --reason not planned" || exit 9"#,
+    );
+
+    gh_close_issue_impl(
+      &gh_path,
+      "owner/repo",
+      4,
+      Some("not planned"),
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_close_issue_omits_reason_when_none_given() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "issue close 4 --repo owner/repo" || exit 9"#,
+    );
+
+    gh_close_issue_impl(&gh_path, "owner/repo", 4, None, "/usr/bin:/bin").unwrap();
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_close_issue_rejects_unknown_reason_without_running_gh() {
+    let bin_dir = TempDir::new().unwrap();
+    let marker = bin_dir.path().join("ran");
+    let gh_path = write_fake_gh(&bin_dir, &format!("touch '{}'", marker.display()));
+
+    let err = gh_close_issue_impl(
+      &gh_path,
+      "owner/repo",
+      4,
+      Some("duplicate"),
+      "/usr/bin:/bin",
+    )
+    .unwrap_err();
+
+    assert!(err.contains("duplicate"), "{err}");
+    assert!(!marker.exists());
   }
 
   #[test]
