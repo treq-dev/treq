@@ -292,16 +292,13 @@ where
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   telemetry::install_panic_hook();
+  // CLI invocations never start Tauri: see `cli::args` for why.
   #[cfg(desktop)]
-  let cli_process = is_cli_process(std::env::args_os());
-  // Mobile apps are never launched as a command-line tool.
-  #[cfg(mobile)]
-  let cli_process = false;
-  let builder = tauri::Builder::default();
-  let builder = if cli_process {
-    builder
-  } else {
-    let builder = builder
+  if is_cli_process(std::env::args_os()) {
+    std::process::exit(cli::args::run(std::env::args_os()));
+  }
+  let builder = {
+    let builder = tauri::Builder::default()
       .plugin(
         tauri_plugin_log::Builder::new()
           .level(tauri_plugin_log::log::LevelFilter::Info)
@@ -348,74 +345,8 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            // CLI commands must not touch the GUI app's log directory: agent sandboxes may
-            // intentionally deny access to it. GUI processes retain the existing telemetry.
-            let mut telemetry = if cli_process {
-                None
-            } else {
-                let log_dir = app.path().app_log_dir().expect("Failed to get app log dir");
-                Some(telemetry::init(&log_dir).expect("Failed to initialize telemetry"))
-            };
-
-            // --- CLI mode: handle commands and exit before any GUI init ---
-            #[cfg(desktop)]
-            {
-                use tauri_plugin_cli::CliExt;
-                match app.cli().matches() {
-                    Ok(matches) => {
-                        cli::init_cli_binary_paths();
-                        if let Some(ref subcommand) = matches.subcommand {
-                            if let Some(exit_code) = cli::handle_cli_command(subcommand) {
-                                // Drop explicitly to flush the log writer before the process exits,
-                                // since `app.handle().exit()` does not run Rust destructors.
-                                app.handle().exit(exit_code);
-                                return Ok(());
-                            }
-                            let msg = format!("Unknown command: {}", subcommand.name);
-                            eprintln!("{}", msg);
-                            tracing::error!("{}", msg);
-                            eprintln!("Usage:");
-                            eprintln!("  treq add <branch_name> [-d description] [-l title] [-s source_branch] [-p sparse]... [-k symlink]...");
-                            eprintln!("  treq set <workspace_name> [-d description] [-l title] [-t target_branch]");
-                            eprintln!("  treq st [workspace_name]");
-                            eprintln!("  treq diff [workspace_name]");
-                            eprintln!("  treq agent <branch> <prompt> [-m <edit|plan>]");
-                            eprintln!("  treq help");
-                            app.handle().exit(1);
-                            return Ok(());
-                        } else if cli::handle_cli_global_args(&matches) {
-                            app.handle().exit(0);
-                            return Ok(());
-                        } else if !matches.args.is_empty() {
-                            // Defensive: a recognized-but-unhandled top-level arg was passed.
-                            // Treat it as a CLI error rather than silently opening the GUI.
-                            let msg = format!("Unrecognized arguments: {:?}", matches.args);
-                            eprintln!("{}", msg);
-                            tracing::error!("{}", msg);
-                            app.handle().exit(1);
-                            return Ok(());
-                        }
-                        // No args at all: fall through to normal GUI launch.
-                    }
-                    Err(e) => {
-                        // Malformed CLI invocation (unrecognized subcommand/flag, missing
-                        // required argument, wrong value count, etc). clap's error message
-                        // already includes usage help, so surface it and exit non-zero
-                        // instead of silently falling through to the GUI.
-                        let msg = e.to_string();
-                        eprintln!("{}", msg);
-                        tracing::error!("{}", msg);
-                        app.handle().exit(1);
-                        return Ok(());
-                    }
-                }
-            }
-
-            // --- GUI mode: continue setup ---
-
-            let telemetry = telemetry
-                .take()
-                .expect("GUI process must initialize telemetry");
+            let log_dir = app.path().app_log_dir().expect("Failed to get app log dir");
+            let telemetry = telemetry::init(&log_dir).expect("Failed to initialize telemetry");
 
             let app_dir = app
                 .path()
