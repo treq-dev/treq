@@ -1,12 +1,14 @@
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Dashboard } from "../../../src/components/Dashboard";
 import * as api from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../test-utils";
-import { createTestRepo, findSidebarBranchElement, openRepo } from "../../utils";
+import {
+  createTestRepo,
+  findSidebarBranchElement,
+  openRepo,
+} from "../../utils";
 
-// Holds createWorkspace open until the test releases it, so "Creating..." is
-// guaranteed to be on screen when Escape is pressed.
 let gate: Promise<void> | null = null;
 vi.mock("../../../src/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/lib/api")>();
@@ -21,6 +23,11 @@ vi.mock("../../../src/lib/api", async (importOriginal) => {
   };
 });
 
+let user: ReturnType<typeof userEvent.setup>;
+beforeEach(() => {
+  user = userEvent.setup();
+});
+
 afterEach(() => {
   gate = null;
 });
@@ -30,7 +37,6 @@ it("ignores Escape while a stacked workspace is being created", async () => {
   openRepo(repoPath);
   await api.createWorkspace(repoPath, "esc/base");
 
-  const user = userEvent.setup();
   render(<Dashboard />);
 
   const row = (await findSidebarBranchElement("esc/base")).closest(
