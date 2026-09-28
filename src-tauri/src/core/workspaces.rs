@@ -1030,9 +1030,44 @@ fn forget_workspace_record(
             .map_err(|e| format!("Failed to archive workspace in db: {}", e))?;
         }
       }
-      Ok(Some(workspace_path_str))
+      Ok(Some(move_workspace_dir_to_trash(
+        repo_path,
+        &workspace_path,
+        *workspace_id,
+      )))
     }
     _ => Err(format!("Workspace not found in database: {}", workspace_id)),
+  }
+}
+
+/// Move a forgotten workspace directory out of `.treq/workspaces/` so its slot
+/// is free at once. Callers may delete the returned path in the background; a
+/// workspace recreated under the same name will not share that path. Falls back
+/// to the original path when the rename fails (e.g. the directory is gone).
+fn move_workspace_dir_to_trash(repo_path: &str, workspace_dir: &Path, workspace_id: i64) -> String {
+  let original = workspace_dir.to_string_lossy().to_string();
+  if !workspace_dir.exists() {
+    return original;
+  }
+  let Some(name) = workspace_dir.file_name().and_then(|n| n.to_str()) else {
+    return original;
+  };
+  let trash_dir = Path::new(repo_path).join(".treq").join("trash");
+  if let Err(e) = std::fs::create_dir_all(&trash_dir) {
+    tracing::warn!("Failed to create workspace trash dir: {}", e);
+    return original;
+  }
+  let stamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_nanos())
+    .unwrap_or_default();
+  let target = trash_dir.join(format!("{name}-{workspace_id}-{stamp}"));
+  match std::fs::rename(workspace_dir, &target) {
+    Ok(()) => target.to_string_lossy().to_string(),
+    Err(e) => {
+      tracing::warn!("Failed to move workspace dir to trash: {}", e);
+      original
+    }
   }
 }
 
@@ -1568,110 +1603,88 @@ mod tests {
   }
 
   #[test]
-  fn update_workspace_with_title_clears_title_and_description() {
-    use super::MaybeEmptyParam;
-
+  fn create_workspace_reuses_branch_name_after_archive() {
     let temp = TempDir::new().expect("tempdir");
     let repo_path = init_workspace_creation_repo(&temp);
-    let ws = super::create_workspace(
-      &repo_path,
-      "feat/clear",
-      Some("old description".to_string()),
-      None,
-      None,
-      None,
-      None,
-    )
-    .expect("create workspace");
-    crate::local_db::update_workspace_title(&repo_path, ws.id, "Old title").expect("set title");
+    let first = super::create_workspace(&repo_path, "fix/reuse", None, None, None, None, None)
+      .expect("create workspace");
+    super::archive_workspace(&repo_path, &first.id).expect("archive workspace");
 
-    let updated = super::update_workspace_with_title(
-      &repo_path,
-      ws.id,
-      MaybeEmptyParam::Omitted,
-      MaybeEmptyParam::EmptyValue,
-      MaybeEmptyParam::EmptyValue,
-    )
-    .expect("update workspace");
+    let second = super::create_workspace(&repo_path, "fix/reuse", None, None, None, None, None)
+      .expect("recreate archived branch name");
 
-    assert_eq!(updated.title, "feat/clear", "title falls back to branch");
-    assert_eq!(updated.description, None);
+    assert_ne!(second.id, first.id);
+    assert!(temp
+      .path()
+      .join(".treq/workspaces")
+      .join(&second.workspace_path)
+      .exists());
+    let live = super::list_workspaces(&repo_path).expect("list workspaces");
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].id, second.id);
   }
 
   #[test]
-  fn update_workspace_with_empty_target_uses_repo_default_branch() {
-    use super::MaybeEmptyParam;
-
+  fn archive_moves_directory_out_before_background_removal() {
     let temp = TempDir::new().expect("tempdir");
     let repo_path = init_workspace_creation_repo(&temp);
-    // A repo whose trunk is not called "main".
-    crate::jj::jj_set_bookmark(&repo_path, "trunk", "main").expect("set trunk");
-    crate::jj::jj_delete_bookmark(&repo_path, "main").expect("drop main");
-    let status = Command::new("git")
-      .current_dir(temp.path())
-      .args(["config", "init.defaultBranch", "trunk"])
-      .status()
-      .expect("git config");
-    assert!(status.success());
-    let base = super::create_workspace(&repo_path, "feat/base", None, None, None, None, None)
-      .expect("create base");
-    let ws = super::create_workspace(
-      &repo_path,
-      "feat/child",
-      None,
-      None,
-      Some("feat/base"),
-      None,
-      None,
-    )
-    .expect("create child");
-    assert_eq!(ws.target_branch.as_deref(), Some(base.branch_name.as_str()));
+    let first = super::create_workspace(&repo_path, "fix/race", None, None, None, None, None)
+      .expect("create workspace");
+    let workspace_dir = temp
+      .path()
+      .join(".treq/workspaces")
+      .join(&first.workspace_path);
 
-    let updated = super::update_workspace_with_title(
-      &repo_path,
-      ws.id,
-      MaybeEmptyParam::EmptyValue,
-      MaybeEmptyParam::Omitted,
-      MaybeEmptyParam::Omitted,
-    )
-    .expect("clear target");
+    let leftover = super::archive_workspace_leaving_directory(&repo_path, &first.id)
+      .expect("archive workspace")
+      .expect("leftover directory");
 
-    assert_eq!(updated.target_branch.as_deref(), Some("trunk"));
+    // The directory is out of the workspace slot before the caller deletes it,
+    // so an immediate recreate cannot race the background removal.
+    assert!(!workspace_dir.exists());
+    let second = super::create_workspace(&repo_path, "fix/race", None, None, None, None, None)
+      .expect("recreate while removal is pending");
+    let marker = workspace_dir.join("keep-me.txt");
+    fs::write(&marker, "new work").expect("write marker");
+
+    crate::jj::remove_workspace_directory_only(&leftover).expect("background removal");
+
+    assert_eq!(second.workspace_path, first.workspace_path);
+    assert_eq!(fs::read_to_string(marker).expect("marker"), "new work");
   }
 
   #[test]
-  fn create_new_workspace_applies_title_and_marks_first_rebase() {
+  fn open_or_create_workspace_from_pr_ignores_archived_workspace() {
     let temp = TempDir::new().expect("tempdir");
     let repo_path = init_workspace_creation_repo(&temp);
+    let first = super::create_workspace(&repo_path, "fix/pr", None, None, None, None, None)
+      .expect("create workspace");
+    super::archive_workspace(&repo_path, &first.id).expect("archive workspace");
 
-    let ws = super::create_new_workspace(
-      &repo_path,
-      "feat/cli",
-      None,
-      WorkspaceMetadata {
-        title: Some("From the CLI".to_string()),
-        description: Some("desc".to_string()),
-        ..Default::default()
-      },
-      None,
-    )
-    .expect("create workspace");
+    let (workspace, created) =
+      super::open_or_create_workspace_from_pr(&repo_path, "fix/pr", "main", None, None)
+        .expect("open PR workspace");
 
-    assert_eq!(ws.title, "From the CLI");
-    assert_eq!(ws.description.as_deref(), Some("desc"));
-    assert_eq!(
-      crate::local_db::get_workspace_last_rebased_commit(&repo_path, ws.id).expect("rebase flag"),
-      Some(String::new())
-    );
+    assert!(created);
+    assert_ne!(workspace.id, first.id);
+    assert!(!workspace.archived);
   }
 
   #[test]
-  fn parse_included_copy_files_trims_and_skips_blank_lines() {
-    assert_eq!(
-      super::parse_included_copy_files(Some(" .env \n\n  config/local.yml\n")),
-      Some(vec![".env".to_string(), "config/local.yml".to_string()])
-    );
-    assert_eq!(super::parse_included_copy_files(None), None);
+  fn open_or_create_workspace_from_issue_ignores_archived_workspace() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let (first, _) =
+      super::open_or_create_workspace_from_issue(&repo_path, "ty/eng-1", "main", "Issue", None)
+        .expect("create issue workspace");
+    super::archive_workspace(&repo_path, &first.id).expect("archive workspace");
+
+    let (workspace, created) =
+      super::open_or_create_workspace_from_issue(&repo_path, "ty/eng-1", "main", "Issue", None)
+        .expect("reopen issue workspace");
+
+    assert!(created);
+    assert_ne!(workspace.id, first.id);
   }
 
   #[test]
@@ -1797,6 +1810,113 @@ mod tests {
       .expect("lookup")
       .expect("parent");
     assert_eq!(parent.branch_name, "feat/new");
+  }
+
+  #[test]
+  fn update_workspace_with_title_clears_title_and_description() {
+    use super::MaybeEmptyParam;
+
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let ws = super::create_workspace(
+      &repo_path,
+      "feat/clear",
+      Some("old description".to_string()),
+      None,
+      None,
+      None,
+      None,
+    )
+    .expect("create workspace");
+    crate::local_db::update_workspace_title(&repo_path, ws.id, "Old title").expect("set title");
+
+    let updated = super::update_workspace_with_title(
+      &repo_path,
+      ws.id,
+      MaybeEmptyParam::Omitted,
+      MaybeEmptyParam::EmptyValue,
+      MaybeEmptyParam::EmptyValue,
+    )
+    .expect("update workspace");
+
+    assert_eq!(updated.title, "feat/clear", "title falls back to branch");
+    assert_eq!(updated.description, None);
+  }
+
+  #[test]
+  fn update_workspace_with_empty_target_uses_repo_default_branch() {
+    use super::MaybeEmptyParam;
+
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    // A repo whose trunk is not called "main".
+    crate::jj::jj_set_bookmark(&repo_path, "trunk", "main").expect("set trunk");
+    crate::jj::jj_delete_bookmark(&repo_path, "main").expect("drop main");
+    let status = Command::new("git")
+      .current_dir(temp.path())
+      .args(["config", "init.defaultBranch", "trunk"])
+      .status()
+      .expect("git config");
+    assert!(status.success());
+    let base = super::create_workspace(&repo_path, "feat/base", None, None, None, None, None)
+      .expect("create base");
+    let ws = super::create_workspace(
+      &repo_path,
+      "feat/child",
+      None,
+      None,
+      Some("feat/base"),
+      None,
+      None,
+    )
+    .expect("create child");
+    assert_eq!(ws.target_branch.as_deref(), Some(base.branch_name.as_str()));
+
+    let updated = super::update_workspace_with_title(
+      &repo_path,
+      ws.id,
+      MaybeEmptyParam::EmptyValue,
+      MaybeEmptyParam::Omitted,
+      MaybeEmptyParam::Omitted,
+    )
+    .expect("clear target");
+
+    assert_eq!(updated.target_branch.as_deref(), Some("trunk"));
+  }
+
+  #[test]
+  fn create_new_workspace_applies_title_and_marks_first_rebase() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+
+    let ws = super::create_new_workspace(
+      &repo_path,
+      "feat/cli",
+      None,
+      WorkspaceMetadata {
+        title: Some("From the CLI".to_string()),
+        description: Some("desc".to_string()),
+        ..Default::default()
+      },
+      None,
+    )
+    .expect("create workspace");
+
+    assert_eq!(ws.title, "From the CLI");
+    assert_eq!(ws.description.as_deref(), Some("desc"));
+    assert_eq!(
+      crate::local_db::get_workspace_last_rebased_commit(&repo_path, ws.id).expect("rebase flag"),
+      Some(String::new())
+    );
+  }
+
+  #[test]
+  fn parse_included_copy_files_trims_and_skips_blank_lines() {
+    assert_eq!(
+      super::parse_included_copy_files(Some(" .env \n\n  config/local.yml\n")),
+      Some(vec![".env".to_string(), "config/local.yml".to_string()])
+    );
+    assert_eq!(super::parse_included_copy_files(None), None);
   }
 
   #[test]

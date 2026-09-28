@@ -131,9 +131,20 @@ fn test_archive_workspace_leaving_directory_keeps_db_record() {
       .expect("archive_workspace_leaving_directory should succeed")
       .expect("should return the leftover directory path");
 
-  assert_eq!(leftover_path, workspace_path.to_string_lossy().to_string());
+  // The directory leaves the workspace slot at once (so a recreate under the
+  // same name cannot race the removal); deleting it is deferred.
+  let leftover = std::path::Path::new(&leftover_path);
   assert!(
-    workspace_path.exists(),
+    leftover.starts_with(repo.workspaces_dir().parent().unwrap().join("trash")),
+    "leftover should be moved into .treq/trash, got: {}",
+    leftover_path
+  );
+  assert!(
+    !workspace_path.exists(),
+    "workspace slot should be free right after archive"
+  );
+  assert!(
+    leftover.exists(),
     "directory deletion is deferred to a background job"
   );
 
