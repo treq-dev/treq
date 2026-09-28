@@ -86,6 +86,12 @@ it("stack chaos: before-insert keeps the chain linear", async () => {
   expect(t["chaos/b"]).toBe("chaos/x");
   expect(t["chaos/c"]).toBe("chaos/b");
 
+  // No auto-generated "Stacked from <parent>" description to go stale.
+  const described = (await getWorkspaces(repoPath)).filter(
+    (w) => w.description,
+  );
+  expect(described).toEqual([]);
+
   await user.click(await findSidebarBranchElement("chaos/b"));
   await screen.findByTestId("workspace-stack-panel");
   await new Promise((r) => setTimeout(r, 500));
@@ -93,6 +99,7 @@ it("stack chaos: before-insert keeps the chain linear", async () => {
     name: "stack-chaos-create-01-before-insert",
     expectations: [
       "Sidebar nests chaos/a > chaos/x > chaos/b > chaos/c, each one indent deeper.",
+      "The header has no 'Stacked from chaos/a' line under chaos/b.",
       "The Stack panel lists chaos/c, chaos/b (highlighted), chaos/x, chaos/a above the default branch.",
     ],
   });
@@ -108,62 +115,53 @@ it("stack chaos: invalid and duplicate branch names", async () => {
   await stackFromHome(user, "chaos/parent");
 
   // 1. Stack onto chaos/parent using chaos/parent's own name.
-  let dialog = await openStackDialogOn(user, "chaos/parent");
-  await user.type(within(dialog).getByLabelText("Branch Name"), "chaos/parent");
+  const dialog = await openStackDialogOn(user, "chaos/parent");
+  const input = within(dialog).getByLabelText("Branch Name");
+  const submit = within(dialog).getByRole("button", {
+    name: "Create Workspace",
+  });
+  await user.type(input, "chaos/parent");
+  expect(await within(dialog).findByTestId("branch-name-error")).toHaveTextContent(
+    "A workspace for chaos/parent already exists",
+  );
+  expect(submit).toBeDisabled();
   await new Promise((r) => setTimeout(r, 800));
   await captureDocument(document, {
     name: "stack-chaos-create-02-self-name-typed",
     expectations: [
-      "The branch input shows chaos/parent and warns that the branch already exists locally.",
-      "The Create Workspace button state is visible (enabled or disabled).",
+      "A red error under the input says a workspace for chaos/parent already exists.",
+      "The Create Workspace button is disabled.",
     ],
   });
-  await user.click(
-    within(dialog).getByRole("button", { name: "Create Workspace" }),
-  );
-  await new Promise((r) => setTimeout(r, 1500));
-  await captureDocument(document, {
-    name: "stack-chaos-create-03-self-name-submitted",
-    expectations: [
-      "An error explains the name is taken; the dialog stays open.",
-      "Only one error toast is shown for the single failure.",
-    ],
-  });
-  chaosLog(
-    "[chaos] toasts after self-name",
-    Array.from(document.querySelectorAll("[data-sonner-toast],[role=status],li[data-type]"))
-      .map((n) => n.textContent)
-      .join(" | "),
-  );
 
   // 2. Whitespace and illegal characters.
-  const input = within(dialog).getByLabelText("Branch Name");
   await user.clear(input);
   await user.type(input, "  chaos/has space  ");
-  await user.click(
-    within(dialog).getByRole("button", { name: "Create Workspace" }),
+  expect(await within(dialog).findByTestId("branch-name-error")).toHaveTextContent(
+    "Invalid branch name: contains ' '",
   );
-  await new Promise((r) => setTimeout(r, 1500));
+  expect(submit).toBeDisabled();
+  await new Promise((r) => setTimeout(r, 800));
   await captureDocument(document, {
     name: "stack-chaos-create-04-space-name",
     expectations: [
-      "An inline error rejects the space in the branch name before any workspace is created.",
+      "A red inline error rejects the space in the branch name; no green check is shown.",
+      "No error toast appears, and Create Workspace is disabled.",
     ],
   });
 
   // 3. Unicode / emoji name.
   await user.clear(input);
   await user.type(input, "chaos/ünïcødé-🚀");
-  await user.click(
-    within(dialog).getByRole("button", { name: "Create Workspace" }),
-  );
+  expect(within(dialog).queryByTestId("branch-name-error")).toBeNull();
+  await user.click(submit);
   await new Promise((r) => setTimeout(r, 2500));
   const names = (await getWorkspaces(repoPath)).map((w) => w.branch_name);
   chaosLog("[chaos] workspaces after hostile names", JSON.stringify(names));
   await captureDocument(document, {
     name: "stack-chaos-create-05-unicode-name",
     expectations: [
-      "Either the unicode workspace is created and selected, or a clear error is shown.",
+      "The unicode workspace is created, selected, and nested under chaos/parent.",
     ],
   });
 }, 120000);

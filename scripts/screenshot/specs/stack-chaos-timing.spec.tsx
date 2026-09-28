@@ -111,23 +111,22 @@ it("stack chaos: double-click and escape mid-create", async () => {
   await user.click(
     within(dialog).getByRole("button", { name: "Create Workspace" }),
   );
+  const inFlight =
+    screen.queryByRole("button", { name: /Creating/ }) !== null;
   await user.keyboard("{Escape}");
-  const closedEarly = screen.queryByTestId("modal") === null;
-  await settle(2500);
-  const header = await screen.findByTestId("show-workspace-header");
-  chaosLog(
-    "[chaos] escape mid-create",
-    JSON.stringify({
-      closedEarly,
-      header: header.textContent,
-      workspaces: (await getWorkspaces(repoPath)).map((w) => w.branch_name),
-    }),
+  chaosLog("[chaos] escape while creating", JSON.stringify({ inFlight }));
+  // Escape is ignored while the create is in flight.
+  if (inFlight) expect(screen.getByTestId("modal")).toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.queryByTestId("modal")).not.toBeInTheDocument(),
   );
+  const header = await screen.findByTestId("show-workspace-header");
+  await within(header).findByText("tm/esc");
+  await settle();
   await captureDocument(document, {
     name: "stack-chaos-timing-02-escape-mid-create",
     expectations: [
-      "If Escape cancelled the dialog, the app did not silently navigate into tm/esc afterwards.",
-      "If tm/esc was created anyway, the sidebar shows it stacked under tm/base.",
+      "The app shows tm/esc (created as submitted) and the sidebar nests it under tm/base.",
     ],
   });
 }, 180000);
@@ -148,6 +147,10 @@ it("stack chaos: reuse an archived name in a stack", async () => {
   await waitFor(() =>
     expect(within(sidebar).queryByText("re/child")).not.toBeInTheDocument(),
   );
+  // Archiving the workspace on screen lands on its stack parent.
+  await within(await screen.findByTestId("show-workspace-header")).findByText(
+    "re/base",
+  );
 
   const label = await findSidebarBranchElement("re/base");
   const row = label.closest("div") as HTMLElement;
@@ -161,7 +164,8 @@ it("stack chaos: reuse an archived name in a stack", async () => {
   await captureDocument(document, {
     name: "stack-chaos-timing-03-archived-name-typed",
     expectations: [
-      "The dialog shows the status of the reused name (exists locally) without blocking submit.",
+      "The main view behind the dialog is re/base, not the home repo.",
+      "The dialog shows the reused name exists locally without blocking submit.",
     ],
   });
   await user.click(
@@ -206,7 +210,7 @@ it("stack chaos: deep stack with long names", async () => {
   await captureDocument(document, {
     name: "stack-chaos-timing-05-deep-stack",
     expectations: [
-      "Sidebar shows 7 nested rows; long names truncate with an ellipsis and no row overflows the sidebar.",
+      "Sidebar shows 7 nested rows truncated from the start, so each row's -1..-7 suffix is visible.",
       "Stack panel lists 7 entries with -4 highlighted, header reads '4 of 7'.",
     ],
   });
@@ -222,7 +226,7 @@ it("stack chaos: deep stack with long names", async () => {
   await captureDocument(document, {
     name: "stack-chaos-timing-06-deep-stack-dialog",
     expectations: [
-      "The dialog's stack card lists all 7 ancestors below the new row without overflowing the dialog.",
+      "The dialog's stack card lists 7 ancestors, each truncated from the start with its -7..-1 suffix visible.",
     ],
   });
 }, 300000);

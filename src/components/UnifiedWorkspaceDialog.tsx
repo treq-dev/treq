@@ -24,6 +24,8 @@ import { WorkspaceLeftPanel } from "./WorkspaceLeftPanel";
 import { WorkspaceRightPanel } from "./WorkspaceRightPanel";
 import { useWorkspaceDialogEffects } from "../hooks/useWorkspaceDialogEffects";
 import { useWorkspaceDialogSubmit } from "../hooks/useWorkspaceDialogSubmit";
+import { validateBranchName } from "../lib/branch-name";
+import { useKeyboardShortcut } from "../hooks/useKeyboard";
 
 export interface WorkspaceDialogDefaults {
   /** Branch the new workspace should stack on */
@@ -95,6 +97,10 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
 
   // ── position toggle ──────────────────────────────────────────────────────
   const [position, setPosition] = useState<"before" | "after">("after");
+  // The dialog stays mounted between opens; start each one at "after".
+  useEffect(() => {
+    if (open) setPosition("after");
+  }, [open]);
 
   // ── right panel ──────────────────────────────────────────────────────────
   const [activeRightTab, setActiveRightTab] = useState<"commits" | "changes">(
@@ -230,15 +236,6 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     return Array.from(paths);
   })();
 
-  // ── isStackOnRoot ────────────────────────────────────────────────────────
-  const isStackOnRoot =
-    hasSourceWorkspace &&
-    sourceWorkspace !== null &&
-    (!sourceWorkspace.target_branch ||
-      !allWorkspaces.some(
-        (w) => w.branch_name === sourceWorkspace.target_branch,
-      ));
-
   // ── stack card ───────────────────────────────────────────────────────────
   const { data: defaultBranch } = useSWR(
     open ? ["repo-default-branch", repoPath] : null,
@@ -255,6 +252,19 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
         })
       : [];
 
+  // ── branch name validation ───────────────────────────────────────────────
+  // Reject names the backend would, including one an existing workspace owns.
+  const trimmedBranchName = branchName.trim();
+  const branchNameError = (() => {
+    if (moveToExisting || trimmedBranchName === "") return null;
+    const reason = validateBranchName(trimmedBranchName);
+    if (reason) return `Invalid branch name: ${reason}`;
+    if (allWorkspaces.some((w) => w.branch_name === trimmedBranchName)) {
+      return `A workspace for ${trimmedBranchName} already exists`;
+    }
+    return null;
+  })();
+
   // ── canSubmit ────────────────────────────────────────────────────────────
   const canSubmit = (() => {
     if (loading) return false;
@@ -266,7 +276,7 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
       return hasSelection && targetWorkspaceId !== null;
     }
     if (!branchName.trim()) return false;
-    return true;
+    return branchNameError === null;
   })();
 
   // ── submitLabel ──────────────────────────────────────────────────────────
@@ -340,8 +350,6 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     branchPattern,
     isEditingBranch,
     moveToExisting,
-    isStackOnRoot,
-    position,
     fileHunksMap,
     setIntent,
     setTitle,
@@ -356,7 +364,6 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     setTargetBranch,
     setAvailableBranches,
     setBranchesLoading,
-    setPosition,
     setActiveRightTab,
     setChangedFiles,
     setFileHunksMap,
@@ -400,6 +407,11 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     onOpenChange,
   });
 
+  // Closing mid-create would hide a workspace that is still being made.
+  const closeUnlessCreating = () => {
+    if (!loading) onOpenChange(false);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
@@ -407,13 +419,30 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      onOpenChange(false);
+      e.stopPropagation();
+      closeUnlessCreating();
     }
   };
 
+  // Escape with focus outside the dialog never reaches the content's onKeyDown.
+  useKeyboardShortcut(
+    "Escape",
+    false,
+    () => {
+      if (open) closeUnlessCreating();
+    },
+    [open, loading],
+  );
+
   // ── render ───────────────────────────────────────────────────────────────
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) onOpenChange(next);
+        else closeUnlessCreating();
+      }}
+    >
       <DialogContent
         className="overflow-hidden md:min-w-[560px] md:max-w-[640px]"
         onKeyDown={handleKeyDown}
@@ -433,7 +462,6 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
           <WorkspaceLeftPanel
             sourceWorkspace={sourceWorkspace}
             hasSourceWorkspace={hasSourceWorkspace}
-            isStackOnRoot={isStackOnRoot}
             availableBranches={availableBranches}
             branchesLoading={branchesLoading}
             targetBranch={targetBranch}
@@ -461,6 +489,7 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
             onSetIsEditingBranch={setIsEditingBranch}
             branchPattern={branchPattern}
             branchStatus={branchStatus}
+            branchNameError={branchNameError}
             loading={loading}
             allWorkspaces={allWorkspaces}
           />

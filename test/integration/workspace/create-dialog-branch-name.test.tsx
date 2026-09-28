@@ -2,7 +2,7 @@ import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Dashboard } from "../../../src/components/Dashboard";
-import { getWorkspaces } from "../../../src/lib/api";
+import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../test-utils";
 import {
   createTestRepo,
@@ -18,6 +18,43 @@ describe("create dialog branch name", () => {
     ({ repoPath } = createTestRepo(false));
     openRepo(repoPath);
     user = userEvent.setup();
+  });
+
+  async function openStackDialog() {
+    await user.click(await screen.findByTestId("home-repo-row"));
+    await screen.findByTestId("show-workspace-header");
+    await user.click(await screen.findByRole("button", { name: "Stack" }));
+    return screen.findByTestId("modal");
+  }
+
+  it("rejects an invalid branch name inline before submitting", async () => {
+    render(<Dashboard />);
+    const dialog = await openStackDialog();
+
+    await user.type(within(dialog).getByLabelText("Branch Name"), "feat/a b");
+
+    expect(
+      await within(dialog).findByTestId("branch-name-error"),
+    ).toHaveTextContent("Invalid branch name: contains ' '");
+    expect(
+      within(dialog).getByRole("button", { name: "Create Workspace" }),
+    ).toBeDisabled();
+  });
+
+  it("rejects a name an existing workspace already owns", async () => {
+    await createWorkspace(repoPath, "feat/taken");
+    render(<Dashboard />);
+    await findSidebarBranchElement("feat/taken");
+    const dialog = await openStackDialog();
+
+    await user.type(within(dialog).getByLabelText("Branch Name"), "feat/taken");
+
+    expect(
+      await within(dialog).findByTestId("branch-name-error"),
+    ).toHaveTextContent("A workspace for feat/taken already exists");
+    expect(
+      within(dialog).getByRole("button", { name: "Create Workspace" }),
+    ).toBeDisabled();
   });
 
   it("creates the workspace with the trimmed branch name", async () => {

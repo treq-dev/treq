@@ -102,6 +102,8 @@ it("stack chaos: archiving the middle of a stack", async () => {
   );
   const t = await targets(repoPath);
   chaosLog("[chaos] targets after archiving middle", JSON.stringify(t));
+  // mid/c is spliced onto mid/b's parent, not dropped onto the default branch.
+  expect(t["mid/c"]).toBe("mid/a");
 
   await user.click(await findSidebarBranchElement("mid/c"));
   await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
@@ -112,7 +114,7 @@ it("stack chaos: archiving the middle of a stack", async () => {
     expectations: [
       "mid/c stays stacked under mid/a in the sidebar after mid/b is archived.",
       "The header target for mid/c names its real parent, not the default branch.",
-      "Commits tab for mid/c lists only commits that belong to the stack's remaining branches.",
+      "Commits tab for mid/c lists C commit and B commit as its own; A commit is not in its list.",
     ],
   });
 }, 180000);
@@ -127,14 +129,14 @@ it("stack chaos: before on the root and a grandchild reorder", async () => {
   await stackFromHome(user, "ro/a");
   await stackOn(user, "ro/a", "ro/b");
   await stackOn(user, "ro/b", "ro/c");
-  // "Before" is hidden on a stack root, so insert the new base before ro/b.
-  await stackOn(user, "ro/b", "ro/root", "before");
+  // "Before" on the stack root inserts a new base under the whole stack.
+  await stackOn(user, "ro/a", "ro/root", "before");
 
   let t = await targets(repoPath);
-  chaosLog("[chaos] targets after before-insert", JSON.stringify(t));
-  expect(t["ro/a"]).toBe(defaultBranch);
-  expect(t["ro/root"]).toBe("ro/a");
-  expect(t["ro/b"]).toBe("ro/root");
+  chaosLog("[chaos] targets after before-on-root", JSON.stringify(t));
+  expect(t["ro/root"]).toBe(defaultBranch);
+  expect(t["ro/a"]).toBe("ro/root");
+  expect(t["ro/b"]).toBe("ro/a");
 
   await user.click(await findSidebarBranchElement("ro/c"));
   await screen.findByTestId("workspace-stack-panel");
@@ -142,7 +144,7 @@ it("stack chaos: before on the root and a grandchild reorder", async () => {
   await captureDocument(document, {
     name: "stack-chaos-mutate-02-before-root",
     expectations: [
-      "Sidebar nests ro/a > ro/root > ro/b > ro/c.",
+      "Sidebar nests ro/root > ro/a > ro/b > ro/c.",
       "Stack panel shows 4 workspaces above the default branch with ro/c highlighted.",
     ],
   });

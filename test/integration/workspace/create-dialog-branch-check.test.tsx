@@ -2,7 +2,11 @@ import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Dashboard } from "../../../src/components/Dashboard";
-import { createWorkspace, pushWorkspaceToRemote } from "../../../src/lib/api";
+import {
+  archiveWorkspace,
+  createWorkspace,
+  pushWorkspaceToRemote,
+} from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../test-utils";
 import {
   commitWorkspaceFile,
@@ -32,6 +36,8 @@ describe("create dialog branch check", () => {
       "feat-a work",
     );
     await pushWorkspaceToRemote(repoPath, featA);
+    // Keep the branch but free the name; a live workspace's name is rejected outright.
+    await archiveWorkspace(repoPath, featA);
 
     render(<Dashboard />);
     await user.click(await screen.findByTestId("home-repo-row"));

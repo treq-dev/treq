@@ -157,17 +157,6 @@ export function formatDayLabel(timestamp: string): string {
   });
 }
 
-// Generate stacked workspace description from parent workspace/branch.
-export function generateStackedIntent(
-  parentIntent: string | null,
-  parentBranch: string,
-): string {
-  if (parentIntent) {
-    return `${parentIntent}\n\nStacked from ${parentBranch}`;
-  }
-  return `Stacked from ${parentBranch}`;
-}
-
 // Generate a stacked workspace branch name with enumeration.
 export function generateStackedBranchName(
   branchPattern: string,
