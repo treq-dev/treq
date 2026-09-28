@@ -1667,7 +1667,10 @@ pub fn create_workspace(
         let wc_override = parent_repo
           .view()
           .wc_commit_ids()
-          .values()
+          .iter()
+          // The home repo's working copy holds the user's uncommitted changes; never base a new workspace on it.
+          .filter(|(name, _)| name.as_str() != "default")
+          .map(|(_, wc_id)| wc_id)
           .find(|wc_id| {
             if *wc_id == &bookmark_id {
               return false;
@@ -9140,6 +9143,33 @@ mod tests {
       jj_head_operation_id(&child_path).expect("head op after read"),
       edited,
       "the changed-files read must agree with the marker snapshot"
+    );
+  }
+
+  #[test]
+  fn create_workspace_from_home_branch_skips_home_uncommitted_changes() {
+    let temp = init_colocated_repo_with_two_branches();
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    // Home sits on branch-a with an uncommitted edit; snapshot it into the home wc commit.
+    fs::write(temp.path().join("home-dirty.txt"), "wip\n").expect("write dirty file");
+    jj_get_changed_files(repo_path).expect("snapshot home");
+
+    let child_name = create_workspace(
+      repo_path,
+      "child",
+      "child",
+      true,
+      Some("branch-a"),
+      Some("branch-a"),
+      None,
+    )
+    .expect("create child workspace");
+
+    let child_dir = temp.path().join(".treq/workspaces").join(child_name);
+    assert!(child_dir.join("base.txt").exists());
+    assert!(
+      !child_dir.join("home-dirty.txt").exists(),
+      "new workspace must not inherit the home repo's uncommitted changes"
     );
   }
 
