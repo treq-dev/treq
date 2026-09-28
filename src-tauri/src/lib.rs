@@ -994,6 +994,7 @@ pub fn run() {
             commands::linear_open_or_create_workspace_from_issue,
             commands::linear_start_auto_kickoff_polling,
             commands::linear_get_viewer,
+            commands::linear_set_proxy_session,
             commands::linear_list_projects,
             commands::linear_list_project_documents,
             commands::linear_list_issue_comments,

@@ -115,6 +115,17 @@ export const linearStartAutoKickoffPolling = (
   repoPath: string,
 ): Promise<void> => invoke("linear_start_auto_kickoff_polling", { repoPath });
 
+/**
+ * Gives the Rust Linear client the Supabase session it sends to the
+ * `linear-proxy` Edge Function; `null` clears it on sign-out. Used by
+ * `src/lib/linear-proxy-auth.ts`.
+ */
+export const linearSetProxySession = (
+  supabaseUrl: string | null,
+  accessToken: string | null,
+): Promise<void> =>
+  invoke("linear_set_proxy_session", { supabaseUrl, accessToken });
+
 export const linearGetViewer = (repoPath: string): Promise<LinearUser> =>
   invoke("linear_get_viewer", { repoPath });
 
