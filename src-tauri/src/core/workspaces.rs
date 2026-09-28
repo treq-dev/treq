@@ -476,6 +476,50 @@ pub fn create_workspace(
   )
 }
 
+/// Parses the `included_copy_files` repo setting: one repo-relative path per
+/// line, blank lines ignored.
+pub fn parse_included_copy_files(raw: Option<&str>) -> Option<Vec<String>> {
+  raw.map(|s| {
+    s.lines()
+      .map(str::trim)
+      .filter(|l| !l.is_empty())
+      .map(str::to_string)
+      .collect()
+  })
+}
+
+/// Creates a workspace the way the app and the CLI both expect: jj workspace,
+/// DB row, title, and the flag that triggers a rebase on first view.
+pub fn create_new_workspace(
+  repo_path: &str,
+  branch_name: &str,
+  source_branch: Option<&str>,
+  metadata: WorkspaceMetadata,
+  included_copy_files: Option<Vec<String>>,
+) -> Result<local_db::Workspace, String> {
+  let workspace = create_workspace_with_symlinked_dirs(
+    repo_path,
+    branch_name,
+    metadata.description,
+    metadata.moved_files,
+    source_branch,
+    included_copy_files,
+    metadata.sparse_patterns,
+    metadata.symlinked_dirs,
+  )?;
+  if let Some(title) = metadata
+    .title
+    .as_deref()
+    .map(str::trim)
+    .filter(|t| !t.is_empty())
+  {
+    local_db::update_workspace_title(repo_path, workspace.id, title)?;
+  }
+  local_db::update_workspace_last_rebased_commit(repo_path, workspace.id, "")?;
+  local_db::get_workspace_by_id(repo_path, workspace.id)?
+    .ok_or_else(|| format!("Workspace not found after creation: {}", workspace.id))
+}
+
 /// Open an existing workspace for a pull-request head branch, or create one.
 ///
 /// Fetches remotes first so the PR head tip is visible, then creates a workspace
@@ -1769,6 +1813,113 @@ mod tests {
   }
 
   #[test]
+  fn update_workspace_with_title_clears_title_and_description() {
+    use super::MaybeEmptyParam;
+
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let ws = super::create_workspace(
+      &repo_path,
+      "feat/clear",
+      Some("old description".to_string()),
+      None,
+      None,
+      None,
+      None,
+    )
+    .expect("create workspace");
+    crate::local_db::update_workspace_title(&repo_path, ws.id, "Old title").expect("set title");
+
+    let updated = super::update_workspace_with_title(
+      &repo_path,
+      ws.id,
+      MaybeEmptyParam::Omitted,
+      MaybeEmptyParam::EmptyValue,
+      MaybeEmptyParam::EmptyValue,
+    )
+    .expect("update workspace");
+
+    assert_eq!(updated.title, "feat/clear", "title falls back to branch");
+    assert_eq!(updated.description, None);
+  }
+
+  #[test]
+  fn update_workspace_with_empty_target_uses_repo_default_branch() {
+    use super::MaybeEmptyParam;
+
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    // A repo whose trunk is not called "main".
+    crate::jj::jj_set_bookmark(&repo_path, "trunk", "main").expect("set trunk");
+    crate::jj::jj_delete_bookmark(&repo_path, "main").expect("drop main");
+    let status = Command::new("git")
+      .current_dir(temp.path())
+      .args(["config", "init.defaultBranch", "trunk"])
+      .status()
+      .expect("git config");
+    assert!(status.success());
+    let base = super::create_workspace(&repo_path, "feat/base", None, None, None, None, None)
+      .expect("create base");
+    let ws = super::create_workspace(
+      &repo_path,
+      "feat/child",
+      None,
+      None,
+      Some("feat/base"),
+      None,
+      None,
+    )
+    .expect("create child");
+    assert_eq!(ws.target_branch.as_deref(), Some(base.branch_name.as_str()));
+
+    let updated = super::update_workspace_with_title(
+      &repo_path,
+      ws.id,
+      MaybeEmptyParam::EmptyValue,
+      MaybeEmptyParam::Omitted,
+      MaybeEmptyParam::Omitted,
+    )
+    .expect("clear target");
+
+    assert_eq!(updated.target_branch.as_deref(), Some("trunk"));
+  }
+
+  #[test]
+  fn create_new_workspace_applies_title_and_marks_first_rebase() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+
+    let ws = super::create_new_workspace(
+      &repo_path,
+      "feat/cli",
+      None,
+      WorkspaceMetadata {
+        title: Some("From the CLI".to_string()),
+        description: Some("desc".to_string()),
+        ..Default::default()
+      },
+      None,
+    )
+    .expect("create workspace");
+
+    assert_eq!(ws.title, "From the CLI");
+    assert_eq!(ws.description.as_deref(), Some("desc"));
+    assert_eq!(
+      crate::local_db::get_workspace_last_rebased_commit(&repo_path, ws.id).expect("rebase flag"),
+      Some(String::new())
+    );
+  }
+
+  #[test]
+  fn parse_included_copy_files_trims_and_skips_blank_lines() {
+    assert_eq!(
+      super::parse_included_copy_files(Some(" .env \n\n  config/local.yml\n")),
+      Some(vec![".env".to_string(), "config/local.yml".to_string()])
+    );
+    assert_eq!(super::parse_included_copy_files(None), None);
+  }
+
+  #[test]
   fn create_workspace_recovers_orphaned_partial_directory() {
     let temp = TempDir::new().expect("tempdir");
     let repo_path = init_workspace_creation_repo(&temp);
@@ -2654,24 +2805,34 @@ pub fn update_workspace_with_title(
     .map_err(|e| format!("Failed to get workspace from db: {}", e))?
     .ok_or("Workspace not found in database")?;
 
-  match target_branch {
-    MaybeEmptyParam::EmptyValue => {
-      retarget_workspace(repo_path, workspace_id, "main", "main")?;
+  if !matches!(target_branch, MaybeEmptyParam::Omitted) {
+    let default_branch = jj::get_default_branch(repo_path).unwrap_or_else(|_| "main".to_string());
+    // An empty target means "back onto the repo's default branch".
+    let new_target = match target_branch {
+      MaybeEmptyParam::Some(branch) => branch,
+      _ => default_branch.clone(),
+    };
+    retarget_workspace(repo_path, workspace_id, &new_target, &default_branch)?;
+  }
+
+  match title {
+    MaybeEmptyParam::Some(title_str) => {
+      local_db::update_workspace_title(repo_path, workspace_id, &title_str)
+        .map_err(|e| format!("Failed to update title: {}", e))?
     }
-    MaybeEmptyParam::Some(branch) => {
-      retarget_workspace(repo_path, workspace_id, &branch, "main")?;
-    }
+    MaybeEmptyParam::EmptyValue => local_db::clear_workspace_title(repo_path, workspace_id)
+      .map_err(|e| format!("Failed to clear title: {}", e))?,
     MaybeEmptyParam::Omitted => {}
   }
 
-  if let MaybeEmptyParam::Some(title_str) = title {
-    local_db::update_workspace_title(repo_path, workspace_id, &title_str)
-      .map_err(|e| format!("Failed to update title: {}", e))?;
-  }
-
-  if let MaybeEmptyParam::Some(description_str) = description {
-    local_db::update_workspace_description(repo_path, workspace_id, &description_str)
-      .map_err(|e| format!("Failed to update description: {}", e))?;
+  match description {
+    MaybeEmptyParam::Some(description_str) => {
+      local_db::update_workspace_description(repo_path, workspace_id, &description_str)
+        .map_err(|e| format!("Failed to update description: {}", e))?
+    }
+    MaybeEmptyParam::EmptyValue => local_db::clear_workspace_description(repo_path, workspace_id)
+      .map_err(|e| format!("Failed to clear description: {}", e))?,
+    MaybeEmptyParam::Omitted => {}
   }
 
   local_db::get_workspace_by_id(repo_path, workspace_id)

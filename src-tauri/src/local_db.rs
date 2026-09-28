@@ -1141,6 +1141,26 @@ pub fn update_workspace_title(repo_path: &str, id: i64, title: &str) -> Result<(
   Ok(())
 }
 
+/// Drop a custom title so the workspace shows its branch name again.
+pub fn clear_workspace_title(repo_path: &str, id: i64) -> Result<(), String> {
+  let conn = get_connection(repo_path)?;
+  conn
+    .execute("UPDATE workspaces SET title = NULL WHERE id = ?1", [id])
+    .map_err(|e| format!("Failed to clear workspace title: {}", e))?;
+  Ok(())
+}
+
+pub fn clear_workspace_description(repo_path: &str, id: i64) -> Result<(), String> {
+  let conn = get_connection(repo_path)?;
+  conn
+    .execute(
+      "UPDATE workspaces SET description = NULL WHERE id = ?1",
+      [id],
+    )
+    .map_err(|e| format!("Failed to clear workspace description: {}", e))?;
+  Ok(())
+}
+
 pub fn update_workspace_hidden_until(
   repo_path: &str,
   id: i64,
