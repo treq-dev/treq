@@ -32,7 +32,10 @@ export function resolveDefaultMaxWorkers(cpuCount?: number): number {
 export const VITEST_PROJECT_WORKERS = {
   unit: resolveDefaultMaxWorkers(),
   integrationSerial: 1,
-  integrationParallel: 3,
+  // 3 workers cut the parallel phase by about a minute on a 4-core runner,
+  // but starved spawn_blocking: browser/review and code/filebrowser timed
+  // out. Keep 2.
+  integrationParallel: 2,
 } as const;
 
 export type VitestProjectSequenceDefinition = {

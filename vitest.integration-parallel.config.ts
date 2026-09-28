@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config";
 import { integrationBaseTest, integrationPlugins } from "./vitest.integration.base";
-import { VITEST_PROJECT_SEQUENCE } from "./vitest.projects";
+import {
+  VITEST_PROJECT_SEQUENCE,
+  VITEST_PROJECT_WORKERS,
+} from "./vitest.projects";
 
 /**
  * Integration tests that don't touch the jj "Changes" file list under
@@ -27,6 +30,6 @@ export default defineConfig({
       "test/integration/workspace/**/*.test.{ts,tsx}",
     ],
     fileParallelism: true,
-    maxWorkers: 2,
+    maxWorkers: VITEST_PROJECT_WORKERS.integrationParallel,
   },
 });
