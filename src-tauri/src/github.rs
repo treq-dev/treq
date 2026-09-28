@@ -455,6 +455,54 @@ pub fn gh_close_issue_impl(
   check_gh_output(out).map(|_| ())
 }
 
+/// Replace an issue's title and body. The body goes over stdin, like
+/// `gh_create_issue_impl`, so its size and content never hit argv.
+pub fn gh_edit_issue_impl(
+  gh_path: &str,
+  repo_full_name: &str,
+  issue_number: u64,
+  title: &str,
+  body: &str,
+  extended_path: &str,
+) -> Result<(), String> {
+  let num = issue_number.to_string();
+  let out = run_gh_with_stdin(
+    gh_path,
+    &[
+      "issue",
+      "edit",
+      &num,
+      "--repo",
+      repo_full_name,
+      "--title",
+      title,
+      "--body-file",
+      "-",
+    ],
+    body,
+    extended_path,
+  )?;
+  check_gh_output(out).map(|_| ())
+}
+
+/// Delete an issue. GitHub allows this only for repo admins; gh reports the
+/// permission error otherwise. `--yes` skips gh's interactive prompt, so the
+/// caller must confirm with the user first.
+pub fn gh_delete_issue_impl(
+  gh_path: &str,
+  repo_full_name: &str,
+  issue_number: u64,
+  extended_path: &str,
+) -> Result<(), String> {
+  let num = issue_number.to_string();
+  let out = run_gh(
+    gh_path,
+    &["issue", "delete", &num, "--repo", repo_full_name, "--yes"],
+    extended_path,
+  )?;
+  check_gh_output(out).map(|_| ())
+}
+
 pub fn gh_reopen_issue_impl(
   gh_path: &str,
   repo_full_name: &str,
@@ -1658,6 +1706,59 @@ echo 'https://github.com/owner/repo/pull/8'"#,
 
     assert!(err.contains("duplicate"), "{err}");
     assert!(!marker.exists());
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_edit_issue_sends_title_as_arg_and_body_over_stdin() {
+    let bin_dir = TempDir::new().unwrap();
+    let body_path = bin_dir.path().join("body");
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        "test \"$*\" = \"issue edit 6 --repo owner/repo --title New title --body-file -\" || exit 9\ncat > '{}'",
+        body_path.display()
+      ),
+    );
+    let body = oversized_body();
+
+    gh_edit_issue_impl(
+      &gh_path,
+      "owner/repo",
+      6,
+      "New title",
+      &body,
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_edit_issue_reports_gh_error() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "cat > /dev/null\necho 'GraphQL: Could not resolve to an issue' >&2\nexit 1",
+    );
+
+    let err = gh_edit_issue_impl(&gh_path, "owner/repo", 6, "T", "", "/usr/bin:/bin").unwrap_err();
+
+    assert!(err.contains("Could not resolve to an issue"), "{err}");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_delete_issue_confirms_non_interactively() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "issue delete 6 --repo owner/repo --yes" || exit 9"#,
+    );
+
+    gh_delete_issue_impl(&gh_path, "owner/repo", 6, "/usr/bin:/bin").unwrap();
   }
 
   #[test]
