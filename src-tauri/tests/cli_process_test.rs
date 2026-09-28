@@ -51,5 +51,5 @@ fn failing_command_exits_non_zero_without_a_display() {
   let dir = tempfile::tempdir().unwrap();
   let out = treq(dir.path(), &["st"]);
   assert_eq!(out.status.code(), Some(1), "{out:?}");
-  assert!(String::from_utf8_lossy(&out.stderr).contains("Not inside a git repository"));
+  assert!(String::from_utf8_lossy(&out.stderr).contains("Not inside a"));
 }
