@@ -383,9 +383,17 @@ fn team_issue_filter(team_filter: Option<&str>) -> Option<serde_json::Value> {
 }
 
 fn list_issues_body(filter: Option<&serde_json::Value>, after: Option<&str>) -> serde_json::Value {
+  issue_page_body(ISSUE_FIELDS, filter, after)
+}
+
+fn issue_page_body(
+  fields: &str,
+  filter: Option<&serde_json::Value>,
+  after: Option<&str>,
+) -> serde_json::Value {
   serde_json::json!({
     "query": format!(
-      "query($first: Int!, $after: String, $filter: IssueFilter) {{ issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {{ nodes {{ {ISSUE_FIELDS} }} pageInfo {{ hasNextPage endCursor }} }} }}"
+      "query($first: Int!, $after: String, $filter: IssueFilter) {{ issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {{ nodes {{ {fields} }} pageInfo {{ hasNextPage endCursor }} }} }}"
     ),
     "variables": {
       "first": ISSUE_PAGE_SIZE,
@@ -422,6 +430,60 @@ async fn fetch_issue_pages(
     MAX_ISSUE_PAGES * ISSUE_PAGE_SIZE as usize
   );
   Ok(issues)
+}
+
+// The poller prunes its ledger against this list, so a partial list would
+// make it forget handled issues and kick them off again. The cap is high and
+// exceeding it is an error rather than a silent truncation.
+const MAX_LABELED_ISSUE_PAGES: usize = 50;
+
+/// Open issues carrying `label`, for auto-kickoff. Filtering happens in
+/// Linear so issues outside the panel's page window are still found, and
+/// completed or canceled issues never start a workspace.
+fn kickoff_issue_filter(label: &str) -> serde_json::Value {
+  serde_json::json!({
+    "labels": { "some": { "name": { "eqIgnoreCase": label } } },
+    "state": { "type": { "nin": ["completed", "canceled"] } },
+  })
+}
+
+#[derive(Deserialize)]
+struct LinearIssueIdsData {
+  issues: LinearIssueIdsConnection,
+}
+
+#[derive(Deserialize)]
+struct LinearIssueIdsConnection {
+  nodes: Vec<LinearSubIssueNode>,
+  #[serde(default, rename = "pageInfo")]
+  page_info: LinearPageInfo,
+}
+
+pub async fn linear_list_labeled_issue_ids_impl(
+  api_key: &str,
+  label: &str,
+) -> Result<Vec<String>, String> {
+  let filter = kickoff_issue_filter(label);
+  let mut ids = Vec::new();
+  let mut after: Option<String> = None;
+  for _ in 0..MAX_LABELED_ISSUE_PAGES {
+    let data: LinearIssueIdsData = linear_graphql(
+      api_key,
+      &issue_page_body("id", Some(&filter), after.as_deref()),
+      "labeled issues",
+    )
+    .await?;
+    let page = data.issues;
+    ids.extend(page.nodes.into_iter().map(|node| node.id));
+    match next_cursor(page.page_info) {
+      Some(cursor) => after = Some(cursor),
+      None => return Ok(ids),
+    }
+  }
+  Err(format!(
+    "More than {} open issues carry the label \"{label}\"; skipping auto-kickoff",
+    MAX_LABELED_ISSUE_PAGES * ISSUE_PAGE_SIZE as usize
+  ))
 }
 
 fn next_cursor(page_info: LinearPageInfo) -> Option<String> {
@@ -787,12 +849,7 @@ fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
   let rt =
     tokio::runtime::Runtime::new().map_err(|e| format!("Failed to create async runtime: {e}"))?;
 
-  let issues = rt.block_on(linear_list_issues_impl(&api_key, None))?;
-  let labeled_ids: Vec<String> = issues
-    .into_iter()
-    .filter(|issue| issue.labels.contains(&label))
-    .map(|issue| issue.id)
-    .collect();
+  let labeled_ids = rt.block_on(linear_list_labeled_issue_ids_impl(&api_key, &label))?;
 
   let mut ledger = KickoffLedger::load(&db, repo_path, HANDLED_KEY, FAILURES_KEY)?;
   for issue_id in ledger.due(&labeled_ids) {
@@ -961,6 +1018,20 @@ mod tests {
       .as_str()
       .unwrap()
       .contains("pageInfo { hasNextPage endCursor }"));
+  }
+
+  #[test]
+  fn kickoff_filter_matches_label_and_skips_closed_issues() {
+    let body = issue_page_body("id", Some(&kickoff_issue_filter(HOSTILE)), None);
+    let query = body["query"].as_str().unwrap();
+    assert!(!query.contains(HOSTILE));
+    assert!(query.contains("nodes { id }"));
+    let filter = &body["variables"]["filter"];
+    assert_eq!(filter["labels"]["some"]["name"]["eqIgnoreCase"], HOSTILE);
+    assert_eq!(
+      filter["state"]["type"]["nin"],
+      serde_json::json!(["completed", "canceled"])
+    );
   }
 
   #[test]
