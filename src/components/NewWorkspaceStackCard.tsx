@@ -4,6 +4,7 @@ import { cn } from "../lib/utils";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { StackDot, StackTrack } from "./StackTrack";
+import { StartTruncatedText } from "./StartTruncatedText";
 
 export type BranchStatus = "new" | "local" | "remote" | "checking" | null;
 
@@ -14,6 +15,8 @@ interface NewWorkspaceStackCardProps {
   onBranchNameChange: (value: string) => void;
   branchPlaceholder: string;
   branchStatus: BranchStatus;
+  /** Why the typed name cannot be used; replaces the status hint. */
+  branchNameError?: string | null;
 }
 
 /**
@@ -28,6 +31,7 @@ export function NewWorkspaceStackCard({
   onBranchNameChange,
   branchPlaceholder,
   branchStatus,
+  branchNameError = null,
 }: NewWorkspaceStackCardProps) {
   return (
     <div
@@ -54,15 +58,30 @@ export function NewWorkspaceStackCard({
                       placeholder={branchPlaceholder}
                       className="pr-8 h-8 text-sm font-mono bg-background"
                       tabIndex={2}
+                      aria-invalid={branchNameError ? true : undefined}
                     />
-                    <BranchStatusIcon status={branchStatus} />
+                    {branchNameError ? (
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                        <AlertCircle className="w-3.5 h-3.5 text-destructive" />
+                      </div>
+                    ) : (
+                      <BranchStatusIcon status={branchStatus} />
+                    )}
                   </div>
-                  {branchStatus === "local" && (
+                  {branchNameError && (
+                    <p
+                      className="text-xs text-destructive"
+                      data-testid="branch-name-error"
+                    >
+                      {branchNameError}
+                    </p>
+                  )}
+                  {!branchNameError && branchStatus === "local" && (
                     <p className="text-xs text-yellow-500">
                       Branch already exists locally
                     </p>
                   )}
-                  {branchStatus === "remote" && (
+                  {!branchNameError && branchStatus === "remote" && (
                     <p className="text-xs text-blue-500">
                       Branch exists on remote — will check out
                     </p>
@@ -75,15 +94,13 @@ export function NewWorkspaceStackCard({
               <div className="relative z-10 flex w-full items-start gap-3 py-2 px-2 -mx-2">
                 <StackDot highlighted={false} />
                 <div className="flex-1 min-w-0">
-                  <p
+                  <StartTruncatedText
+                    text={entry.branch}
                     className={cn(
-                      "text-sm font-mono truncate",
+                      "text-sm font-mono",
                       !entry.workspace && "text-muted-foreground",
                     )}
-                    title={entry.branch}
-                  >
-                    {entry.branch}
-                  </p>
+                  />
                 </div>
               </div>
             </li>

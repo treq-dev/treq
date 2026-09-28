@@ -23,7 +23,6 @@ import {
 export interface WorkspaceLeftPanelProps {
   sourceWorkspace: Workspace | null;
   hasSourceWorkspace: boolean;
-  isStackOnRoot: boolean;
   availableBranches: BranchListItem[];
   branchesLoading: boolean;
   targetBranch: string | null;
@@ -52,6 +51,7 @@ export interface WorkspaceLeftPanelProps {
   onSetIsEditingBranch: (val: boolean) => void;
   branchPattern: string;
   branchStatus: BranchStatus;
+  branchNameError: string | null;
   loading: boolean;
   allWorkspaces: Workspace[];
 }
@@ -59,7 +59,6 @@ export interface WorkspaceLeftPanelProps {
 export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
   sourceWorkspace,
   hasSourceWorkspace,
-  isStackOnRoot,
   availableBranches,
   branchesLoading,
   targetBranch,
@@ -87,6 +86,7 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
   onSetIsEditingBranch,
   branchPattern,
   branchStatus,
+  branchNameError,
   loading,
   allWorkspaces,
 }) => {
@@ -124,7 +124,7 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
       </div>
 
       {/* Position toggle: only stacking on a workspace honours "before". */}
-      {sourceWorkspace && !isStackOnRoot && !moveToExisting && (
+      {sourceWorkspace && !moveToExisting && (
         <div className="flex items-center gap-2">
           <Label className="text-xs whitespace-nowrap">Position:</Label>
           <div className="flex gap-1 bg-muted p-0.5 rounded-md">
@@ -158,6 +158,7 @@ export const WorkspaceLeftPanel: React.FC<WorkspaceLeftPanelProps> = ({
           }}
           branchPlaceholder={branchPattern.replace("{name}", "example")}
           branchStatus={branchStatus}
+          branchNameError={branchNameError}
         />
       )}
 

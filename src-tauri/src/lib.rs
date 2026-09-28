@@ -978,6 +978,8 @@ pub fn run() {
             commands::gh_create_issue_comment,
             commands::gh_close_issue,
             commands::gh_reopen_issue,
+            commands::gh_edit_issue,
+            commands::gh_delete_issue,
             commands::gh_list_prs,
             commands::gh_view_pr,
             commands::gh_create_pr_comment,
