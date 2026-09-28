@@ -715,8 +715,7 @@ pub(super) fn handle_send(matches: &Matches) -> bool {
       }
     }
   } else {
-    // `resolve_send_path` reads stdin for `-` regardless; with no path it
-    // reads only when this says stdin is not a terminal.
+    // With no path, read stdin only if it has input; `-` always reads it.
     let is_stdin_tty = path_arg.is_none() && !super::implicit_stdin_available();
     let mut stdin = std::io::stdin();
     match crate::send_dispatch::resolve_send_path(
