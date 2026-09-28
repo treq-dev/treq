@@ -1285,4 +1285,108 @@ mod tests {
     let issues = linear_list_issues_impl("lin_api_test", None).await.unwrap();
     assert_eq!(issues.len(), MAX_ISSUE_PAGES);
   }
+
+  fn labeled_node(id: &str, label: &str, state_type: &str) -> serde_json::Value {
+    serde_json::json!({
+      "id": id,
+      "identifier": id.to_uppercase(),
+      "title": format!("Issue {id}"),
+      "branchName": format!("branch-{id}"),
+      "url": format!("https://linear.app/t/issue/{id}"),
+      "state": { "name": state_type, "type": state_type },
+      "labels": { "nodes": [{ "name": label }] },
+    })
+  }
+
+  fn nodes_page(nodes: Vec<serde_json::Value>, next: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+      "data": { "issues": {
+        "nodes": nodes,
+        "pageInfo": { "hasNextPage": next.is_some(), "endCursor": next },
+      } }
+    })
+  }
+
+  fn kickoff_filter_matcher(label: &str) -> wiremock::matchers::BodyPartialJsonMatcher {
+    wiremock::matchers::body_partial_json(serde_json::json!({
+      "variables": { "filter": kickoff_issue_filter(label) }
+    }))
+  }
+
+  #[tokio::test]
+  async fn kickoff_finds_labeled_issues_outside_the_first_unfiltered_page() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    // Linear only returns the labeled issue when asked for it; an
+    // unfiltered first page is full of other issues.
+    Mock::given(method("POST"))
+      .and(kickoff_filter_matcher("agent"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(
+        vec![labeled_node("old-labeled", "agent", "unstarted")],
+        None,
+      )))
+      .with_priority(1)
+      .mount(&server)
+      .await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(
+        vec![labeled_node("recent", "bug", "started")],
+        Some("more"),
+      )))
+      .with_priority(2)
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let ids = linear_list_labeled_issue_ids_impl("lin_api_test", "agent")
+      .await
+      .unwrap();
+    assert_eq!(ids, ["old-labeled"]);
+  }
+
+  #[tokio::test]
+  async fn kickoff_skips_closed_labeled_issues() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(kickoff_filter_matcher("agent"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(vec![], None)))
+      .with_priority(1)
+      .mount(&server)
+      .await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(
+        vec![
+          labeled_node("done", "agent", "completed"),
+          labeled_node("dropped", "agent", "canceled"),
+        ],
+        None,
+      )))
+      .with_priority(2)
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let ids = linear_list_labeled_issue_ids_impl("lin_api_test", "agent")
+      .await
+      .unwrap();
+    assert!(ids.is_empty(), "{ids:?}");
+  }
+
+  #[tokio::test]
+  async fn kickoff_refuses_a_partial_list_instead_of_truncating() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(
+        vec![labeled_node("x", "agent", "unstarted")],
+        Some("again"),
+      )))
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let result = linear_list_labeled_issue_ids_impl("lin_api_test", "agent").await;
+    assert!(result.is_err(), "{result:?}");
+  }
 }
