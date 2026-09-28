@@ -1881,6 +1881,34 @@ mod tests {
   }
 
   #[test]
+  fn retarget_rolls_back_bridge_lift_when_the_move_fails() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let a = super::create_workspace(&repo_path, "feat/a", None, None, None, None, None)
+      .expect("create a");
+    let b = super::create_workspace(&repo_path, "feat/b", None, None, Some("feat/a"), None, None)
+      .expect("create b");
+    super::create_workspace(&repo_path, "feat/c", None, None, Some("feat/b"), None, None)
+      .expect("create c");
+    // Break the final step: a's workspace directory is gone, so its rebase fails.
+    fs::remove_dir_all(temp.path().join(".treq/workspaces").join(&a.workspace_path))
+      .expect("remove a's workspace dir");
+
+    // Moving a onto its grandchild c first lifts b onto main, then fails.
+    super::retarget_workspace(&repo_path, a.id, "feat/c", "main")
+      .expect_err("moving a workspace with no directory must fail");
+
+    let b = crate::local_db::get_workspace_by_id(&repo_path, b.id)
+      .expect("lookup")
+      .expect("b");
+    assert_eq!(
+      b.target_branch.as_deref(),
+      Some("feat/a"),
+      "the bridge lift must be undone when a later step fails"
+    );
+  }
+
+  #[test]
   fn update_workspace_with_title_clears_title_and_description() {
     use super::MaybeEmptyParam;
 
@@ -2918,12 +2946,37 @@ pub fn retarget_workspace(
   )?;
 
   let mut updated = None;
+  // (workspace_id, original target) of each applied step, for rollback.
+  let mut applied: Vec<(i64, String)> = Vec::new();
   for step in steps {
-    updated = Some(apply_workspace_target_branch(
-      repo_path,
-      step.workspace_id,
-      &step.new_target_branch,
-    )?);
+    match apply_workspace_target_branch(repo_path, step.workspace_id, &step.new_target_branch) {
+      Ok(ws) => {
+        let original = workspaces
+          .iter()
+          .find(|w| w.id == step.workspace_id)
+          .and_then(|w| w.target_branch.clone())
+          .unwrap_or_else(|| default_branch.to_string());
+        applied.push((step.workspace_id, original));
+        updated = Some(ws);
+      }
+      Err(err) => {
+        // Undo earlier steps so a failed reorder doesn't leave the stack half-moved.
+        let rollback_errors: Vec<String> = applied
+          .iter()
+          .rev()
+          .filter_map(|(id, original)| {
+            apply_workspace_target_branch(repo_path, *id, original).err()
+          })
+          .collect();
+        if rollback_errors.is_empty() {
+          return Err(err);
+        }
+        return Err(format!(
+          "{err} (rollback of earlier steps also failed: {})",
+          rollback_errors.join("; ")
+        ));
+      }
+    }
   }
 
   updated.ok_or_else(|| "No retarget steps produced".to_string())
