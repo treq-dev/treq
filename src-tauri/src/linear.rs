@@ -1540,4 +1540,50 @@ mod tests {
     let result = linear_list_labeled_issue_ids_impl(&api_key("lin_api_test"), "agent").await;
     assert!(result.is_err(), "{result:?}");
   }
+
+  #[tokio::test]
+  async fn oauth_session_reaches_linear_through_the_proxy() {
+    use wiremock::{
+      matchers::{header, method, path},
+      Mock, MockServer, ResponseTemplate,
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(path("/functions/v1/linear-proxy"))
+      .and(header("authorization", "Bearer supabase-jwt"))
+      .respond_with(
+        ResponseTemplate::new(200)
+          .set_body_string(r#"{"data":{"viewer":{"id":"u1","name":"Ada"}}}"#),
+      )
+      .expect(1)
+      .mount(&server)
+      .await;
+    let session = LinearProxySession {
+      supabase_url: server.uri(),
+      access_token: "supabase-jwt".into(),
+    };
+
+    let client = resolve_client_source(None, Some(session)).unwrap();
+    let viewer = linear_get_viewer_impl(&client).await.unwrap();
+    assert_eq!(viewer.id, "u1");
+  }
+
+  #[tokio::test]
+  async fn proxy_explains_an_unlinked_linear_account() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .respond_with(
+        ResponseTemplate::new(403).set_body_string(r#"{"error":"Linear account not linked"}"#),
+      )
+      .mount(&server)
+      .await;
+    let client = LinearClientSource::Proxy(LinearProxySession {
+      supabase_url: server.uri(),
+      access_token: "supabase-jwt".into(),
+    });
+
+    let err = linear_get_viewer_impl(&client).await.unwrap_err();
+    assert_eq!(err, "Linear: Linear account not linked");
+  }
 }
