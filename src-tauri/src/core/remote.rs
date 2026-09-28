@@ -2684,14 +2684,40 @@ fn apply_remote_patch(
   path: &str,
   patch_base64: &str,
 ) -> Result<String, String> {
-  use std::io::Write;
   let workspace_path = resolve_workspace_path(repo, workspace)?;
   enforce_disk_quota(Path::new(&workspace_path))?;
   let decoded = decode_base64(patch_base64.trim())
     .map_err(|e| format!("invalid_arguments: patch is not valid base64: {e}"))?;
+  // `git apply <path>` would read `path` as the patch file; the patch is on
+  // stdin. `--numstat` applies nothing, so check the patch only touches `path`
+  // before applying it.
+  let touched = run_git_apply(&workspace_path, &["--numstat"], &decoded)?;
+  let touched: Vec<&str> = touched
+    .lines()
+    .filter_map(|line| line.splitn(3, '\t').nth(2))
+    .collect();
+  if touched.is_empty() || touched.iter().any(|p| *p != path) {
+    return Err(format!(
+      "invalid_arguments: patch does not change '{path}' only (touches: {})",
+      touched.join(", ")
+    ));
+  }
+  run_git_apply(&workspace_path, &["--whitespace=nowarn"], &decoded)?;
+  Ok(format!("Applied patch to {path}"))
+}
+
+fn run_git_apply(workspace_path: &str, args: &[&str], patch: &[u8]) -> Result<String, String> {
+  use std::io::Write;
+  // Workspaces sit inside the home repo; stop git from discovering it so
+  // patch paths stay relative to the workspace.
+  let ceiling = Path::new(workspace_path)
+    .parent()
+    .unwrap_or(Path::new(workspace_path));
   let mut child = Command::new("git")
-    .current_dir(&workspace_path)
-    .args(["apply", "--whitespace=nowarn", "--", path])
+    .current_dir(workspace_path)
+    .env("GIT_CEILING_DIRECTORIES", ceiling)
+    .arg("apply")
+    .args(args)
     .stdin(std::process::Stdio::piped())
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::piped())
@@ -2701,7 +2727,7 @@ fn apply_remote_patch(
     .stdin
     .take()
     .ok_or("dependency_error: Failed to open git apply stdin")?
-    .write_all(&decoded)
+    .write_all(patch)
     .map_err(|e| format!("filesystem_error: Failed to write patch input: {e}"))?;
   let output = child
     .wait_with_output()
@@ -2712,7 +2738,7 @@ fn apply_remote_patch(
       String::from_utf8_lossy(&output.stderr).trim()
     ));
   }
-  Ok(format!("Applied patch to {path}"))
+  Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Minimal RFC 4648 base64 decoder (standard alphabet, `=` padding) so patch
@@ -4354,6 +4380,53 @@ mod tests {
         .iter()
         .any(|c| c["description"].as_str().map(str::trim_end) == Some("first"));
       assert!(described, "split commit must carry the message: {commits}");
+    }
+
+    #[test]
+    fn patch_file_applies_the_base64_patch_to_the_path() {
+      let repo = TestRepo::new().unwrap();
+      let ws = repo.create_workspace_simple("feat-patch").unwrap();
+      let path = workspace_path(&repo, ws.id);
+      TestRepo::write_workspace_file(&path, "a.txt", "hi\n").unwrap();
+
+      // "--- a/a.txt / +++ b/a.txt / -hi / +patched"
+      let patch = "LS0tIGEvYS50eHQKKysrIGIvYS50eHQKQEAgLTEgKzEgQEAKLWhpCitwYXRjaGVkCg==";
+      execute_local_request(TreqCommandRequest::PatchFile {
+        repo: repo.repo_path.clone(),
+        workspace: Some(ws.id.to_string()),
+        path: "a.txt".into(),
+        patch_base64: patch.into(),
+        idempotency_key: key("patch"),
+      })
+      .unwrap();
+      assert_eq!(
+        std::fs::read_to_string(Path::new(&path).join("a.txt")).unwrap(),
+        "patched\n"
+      );
+    }
+
+    #[test]
+    fn patch_file_refuses_a_patch_that_does_not_touch_the_path() {
+      let repo = TestRepo::new().unwrap();
+      let ws = repo.create_workspace_simple("feat-patch-other").unwrap();
+      let path = workspace_path(&repo, ws.id);
+      TestRepo::write_workspace_file(&path, "a.txt", "hi\n").unwrap();
+      TestRepo::write_workspace_file(&path, "b.txt", "hi\n").unwrap();
+
+      let patch = "LS0tIGEvYS50eHQKKysrIGIvYS50eHQKQEAgLTEgKzEgQEAKLWhpCitwYXRjaGVkCg==";
+      let err = execute_local_request(TreqCommandRequest::PatchFile {
+        repo: repo.repo_path.clone(),
+        workspace: Some(ws.id.to_string()),
+        path: "b.txt".into(),
+        patch_base64: patch.into(),
+        idempotency_key: key("patch-other"),
+      })
+      .unwrap_err();
+      assert!(err.contains("does not change 'b.txt'"), "{err}");
+      assert_eq!(
+        std::fs::read_to_string(Path::new(&path).join("a.txt")).unwrap(),
+        "hi\n"
+      );
     }
 
     #[test]
