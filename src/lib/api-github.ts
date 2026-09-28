@@ -8,13 +8,15 @@ import { invoke } from "@tauri-apps/api/core";
 
 export const GH_LIST_PAGE_SIZE = 30;
 
+/** One page of issues, newest first. Pass the previous page's `endCursor`
+ * as `after` to get the next page. */
 export const ghListIssues = (
   repoFullName: string,
   state: string,
   limit = GH_LIST_PAGE_SIZE,
-  page = 1,
+  after?: string | null,
 ): Promise<GhListPage<GhIssue>> =>
-  invoke("gh_list_issues", { repoFullName, state, limit, page });
+  invoke("gh_list_issues", { repoFullName, state, limit, after });
 
 export const ghViewIssue = (
   repoFullName: string,

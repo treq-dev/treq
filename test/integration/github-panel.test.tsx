@@ -377,6 +377,7 @@ describe("GitHubPanel", () => {
       .mockResolvedValueOnce({
         items: [makeIssue(1, "First page issue")],
         hasMore: true,
+        endCursor: "cursor-1",
       })
       .mockResolvedValueOnce({
         items: [makeIssue(2, "Second page issue")],
@@ -397,7 +398,7 @@ describe("GitHubPanel", () => {
       "acme/treq",
       "open",
       expect.any(Number),
-      2,
+      "cursor-1",
     );
   });
 

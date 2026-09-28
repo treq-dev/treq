@@ -194,7 +194,7 @@ pub async fn gh_list_issues(
   repo_full_name: String,
   state: String,
   limit: Option<u32>,
-  page: Option<u32>,
+  after: Option<String>,
 ) -> Result<GhListPage<GhIssue>, String> {
   run_gh_blocking("gh_list_issues", move |gh, path| {
     crate::github::gh_list_issues_impl(
@@ -202,7 +202,7 @@ pub async fn gh_list_issues(
       &repo_full_name,
       &state,
       limit.unwrap_or(crate::github::GH_LIST_PAGE_SIZE),
-      page.unwrap_or(1),
+      after.as_deref(),
       path,
     )
   })
