@@ -94,10 +94,17 @@ export function buildWorkspaceTree(
     }
   }
 
-  // Malformed graphs can form cycles with zero roots; degrade safely by
-  // flattening to top-level roots so sidebar content never disappears.
-  if (roots.length === 0) {
-    for (const node of nodeByBranch.values()) {
+  // Malformed graphs can form cycles that no root reaches; flatten those
+  // workspaces to top level so sidebar content never disappears.
+  const reached = new Set<WorkspaceTreeNode>();
+  const pending = [...roots];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    reached.add(node);
+    pending.push(...node.children);
+  }
+  for (const node of nodeByBranch.values()) {
+    if (!reached.has(node)) {
       node.children = [];
       roots.push(node);
     }
