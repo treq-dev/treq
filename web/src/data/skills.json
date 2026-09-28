@@ -1,61 +1,61 @@
 {
-  "generatedAt": "2026-09-21T11:46:29.582Z",
+  "generatedAt": "2026-09-28T12:41:33.683Z",
   "sources": [
     {
       "id": "anthropic",
       "name": "Anthropic",
       "url": "https://github.com/anthropics/skills",
       "skillCount": 19,
-      "stars": 177407
+      "stars": 178750
     },
     {
       "id": "openai",
       "name": "OpenAI",
       "url": "https://github.com/openai/skills",
       "skillCount": 44,
-      "stars": 27520
+      "stars": 27760
     },
     {
       "id": "mattpocock",
       "name": "Matt Pocock",
       "url": "https://github.com/mattpocock/skills",
       "skillCount": 38,
-      "stars": 266822
+      "stars": 271052
     },
     {
       "id": "vercel",
       "name": "Vercel",
       "url": "https://github.com/vercel-labs/agent-browser",
       "skillCount": 1,
-      "stars": 42980
+      "stars": 43310
     },
     {
       "id": "microsoft",
       "name": "Microsoft",
       "url": "https://github.com/microsoft/azure-skills",
       "skillCount": 35,
-      "stars": 1489
+      "stars": 1504
     },
     {
       "id": "superpowers",
       "name": "Superpowers",
       "url": "https://github.com/obra/superpowers",
       "skillCount": 15,
-      "stars": 289533
+      "stars": 292363
     },
     {
       "id": "caveman",
       "name": "Caveman",
       "url": "https://github.com/JuliusBrussee/caveman",
       "skillCount": 20,
-      "stars": 107085
+      "stars": 108143
     },
     {
       "id": "prisma",
       "name": "Prisma",
       "url": "https://github.com/prisma/skills",
       "skillCount": 9,
-      "stars": 58
+      "stars": 65
     }
   ],
   "skills": [
@@ -767,7 +767,7 @@
       "path": "skills/claude-api",
       "url": "https://github.com/anthropics/skills/tree/main/skills/claude-api",
       "route": "/skills/anthropic/claude-api",
-      "checksum": "945ba6c7c351390f47b961eaf9d836af6bdab35e2b9e718703360fad6cd75eba",
+      "checksum": "a45a2bd44c82884dce54a0fbd5f7d5a3bfc0fb22ecd606ddcd6910596c86d723",
       "files": [
         {
           "path": "LICENSE.txt",
@@ -820,7 +820,7 @@
         },
         {
           "path": "curl/examples.md",
-          "size": 9193,
+          "size": 9318,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/curl/examples.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/curl/examples.md"
@@ -946,7 +946,7 @@
         },
         {
           "path": "python/claude-api/README.md",
-          "size": 19875,
+          "size": 20000,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/python/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/python/claude-api/README.md"
@@ -1170,7 +1170,7 @@
         },
         {
           "path": "shared/model-migration.md",
-          "size": 244863,
+          "size": 245493,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/model-migration.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/shared/model-migration.md"
@@ -1219,7 +1219,7 @@
         },
         {
           "path": "typescript/claude-api/README.md",
-          "size": 15131,
+          "size": 15256,
           "binary": false,
           "githubUrl": "https://github.com/anthropics/skills/blob/main/skills/claude-api/typescript/claude-api/README.md",
           "rawUrl": "https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/typescript/claude-api/README.md"
@@ -4290,7 +4290,7 @@
     {
       "id": "microsoft/azure-app-onboard",
       "name": "azure-app-onboard",
-      "description": "End-to-end orchestrator: from a business idea, app idea, or existing app to running Azure deployment with cost estimates and pre-deploy approval. Analyzes your app, auto-detects the right Azure services, scaffolds infrastructure code, and deploys — tailored to your app, not a template. Handles moving existing apps to Azure without rewriting or with minimal changes. WHEN: bring your app to Azure, plan my app, cost to run, is my code ready to deploy, deploy my app to the cloud, deploy all my services, what Azure services do I need, plan my Azure deployment, deploy my new app to Azure, one-click deploy, I have an app and want it on Azure, migrate my app to Azure, help me get started, build an app, no code yet, starter project. DO NOT USE FOR: use azd for deployment(use azure-deploy), optimizing existing costs (use azure-cost), code readiness checks only (use azure-app-onboard-prereq).",
+      "description": "End-to-end orchestrator: from a business idea, app idea, or existing app to running Azure deployment with cost estimates and pre-deploy approval. Analyzes your app, auto-detects the right Azure services, scaffolds infrastructure code, and deploys — tailored to your app, not a template. Handles moving existing apps to Azure without rewriting or with minimal changes. WHEN: bring your app to Azure, plan my app, cost to run, is my code ready to deploy, deploy my app to the cloud, deploy all my services, what Azure services do I need, plan my Azure deployment, deploy my new app to Azure, one-click deploy, I have an app and want it on Azure, migrate my app to Azure, help me get started, build an app, no code yet, starter project. DO NOT USE FOR: use azd for deployment(use azure-deploy), optimizing existing costs (use cost-optimization), code readiness checks only (use azure-app-onboard-prereq).",
       "source": "microsoft",
       "category": null,
       "license": "MIT",
@@ -4298,11 +4298,11 @@
       "path": "skills/azure-app-onboard",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-app-onboard",
       "route": "/skills/microsoft/azure-app-onboard",
-      "checksum": "d7898b974956e039c1800b8ebc7389a27172abe08452eafe543ddb135cc79d18",
+      "checksum": "3bb0611b29f60402b79444db105f9bc24e745e09fc19a3aea73380c1a5c4c867",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 6543,
+          "size": 6809,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-app-onboard/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-app-onboard/SKILL.md"
@@ -4323,7 +4323,7 @@
         },
         {
           "path": "references/handoff-protocol.md",
-          "size": 7843,
+          "size": 8013,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-app-onboard/references/handoff-protocol.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-app-onboard/references/handoff-protocol.md"
@@ -5171,182 +5171,6 @@
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-compute/workflows/vm-recommender/vm-recommender.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-compute/workflows/vm-recommender/vm-recommender.md"
-        }
-      ]
-    },
-    {
-      "id": "microsoft/azure-cost",
-      "name": "azure-cost",
-      "description": "Azure cost management: query costs, forecast spending, optimize to reduce waste. WHEN: \"Azure costs\", \"Azure bill\", \"cost breakdown\", \"how much am I spending\", \"forecast spending\", \"optimize costs\", \"reduce spending\", \"orphaned resources\", \"rightsize VMs\", \"cost spike\", \"reduce storage costs\", \"AKS cost\". DO NOT USE FOR: deploying resources, provisioning, diagnostics, or security audits.",
-      "source": "microsoft",
-      "category": null,
-      "license": "MIT",
-      "proprietary": false,
-      "path": "skills/azure-cost",
-      "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-cost",
-      "route": "/skills/microsoft/azure-cost",
-      "checksum": "2dbc9f9c5348be0d782f29019884217a9f1870ff94b7c8331c4e9df97da71287",
-      "files": [
-        {
-          "path": "SKILL.md",
-          "size": 1886,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/SKILL.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/SKILL.md"
-        },
-        {
-          "path": "cost-forecast/error-handling.md",
-          "size": 4417,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-forecast/error-handling.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-forecast/error-handling.md"
-        },
-        {
-          "path": "cost-forecast/examples.md",
-          "size": 3066,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-forecast/examples.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-forecast/examples.md"
-        },
-        {
-          "path": "cost-forecast/guardrails.md",
-          "size": 5187,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-forecast/guardrails.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-forecast/guardrails.md"
-        },
-        {
-          "path": "cost-forecast/request-body-schema.md",
-          "size": 4347,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-forecast/request-body-schema.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-forecast/request-body-schema.md"
-        },
-        {
-          "path": "cost-forecast/workflow.md",
-          "size": 4844,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-forecast/workflow.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-forecast/workflow.md"
-        },
-        {
-          "path": "cost-optimization/auth-best-practices.md",
-          "size": 6207,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/auth-best-practices.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/auth-best-practices.md"
-        },
-        {
-          "path": "cost-optimization/azure-aks-anomalies.md",
-          "size": 2523,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/azure-aks-anomalies.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/azure-aks-anomalies.md"
-        },
-        {
-          "path": "cost-optimization/azure-aks-cost-addon.md",
-          "size": 1505,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/azure-aks-cost-addon.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/azure-aks-cost-addon.md"
-        },
-        {
-          "path": "cost-optimization/azure-quick-review.md",
-          "size": 1600,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/azure-quick-review.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/azure-quick-review.md"
-        },
-        {
-          "path": "cost-optimization/azure-resource-graph.md",
-          "size": 2794,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/azure-resource-graph.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/azure-resource-graph.md"
-        },
-        {
-          "path": "cost-optimization/report-template.md",
-          "size": 1860,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/report-template.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/report-template.md"
-        },
-        {
-          "path": "cost-optimization/sdk/azure-resource-manager-redis-dotnet.md",
-          "size": 1519,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/sdk/azure-resource-manager-redis-dotnet.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/sdk/azure-resource-manager-redis-dotnet.md"
-        },
-        {
-          "path": "cost-optimization/services/redis/azure-cache-for-redis.md",
-          "size": 2748,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/services/redis/azure-cache-for-redis.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/services/redis/azure-cache-for-redis.md"
-        },
-        {
-          "path": "cost-optimization/services/storage/azure-storage.md",
-          "size": 7856,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/services/storage/azure-storage.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/services/storage/azure-storage.md"
-        },
-        {
-          "path": "cost-optimization/workflow.md",
-          "size": 7897,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-optimization/workflow.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-optimization/workflow.md"
-        },
-        {
-          "path": "cost-query/dimensions-by-scope.md",
-          "size": 7639,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-query/dimensions-by-scope.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-query/dimensions-by-scope.md"
-        },
-        {
-          "path": "cost-query/error-handling.md",
-          "size": 5163,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-query/error-handling.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-query/error-handling.md"
-        },
-        {
-          "path": "cost-query/examples.md",
-          "size": 2554,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-query/examples.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-query/examples.md"
-        },
-        {
-          "path": "cost-query/guardrails.md",
-          "size": 7694,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-query/guardrails.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-query/guardrails.md"
-        },
-        {
-          "path": "cost-query/request-body-schema.md",
-          "size": 5514,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-query/request-body-schema.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-query/request-body-schema.md"
-        },
-        {
-          "path": "cost-query/workflow.md",
-          "size": 5246,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/cost-query/workflow.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/cost-query/workflow.md"
-        },
-        {
-          "path": "references/tools-and-best-practices.md",
-          "size": 3020,
-          "binary": false,
-          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-cost/references/tools-and-best-practices.md",
-          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-cost/references/tools-and-best-practices.md"
         }
       ]
     },
@@ -6438,7 +6262,7 @@
       "path": "skills/azure-prepare",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-prepare",
       "route": "/skills/microsoft/azure-prepare",
-      "checksum": "5a560276385ba66430e97258e35c9c511af546c7147f7adae5f08e5bd17abd68",
+      "checksum": "18f69ceba441a3837848585214e843bf7447d8ce33fc3301b4ee251c1c27be75",
       "files": [
         {
           "path": "SKILL.md",
@@ -6631,7 +6455,7 @@
         },
         {
           "path": "references/research.md",
-          "size": 8874,
+          "size": 8940,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-prepare/references/research.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-prepare/references/research.md"
@@ -7763,7 +7587,7 @@
     {
       "id": "microsoft/azure-resource-lookup",
       "name": "azure-resource-lookup",
-      "description": "List, find, and show Azure resources across subscriptions or resource groups. Handles prompts like \"list the websites in my subscription\", \"list my web apps\", \"show my app services\", \"list virtual machines\", \"list my VMs\", \"show storage accounts\", \"find container apps\", and \"what resources do I have\". USE FOR: list websites, list web apps, list app services, show websites in subscription, resource inventory, find resources by tag, tag analysis, orphaned resource discovery (not for cost analysis), unattached disks, count resources by type, cross-subscription lookup, and Azure Resource Graph queries. DO NOT USE FOR: deploying/changing resources (use azure-deploy), cost optimization (use azure-cost), or non-Azure clouds.",
+      "description": "List, find, and show Azure resources across subscriptions or resource groups. Handles prompts like \"list the websites in my subscription\", \"list my web apps\", \"show my app services\", \"list virtual machines\", \"list my VMs\", \"show storage accounts\", \"find container apps\", and \"what resources do I have\". USE FOR: list websites, list web apps, list app services, show websites in subscription, resource inventory, find resources by tag, tag analysis, orphaned resource discovery (not for cost analysis), unattached disks, count resources by type, cross-subscription lookup, and Azure Resource Graph queries. DO NOT USE FOR: deploying/changing resources (use azure-deploy), cost optimization (use cost-optimization from the optional azure-cost plugin), or non-Azure clouds.",
       "source": "microsoft",
       "category": null,
       "license": "MIT",
@@ -7771,11 +7595,11 @@
       "path": "skills/azure-resource-lookup",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/azure-resource-lookup",
       "route": "/skills/microsoft/azure-resource-lookup",
-      "checksum": "4b28e485752487a12d1ceb99372e30428e001d1991a28fdaccd21e51ee6138c0",
+      "checksum": "5a4b6bf2a908f61d8795eef1bc497ddd283e11982a36b153d1ed3a24547df535",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 5526,
+          "size": 5569,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/azure-resource-lookup/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/azure-resource-lookup/SKILL.md"
@@ -8382,6 +8206,49 @@
       ]
     },
     {
+      "id": "microsoft/discover-azure-skills",
+      "name": "discover-azure-skills",
+      "description": "Searches the Azure skills catalog and recommends installable agent skills by matching an Azure task to skill metadata and plugin installation guidance. WHEN: before starting any task that involves an Azure or Microsoft-cloud service, product, or data source, when no currently loaded skill or tool already covers it.",
+      "source": "microsoft",
+      "category": null,
+      "license": "MIT",
+      "proprietary": false,
+      "path": "skills/discover-azure-skills",
+      "url": "https://github.com/microsoft/azure-skills/tree/main/skills/discover-azure-skills",
+      "route": "/skills/microsoft/discover-azure-skills",
+      "checksum": "f4f830e7b4a1c2ee5330cce94c000bd933eb341e9b5b6fcfc6214b284a7aab5c",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 2316,
+          "binary": false,
+          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/discover-azure-skills/SKILL.md",
+          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/discover-azure-skills/SKILL.md"
+        },
+        {
+          "path": "references/install/claude-code.md",
+          "size": 339,
+          "binary": false,
+          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/discover-azure-skills/references/install/claude-code.md",
+          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/discover-azure-skills/references/install/claude-code.md"
+        },
+        {
+          "path": "references/install/copilot-cli.md",
+          "size": 339,
+          "binary": false,
+          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/discover-azure-skills/references/install/copilot-cli.md",
+          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/discover-azure-skills/references/install/copilot-cli.md"
+        },
+        {
+          "path": "references/install/other.md",
+          "size": 322,
+          "binary": false,
+          "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/discover-azure-skills/references/install/other.md",
+          "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/discover-azure-skills/references/install/other.md"
+        }
+      ]
+    },
+    {
       "id": "microsoft/entra-agent-id",
       "name": "entra-agent-id",
       "description": "Provision Microsoft Entra Agent Identity Blueprints, BlueprintPrincipals, and per-instance Agent Identities via Microsoft Graph, and configure OAuth 2.0 token exchange (fmi_path, OBO, cross-tenant) including the Microsoft Entra SDK for AgentID sidecar. USE FOR: Agent Identity Blueprint, BlueprintPrincipal, agent OAuth, fmi_path token exchange, agent OBO, Workload Identity Federation for agents, polyglot agent auth, Microsoft.Identity.Web.AgentIdentities. DO NOT USE FOR: standard Entra app registration (use entra-app-registration), Microsoft Foundry agent authoring (use microsoft-foundry).",
@@ -8590,7 +8457,7 @@
       "path": "skills/microsoft-foundry",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry",
       "route": "/skills/microsoft/microsoft-foundry",
-      "checksum": "1406efe8f8fd94aa962982a51ae411a991e30a17f7c0384566059907cca96187",
+      "checksum": "92b9336e506287d47fa2dff19fac8ed4bb6ef858db1861840ba5cd468e48035c",
       "files": [
         {
           "path": ".gitignore",
@@ -8671,7 +8538,7 @@
         },
         {
           "path": "foundry-agent/create/create-hosted.md",
-          "size": 33580,
+          "size": 33705,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/create/create-hosted.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/create-hosted.md"
@@ -8685,7 +8552,7 @@
         },
         {
           "path": "foundry-agent/create/quick-start-hosted.md",
-          "size": 22895,
+          "size": 23948,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/create/quick-start-hosted.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/quick-start-hosted.md"
@@ -8741,7 +8608,7 @@
         },
         {
           "path": "foundry-agent/create/references/local-run.md",
-          "size": 10294,
+          "size": 10600,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/create/references/local-run.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/create/references/local-run.md"
@@ -9364,7 +9231,7 @@
         },
         {
           "path": "foundry-agent/validate/references/default-rules.yaml",
-          "size": 15793,
+          "size": 18540,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/foundry-agent/validate/references/default-rules.yaml",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/foundry-agent/validate/references/default-rules.yaml"
@@ -10467,7 +10334,7 @@
       "path": "skills/microsoft-foundry/models/deploy-model/preset",
       "url": "https://github.com/microsoft/azure-skills/tree/main/skills/microsoft-foundry/models/deploy-model/preset",
       "route": "/skills/microsoft/microsoft-foundry/models/deploy-model/preset",
-      "checksum": "bc52e13244c4624fa18d643107d3104022e7408d76f260d5c1832a76c45c3fb8",
+      "checksum": "85496e973bcaa7dba3f690718cb6b00c35011cc701e2b8be4c7b80d681471aed",
       "files": [
         {
           "path": "EXAMPLES.md",
@@ -10478,7 +10345,7 @@
         },
         {
           "path": "SKILL.md",
-          "size": 4935,
+          "size": 4960,
           "binary": false,
           "githubUrl": "https://github.com/microsoft/azure-skills/blob/main/skills/microsoft-foundry/models/deploy-model/preset/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/microsoft/azure-skills/main/skills/microsoft-foundry/models/deploy-model/preset/SKILL.md"
@@ -17919,21 +17786,14 @@
       "path": "skills/writing-plans",
       "url": "https://github.com/obra/superpowers/tree/main/skills/writing-plans",
       "route": "/skills/superpowers/writing-plans",
-      "checksum": "75eeb17d99d87c1d48b90e87c7302f32dd9e24205a84fa0e98d6bfb60770b6bb",
+      "checksum": "ab553d52be1fccac41c376f1c724e71caa06e48bd4ccb36b7139d9379b8f35a8",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 9092,
+          "size": 10335,
           "binary": false,
           "githubUrl": "https://github.com/obra/superpowers/blob/main/skills/writing-plans/SKILL.md",
           "rawUrl": "https://raw.githubusercontent.com/obra/superpowers/main/skills/writing-plans/SKILL.md"
-        },
-        {
-          "path": "plan-document-reviewer-prompt.md",
-          "size": 1713,
-          "binary": false,
-          "githubUrl": "https://github.com/obra/superpowers/blob/main/skills/writing-plans/plan-document-reviewer-prompt.md",
-          "rawUrl": "https://raw.githubusercontent.com/obra/superpowers/main/skills/writing-plans/plan-document-reviewer-prompt.md"
         }
       ]
     },
