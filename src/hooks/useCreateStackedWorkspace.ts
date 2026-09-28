@@ -11,6 +11,7 @@ import {
   getFullWorkspacePath,
 } from "../lib/utils";
 import { useToast } from "../components/ui/toast";
+import { useRepositoryCacheKey } from "../lib/active-repository-context";
 import { invalidateQueries } from "../lib/swr-cache";
 
 export interface CreateStackedWorkspaceOptions {
@@ -27,6 +28,9 @@ export interface CreateStackedWorkspaceOptions {
 
 export function useCreateStackedWorkspace() {
   const { addToast } = useToast();
+  // Dashboard keys its workspace lists by repository identity, which differs
+  // from the path for remote repositories.
+  const activeRepoKey = useRepositoryCacheKey();
 
   const createStackedWorkspace = async ({
     repoPath,
@@ -126,7 +130,8 @@ export function useCreateStackedWorkspace() {
       }
 
       // Step 8: Invalidate queries and notify success
-      void invalidateQueries(["workspaces", repoPath]);
+      void invalidateQueries(["workspaces", activeRepoKey ?? repoPath]);
+      void invalidateQueries(["workspace-statuses", activeRepoKey ?? repoPath]);
 
       addToast({
         title: "Stacked workspace created",

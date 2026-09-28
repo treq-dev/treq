@@ -85,53 +85,10 @@ is the worked example: it drives the whole "Stack" dialog (open it, type a branc
 name, submit) with `userEvent`, not the API helper, because workspace creation is
 part of the scenario being verified.
 
-## First-time environment setup (fresh sandbox/container)
+## References
 
-A clean checkout is missing several things `npm run screenshot`/`build:napi` need.
-Do this once per fresh environment, before step 4 below. Skip whatever is already
-present (`node_modules/`, a working `cargo check`, etc.).
-
-1. **Node deps**: `npm install` if `node_modules/` doesn't exist yet.
-
-2. **Native build deps for the Tauri/GTK backend** (Linux sandboxes typically lack
-   these): `libgtk-3-dev`, `libsoup-3.0-dev`, `libjavascriptcoregtk-4.1-dev`,
-   `libwebkit2gtk-4.1-dev`. Install with `apt-get install -y <package>`; if apt
-   reports unmet dependencies or 404s on individual `.deb`s, run `apt-get update`
-   and then `apt-get install -y --fix-broken` to pull the rest in — a stale package
-   index is the usual cause, not a real missing package.
-
-3. **CA trust for the outbound proxy** (if the session runs behind the agent proxy
-   described in `/root/.ccr/README.md`): the proxy's CA is dropped into
-   `/usr/local/share/ca-certificates/` at container start, but the compiled system
-   bundle (`/etc/ssl/certs/ca-certificates.crt`) can be stale. If a `cargo build`
-   fails with a TLS error like `invalid peer certificate: UnknownIssuer` while
-   fetching a crate's build-time download, run `update-ca-certificates --fresh` and
-   retry — most such failures are this, not a real network block.
-
-## How the harness works
-
-1. `createTestRepo()` (from `test/utils`, backed by the `tauri-test` addon) creates a
-   real jj repository on disk, exactly like an integration test.
-2. `render(<Dashboard/>)` (from `test/test-utils`) mounts the real React tree in
-   jsdom, with Tauri's `invoke` replaced by real Rust dispatch
-   (`test/setup.screenshot.ts`) — no mocked backend, no mocked ShowWorkspace,
-   FileBrowser, ChangesDiffViewer, etc.
-3. `captureDocument(document, { name, expectations })` (`scripts/screenshot/capture.ts`)
-   serializes the live DOM, inlines the app's real compiled Tailwind CSS
-   (`scripts/screenshot/build-css.mjs` output), and hands the resulting static HTML to
-   headless Chromium (`playwright-core`, pinned to the pre-installed browser) purely
-   to rasterize it into a PNG. jsdom itself never paints a pixel — Chromium is only
-   there for the pixels. It also writes `<name>.json` next to the PNG recording the
-   `expectations` you passed (see step 3 in Steps below).
-
-`test/setup.screenshot.ts` is a near-duplicate of `test/setup.integration.ts` with one
-difference: `test/integration/**` fails a run the moment any still-un-migrated `jj_*`
-command is invoked (an ongoing tracker for code that should call `core::*` instead).
-The screenshot harness exists to show current real behavior, debt included, so it
-only logs which `jj_*` commands fired instead of failing the spec. If driving a real
-flow hits an unknown command, that command is missing from `generate_handler!` or
-from a `#[tauri::command]` the `tauri-test` setup scan can see — add the real
-command, not a test-only stub.
+- `references/setup.md`: first-time environment setup for a fresh sandbox (npm deps, GTK/webkit packages, proxy CA trust). Read it only when `npm run build:napi` or `npm run screenshot` fails on a missing dependency.
+- `references/harness.md`: how `createTestRepo`, `render(<Dashboard/>)`, and `captureDocument` fit together, and why `setup.screenshot.ts` tolerates un-migrated `jj_*` commands. Read it when a spec fails inside the harness or you hit an unknown command.
 
 ## Steps
 
@@ -215,7 +172,7 @@ command, not a test-only stub.
    across the two.
 
 4. **Run it.** If this is a fresh environment (no `node_modules/`, or `cargo build`
-   fails on GTK/webkit headers), do the "First-time environment setup" section
+   fails on GTK/webkit headers), follow `references/setup.md`
    above first.
    - First run in a session, or after touching `src-tauri`, or
      adding new Tailwind classes: `npm run screenshot` (rebuilds the NAPI addon,
