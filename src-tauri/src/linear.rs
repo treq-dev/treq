@@ -849,13 +849,15 @@ async fn kickoff_linear_issue_internal(
   api_key: &str,
   issue_id: &str,
   include_subissues: bool,
-) -> Result<Vec<crate::commands::linear::LinearKickoffResult>, String> {
+) -> Result<crate::commands::linear::LinearKickoffOutcome, String> {
+  use crate::commands::linear::{LinearKickoffFailure, LinearKickoffOutcome};
+
   let issue = linear_get_issue_impl(api_key, issue_id).await?;
-  let mut results = vec![];
+  let mut outcome = LinearKickoffOutcome::default();
 
   let workspace_result =
     crate::commands::linear::open_or_create_workspace_from_linear_issue(repo_path, &issue).await?;
-  results.push(workspace_result);
+  outcome.results.push(workspace_result);
 
   if include_subissues && !issue.sub_issue_ids.is_empty() {
     for sub_id in &issue.sub_issue_ids {
@@ -876,16 +878,30 @@ async fn kickoff_linear_issue_internal(
                 log::warn!("linear-kickoff: failed to record parent for sub-issue {sub_id}: {e}");
               }
             }
-            results.push(result);
+            outcome.results.push(result);
           }
-          Err(e) => log::warn!("linear-kickoff: failed to kickoff sub-issue {sub_id}: {e}"),
+          Err(e) => {
+            log::warn!("linear-kickoff: failed to kickoff sub-issue {sub_id}: {e}");
+            outcome.failures.push(LinearKickoffFailure {
+              issue_id: sub_id.clone(),
+              identifier: Some(sub_issue.identifier.clone()),
+              error: e,
+            });
+          }
         },
-        Err(e) => log::warn!("linear-kickoff: failed to fetch sub-issue {sub_id}: {e}"),
+        Err(e) => {
+          log::warn!("linear-kickoff: failed to fetch sub-issue {sub_id}: {e}");
+          outcome.failures.push(LinearKickoffFailure {
+            issue_id: sub_id.clone(),
+            identifier: None,
+            error: e,
+          });
+        }
       }
     }
   }
 
-  Ok(results)
+  Ok(outcome)
 }
 
 static GLOBAL_KICKOFF_POLLER: std::sync::OnceLock<KickoffPoller> = std::sync::OnceLock::new();

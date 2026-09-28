@@ -24,7 +24,10 @@ import {
   formatPromptWithIssue,
   type IssueAttachment,
 } from "../lib/promptAttachments";
-import { openOrCreateIssueWorkspace } from "../lib/issueWorkspace";
+import {
+  type IssueWorkspace,
+  openOrCreateIssueWorkspace,
+} from "../lib/issueWorkspace";
 import { useToast } from "./ui/toast";
 import { useDebounce } from "../hooks/useDebounce";
 import { cn } from "../lib/utils";
@@ -281,6 +284,36 @@ export const TaskInput: React.FC<TaskInputProps> = ({
     }
   };
 
+  // The backend kicks off sub-issues in the same call, but only the parent
+  // workspace opens, so tell the user what happened to the rest.
+  const reportSubissueWorkspaces = ({
+    subissueResults = [],
+    subissueFailures = [],
+  }: IssueWorkspace) => {
+    if (subissueResults.length > 0) {
+      const created = subissueResults.filter((r) => r.created).length;
+      const opened = subissueResults.length - created;
+      addToast({
+        title: "Sub-issue workspaces ready",
+        description:
+          opened > 0
+            ? `Created ${created} and opened ${opened} existing.`
+            : `Created ${created}.`,
+        type: "success",
+      });
+    }
+    if (subissueFailures.length > 0) {
+      const count = subissueFailures.length;
+      addToast({
+        title: `${count} sub-issue workspace${count === 1 ? "" : "s"} failed`,
+        description: subissueFailures
+          .map((f) => f.identifier ?? f.issue_id)
+          .join(", "),
+        type: "warning",
+      });
+    }
+  };
+
   const [, submitTask, submitting] = useActionState(
     async (_prev: null, mode: "plan" | "acceptEdits") => {
       const trimmed = taskText.trim();
@@ -301,9 +334,13 @@ export const TaskInput: React.FC<TaskInputProps> = ({
             ? `${pendingPrompt.slice(0, 47)}...`
             : pendingPrompt;
 
-        const targetWorkspaceId = issue
+        const issueWorkspace = issue
           ? await openOrCreateIssueWorkspace(repoPath, issue)
+          : null;
+        const targetWorkspaceId = issueWorkspace
+          ? issueWorkspace.workspaceId
           : workspaceId;
+        if (issueWorkspace) reportSubissueWorkspaces(issueWorkspace);
 
         const dbSessionId = await createSession(
           repoPath,

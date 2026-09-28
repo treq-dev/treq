@@ -131,13 +131,19 @@ const CASES: Case[] = [
       external.linearListIssues.mockResolvedValue([LINEAR_ISSUE]);
       external.linearGetViewer.mockResolvedValue({ id: "me", name: "Me" });
       external.linearOpenOrCreateWorkspaceFromIssue.mockImplementation(
-        async (path: string) => [
-          {
-            issue_id: LINEAR_ISSUE.id,
-            workspace_id: await createWorkspace(path, LINEAR_ISSUE.branch_name),
-            created: true,
-          },
-        ],
+        async (path: string) => ({
+          results: [
+            {
+              issue_id: LINEAR_ISSUE.id,
+              workspace_id: await createWorkspace(
+                path,
+                LINEAR_ISSUE.branch_name,
+              ),
+              created: true,
+            },
+          ],
+          failures: [],
+        }),
       );
     },
     open: async (user) => {

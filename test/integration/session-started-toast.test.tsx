@@ -52,13 +52,16 @@ describe("session started feedback", () => {
     linearApi.linearListIssues.mockResolvedValue([ISSUE]);
     linearApi.linearGetViewer.mockResolvedValue({ id: "me", name: "Me" });
     linearApi.linearOpenOrCreateWorkspaceFromIssue.mockImplementation(
-      async (path: string) => [
-        {
-          issue_id: ISSUE.id,
-          workspace_id: await createWorkspace(path, ISSUE.branch_name),
-          created: true,
-        },
-      ],
+      async (path: string) => ({
+        results: [
+          {
+            issue_id: ISSUE.id,
+            workspace_id: await createWorkspace(path, ISSUE.branch_name),
+            created: true,
+          },
+        ],
+        failures: [],
+      }),
     );
   });
 

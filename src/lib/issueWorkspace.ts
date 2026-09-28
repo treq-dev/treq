@@ -1,17 +1,28 @@
 import { githubOpenOrCreateWorkspaceFromIssue } from "./api";
-import { linearOpenOrCreateWorkspaceFromIssue } from "./api-linear";
+import {
+  type LinearKickoffFailure,
+  type LinearKickoffResult,
+  linearOpenOrCreateWorkspaceFromIssue,
+} from "./api-linear";
 import { trackerOpenOrCreateWorkspaceFromItem } from "./api-tracker";
 import type { IssueAttachment } from "./promptAttachments";
+
+export type IssueWorkspace = {
+  workspaceId: number;
+  // Linear sub-issue workspaces kicked off alongside the parent.
+  subissueResults?: LinearKickoffResult[];
+  subissueFailures?: LinearKickoffFailure[];
+};
 
 /**
  * Opens the workspace an attached issue's session runs in, creating it when
  * needed. Each tracker has its own backend command; the caller sees one step
- * and gets the workspace id back.
+ * and gets the workspace id back, plus any Linear sub-issue outcomes.
  */
 export async function openOrCreateIssueWorkspace(
   repoPath: string,
   issue: IssueAttachment,
-): Promise<number> {
+): Promise<IssueWorkspace> {
   switch (issue.source) {
     case "github": {
       const result = await githubOpenOrCreateWorkspaceFromIssue(
@@ -20,10 +31,10 @@ export async function openOrCreateIssueWorkspace(
         issue.title,
         issue.url,
       );
-      return result.workspace_id;
+      return { workspaceId: result.workspace_id };
     }
     case "linear": {
-      const results = await linearOpenOrCreateWorkspaceFromIssue(
+      const { results, failures } = await linearOpenOrCreateWorkspaceFromIssue(
         repoPath,
         issue.id,
         issue.includeSubItems,
@@ -32,7 +43,11 @@ export async function openOrCreateIssueWorkspace(
         results.find((item) => item.issue_id === issue.id) ?? results[0];
       if (!result)
         throw new Error(`Failed to create workspace for ${issue.key}`);
-      return result.workspace_id;
+      return {
+        workspaceId: result.workspace_id,
+        subissueResults: results.filter((item) => item !== result),
+        subissueFailures: failures,
+      };
     }
     default: {
       // Trello and Jira share the tracker_* commands.
@@ -45,7 +60,7 @@ export async function openOrCreateIssueWorkspace(
         results.find((item) => item.item_id === issue.id) ?? results[0];
       if (!result)
         throw new Error(`Failed to create workspace for ${issue.key}`);
-      return result.workspace_id;
+      return { workspaceId: result.workspace_id };
     }
   }
 }

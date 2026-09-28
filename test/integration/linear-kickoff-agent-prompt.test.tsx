@@ -70,9 +70,12 @@ describe("Linear issue kickoff", () => {
     linearApi.linearOpenOrCreateWorkspaceFromIssue.mockImplementation(
       async (path: string) => {
         const workspaceId = await createWorkspace(path, issue.branch_name);
-        return [
-          { issue_id: issue.id, workspace_id: workspaceId, created: true },
-        ];
+        return {
+          results: [
+            { issue_id: issue.id, workspace_id: workspaceId, created: true },
+          ],
+          failures: [],
+        };
       },
     );
     render(<Dashboard />);

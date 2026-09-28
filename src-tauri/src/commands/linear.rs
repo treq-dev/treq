@@ -15,6 +15,21 @@ pub struct LinearKickoffResult {
   pub created: bool,
 }
 
+/// A sub-issue whose workspace could not be opened or created. `identifier`
+/// is missing when the issue itself could not be fetched.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LinearKickoffFailure {
+  pub issue_id: String,
+  pub identifier: Option<String>,
+  pub error: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct LinearKickoffOutcome {
+  pub results: Vec<LinearKickoffResult>,
+  pub failures: Vec<LinearKickoffFailure>,
+}
+
 #[tauri::command]
 pub async fn linear_list_teams(
   state: State<'_, AppState>,
@@ -68,7 +83,7 @@ pub async fn linear_open_or_create_workspace_from_issue(
   repo_path: String,
   issue_id: String,
   include_subissues: bool,
-) -> Result<Vec<LinearKickoffResult>, String> {
+) -> Result<LinearKickoffOutcome, String> {
   crate::commands::feature_preview::require(
     &state,
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
@@ -81,8 +96,10 @@ pub async fn linear_open_or_create_workspace_from_issue(
   match client_source {
     LinearClientSource::ApiKey(api_key) => {
       let issue = crate::linear::linear_get_issue_impl(&api_key, &issue_id).await?;
-      let mut results = vec![];
-      results.push(open_or_create_workspace_from_linear_issue(&repo_path, &issue).await?);
+      let mut outcome = LinearKickoffOutcome::default();
+      outcome
+        .results
+        .push(open_or_create_workspace_from_linear_issue(&repo_path, &issue).await?);
 
       if include_subissues {
         for sub_id in &issue.sub_issue_ids {
@@ -99,17 +116,31 @@ pub async fn linear_open_or_create_workspace_from_issue(
                       &issue_id,
                     )?;
                   }
-                  results.push(result);
+                  outcome.results.push(result);
                 }
-                Err(e) => log::warn!("Failed to kickoff sub-issue {sub_id}: {e}"),
+                Err(e) => {
+                  log::warn!("Failed to kickoff sub-issue {sub_id}: {e}");
+                  outcome.failures.push(LinearKickoffFailure {
+                    issue_id: sub_id.clone(),
+                    identifier: Some(sub_issue.identifier.clone()),
+                    error: e,
+                  });
+                }
               }
             }
-            Err(e) => log::warn!("Failed to fetch sub-issue {sub_id}: {e}"),
+            Err(e) => {
+              log::warn!("Failed to fetch sub-issue {sub_id}: {e}");
+              outcome.failures.push(LinearKickoffFailure {
+                issue_id: sub_id.clone(),
+                identifier: None,
+                error: e,
+              });
+            }
           }
         }
       }
 
-      Ok(results)
+      Ok(outcome)
     }
     LinearClientSource::ProxyToken => {
       Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
@@ -379,5 +410,29 @@ mod tests {
     assert_eq!(result.issue_id, "ENG-2");
     assert_eq!(result.workspace_id, 99);
     assert!(!result.created);
+  }
+
+  #[test]
+  fn kickoff_outcome_serializes_results_and_failures() {
+    let outcome = LinearKickoffOutcome {
+      results: vec![LinearKickoffResult {
+        issue_id: "parent-id".to_string(),
+        workspace_id: 7,
+        created: true,
+      }],
+      failures: vec![LinearKickoffFailure {
+        issue_id: "child-id".to_string(),
+        identifier: Some("ENG-3".to_string()),
+        error: "boom".to_string(),
+      }],
+    };
+    let json = serde_json::to_value(&outcome).unwrap();
+    assert_eq!(
+      json,
+      serde_json::json!({
+        "results": [{ "issue_id": "parent-id", "workspace_id": 7, "created": true }],
+        "failures": [{ "issue_id": "child-id", "identifier": "ENG-3", "error": "boom" }],
+      })
+    );
   }
 }

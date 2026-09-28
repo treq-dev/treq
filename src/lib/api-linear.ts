@@ -72,6 +72,17 @@ export type LinearKickoffResult = {
   created: boolean;
 };
 
+export type LinearKickoffFailure = {
+  issue_id: string;
+  identifier: string | null;
+  error: string;
+};
+
+export type LinearKickoffOutcome = {
+  results: LinearKickoffResult[];
+  failures: LinearKickoffFailure[];
+};
+
 export const linearListTeams = (repoPath: string): Promise<LinearTeam[]> =>
   invoke("linear_list_teams", { repoPath });
 
@@ -85,7 +96,7 @@ export const linearOpenOrCreateWorkspaceFromIssue = (
   repoPath: string,
   issueId: string,
   includeSubissues: boolean,
-): Promise<LinearKickoffResult[]> =>
+): Promise<LinearKickoffOutcome> =>
   invoke("linear_open_or_create_workspace_from_issue", {
     repoPath,
     issueId,

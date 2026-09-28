@@ -159,9 +159,10 @@ describe("TaskInput issue chip", () => {
 
   it("creates the Linear issue workspace before creating its agent session", async () => {
     const onSessionCreated = vi.fn();
-    linearApi.linearOpenOrCreateWorkspaceFromIssue.mockResolvedValue([
-      { issue_id: "issue-id", workspace_id: 7, created: true },
-    ]);
+    linearApi.linearOpenOrCreateWorkspaceFromIssue.mockResolvedValue({
+      results: [{ issue_id: "issue-id", workspace_id: 7, created: true }],
+      failures: [],
+    });
     api.getWorkspaces.mockResolvedValue([
       {
         id: 7,
@@ -214,5 +215,57 @@ describe("TaskInput issue chip", () => {
         pendingPrompt: expect.stringContaining("Linear issue TREQ-281"),
       }),
     );
+  });
+
+  it("reports sub-issue workspaces created, opened, and failed", async () => {
+    linearApi.linearOpenOrCreateWorkspaceFromIssue.mockResolvedValue({
+      results: [
+        { issue_id: "issue-id", workspace_id: 7, created: true },
+        { issue_id: "child-a", workspace_id: 8, created: true },
+        { issue_id: "child-b", workspace_id: 9, created: false },
+      ],
+      failures: [
+        {
+          issue_id: "child-c",
+          identifier: "TREQ-290",
+          error: "Failed to create workspace for Linear issue TREQ-290",
+        },
+        { issue_id: "child-d", identifier: null, error: "Not found" },
+      ],
+    });
+    render(
+      <TaskInput
+        repoPath="/repo"
+        workspaceId={null}
+        workingDirectory="/repo"
+        initialIssue={{
+          source: "linear",
+          id: "issue-id",
+          key: "TREQ-281",
+          title: "Linear integration should CRUD issues",
+          url: "https://linear.app/treq/issue/TREQ-281",
+          includeSubItems: true,
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled());
+    expect(api.createSession).toHaveBeenCalledWith(
+      "/repo",
+      7,
+      expect.any(String),
+    );
+    expect(
+      await screen.findByText("Sub-issue workspaces ready"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Created 1 and opened 1 existing."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("2 sub-issue workspaces failed"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("TREQ-290, child-d")).toBeInTheDocument();
   });
 });
