@@ -954,6 +954,7 @@ pub fn run() {
             commands::remote_transport_metrics,
             commands::remote_force_cutoff,
             commands::remote_clear_cutoff,
+            commands::remote_set_relay_access_token,
             commands::remote_cutoff_reason,
             commands::set_window_repo_path,
             commands::get_window_repo_path,

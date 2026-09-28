@@ -417,6 +417,7 @@ pub fn build_explicit_alias_endpoint(
     authentication: SshAuthentication::PublicKey {
       key_reference: resolved.identity_file.unwrap_or(key_reference),
     },
+    transport: Default::default(),
   })
 }
 

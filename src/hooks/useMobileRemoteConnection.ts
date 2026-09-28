@@ -36,6 +36,7 @@ import {
   registerClientKey,
   wakeInstance,
 } from "../lib/remote-control-plane";
+import { ensureRelayAccessTokenSync } from "../lib/remote-relay-auth";
 import {
   sshEndpointFromUserManaged,
   type UserManagedEndpointRecord,
@@ -174,6 +175,7 @@ export function useMobileRemoteConnection() {
           onRenewed?.(renewed);
         });
       },
+      prepareRelay: () => ensureRelayAccessTokenSync(),
       clearCutoff: (endpointId) =>
         useRemoteCutoffStore.getState().clearCutoff(endpointId),
       wakeInstance: (instanceId, idempotencyKey) =>

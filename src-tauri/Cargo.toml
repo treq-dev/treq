@@ -68,6 +68,11 @@ async-trait = "0.1.92"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "io-util", "net", "sync"] }
 russh = "0.63.1"
+# WebSocket transport for managed SSH through the `remote-ssh-relay` Edge
+# Function. TLS uses the same rustls + ring stack reqwest already pulls in.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
 bytes = "1"
 getrandom = "0.4"
 tauri-plugin-keystore = "2.1.0-alpha.1"

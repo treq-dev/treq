@@ -50,7 +50,9 @@ import {
   type ManagedComputeProvider,
 } from "../_shared/remote/sprites-adapter.ts";
 import { isSpritesStubEnabled, StubSpritesProvider } from "../_shared/remote/stub-sprites-adapter.ts";
-import { KeyscanError, scanHostKey } from "../_shared/remote/ssh-keyscan.ts";
+import { KeyscanError } from "../_shared/remote/ssh-keyscan.ts";
+import { readManagedHostKeys } from "../_shared/remote/managed-sshd.ts";
+import { relayUrlForEndpoint } from "../_shared/remote/ssh-relay.ts";
 import { recordEndpointHostKey } from "../_shared/remote/instance-store.ts";
 
 const corsHeaders = {
@@ -416,6 +418,12 @@ async function handleIssueCertificate(
         comment: row.comment,
       })),
       authentication: { type: "certificate", key_reference: key.id },
+      // Sprites expose no raw TCP ingress, so managed endpoints are reached
+      // through the `remote-ssh-relay` Edge Function. `hostname`/`port`
+      // above name sshd as seen from inside the Sprite, not a dialable
+      // address. The URL carries only ids; the client sends its session JWT
+      // in a header on each connection.
+      transport: { type: "relay", url: relayUrlForEndpoint(endpointRow.id, key.id) },
     },
   }, 200, correlationId);
 }
@@ -489,11 +497,11 @@ async function handleAuthorizedKeyChange(
   }
 }
 
-// Re-runs the real host-key scan against the caller's managed endpoint and
+// Re-reads the managed VM's sshd host key over the provider's exec API and
 // records old/new fingerprint, generation, and provider resource id as a
-// rotation record (PRD "Reprovisioning may rotate the host key"). Also used
-// by remote-instance's ensure/reprovision flow immediately after an address
-// becomes available, closing the Phase 2 host-key gap.
+// rotation record (PRD "Reprovisioning may rotate the host key"). The key is
+// read on the machine rather than scanned over the network because sshd
+// only listens on the Sprite's loopback interface.
 async function handleKeyscanEndpoint(
   supabase: SupabaseClient,
   ownerUserId: string,
@@ -505,10 +513,11 @@ async function handleKeyscanEndpoint(
   const instance = await getInstanceById(supabase, ownerUserId, instanceId);
   if (!instance) throw new ValidationError("Instance does not belong to this user", 404);
   if (!instance.endpoint_id) throw new ValidationError("Instance has no endpoint recorded yet", 409);
+  if (!instance.provider_resource_id) throw new ValidationError("Instance has no provider resource yet", 409);
 
   const { data: endpointRow, error: endpointError } = await supabase
     .from("remote_endpoints")
-    .select("id, hostname, port")
+    .select("id")
     .eq("id", instance.endpoint_id)
     .eq("owner_user_id", ownerUserId)
     .maybeSingle();
@@ -516,7 +525,9 @@ async function handleKeyscanEndpoint(
   if (!endpointRow) throw new ValidationError("Endpoint does not belong to this user", 404);
 
   try {
-    const scanned = await scanHostKey(endpointRow.hostname, endpointRow.port);
+    const hostKeys = await readManagedHostKeys(getProvider(), instance.provider_resource_id);
+    const scanned = hostKeys[0];
+    if (!scanned) throw new KeyscanError("sshd host key file held no ed25519 key", "unsupported_host_key_algorithm");
     await recordEndpointHostKey(supabase, {
       ownerUserId,
       endpointId: endpointRow.id,
