@@ -6,12 +6,9 @@
 // refused or a certificate lapses unrenewed) and tracks which endpoints are
 // currently blocked behind a reauthentication prompt.
 //
-// Not yet wired into a specific screen - like the rest of the native SSH
-// transport (see `commands::remote_dispatch_over_ssh`'s own doc comment),
-// binding this to the actual remote workspace UI is Phase 6/later work. This
-// store is the real, callable piece that UI work hangs off of: components
-// read `useRemoteCutoffStore((s) => s.cutoffs[endpointId])` to decide
-// whether to show a blocking reauth prompt for that endpoint.
+// The desktop Dashboard and the mobile `RemoteConnectPanel` both read
+// `useRemoteCutoffStore((s) => s.cutoffs[endpointId])` to decide whether to
+// show a blocking reauth prompt for that endpoint.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { create } from "zustand";

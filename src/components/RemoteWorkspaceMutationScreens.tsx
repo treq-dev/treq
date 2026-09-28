@@ -11,14 +11,15 @@ import {
   MutationButton,
   describeMutationOutcome,
 } from "./remote/RemoteScreenControls";
+import { useActionIdempotencyKeys } from "../lib/remote-idempotency";
 
 interface WorkspaceChangeMarker {
   operation_id: string;
 }
 
 /**
- * Phase 3 (read-only review) + Phase 5 (controlled mutations) for a single
- * workspace: status/changes/rebase/commit/push, all over
+ * Read-only review plus controlled mutations for a single workspace
+ * (mobile PRD, "Navigation and review" and "Mutations"): status/changes/rebase/commit/push, all over
  * `dispatchOverSsh`/`dispatchMutationOverSsh`. Split out of
  * `RemoteRepoScreen.tsx` to keep that file under the line-count lint limit.
  */
@@ -95,6 +96,7 @@ export function WorkspaceDetailScreen({
   const [commitMessage, setCommitMessage] = useState("");
   const [commitError, setCommitError] = useState<string | null>(null);
   const [pushError, setPushError] = useState<string | null>(null);
+  const actionKeys = useActionIdempotencyKeys();
 
   return (
     <section className="flex flex-col gap-3">
@@ -135,14 +137,21 @@ export function WorkspaceDetailScreen({
             disabled={!targetBranch.trim()}
             onConfirm={async () => {
               setRebaseError(null);
+              const target = targetBranch.trim();
+              const idempotencyKey = actionKeys.keyFor("rebase", [
+                repo,
+                workspace,
+                target,
+              ]);
               try {
                 const result = await dispatchMutationOverSsh(endpoint, {
                   kind: "RebaseWorkspace",
                   repo,
                   workspace,
-                  target_branch: targetBranch.trim(),
-                  idempotency_key: `rebase:${workspace}:${targetBranch.trim()}:${Date.now()}`,
+                  target_branch: target,
+                  idempotency_key: idempotencyKey,
                 });
+                actionKeys.settle(idempotencyKey, result);
                 const outcome = describeMutationOutcome(result);
                 if (outcome) {
                   setRebaseError(outcome);
@@ -174,14 +183,21 @@ export function WorkspaceDetailScreen({
             disabled={!commitMessage.trim()}
             onConfirm={async () => {
               setCommitError(null);
+              const message = commitMessage.trim();
+              const idempotencyKey = actionKeys.keyFor("commit", [
+                repo,
+                workspace,
+                message,
+              ]);
               try {
                 const result = await dispatchMutationOverSsh(endpoint, {
                   kind: "CreateCommit",
                   repo,
                   workspace,
-                  message: commitMessage.trim(),
-                  idempotency_key: `commit:${workspace}:${Date.now()}`,
+                  message,
+                  idempotency_key: idempotencyKey,
                 });
+                actionKeys.settle(idempotencyKey, result);
                 const outcome = describeMutationOutcome(result);
                 if (outcome) {
                   setCommitError(outcome);
@@ -206,13 +222,15 @@ export function WorkspaceDetailScreen({
           confirmLabel="Confirm push"
           onConfirm={async () => {
             setPushError(null);
+            const idempotencyKey = actionKeys.keyFor("push", [repo, workspace]);
             try {
               const result = await dispatchMutationOverSsh(endpoint, {
                 kind: "GitPush",
                 repo,
                 workspace,
-                idempotency_key: `push:${workspace}:${Date.now()}`,
+                idempotency_key: idempotencyKey,
               });
+              actionKeys.settle(idempotencyKey, result);
               const outcome = describeMutationOutcome(result);
               if (outcome) {
                 setPushError(outcome);
@@ -307,6 +325,7 @@ export function ConflictsScreen({
   const [revision, setRevision] = useState("@");
   const [side, setSide] = useState("side1");
   const [resolveError, setResolveError] = useState<string | null>(null);
+  const actionKeys = useActionIdempotencyKeys();
 
   return (
     <section className="flex flex-col gap-2">
@@ -358,14 +377,22 @@ export function ConflictsScreen({
             disabled={!revision.trim()}
             onConfirm={async () => {
               setResolveError(null);
+              const target = revision.trim();
+              const idempotencyKey = actionKeys.keyFor("resolve", [
+                repo,
+                workspace,
+                target,
+                side,
+              ]);
               try {
                 const result = await dispatchMutationOverSsh(endpoint, {
                   kind: "ResolveConflict",
                   repo,
-                  revision: revision.trim(),
+                  revision: target,
                   sides: [side],
-                  idempotency_key: `resolve:${workspace}:${revision.trim()}:${Date.now()}`,
+                  idempotency_key: idempotencyKey,
                 });
+                actionKeys.settle(idempotencyKey, result);
                 const outcome = describeMutationOutcome(result);
                 if (outcome) {
                   setResolveError(outcome);
