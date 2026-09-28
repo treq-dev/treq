@@ -10,6 +10,12 @@ import type {
 } from "../lib/api";
 import * as api from "../lib/api";
 import { WEB_URL } from "../lib/supabase";
+import {
+  type ActiveRepository,
+  repositoryCacheKey,
+} from "../lib/active-repository";
+import { ActiveRepositoryProvider } from "../lib/active-repository-context";
+import { invalidateQueries } from "../lib/swr-cache";
 import { WorkspaceStackPanel } from "./WorkspaceStackPanel";
 
 vi.mock("../lib/api", async () => {
@@ -410,5 +416,48 @@ describe("WorkspaceStackPanel", () => {
     expect(onScheduleStack).toHaveBeenCalledTimes(1);
     const scheduled = onScheduleStack.mock.calls[0][0] as Workspace[];
     expect(scheduled.map((ws) => ws.id).sort()).toEqual([1, 2, 3]);
+  });
+  it("refetches in a remote repo when the repository-keyed statuses are invalidated", async () => {
+    const endpoint = {
+      id: "endpoint-1",
+      hostname: "box",
+    } as unknown as NonNullable<ActiveRepository["endpoint"]>;
+    const remoteRepo: ActiveRepository = {
+      id: "remote-1",
+      location: { type: "ssh", host: "box", path: rootWorkspace.repo_path },
+      endpoint,
+      endpointId: "endpoint-1",
+      endpointGeneration: 1,
+      canonicalPath: rootWorkspace.repo_path,
+      displayName: "project",
+      transport: { type: "ssh", endpoint },
+    };
+    vi.mocked(api.listWorkspaceStatuses).mockResolvedValue(
+      asStatuses([rootWorkspace, middleWorkspace]),
+    );
+    vi.mocked(api.listCommits).mockResolvedValue(makeLogResult(0, 0));
+
+    render(
+      <ActiveRepositoryProvider repository={remoteRepo}>
+        <WorkspaceStackPanel
+          repoPath={rootWorkspace.repo_path}
+          workspace={rootWorkspace}
+          defaultBranch="main"
+        />
+      </ActiveRepositoryProvider>,
+    );
+    await waitFor(() => {
+      expect(api.listWorkspaceStatuses).toHaveBeenCalledTimes(1);
+    });
+
+    // Dashboard invalidates by repository identity after a stack change.
+    await invalidateQueries([
+      "workspace-statuses",
+      repositoryCacheKey(remoteRepo),
+    ]);
+
+    await waitFor(() => {
+      expect(api.listWorkspaceStatuses).toHaveBeenCalledTimes(2);
+    });
   });
 });
