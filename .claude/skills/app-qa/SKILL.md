@@ -1,18 +1,11 @@
 ---
 name: app-qa
 description: >-
-  Visually verify treq UI/behavior changes by driving the real app (real jj repo via
-  NAPI, real Rust dispatch, jsdom-rendered React) with @testing-library/user-event and
-  capturing before/after screenshots through the Chromium rasterization harness in
-  scripts/screenshot/. Use explicitly when the user runs /app-qa or asks to screenshot,
-  QA, or visually check a behavior. ALSO use proactively, without being asked, right
-  after implementing or modifying anything that changes rendered UI or user-facing
-  interaction: components under src/components/**, hooks under src/hooks/**,
-  src/lib/** helpers that affect rendering, or Tauri commands under
-  src-tauri/src/commands/** and src-tauri/src/core/** that back a UI flow. Do this
-  before telling the user the change is done. A PostToolUse hook
-  (.claude/hooks/post-edit-app-qa.sh) injects a reminder for exactly this case — treat
-  that reminder as the trigger to run this skill, not just a suggestion.
+  Screenshot-verify treq UI and interaction changes by driving the real app
+  (real jj repo via NAPI, jsdom React) with userEvent through
+  scripts/screenshot/. Use on /app-qa, when asked to QA or screenshot a
+  behavior, and proactively after changing UI-affecting code, before reporting
+  done.
 ---
 
 # App QA (screenshot-verified behavior checks)
