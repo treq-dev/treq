@@ -2,8 +2,14 @@ import { useState } from "react";
 import useSWR from "swr";
 import { useMutation } from "../../hooks/useMutation";
 import { invalidateQueries } from "../../lib/swr-cache";
-import { Loader2, MessageSquare, Sparkles, X } from "lucide-react";
+import { ChevronDown, Loader2, MessageSquare, Sparkles, X } from "lucide-react";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import {
@@ -12,6 +18,7 @@ import {
   ghCreateIssueComment,
   ghReopenIssue,
   ghViewIssue,
+  type IssueCloseReason,
 } from "../../lib/api";
 import type { GitHubIssueAttachment } from "../../lib/promptAttachments";
 import { MarkdownContent } from "../MarkdownContent";
@@ -24,6 +31,11 @@ import {
   StateChip,
   useGhErrorToast,
 } from "./shared";
+
+const ISSUE_CLOSE_REASONS: { reason: IssueCloseReason; label: string }[] = [
+  { reason: "completed", label: "Close as completed" },
+  { reason: "not planned", label: "Close as not planned" },
+];
 
 export function IssueDetailPanel({
   repoFullName,
@@ -58,7 +70,8 @@ export function IssueDetailPanel({
   });
 
   const closeIssue = useMutation({
-    mutationFn: () => ghCloseIssue(repoFullName, issueNumber),
+    mutationFn: (reason: IssueCloseReason) =>
+      ghCloseIssue(repoFullName, issueNumber, reason),
     onSuccess: () => {
       void invalidateQueries(["gh-issue", repoFullName, issueNumber]);
       void invalidateQueries(["gh-issues", repoFullName]);
@@ -213,30 +226,57 @@ export function IssueDetailPanel({
                 Comment
               </Button>
               {issue.state === "OPEN" ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-base"
-                  disabled={closeIssue.isPending}
-                  onClick={() => closeIssue.mutate()}
-                >
-                  {closeIssue.isPending ? (
-                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                  ) : null}
-                  Close Issue
-                </Button>
+                <div className="inline-flex items-center">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-base rounded-r-none"
+                    disabled={closeIssue.isPending}
+                    aria-busy={closeIssue.isPending}
+                    onClick={() => closeIssue.mutate("completed")}
+                  >
+                    {closeIssue.isPending ? (
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    ) : null}
+                    {closeIssue.isPending ? "Closing…" : "Close Issue"}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-l-none border-l-0 px-1.5"
+                        disabled={closeIssue.isPending}
+                        aria-label="Close options"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" sideOffset={4}>
+                      {ISSUE_CLOSE_REASONS.map(({ reason, label }) => (
+                        <DropdownMenuItem
+                          key={reason}
+                          onClick={() => closeIssue.mutate(reason)}
+                        >
+                          {label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               ) : (
                 <Button
                   size="sm"
                   variant="outline"
                   className="text-base"
                   disabled={reopenIssue.isPending}
+                  aria-busy={reopenIssue.isPending}
                   onClick={() => reopenIssue.mutate()}
                 >
                   {reopenIssue.isPending ? (
                     <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                   ) : null}
-                  Reopen Issue
+                  {reopenIssue.isPending ? "Reopening…" : "Reopen Issue"}
                 </Button>
               )}
             </div>

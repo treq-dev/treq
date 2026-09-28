@@ -242,9 +242,13 @@ pub async fn gh_create_issue_comment(
 }
 
 #[tauri::command]
-pub async fn gh_close_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
+pub async fn gh_close_issue(
+  repo_full_name: String,
+  issue_number: u64,
+  reason: Option<String>,
+) -> Result<(), String> {
   run_gh_blocking("gh_close_issue", move |gh, path| {
-    crate::github::gh_close_issue_impl(gh, &repo_full_name, issue_number, path)
+    crate::github::gh_close_issue_impl(gh, &repo_full_name, issue_number, reason.as_deref(), path)
   })
   .await
 }
