@@ -474,7 +474,17 @@ pub fn run() {
             );
 
             app.manage(app_state);
+            #[cfg(not(mobile))]
             let remote_exec_state = commands::remote_control::RemoteExecState::default();
+            // Mobile authenticates with the device key held in the OS
+            // keystore rather than a file under `~/.ssh`, so its pool gets a
+            // loader for that reserved key reference.
+            #[cfg(mobile)]
+            let remote_exec_state = commands::remote_control::RemoteExecState(std::sync::Arc::new(
+              crate::core::remote_ssh_transport::SshConnectionPool::new().with_device_key_provider(
+                crate::core::remote_device_key::device_key_provider(app.handle().clone()),
+              ),
+            ));
             app.manage(commands::remote_pty_commands::RemotePtyState::new(
               &remote_exec_state,
             ));

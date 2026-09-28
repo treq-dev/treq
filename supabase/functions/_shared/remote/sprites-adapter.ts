@@ -261,9 +261,16 @@ export class SpritesProvider implements ManagedComputeProvider {
   }
 
   async wakeInstance(providerId: string): Promise<void> {
-    // Sprites wake on the first API operation. A GET is the cheapest
-    // idempotent operation and also proves the resource still exists.
-    await this.getInstance(providerId);
+    // Sprites have no explicit wake endpoint. A paused Sprite resumes when
+    // work reaches it: an exec/console command, a TTY session, or a request
+    // to its URL (docs.fly.io/sprites/concepts/lifecycle and "Idle
+    // Detection" in docs.fly.io/sprites/working-with-sprites). `GET
+    // /v1/sprites/{name}` only reads org-level metadata, including the
+    // cold/warm status itself, so it is not activity and does not wake the
+    // VM. A no-op exec is the cheapest documented operation that does. The
+    // Sprite pauses again about 30 seconds after the exec ends unless the
+    // SSH session that follows keeps it active.
+    await this.execOnMachine(providerId, ["true"]);
   }
 
   async replaceInstance(

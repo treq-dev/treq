@@ -34,7 +34,8 @@ export const RenameWorkspaceDialog: React.FC<RenameWorkspaceDialogProps> = ({
 }) => {
   const [branchName, setBranchName] = useState(workspace.branch_name);
   const { addToast } = useToast();
-  const debouncedBranchName = useDebounce(branchName, 500);
+  const trimmedName = branchName.trim();
+  const debouncedName = useDebounce(branchName, 500).trim();
 
   useEffect(() => {
     if (open) {
@@ -42,34 +43,41 @@ export const RenameWorkspaceDialog: React.FC<RenameWorkspaceDialogProps> = ({
     }
   }, [open, workspace.branch_name]);
 
-  const { data: validationResult, isLoading: isChecking } = useSWR(
-    open &&
-      debouncedBranchName.trim() &&
-      debouncedBranchName !== workspace.branch_name
-      ? [
-          "rename-workspace-dry-run",
-          repoPath,
-          workspace.id,
-          debouncedBranchName,
-        ]
+  const { data: checkedResult, isLoading: isCheckRunning } = useSWR(
+    open && debouncedName && debouncedName !== workspace.branch_name
+      ? ["rename-workspace-dry-run", repoPath, workspace.id, debouncedName]
       : null,
     async () => {
       try {
         const result = await renameWorkspace(
           repoPath,
           workspace.id,
-          debouncedBranchName,
+          debouncedName,
           true,
         );
-        return { success: result.success, message: result.message };
+        return {
+          name: debouncedName,
+          success: result.success,
+          message: result.message,
+        };
       } catch (err) {
         return {
+          name: debouncedName,
           success: false,
           message: err instanceof Error ? err.message : String(err),
         };
       }
     },
   );
+
+  // A result for an earlier name says nothing about the name now typed.
+  const validationResult =
+    checkedResult?.name === trimmedName ? checkedResult : undefined;
+  const isChecking =
+    isCheckRunning ||
+    (trimmedName !== "" &&
+      trimmedName !== workspace.branch_name &&
+      !validationResult);
 
   const [error, renameAction, isPending] = useActionState(
     async (_prev: string, formData: FormData) => {
@@ -112,23 +120,24 @@ export const RenameWorkspaceDialog: React.FC<RenameWorkspaceDialogProps> = ({
     "",
   );
 
+  const canSubmit =
+    trimmedName !== "" &&
+    trimmedName !== workspace.branch_name &&
+    !isChecking &&
+    validationResult?.success === true &&
+    !isPending;
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      e.currentTarget.closest("form")?.requestSubmit();
+      // requestSubmit() ignores the disabled Rename button, so gate it here.
+      if (canSubmit) e.currentTarget.closest("form")?.requestSubmit();
     }
     if (e.key === "Escape") {
       e.preventDefault();
       onOpenChange(false);
     }
   };
-
-  const canSubmit =
-    branchName.trim() &&
-    branchName !== workspace.branch_name &&
-    !isChecking &&
-    validationResult?.success &&
-    !isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

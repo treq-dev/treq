@@ -16,6 +16,7 @@ import type {
   ClientKeyResponse,
   InstanceStatusResponse,
   IssueCertificateResponse,
+  LocalSshIdentity,
   ManagedInstanceState,
   RegionCode,
   SizePreset,
@@ -55,6 +56,13 @@ export interface ManagedConnectionDeps {
   ) => Promise<IssueCertificateResponse>;
   /** Activates the returned managed `SshEndpoint` as the connection's active endpoint. */
   activateEndpoint: (endpoint: SshEndpoint) => void;
+  /**
+   * Swaps in the same endpoint carrying a renewed certificate. Unlike
+   * `activateEndpoint` this is not an endpoint replacement: it must not
+   * stop renewal or drop open channels. The native pool keeps its current
+   * connection and presents the new certificate on its next reconnect.
+   */
+  updateEndpointCertificate: (endpoint: SshEndpoint) => void;
   /** Starts silent renewal for the issued certificate; swappable for tests. */
   startRenewal: (
     lease: CertificateLease,
@@ -62,8 +70,44 @@ export interface ManagedConnectionDeps {
   ) => RenewalController;
   /** Clears a previously forced hard cutoff after reauthentication succeeds. */
   clearCutoff: (endpointId: string) => Promise<void>;
+  /** Asks the control plane to wake a suspended instance. Only `wakeManagedInstance` needs it. */
+  wakeInstance?: (
+    instanceId: string,
+    idempotencyKey: string,
+  ) => Promise<unknown>;
+  /** Source of per-attempt ids for wake idempotency keys; swappable for tests. */
+  newAttemptId?: () => string;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+}
+
+/**
+ * Picks the local identity used for managed SSH when the user has not chosen
+ * one yet: `id_ed25519` if present (the key type the control plane is built
+ * around), otherwise the first listed identity. Returns null when `~/.ssh`
+ * holds no public key, so the caller can ask the user to create one.
+ */
+export function pickDefaultKeyReference(
+  identities: readonly LocalSshIdentity[],
+): string | null {
+  const preferred = identities.find(
+    (identity) => identity.label === "id_ed25519",
+  );
+  return (preferred ?? identities[0])?.reference ?? null;
+}
+
+/**
+ * Idempotency key for one user-initiated wake. The control plane replays
+ * the stored result for a key it has seen before (PRD "Idempotency"), so a
+ * key derived only from the instance id would make every wake after the
+ * first a no-op. Each attempt gets a fresh id; a retry of the same attempt
+ * must reuse the key this returned.
+ */
+export function wakeIdempotencyKey(
+  instanceId: string,
+  attemptId: string,
+): string {
+  return `wake-${instanceId}-${attemptId}`;
 }
 
 const defaultSleep = (ms: number) =>
@@ -138,26 +182,64 @@ export async function waitForInstanceReady(
   }
 }
 
+/**
+ * Builds the endpoint the native transport connects with. The control plane
+ * owns where to connect and what to trust (host, port, user, pinned host
+ * keys, generation); this device owns how to authenticate. The server's
+ * `authentication` block names its own key id, which means nothing to the
+ * local transport, so it is replaced with the local key reference the user
+ * registered and the certificate just issued for that key.
+ */
+export function composeManagedEndpoint(
+  serverEndpoint: SshEndpoint,
+  keyReference: string,
+  certificate: string,
+): SshEndpoint {
+  return {
+    ...serverEndpoint,
+    authentication: {
+      type: "certificate",
+      key_reference: keyReference,
+      certificate,
+    },
+  };
+}
+
 async function issueAndActivate(
   deps: ManagedConnectionDeps,
   instanceId: string,
-  key: ClientKeyResponse,
+  { key, keyReference }: { key: ClientKeyResponse; keyReference: string },
 ): Promise<{ endpoint: SshEndpoint; renewal: RenewalController }> {
   const response = await deps.issueCertificate(instanceId, key.id);
-  const { endpoint } = response;
+  const endpoint = composeManagedEndpoint(
+    response.endpoint,
+    keyReference,
+    response.certificate,
+  );
   deps.activateEndpoint(endpoint);
 
   const now = deps.now ?? Date.now;
   const issuedAt = now();
   const expiresAt = Date.parse(response.expires_at);
-  const renewal = deps.startRenewal({
-    instanceId,
-    keyId: key.id,
-    endpointId: endpoint.id,
-    serial: response.serial,
-    issuedAt,
-    expiresAt,
-  });
+  const renewal = deps.startRenewal(
+    {
+      instanceId,
+      keyId: key.id,
+      endpointId: endpoint.id,
+      serial: response.serial,
+      certificate: response.certificate,
+      issuedAt,
+      expiresAt,
+    },
+    (renewed) =>
+      deps.updateEndpointCertificate(
+        composeManagedEndpoint(
+          response.endpoint,
+          keyReference,
+          renewed.certificate,
+        ),
+      ),
+  );
 
   return { endpoint, renewal };
 }
@@ -193,7 +275,10 @@ export async function connectManagedInstance(
     throw new Error("Managed instance became ready without an instance id.");
   }
 
-  const { endpoint, renewal } = await issueAndActivate(deps, instanceId, key);
+  const { endpoint, renewal } = await issueAndActivate(deps, instanceId, {
+    key,
+    keyReference: options.keyReference,
+  });
   return { endpoint, key, renewal };
 }
 
@@ -222,9 +307,39 @@ export async function connectExistingReadyInstance(
   const { endpoint, renewal } = await issueAndActivate(
     deps,
     instance.instance_id,
-    key,
+    { key, keyReference: options.keyReference },
   );
   return { endpoint, key, renewal };
+}
+
+export interface WakeManagedInstanceOptions {
+  instanceId: string;
+  keyReference: string;
+}
+
+/**
+ * Wake/reconnect for a suspended managed instance, in the order the PRD's
+ * wake flow requires: wake, poll readiness, get a fresh certificate, then
+ * activate the (possibly new-generation) endpoint. Each call is a new
+ * attempt with its own idempotency key.
+ */
+export async function wakeManagedInstance(
+  deps: ManagedConnectionDeps,
+  options: WakeManagedInstanceOptions,
+): Promise<ManagedConnectionResult> {
+  if (!deps.wakeInstance) {
+    throw new Error("wakeManagedInstance requires a wakeInstance dependency.");
+  }
+  const attemptId = (deps.newAttemptId ?? (() => crypto.randomUUID()))();
+  await deps.wakeInstance(
+    options.instanceId,
+    wakeIdempotencyKey(options.instanceId, attemptId),
+  );
+  const status = await waitForInstanceReady(deps);
+  return connectExistingReadyInstance(deps, {
+    status,
+    keyReference: options.keyReference,
+  });
 }
 
 export interface ReauthenticateManagedInstanceOptions {
@@ -247,7 +362,7 @@ export async function reauthenticateManagedInstance(
   const { endpoint, renewal } = await issueAndActivate(
     deps,
     options.instanceId,
-    key,
+    { key, keyReference: options.keyReference },
   );
   await deps.clearCutoff(options.endpointId);
   return { endpoint, key, renewal };

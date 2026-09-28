@@ -631,6 +631,44 @@ pub fn open_or_create_workspace_from_issue(
   Ok((updated, true))
 }
 
+/// Rejects names git cannot store as a branch ref (the `git check-ref-format`
+/// rules) plus a leading `-`, so a bad name fails before any jj or DB change
+/// instead of at push time.
+pub fn validate_branch_name(name: &str) -> Result<(), String> {
+  let invalid = |reason: &str| Err(format!("Invalid branch name '{name}': {reason}"));
+  if name.is_empty() {
+    return invalid("name is empty");
+  }
+  if name == "@" {
+    return invalid("'@' is reserved");
+  }
+  if name.starts_with('-') {
+    return invalid("must not start with '-'");
+  }
+  if name.starts_with('/') || name.ends_with('/') || name.contains("//") {
+    return invalid("empty path component");
+  }
+  if name.ends_with('.') {
+    return invalid("must not end with '.'");
+  }
+  if name.contains("..") || name.contains("@{") {
+    return invalid("contains '..' or '@{'");
+  }
+  if let Some(c) = name
+    .chars()
+    .find(|c| c.is_ascii_control() || " ~^:?*[\\".contains(*c))
+  {
+    return invalid(&format!("contains {c:?}"));
+  }
+  if name
+    .split('/')
+    .any(|part| part.starts_with('.') || part.ends_with(".lock"))
+  {
+    return invalid("a component starts with '.' or ends with '.lock'");
+  }
+  Ok(())
+}
+
 /// Creates a workspace and optionally symlinks heavy directories from the home repo.
 ///
 /// `symlinked_dirs` are paths relative to the repo root (e.g. `node_modules`). Each
@@ -647,6 +685,7 @@ pub fn create_workspace_with_symlinked_dirs(
   sparse_patterns: Option<Vec<String>>,
   symlinked_dirs: Option<Vec<String>>,
 ) -> Result<local_db::Workspace, String> {
+  validate_branch_name(branch_name)?;
   // None and an empty list both mean a full checkout.
   let sparse_patterns = sparse_patterns.filter(|patterns| !patterns.is_empty());
 
@@ -1633,6 +1672,131 @@ mod tests {
       Some(vec![".env".to_string(), "config/local.yml".to_string()])
     );
     assert_eq!(super::parse_included_copy_files(None), None);
+  }
+
+  #[test]
+  fn validate_branch_name_rejects_invalid_git_ref_names() {
+    for bad in [
+      "",
+      " ",
+      "foo bar",
+      " leading",
+      "trailing ",
+      "tab\tname",
+      "a..b",
+      "feat/",
+      "/feat",
+      "a//b",
+      "-x",
+      "x.lock",
+      "a/.b",
+      ".a",
+      "x.",
+      "a~b",
+      "a^b",
+      "a:b",
+      "a?b",
+      "a*b",
+      "a[b",
+      "a\\b",
+      "@",
+      "a@{b",
+    ] {
+      assert!(
+        super::validate_branch_name(bad).is_err(),
+        "{bad:?} should be rejected"
+      );
+    }
+    for good in [
+      "feat/x",
+      "fix-1",
+      "ty/eng-1_x",
+      "release/1.2",
+      "café",
+      "a@b",
+    ] {
+      assert!(
+        super::validate_branch_name(good).is_ok(),
+        "{good:?} should be accepted"
+      );
+    }
+  }
+
+  #[test]
+  fn create_workspace_rejects_invalid_branch_name() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+
+    let err = super::create_workspace(&repo_path, "foo bar", None, None, None, None, None)
+      .expect_err("invalid name must be rejected");
+
+    assert!(
+      err.contains("Invalid branch name"),
+      "unexpected error: {err}"
+    );
+    assert!(super::list_workspaces(&repo_path)
+      .expect("list workspaces")
+      .is_empty());
+  }
+
+  #[test]
+  fn rename_workspace_dry_run_rejects_invalid_branch_name() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let ws = super::create_workspace(&repo_path, "feat/old", None, None, None, None, None)
+      .expect("create workspace");
+
+    for dry_run in [true, false] {
+      let result =
+        super::rename_workspace(&repo_path, ws.id, "foo bar", dry_run).expect("rename result");
+      assert!(!result.success, "dry_run={dry_run}");
+      assert!(
+        result.message.contains("Invalid branch name"),
+        "unexpected message: {}",
+        result.message
+      );
+    }
+    assert!(crate::jj::jj_get_commit_id(&repo_path, "feat/old").is_ok());
+  }
+
+  #[test]
+  fn rename_workspace_moves_bookmark_and_retargets_children() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let parent = super::create_workspace(&repo_path, "feat/old", None, None, None, None, None)
+      .expect("create parent");
+    let child = super::create_workspace(
+      &repo_path,
+      "feat/child",
+      None,
+      None,
+      Some("feat/old"),
+      None,
+      None,
+    )
+    .expect("create child");
+    let before = crate::jj::jj_get_commit_id(&repo_path, "feat/old").expect("old target");
+
+    let result = super::rename_workspace(&repo_path, parent.id, "feat/new", false).expect("rename");
+
+    assert!(result.success, "{}", result.message);
+    assert_eq!(result.updated_children_ids, vec![child.id]);
+    assert_eq!(
+      crate::jj::jj_get_commit_id(&repo_path, "feat/new").expect("new target"),
+      before
+    );
+    assert!(crate::jj::jj_get_commit_id(&repo_path, "feat/old").is_err());
+    let child = crate::local_db::get_workspace_by_id(&repo_path, child.id)
+      .expect("lookup")
+      .expect("child");
+    assert_eq!(child.target_branch.as_deref(), Some("feat/new"));
+
+    // The sidebar's discovery pass must not undo the rename.
+    super::list_workspace_statuses(&repo_path).expect("statuses");
+    let parent = crate::local_db::get_workspace_by_id(&repo_path, parent.id)
+      .expect("lookup")
+      .expect("parent");
+    assert_eq!(parent.branch_name, "feat/new");
   }
 
   #[test]
@@ -2636,6 +2800,30 @@ pub fn rename_workspace(
     });
   }
 
+  if let Err(message) = validate_branch_name(new_branch_name) {
+    return Ok(RenameWorkspaceResult {
+      success: false,
+      message,
+      workspace: None,
+      updated_children_ids: vec![],
+    });
+  }
+
+  if local_db::get_workspace_by_branch(repo_path, new_branch_name)
+    .map_err(|e| format!("Failed to check existing workspace: {}", e))?
+    .is_some()
+  {
+    return Ok(RenameWorkspaceResult {
+      success: false,
+      message: format!(
+        "Branch '{}' already exists for another workspace",
+        new_branch_name
+      ),
+      workspace: None,
+      updated_children_ids: vec![],
+    });
+  }
+
   // 3. Check local branch clash
   let branches =
     jj::get_branches(repo_path).map_err(|e| format!("Failed to get branches: {}", e))?;
@@ -2671,6 +2859,10 @@ pub fn rename_workspace(
     });
   }
 
+  // Bookmark edits share the jj operation graph with commits and rebases.
+  let repo_mutation_lock = commit_lock_for_repo(repo_path);
+  let _repo_mutation_guard = repo_mutation_lock.lock_or_recover();
+
   // 6. Construct full workspace path
   let workspace_path = Path::new(repo_path)
     .join(".treq")
@@ -2684,13 +2876,10 @@ pub fn rename_workspace(
   let was_tracked =
     jj::is_bookmark_tracked(workspace_path_str, old_branch_name, "origin").unwrap_or(false);
 
-  // 8. Set new bookmark at same revision as old
-  jj::jj_set_bookmark(workspace_path_str, new_branch_name, old_branch_name)
-    .map_err(|e| format!("Failed to set new bookmark: {}", e))?;
-
-  // 9. Delete old bookmark
-  jj::jj_delete_bookmark(workspace_path_str, old_branch_name)
-    .map_err(|e| format!("Failed to delete old bookmark: {}", e))?;
+  // 8-9. Move the bookmark in one jj transaction so a failure cannot leave
+  // both names (or neither) behind.
+  jj::jj_rename_bookmark(workspace_path_str, old_branch_name, new_branch_name)
+    .map_err(|e| format!("Failed to rename bookmark: {}", e))?;
 
   // 10. If was tracked, best-effort track new bookmark
   if was_tracked {
