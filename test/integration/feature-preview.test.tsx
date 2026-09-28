@@ -60,6 +60,8 @@ describe("feature preview settings", () => {
     expect(
       screen.getByRole("button", { name: "Jira integration" }),
     ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /merge queue/i })).toBeNull();
+    expect(screen.queryByRole("switch", { name: /merge queue/i })).toBeNull();
   });
 
   it("hides Trello and Jira from the sidebar and Integrations when disabled", async () => {

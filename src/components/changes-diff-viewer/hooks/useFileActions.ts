@@ -1,19 +1,20 @@
-import { useIsMutating, useMutation } from "../../../hooks/useMutation";
+import { useIsMutating } from "../../../hooks/useMutation";
 import { peekActiveRepository } from "../../../lib/active-repository";
 import { remoteCapabilities } from "../../../lib/remote-capabilities";
 import { invalidateQueries } from "../../../lib/swr-cache";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import {
+  PushAfterCommitError,
+  useCreateWorkspacePr,
+} from "../../../hooks/useCreateWorkspacePr";
+import {
   createPrMutationKey,
-  invalidatePrStatuses,
   useGitRemoteInfo,
   usePrInfoViaGh,
 } from "../../../hooks/useMergeQueueStatus";
 import {
   createCommit,
   getWorkspaceFileLines,
-  ghCreatePr,
   jjRestoreAll,
   jjRestoreFile,
   jjRestoreSnapshot,
@@ -341,51 +342,35 @@ export function useFileActions({
     }
   };
 
-  const createPrMutation = useMutation({
-    mutationKey: createPrMutationKey(repoPath, workspaceId),
-    mutationFn: async (commitMsg: string) => {
-      if (!remoteInfo || !workspace || !baseBranch) return null;
-      const committed = await performCommit(commitMsg);
-      if (!committed) return null;
-      await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
-      const number = await ghCreatePr(
-        remoteInfo.full_name,
-        deriveConventionalPrTitle(commitMsg, workspace.branch_name),
-        workspace.description ?? "",
-        baseBranch,
-        workspace.branch_name,
-        false,
-      );
-      // Stay pending until the new PR is in the status cache so neither
-      // create-PR surface re-enables before the header switches to View PR.
-      await invalidatePrStatuses(repoPath!, workspace.branch_name);
-      return number;
-    },
-  });
+  const { createPr } = useCreateWorkspacePr(repoPath, workspaceId);
 
   const handleCommitAndCreatePR = async (commitMsg: string) => {
-    if (!remoteInfo || !workspace || !baseBranch) return;
-    try {
-      const number = await createPrMutation.mutateAsync(commitMsg);
-      if (number == null) return;
-      await invalidateQueries();
-      const prUrl = `https://github.com/${remoteInfo.full_name}/pull/${number}`;
-      addToast({
-        title: "Pull request created",
-        description: `#${number}`,
-        type: "success",
-        action: {
-          label: "Open in Web",
-          onClick: () => openUrl(prUrl),
-        },
-      });
-    } catch (error) {
+    if (!remoteInfo || !workspace || !baseBranch) {
       addToast({
         title: "Failed to create PR",
-        description: error instanceof Error ? error.message : String(error),
+        description: "No GitHub remote or target branch detected",
         type: "error",
       });
+      return;
     }
+    await createPr({
+      repoFullName: remoteInfo.full_name,
+      branchName: workspace.branch_name,
+      baseBranch,
+      body: workspace.description ?? "",
+      draft: false,
+      prepare: async () => {
+        // performCommit shows its own toast when it fails.
+        const committed = await performCommit(commitMsg);
+        if (!committed) return null;
+        try {
+          await pushWorkspaceToRemote(repoPath!, workspaceId ?? null);
+        } catch (error) {
+          throw new PushAfterCommitError(error);
+        }
+        return deriveConventionalPrTitle(commitMsg, workspace.branch_name);
+      },
+    });
   };
 
   const handleExpandContext = async (

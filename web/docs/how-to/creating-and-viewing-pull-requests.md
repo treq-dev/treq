@@ -50,7 +50,7 @@ Use **New** on the PR list when you need a manual title, body, base, and head in
 
 When CI checks are available, Treq will display the status of each check within the PR details panel.
 
-Treq does not perform merges automatically once CI checks pass. However, this can be achieved through the [merge queue](/docs/how-to/using-the-merge-queue) if enabled, and allows enqueuing PRs to be merged automatically.
+Treq does not merge a PR automatically once CI checks pass.
 
 ## Read GitHub Review Threads
 
@@ -59,7 +59,6 @@ Treq interleaves GitHub PR comments with code changes when reviewing a branch wo
 ## Next Steps
 
 - [Connecting GitHub](/docs/how-to/connecting-github)
-- [Using the Merge Queue](/docs/how-to/using-the-merge-queue)
 - [Code Review Workflow](/docs/tutorials/code-review-workflow)
 - [Pushing to Remote](/docs/how-to/pushing-to-remote)
 - [GitHub Integration](/docs/concepts/github-integration)

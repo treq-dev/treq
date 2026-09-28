@@ -22,7 +22,7 @@ Repository history remains in your Git and Jujutsu stores. Treq metadata lives u
 
 When Treq connects to a remote Git host, the connection goes directly to that host. Traffic does not pass through Treq servers.
 
-Optional [GitHub Integration](/docs/concepts/github-integration) uses two extra paths. Pull request, issue, CI, and review-thread actions run through the local `gh` CLI with your GitHub credentials on the machine. Repository linking uses the Treq GitHub App after you sign in and install the App. GitHub App integration requires Treq's backend for features such as merge queue orchestration. Local review comments, application logs, and telemetry all stay locally on disk unless you copy or send them to the Treq developers explicitly.
+Optional [GitHub Integration](/docs/concepts/github-integration) uses two extra paths. Pull request, issue, CI, and review-thread actions run through the local `gh` CLI with your GitHub credentials on the machine. Repository linking uses the Treq GitHub App and Treq's backend after you sign in and install the App. Local review comments, application logs, and telemetry all stay locally on disk unless you copy or send them to the Treq developers explicitly.
 
 ## CLI Safety
 

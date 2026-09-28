@@ -72,7 +72,7 @@ function HomepageHeader() {
             target="_blank"
             rel="noopener noreferrer">
             <DownloadIcon />
-            Download Treq for macOS
+            Download Treq
           </Link>
           <Link
             className={clsx('button', styles.secondaryButton)}
@@ -302,8 +302,8 @@ const FACTS = [
     label: 'Jujutsu under the hood. Treq uses the jj-lib Rust crate to automatically rebase workspace branches when targets move.',
   },
   {
-    value: 'macOS',
-    label: 'Download the desktop build from GitHub Releases and open a Git repository you already have.',
+    value: 'Cross-platform',
+    label: 'Desktop builds for macOS, Windows, and Linux ship on GitHub Releases. Open a Git repository you already have.',
   },
   {
     value: 'No telemetry',
@@ -566,43 +566,6 @@ function FeaturesSection(): ReactNode {
         <div className={styles.featureRow}>
           <div className={styles.featureText}>
             <Heading as="h3" className={styles.featureHeading}>
-              Schedule work
-            </Heading>
-            <p className={styles.featureDescription}>
-              Hide a workspace until a time you pick. Shift commit timestamps
-              into the future, or set them to now. Prepare the work ahead of time
-              and release it on a schedule you control.
-            </p>
-          </div>
-          <div className={styles.featureScreenshot}>
-            <div className={styles.beforeAfter}>
-              <figure>
-                <figcaption>Hide until</figcaption>
-                <LandingShot
-                  className={styles.featureImage}
-                  file="schedule.png"
-                  alt="Schedule workspace dialog with hide-until presets"
-                  width={1152}
-                  height={1064}
-                />
-              </figure>
-              <figure>
-                <figcaption>Commit time</figcaption>
-                <LandingShot
-                  className={styles.featureImage}
-                  file="timestamp.png"
-                  alt="Edit commit timestamp dialog with shift to now"
-                  width={1040}
-                  height={652}
-                />
-              </figure>
-            </div>
-          </div>
-        </div>
-
-        <div className={clsx(styles.featureRow, styles.featureRowReverse)}>
-          <div className={styles.featureText}>
-            <Heading as="h3" className={styles.featureHeading}>
               GitHub issues and pull requests
             </Heading>
             <p className={styles.featureDescription}>
@@ -646,7 +609,7 @@ function ResourcesSection(): ReactNode {
           <Link className={styles.resourceCard} to="/docs/getting-started/installation">
             <span className={styles.resourceKind}>Docs</span>
             <Heading as="h3" className={styles.resourceTitle}>Install Treq and open a repo</Heading>
-            <p>Download the macOS app, point it at a Git repository, and create your first workspace.</p>
+            <p>Download the app for macOS, Windows, or Linux, point it at a Git repository, and create your first workspace.</p>
           </Link>
           <Link className={styles.resourceCard} to="/learn">
             <span className={styles.resourceKind}>Learn</span>
@@ -661,7 +624,7 @@ function ResourcesSection(): ReactNode {
           <Link className={styles.resourceCard} to="/roadmap">
             <span className={styles.resourceKind}>Roadmap</span>
             <Heading as="h3" className={styles.resourceTitle}>What ships next</Heading>
-            <p>Public milestones. Merge queue and Pro billing are still in progress.</p>
+            <p>Public milestones. Pro billing is still in progress.</p>
           </Link>
         </div>
       </div>
@@ -674,7 +637,7 @@ function ClosingCTA(): ReactNode {
     <section className={styles.closingCTA} aria-label="Download">
       <div className={styles.closingCTAContainer}>
         <Heading as="h2" className={styles.closingCTAHeading}>
-          Download Treq for macOS.
+          Download Treq.
         </Heading>
         <p className={styles.closingCTASubheading}>
           The desktop app is Apache 2.0. Treq was used to build Treq.
@@ -685,7 +648,7 @@ function ClosingCTA(): ReactNode {
             href={DOWNLOAD_HREF}
             target="_blank"
             rel="noopener noreferrer">
-            Download Treq for macOS
+            Download Treq
           </Link>
           <Link className={styles.closingCTASecondary} to="/pricing">
             See pricing

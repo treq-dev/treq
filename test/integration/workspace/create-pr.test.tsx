@@ -9,6 +9,7 @@ import {
   getWorkspaces,
   ghCreatePr,
   getPrInfoViaGh,
+  getWorkspaceStatus,
   pushWorkspaceToRemote,
   updateWorkspace,
 } from "../../../src/lib/api";
@@ -16,14 +17,16 @@ import { render, screen, waitFor, within } from "../../test-utils";
 import {
   commitWorkspaceFile,
   createTestRepo,
-  findSidebarBranchElement,
   openRepo,
-  resolveWorkspacePath,
   setOriginUrl,
-  writeWorkspaceFile,
 } from "../../utils";
 import { deriveConventionalPrTitle } from "../../../src/lib/github-pr";
 
+import {
+  findEnabledCreatePr,
+  openWorkspace as openWorkspaceAs,
+  setupPushedWorkspaceWithGitHub as setupPushedWorkspace,
+} from "./create-pr-helpers";
 vi.mock("../../../src/lib/api", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("../../../src/lib/api")>();
@@ -42,6 +45,7 @@ vi.mock("../../../src/lib/api", async (importOriginal) => {
       (repoPath: string, workspaceId: number | null) =>
         original.pushWorkspaceToRemote(repoPath, workspaceId),
     ),
+    getWorkspaceStatus: vi.fn(original.getWorkspaceStatus),
   };
 });
 
@@ -49,7 +53,11 @@ describe("ShowWorkspace - Create PR", () => {
   let repoPath: string;
   let user: ReturnType<typeof userEvent.setup>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import("../../../src/lib/api")>(
+      "../../../src/lib/api",
+    );
+    vi.mocked(getWorkspaceStatus).mockImplementation(actual.getWorkspaceStatus);
     ({ repoPath } = createTestRepo(true));
     openRepo(repoPath);
     user = userEvent.setup();
@@ -59,53 +67,11 @@ describe("ShowWorkspace - Create PR", () => {
     vi.mocked(openUrl).mockReset();
   });
 
-  async function setupPushedWorkspaceWithGitHub(options?: {
-    title?: string;
-    description?: string;
-    githubRemote?: boolean;
-  }) {
-    const title = options?.title ?? "Ship the feature";
-    const description =
-      options?.description ?? "Implements the feature end-to-end.";
-    const workspaceId = await createWorkspace(repoPath, "feat/create-pr");
-    await updateWorkspace(repoPath, workspaceId, undefined, title, description);
-    const created = (await getWorkspaces(repoPath)).find(
-      (w) => w.id === workspaceId,
-    )!;
-    await commitWorkspaceFile(
-      repoPath,
-      { id: created.id, path: created.workspace_path },
-      "feature.txt",
-      "feature content",
-      "Add feature",
-    );
-    await pushWorkspaceToRemote(repoPath, workspaceId);
-
-    if (options?.githubRemote !== false) {
-      setOriginUrl(repoPath, "https://github.com/acme/treq.git");
-    }
-
-    const workspace = (await getWorkspaces(repoPath)).find(
-      (w) => w.branch_name === "feat/create-pr",
-    );
-    expect(workspace?.not_on_remote).toBe(false);
-    return { workspace: workspace!, title, description };
-  }
-
-  async function openWorkspace(branchName: string) {
-    await user.click(await findSidebarBranchElement(branchName));
-    return screen.findByTestId("show-workspace-header");
-  }
-
-  async function findEnabledCreatePr(header: HTMLElement) {
-    const createPr = await within(header).findByRole("button", {
-      name: /^create pr$/i,
-    });
-    await waitFor(() => {
-      expect(createPr).toBeEnabled();
-    });
-    return createPr;
-  }
+  const setupPushedWorkspaceWithGitHub = (
+    options?: Parameters<typeof setupPushedWorkspace>[1],
+  ) => setupPushedWorkspace(repoPath, options);
+  const openWorkspace = (branchName: string) =>
+    openWorkspaceAs(user, branchName);
 
   it("shows Create PR instead of Push after the branch is on remote with GitHub", async () => {
     await setupPushedWorkspaceWithGitHub();
@@ -333,6 +299,31 @@ describe("ShowWorkspace - Create PR", () => {
     });
   }, 30_000);
 
+  it("pushes a rewritten (diverged) branch before creating a PR", async () => {
+    const { workspace } = await setupPushedWorkspaceWithGitHub();
+    const actual = await vi.importActual<typeof import("../../../src/lib/api")>(
+      "../../../src/lib/api",
+    );
+    vi.mocked(getWorkspaceStatus).mockImplementation(async (...args) => ({
+      ...(await actual.getWorkspaceStatus(...args)),
+      remote_sync: { type: "Diverged", data: { ahead: 1, behind: 1 } },
+    }));
+    vi.mocked(pushWorkspaceToRemote).mockClear();
+    vi.mocked(pushWorkspaceToRemote).mockResolvedValueOnce("pushed");
+    render(<Dashboard />);
+
+    const header = await openWorkspace("feat/create-pr");
+    await user.click(await findEnabledCreatePr(header));
+
+    await waitFor(() => {
+      expect(ghCreatePr).toHaveBeenCalled();
+    });
+    expect(pushWorkspaceToRemote).toHaveBeenCalledWith(repoPath, workspace.id);
+    expect(
+      vi.mocked(pushWorkspaceToRemote).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(ghCreatePr).mock.invocationCallOrder[0]);
+  }, 30_000);
+
   it("hides Create PR when there is no GitHub remote", async () => {
     await setupPushedWorkspaceWithGitHub({ githubRemote: false });
     render(<Dashboard />);
@@ -373,127 +364,5 @@ describe("ShowWorkspace - Create PR", () => {
     expect(openUrl).toHaveBeenCalledWith(
       "https://github.com/acme/treq/pull/42",
     );
-  });
-
-  it("updates the header to View PR after committing and creating a PR", async () => {
-    const workspaceId = await createWorkspace(
-      repoPath,
-      "feat/commit-create-pr",
-    );
-    const workspace = (await getWorkspaces(repoPath)).find(
-      (candidate) => candidate.id === workspaceId,
-    )!;
-    writeWorkspaceFile(
-      resolveWorkspacePath(repoPath, workspace.workspace_path),
-      "feature.txt",
-      "feature content\n",
-    );
-    setOriginUrl(repoPath, "https://github.com/acme/treq.git");
-    vi.mocked(pushWorkspaceToRemote).mockResolvedValueOnce("pushed");
-
-    const createdPr = {
-      number: 42,
-      title: "Feature",
-      state: "OPEN" as const,
-      url: "https://github.com/acme/treq/pull/42",
-      head_ref_name: "feat/commit-create-pr",
-      base_ref_name: "main",
-      merge_state_status: "CLEAN",
-      is_draft: false,
-    };
-    vi.mocked(getPrInfoViaGh).mockImplementation(async () => {
-      vi.mocked(getCachedPrInfo).mockResolvedValue(createdPr);
-      return createdPr;
-    });
-
-    render(<Dashboard />);
-    const header = await openWorkspace("feat/commit-create-pr");
-    await user.click(await screen.findByRole("tab", { name: /changes/i }));
-    await screen.findAllByText("feature.txt");
-    await user.type(
-      await screen.findByPlaceholderText("Message"),
-      "Add feature",
-    );
-    await user.click(
-      screen.getByRole("button", { name: /more commit options/i }),
-    );
-    const commitAndCreatePr = await screen.findByRole("menuitem", {
-      name: /commit and create pr/i,
-    });
-    await waitFor(() => expect(commitAndCreatePr).toBeEnabled());
-    await user.click(commitAndCreatePr);
-
-    await waitFor(
-      () => {
-        expect(getPrInfoViaGh).toHaveBeenCalledWith(
-          repoPath,
-          "feat/commit-create-pr",
-        );
-      },
-      { timeout: 15_000 },
-    );
-    expect(ghCreatePr).toHaveBeenCalledWith(
-      "acme/treq",
-      "feat: Add feature",
-      expect.any(String),
-      expect.any(String),
-      "feat/commit-create-pr",
-      false,
-    );
-    expect(
-      await within(header).findByRole("button", { name: /view pr.*open/i }),
-    ).toBeVisible();
-    expect(
-      within(header).queryByRole("button", { name: /^create pr$/i }),
-    ).not.toBeInTheDocument();
-  }, 30_000);
-
-  it("creates a draft PR from the dropdown", async () => {
-    const { title, description } = await setupPushedWorkspaceWithGitHub();
-    render(<Dashboard />);
-
-    const header = await openWorkspace("feat/create-pr");
-    await findEnabledCreatePr(header);
-    await user.click(
-      within(header).getByRole("button", { name: /more create pr options/i }),
-    );
-    await user.click(
-      await screen.findByRole("menuitem", { name: /create draft pr/i }),
-    );
-
-    await waitFor(() => {
-      expect(ghCreatePr).toHaveBeenCalledWith(
-        "acme/treq",
-        deriveConventionalPrTitle(title, "feat/create-pr"),
-        description,
-        expect.any(String),
-        "feat/create-pr",
-        true,
-      );
-    });
-  });
-
-  it("opens GitHub compare URL when creating a PR manually", async () => {
-    await setupPushedWorkspaceWithGitHub();
-    render(<Dashboard />);
-
-    const header = await openWorkspace("feat/create-pr");
-    await findEnabledCreatePr(header);
-    await user.click(
-      within(header).getByRole("button", { name: /more create pr options/i }),
-    );
-    await user.click(
-      await screen.findByRole("menuitem", { name: /create pr manually/i }),
-    );
-
-    await waitFor(() => {
-      expect(openUrl).toHaveBeenCalledWith(
-        expect.stringContaining("https://github.com/acme/treq/compare/"),
-      );
-    });
-    const url = vi.mocked(openUrl).mock.calls[0][0] as string;
-    expect(url).toContain("feat%2Fcreate-pr");
-    expect(url).toContain("title=feat%3A+Ship+the+feature");
-    expect(url).toContain("body=Implements+the+feature+end-to-end.");
   });
 });

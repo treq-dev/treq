@@ -43,7 +43,7 @@ Teams looking for a Graphite alternative for AI work usually want one of two thi
 | Local diff review before push | Yes | Review is centered on hosted PRs |
 | Comments sent back to an agent | Yes | Comments stay in the PR review system unless you bridge them yourself |
 | GitHub PR collaboration | After push, through normal Git tooling. App integration is [coming soon](/roadmap) | Native product focus |
-| Merge queue | Treq-managed queue planned, not GitHub Enterprise Cloud | Graphite merge workflows on GitHub |
+| Merge queue | No. Merge each PR on GitHub | Graphite merge workflows on GitHub |
 | Local-only privacy for review drafts | Yes | Cloud collaboration model |
 | Open source | Apache 2.0 | No |
 
@@ -55,13 +55,13 @@ Treq assumes the unit of work often starts as an agent workspace. The first revi
 
 This is why Treq calls itself an open-source Graphite alternative without claiming feature parity with Graphite's hosted review platform. Both products use stacked development. Treq applies the stack to local agent workspaces, while Graphite applies it to hosted pull requests.
 
-Treq's [roadmap](/roadmap) adds GitHub pull request status and a Treq-managed merge queue so a local stack can land on `main` without GitHub Enterprise Cloud. That is still planned work. Graphite already owns the hosted PR and merge process. Until those Treq features ship, Graphite remains the stronger GitHub collaboration product.
+Treq shows GitHub pull request status, CI, and review threads next to the workspace. It does not run a merge queue. Graphite owns the hosted PR and merge process, and remains the stronger GitHub collaboration product.
 
 If your team already has a strong Graphite workflow, Treq can still help on the generation side. Agents work in isolated stacks locally, you review there, then you push into whatever PR process you already trust. If your team has no agent orchestration layer yet, starting with Graphite alone leaves the parallel generation problem unsolved. Agents still collide in one checkout. See [parallel coding agents](/learn/parallel-coding-agents).
 
 ## Pricing and Licensing
 
-Treq's desktop app is free and open source under Apache 2.0. [Pricing](/pricing) lists Free and Pro at $15 per user per month. Pro is for GitHub on private repos and merge queue. Those features are marked coming soon. Local review stays on your machine either way.
+Treq's desktop app is free and open source under Apache 2.0. [Pricing](/pricing) lists Free and Pro at $15 per user per month. Pro is for GitHub on private repos. That feature is marked coming soon. Local review stays on your machine either way.
 
 Graphite is a commercial product with its own packaging and pricing. Evaluate current Graphite plans on Graphite's site when cost is part of the decision.
 
@@ -79,7 +79,7 @@ Choose **Treq** if you:
 Choose **Graphite** if you:
 
 - Already standardize on stacked GitHub pull requests for human teams.
-- Need hosted collaboration features around PR review and merge queues today.
+- Need hosted collaboration features around PR review and merge queues.
 - Are solving review process on GitHub more than local agent orchestration.
 - Do not need a desktop environment for launching and supervising coding agents.
 

@@ -11,7 +11,7 @@ import RoadmapGraphicTabs from '@site/src/components/RoadmapGraphicTabs';
 export const toc = [
   { id: '2026', value: '2026', level: 2 },
   { id: 'linear-integration', value: 'Linear Integration', level: 2 },
-  { id: 'github-integration-with-merge-queue', value: 'GitHub Integration with Merge Queue', level: 2 },
+  { id: 'github-integration', value: 'GitHub Integration', level: 2 },
   { id: 'workspace-checks', value: 'Workspace Checks', level: 2 },
   { id: 'ssh-remote-development', value: 'SSH Remote Development', level: 2 },
   { id: 'how-these-fit-together', value: 'How These Fit Together', level: 2 },
@@ -27,7 +27,7 @@ _Year-by-year product milestones for Treq. Newer years are added above older one
 
 <RoadmapGraphicTabs version="2026" />
 
-Q1 and Q2 have nothing planned. Q3 targets GitHub merge-queue integration and workspace checks. Q4 targets SSH remote development.
+Q1 and Q2 have nothing planned. Q3 targets GitHub integration and workspace checks. Q4 targets SSH remote development.
 
 ## Linear Integration
 
@@ -39,7 +39,7 @@ View Linear issues, create workspaces from issues, and auto-kickoff on labels ar
 
 Treq integrates with Linear to view issues and create workspaces directly. You can authenticate with a personal API key (free) or OAuth2 (Pro). The auto-kickoff feature lets you configure a label that automatically creates workspaces when issues receive that label, useful for "ready for dev" workflows.
 
-## GitHub Integration with Merge Queue
+## GitHub Integration
 
 :::tip[Partial ship]
 
@@ -47,19 +47,9 @@ Pull request create and view, CI status, and inline review threads are available
 
 :::
 
-:::note[Work in progress]
+[Treq workspaces](/docs/concepts/workspaces) already model stacked branches. The missing piece is first-class GitHub pull request control from the same place you review diffs and drive agents.
 
-The Treq-managed merge queue is still under development.
-
-:::
-
-[Treq workspaces](/docs/concepts/workspaces) already model stacked branches. The missing piece is first-class GitHub pull request and merge queue control from the same place you review diffs and drive agents.
-
-**App integration** connects each workspace to its remote pull request. You will see PR status, checks, and queue position without leaving Treq. Creating or updating a pull request from a stacked workspace will keep the GitHub base branch aligned with the stack parent, matching the [stacked PR](/learn/concepts/git/stacked-prs) model.
-
-**Merge queue integration** is a Treq-managed merge queue, not [GitHub's native merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue). GitHub's built-in queue requires GitHub Enterprise Cloud for private repositories. Treq's queue does not. You enqueue stacked PRs the way you already manage stacks locally: load an entire stack in one action, or enqueue layers one by one when a lower PR still needs review. The app respects dependency order so a higher layer does not jump ahead of its required base.
-
-This milestone turns the stack you already build in Treq into a path that ends on `main` through a Treq-managed merge queue, without hand-managing each PR's base and queue entry.
+**App integration** connects each workspace to its remote pull request. You will see PR status and checks without leaving Treq. Creating or updating a pull request from a stacked workspace will keep the GitHub base branch aligned with the stack parent, matching the [stacked PR](/learn/concepts/git/stacked-prs) model.
 
 ## Workspace Checks
 
@@ -69,7 +59,7 @@ A check workflow is a named set of jobs and steps: install, lint, typecheck, uni
 
 The longer-term goal is an **agentic self-fixing loop**. An agent makes a change, runs the workspace checks, reads the failures, and retries until the gates pass or it stops with a clear failure. Strict assertion-based guardrails keep that loop grounded in observable outcomes instead of the model's confidence. Full agentic self-fixing loops are a stretch goal and are not scheduled for the initial feature release. The first ship is the check gates themselves: run them, see pass or fail, and decide what to do next.
 
-These checks live with the workspace, so each stacked layer can verify its own increment before it joins a larger review or merge queue.
+These checks live with the workspace, so each stacked layer can verify its own increment before it joins a larger review.
 
 ## SSH Remote Development
 
@@ -81,9 +71,9 @@ This matters when the project needs a machine you do not run locally. Examples i
 
 ## How These Fit Together
 
-Workspace Checks decide whether a layer is ready. GitHub Integration with Merge Queue moves ready layers onto the remote merge path. SSH Remote Development decides where that work runs when local hardware is not enough.
+Workspace Checks decide whether a layer is ready. GitHub Integration puts ready layers up for review as pull requests. SSH Remote Development decides where that work runs when local hardware is not enough.
 
-You build in a stacked workspace, locally or over SSH, and run checks until the assertions pass. Then you open or update the PR from Treq and enqueue that PR alone or with the rest of the stack. The same verification story that protects local agent loops also protects what you put into the queue.
+You build in a stacked workspace, locally or over SSH, and run checks until the assertions pass. Then you open or update the PR from Treq, alone or with the rest of the stack. The same verification story that protects local agent loops also protects what you push for review.
 
 ## Learn More
 

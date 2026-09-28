@@ -38,11 +38,11 @@ export const ROADMAP_YEARS: YearRoadmap[] = [
         milestones: [
           {
             id: 'merge',
-            title: 'GitHub Integration with Merge Queue',
-            shortTitle: 'Merge Queue',
-            href: '#github-integration-with-merge-queue',
+            title: 'GitHub Integration',
+            shortTitle: 'GitHub PRs',
+            href: '#github-integration',
             outcome:
-              'Open, track, and enqueue stacked pull requests from the Treq app, including one-shot enqueue of a full stack.',
+              'Open and track stacked pull requests from the Treq app, with CI status and review threads next to the workspace.',
           },
           {
             id: 'checks',

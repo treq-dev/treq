@@ -37,3 +37,4 @@ A PRD should change when the intended product contract changes, not merely becau
 
 - [Remote Development](./remote-development.md) — remote repositories, managed compute, user-managed SSH, review/mutations, agents, terminals, trust, and reconnect behavior.
 - [Mobile](./mobile.md) — Android/iOS product behavior built on the shared Tauri application and Remote Development.
+- [Marketing](./marketing.md) — go-to-market plan: audiences, product-truth rules for copy, channels, content engine, phase gates, and measurement.

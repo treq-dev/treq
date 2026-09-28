@@ -1,15 +1,10 @@
-import { useIsMutating, useMutation } from "../hooks/useMutation";
 import { invalidateQueries } from "../lib/swr-cache";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronDown, Github, Loader2 } from "lucide-react";
 import { useState } from "react";
-import {
-  createPrMutationKey,
-  invalidatePrStatuses,
-  useGitRemoteInfo,
-  usePrInfoViaGh,
-} from "../hooks/useMergeQueueStatus";
-import { ghCreatePr, pushWorkspaceToRemote } from "../lib/api";
+import { useCreateWorkspacePr } from "../hooks/useCreateWorkspacePr";
+import { useGitRemoteInfo, usePrInfoViaGh } from "../hooks/useMergeQueueStatus";
+import { pushWorkspaceToRemote } from "../lib/api";
 import type { Workspace } from "../lib/api-types";
 import {
   buildGitHubComparePrUrl,
@@ -58,34 +53,8 @@ export function CreatePrButtonGroup({
   );
   const body = workspace.description ?? "";
 
-  // Shared across surfaces (this button and the Changes tab's "Commit and
-  // create PR" dropdown item) so either one's in-flight PR creation shows
-  // as pending here too.
-  const createPrMutation = useMutation({
-    mutationKey: createPrMutationKey(repoPath, workspace.id),
-    mutationFn: async (draft: boolean) => {
-      if (!remoteInfo) throw new Error("No GitHub remote detected");
-      if (needsPush) {
-        await pushWorkspaceToRemote(repoPath, workspace.id);
-      }
-      const number = await ghCreatePr(
-        remoteInfo.full_name,
-        title,
-        body,
-        baseBranch,
-        workspace.branch_name,
-        draft,
-      );
-      // Stay pending until the new PR is in the status cache. Until then
-      // prInfo is still null, so the button would re-enable and a second
-      // click would try to create the same PR again.
-      await invalidatePrStatuses(repoPath, workspace.branch_name);
-      return number;
-    },
-  });
-  const otherCreatePrActive = useIsMutating(
-    createPrMutationKey(repoPath, workspace.id),
-  );
+  const { createPr: createWorkspacePr, isPending: createPending } =
+    useCreateWorkspacePr(repoPath, workspace.id);
 
   // `gh pr view <branch>` also returns closed and merged PRs. Only an open
   // PR blocks a new one; otherwise the branch can get a fresh PR.
@@ -93,30 +62,20 @@ export function CreatePrButtonGroup({
     return null;
   }
 
-  const createPr = async (draft: boolean) => {
-    try {
-      const number = await createPrMutation.mutateAsync(draft);
-      // Broad refresh so `not_on_remote`/sync status update everywhere,
-      // matching the existing manual "Push to remote" flow.
-      void invalidateQueries();
-      const prUrl = `https://github.com/${remoteInfo.full_name}/pull/${number}`;
-      addToast({
-        title: draft ? "Draft PR created" : "Pull request created",
-        description: `#${number}`,
-        type: "success",
-        action: {
-          label: "Open in Web",
-          onClick: () => openUrl(prUrl),
-        },
-      });
-    } catch (err) {
-      addToast({
-        title: "Failed to create PR",
-        description: (err as Error).message,
-        type: "error",
-      });
-    }
-  };
+  const createPr = (draft: boolean) =>
+    createWorkspacePr({
+      repoFullName: remoteInfo.full_name,
+      branchName: workspace.branch_name,
+      baseBranch,
+      body,
+      draft,
+      prepare: async () => {
+        if (needsPush) {
+          await pushWorkspaceToRemote(repoPath, workspace.id);
+        }
+        return title;
+      },
+    });
 
   const openManual = async () => {
     setPushingManually(true);
@@ -146,7 +105,7 @@ export function CreatePrButtonGroup({
     }
   };
 
-  const creating = otherCreatePrActive || pushingManually;
+  const creating = createPending || pushingManually;
   const pushAndCreate = needsPush;
   const disabled = creating || !hasCommits;
   const noCommitsTooltip =
