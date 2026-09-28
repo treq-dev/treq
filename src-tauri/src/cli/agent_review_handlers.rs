@@ -4,9 +4,7 @@ use crate::core;
 use crate::local_db;
 use crate::review_aggregate;
 
-use super::{
-  classify_cli_error, detect_repo_path, get_arg_value, print_json, print_json_error, OutputFormat,
-};
+use super::{detect_repo_path, get_arg_value, print_json, OutputFormat};
 
 /// Comment rows written by `treq agent review` always carry this source, so a
 /// later local producer can be told apart from the review agent's output.
@@ -69,22 +67,10 @@ pub(super) fn strip_suggestion_fence(text: &str) -> String {
 /// with `id`, `file_path`, `start_line`, `end_line`, `side`, `body`,
 /// `suggested_replacement` and `resolved` (null when the source does not track
 /// resolution).
-pub(super) fn handle_agent_review_command(matches: &Matches) -> Result<(), String> {
-  let format = OutputFormat::parse(get_arg_value(matches, "format").as_deref())?;
-  match run_agent_review_action(matches, format) {
-    Ok(()) => Ok(()),
-    Err(error) => {
-      if format == OutputFormat::Json {
-        print_json_error(classify_cli_error(&error), &error);
-      } else {
-        eprintln!("Error: {error}");
-      }
-      Err(error)
-    }
-  }
-}
-
-fn run_agent_review_action(matches: &Matches, format: OutputFormat) -> Result<(), String> {
+pub(super) fn handle_agent_review_command(
+  matches: &Matches,
+  format: OutputFormat,
+) -> Result<(), String> {
   let action = get_arg_value(matches, "action")
     .ok_or_else(|| "agent review action is required".to_string())?;
   let repo_path = detect_repo_path()?;

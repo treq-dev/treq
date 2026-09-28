@@ -1144,3 +1144,52 @@ fn every_typed_remote_request_round_trips_through_cli_args() {
     );
   }
 }
+
+mod structured_errors {
+  use super::super::run_structured_command;
+  use super::remote_matches;
+
+  fn run(pairs: &[(&str, &str)], result: Result<(), String>) -> (bool, String, String) {
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let ok = run_structured_command(&remote_matches(pairs), &mut out, &mut err, |_| {
+      result.clone()
+    });
+    (
+      ok,
+      String::from_utf8(out).unwrap(),
+      String::from_utf8(err).unwrap(),
+    )
+  }
+
+  #[test]
+  fn argument_errors_print_a_json_error_body() {
+    let (ok, out, err) = run(&[("format", "json")], Err("--workspace is required".into()));
+    assert!(!ok);
+    assert!(err.is_empty(), "{err}");
+    let body: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    assert_eq!(body["error"]["code"], "invalid_arguments");
+    assert_eq!(body["error"]["message"], "--workspace is required");
+  }
+
+  #[test]
+  fn argument_errors_print_to_stderr_in_human_format() {
+    let (ok, out, err) = run(&[], Err("unknown workspace action 'x'".into()));
+    assert!(!ok);
+    assert!(out.is_empty(), "{out}");
+    assert_eq!(err.trim(), "Error: unknown workspace action 'x'");
+  }
+
+  #[test]
+  fn an_invalid_format_is_reported() {
+    let (ok, _, err) = run(&[("format", "yaml")], Ok(()));
+    assert!(!ok);
+    assert!(err.contains("invalid format 'yaml'"), "{err}");
+  }
+
+  #[test]
+  fn success_prints_nothing_extra() {
+    let (ok, out, err) = run(&[("format", "json")], Ok(()));
+    assert!(ok);
+    assert!(out.is_empty() && err.is_empty());
+  }
+}
