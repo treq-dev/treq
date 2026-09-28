@@ -1,6 +1,9 @@
 use crate::tracker::{KickoffLedger, KickoffPoller, MAX_KICKOFF_ATTEMPTS};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LinearIssue {
@@ -107,6 +110,101 @@ struct LinearGraphqlResponse<T> {
 #[derive(Deserialize)]
 struct LinearGraphqlError {
   message: String,
+}
+
+const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
+
+// reqwest has no default timeout. Without one, a stalled Linear request holds
+// the auto-kickoff poller thread forever and stops kickoffs for every repo.
+const LINEAR_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const LINEAR_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn linear_http_client() -> &'static reqwest::Client {
+  static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+  CLIENT.get_or_init(|| {
+    reqwest::Client::builder()
+      .timeout(LINEAR_REQUEST_TIMEOUT)
+      .connect_timeout(LINEAR_CONNECT_TIMEOUT)
+      .build()
+      .unwrap_or_else(|_| reqwest::Client::new())
+  })
+}
+
+/// Sends one GraphQL request to Linear and returns its `data`. `what` names
+/// the resource in error messages ("issues", "teams").
+async fn linear_graphql<T: DeserializeOwned>(
+  api_key: &str,
+  body: &serde_json::Value,
+  what: &str,
+) -> Result<T, String> {
+  let response = linear_http_client()
+    .post(LINEAR_GRAPHQL_URL)
+    .header("Authorization", api_key)
+    .json(body)
+    .send()
+    .await
+    .map_err(|e| {
+      if e.is_timeout() {
+        format!("Linear request for {what} timed out")
+      } else {
+        format!("Failed to fetch Linear {what}: {e}")
+      }
+    })?;
+
+  let status = response.status();
+  let text = response
+    .text()
+    .await
+    .map_err(|e| format!("Failed to read Linear response: {e}"))?;
+  parse_graphql_response(status, &text)
+}
+
+/// Linear reports query errors as a GraphQL `errors` array, often with a 4xx
+/// status. Those messages are the most useful, so they win when present. A
+/// body that is not GraphQL JSON (a proxy error page, a rate-limit response)
+/// falls back to a message built from the HTTP status.
+fn parse_graphql_response<T: DeserializeOwned>(
+  status: reqwest::StatusCode,
+  text: &str,
+) -> Result<T, String> {
+  let result = match serde_json::from_str::<LinearGraphqlResponse<T>>(text) {
+    Ok(result) => result,
+    Err(e) if status.is_success() => return Err(format!("Failed to parse Linear response: {e}")),
+    Err(_) => return Err(http_status_error(status, text)),
+  };
+
+  if let Some(errors) = result.errors.filter(|errors| !errors.is_empty()) {
+    return Err(format!(
+      "Linear API error: {}",
+      errors
+        .iter()
+        .map(|e| e.message.as_str())
+        .collect::<Vec<_>>()
+        .join("; ")
+    ));
+  }
+  if !status.is_success() {
+    return Err(http_status_error(status, text));
+  }
+
+  result
+    .data
+    .ok_or_else(|| "No data in Linear response".to_string())
+}
+
+fn http_status_error(status: reqwest::StatusCode, text: &str) -> String {
+  match status.as_u16() {
+    401 | 403 => {
+      format!(
+        "Linear rejected the API key ({status}). Check the Linear settings for this repository."
+      )
+    }
+    429 => format!("Linear rate limit reached ({status}). Try again in a minute."),
+    _ => {
+      let body: String = text.chars().take(300).collect();
+      format!("Linear API error ({status}): {body}")
+    }
+  }
 }
 
 #[derive(Deserialize)]
@@ -227,34 +325,8 @@ pub async fn linear_list_teams_impl(api_key: &str) -> Result<Vec<LinearTeam>, St
     }
   }"#;
 
-  let client = reqwest::Client::new();
-  let response = client
-    .post("https://api.linear.app/graphql")
-    .header("Authorization", api_key)
-    .json(&serde_json::json!({ "query": query }))
-    .send()
-    .await
-    .map_err(|e| format!("Failed to fetch Linear teams: {e}"))?;
-
-  let result: LinearGraphqlResponse<LinearTeamsData> = response
-    .json()
-    .await
-    .map_err(|e| format!("Failed to parse Linear response: {e}"))?;
-
-  if let Some(errors) = result.errors {
-    return Err(format!(
-      "Linear API error: {}",
-      errors
-        .iter()
-        .map(|e| e.message.as_str())
-        .collect::<Vec<_>>()
-        .join("; ")
-    ));
-  }
-
-  let data = result
-    .data
-    .ok_or_else(|| "No data in Linear response".to_string())?;
+  let data: LinearTeamsData =
+    linear_graphql(api_key, &serde_json::json!({ "query": query }), "teams").await?;
 
   Ok(
     data
@@ -361,34 +433,8 @@ pub async fn linear_list_issues_impl(
   api_key: &str,
   team_filter: Option<&str>,
 ) -> Result<Vec<LinearIssue>, String> {
-  let client = reqwest::Client::new();
-  let response = client
-    .post("https://api.linear.app/graphql")
-    .header("Authorization", api_key)
-    .json(&list_issues_body(team_filter))
-    .send()
-    .await
-    .map_err(|e| format!("Failed to fetch Linear issues: {e}"))?;
-
-  let result: LinearGraphqlResponse<LinearIssuesData> = response
-    .json()
-    .await
-    .map_err(|e| format!("Failed to parse Linear response: {e}"))?;
-
-  if let Some(errors) = result.errors {
-    return Err(format!(
-      "Linear API error: {}",
-      errors
-        .iter()
-        .map(|e| e.message.as_str())
-        .collect::<Vec<_>>()
-        .join("; ")
-    ));
-  }
-
-  let data = result
-    .data
-    .ok_or_else(|| "No data in Linear response".to_string())?;
+  let data: LinearIssuesData =
+    linear_graphql(api_key, &list_issues_body(team_filter), "issues").await?;
 
   Ok(data.issues.nodes.into_iter().map(map_issue_node).collect())
 }
@@ -422,39 +468,12 @@ fn map_issue_node(node: LinearIssueNode) -> LinearIssue {
 }
 
 pub async fn linear_get_issue_impl(api_key: &str, issue_id: &str) -> Result<LinearIssue, String> {
-  let client = reqwest::Client::new();
-  let response = client
-    .post("https://api.linear.app/graphql")
-    .header("Authorization", api_key)
-    .json(&get_issue_body(issue_id))
-    .send()
-    .await
-    .map_err(|e| format!("Failed to fetch Linear issue: {e}"))?;
-
   #[derive(Deserialize)]
   struct IssueData {
     issue: Option<LinearIssueNode>,
   }
 
-  let result: LinearGraphqlResponse<IssueData> = response
-    .json()
-    .await
-    .map_err(|e| format!("Failed to parse Linear response: {e}"))?;
-
-  if let Some(errors) = result.errors {
-    return Err(format!(
-      "Linear API error: {}",
-      errors
-        .iter()
-        .map(|e| e.message.as_str())
-        .collect::<Vec<_>>()
-        .join("; ")
-    ));
-  }
-
-  let data = result
-    .data
-    .ok_or_else(|| "No data in Linear response".to_string())?;
+  let data: IssueData = linear_graphql(api_key, &get_issue_body(issue_id), "issue").await?;
   let node = data
     .issue
     .ok_or_else(|| format!("Issue {issue_id} not found"))?;
@@ -470,34 +489,8 @@ pub async fn linear_get_viewer_impl(api_key: &str) -> Result<LinearUser, String>
     viewer: LinearUserNode,
   }
 
-  let client = reqwest::Client::new();
-  let response = client
-    .post("https://api.linear.app/graphql")
-    .header("Authorization", api_key)
-    .json(&serde_json::json!({ "query": query }))
-    .send()
-    .await
-    .map_err(|e| format!("Failed to fetch Linear viewer: {e}"))?;
-
-  let result: LinearGraphqlResponse<ViewerData> = response
-    .json()
-    .await
-    .map_err(|e| format!("Failed to parse Linear response: {e}"))?;
-
-  if let Some(errors) = result.errors {
-    return Err(format!(
-      "Linear API error: {}",
-      errors
-        .iter()
-        .map(|e| e.message.as_str())
-        .collect::<Vec<_>>()
-        .join("; ")
-    ));
-  }
-
-  let data = result
-    .data
-    .ok_or_else(|| "No data in Linear response".to_string())?;
+  let data: ViewerData =
+    linear_graphql(api_key, &serde_json::json!({ "query": query }), "viewer").await?;
 
   Ok(LinearUser {
     id: data.viewer.id,
@@ -546,34 +539,8 @@ pub async fn linear_list_projects_impl(api_key: &str) -> Result<Vec<LinearProjec
     lead: Option<LinearUserNode>,
   }
 
-  let client = reqwest::Client::new();
-  let response = client
-    .post("https://api.linear.app/graphql")
-    .header("Authorization", api_key)
-    .json(&serde_json::json!({ "query": query }))
-    .send()
-    .await
-    .map_err(|e| format!("Failed to fetch Linear projects: {e}"))?;
-
-  let result: LinearGraphqlResponse<ProjectsData> = response
-    .json()
-    .await
-    .map_err(|e| format!("Failed to parse Linear response: {e}"))?;
-
-  if let Some(errors) = result.errors {
-    return Err(format!(
-      "Linear API error: {}",
-      errors
-        .iter()
-        .map(|e| e.message.as_str())
-        .collect::<Vec<_>>()
-        .join("; ")
-    ));
-  }
-
-  let data = result
-    .data
-    .ok_or_else(|| "No data in Linear response".to_string())?;
+  let data: ProjectsData =
+    linear_graphql(api_key, &serde_json::json!({ "query": query }), "projects").await?;
 
   Ok(
     data
@@ -626,34 +593,8 @@ pub async fn linear_list_project_documents_impl(
     updated_at: String,
   }
 
-  let client = reqwest::Client::new();
-  let response = client
-    .post("https://api.linear.app/graphql")
-    .header("Authorization", api_key)
-    .json(&project_documents_body(project_id))
-    .send()
-    .await
-    .map_err(|e| format!("Failed to fetch Linear documents: {e}"))?;
-
-  let result: LinearGraphqlResponse<ProjectDocumentsData> = response
-    .json()
-    .await
-    .map_err(|e| format!("Failed to parse Linear response: {e}"))?;
-
-  if let Some(errors) = result.errors {
-    return Err(format!(
-      "Linear API error: {}",
-      errors
-        .iter()
-        .map(|e| e.message.as_str())
-        .collect::<Vec<_>>()
-        .join("; ")
-    ));
-  }
-
-  let data = result
-    .data
-    .ok_or_else(|| "No data in Linear response".to_string())?;
+  let data: ProjectDocumentsData =
+    linear_graphql(api_key, &project_documents_body(project_id), "documents").await?;
   let project = data
     .project
     .ok_or_else(|| format!("Project {project_id} not found"))?;
@@ -721,34 +662,12 @@ async fn fetch_comments_for_entity(
     comments: CommentsConnection,
   }
 
-  let client = reqwest::Client::new();
-  let response = client
-    .post("https://api.linear.app/graphql")
-    .header("Authorization", api_key)
-    .json(&entity_comments_body(entity, entity_id))
-    .send()
-    .await
-    .map_err(|e| format!("Failed to fetch Linear comments: {e}"))?;
-
-  let result: LinearGraphqlResponse<EntityCommentsData> = response
-    .json()
-    .await
-    .map_err(|e| format!("Failed to parse Linear response: {e}"))?;
-
-  if let Some(errors) = result.errors {
-    return Err(format!(
-      "Linear API error: {}",
-      errors
-        .iter()
-        .map(|e| e.message.as_str())
-        .collect::<Vec<_>>()
-        .join("; ")
-    ));
-  }
-
-  let mut data = result
-    .data
-    .ok_or_else(|| "No data in Linear response".to_string())?;
+  let mut data: EntityCommentsData = linear_graphql(
+    api_key,
+    &entity_comments_body(entity, entity_id),
+    "comments",
+  )
+  .await?;
   let node = data
     .entity
     .remove(entity_field)
@@ -1000,5 +919,58 @@ mod tests {
     assert!(!query.contains(HOSTILE));
     assert!(query.contains("document(id: $id)"));
     assert_eq!(body["variables"]["id"], HOSTILE);
+  }
+
+  #[derive(Deserialize, Debug)]
+  struct ViewerOnly {
+    viewer: TestUser,
+  }
+
+  #[derive(Deserialize, Debug)]
+  struct TestUser {
+    id: String,
+  }
+
+  #[test]
+  fn graphql_response_returns_data_on_success() {
+    let data: ViewerOnly = parse_graphql_response(
+      reqwest::StatusCode::OK,
+      r#"{"data":{"viewer":{"id":"u1","name":"Ada"}}}"#,
+    )
+    .unwrap();
+    assert_eq!(data.viewer.id, "u1");
+  }
+
+  #[test]
+  fn graphql_errors_win_over_http_status() {
+    let err = parse_graphql_response::<ViewerOnly>(
+      reqwest::StatusCode::BAD_REQUEST,
+      r#"{"errors":[{"message":"Argument Validation Error"}]}"#,
+    )
+    .unwrap_err();
+    assert_eq!(err, "Linear API error: Argument Validation Error");
+  }
+
+  #[test]
+  fn non_json_error_body_reports_http_status() {
+    let err = parse_graphql_response::<ViewerOnly>(
+      reqwest::StatusCode::UNAUTHORIZED,
+      "<html>Unauthorized</html>",
+    )
+    .unwrap_err();
+    assert!(err.contains("rejected the API key"), "{err}");
+
+    let err =
+      parse_graphql_response::<ViewerOnly>(reqwest::StatusCode::TOO_MANY_REQUESTS, "slow down")
+        .unwrap_err();
+    assert!(err.contains("rate limit"), "{err}");
+  }
+
+  #[test]
+  fn error_status_without_graphql_errors_is_not_success() {
+    let err =
+      parse_graphql_response::<ViewerOnly>(reqwest::StatusCode::BAD_GATEWAY, r#"{"data":null}"#)
+        .unwrap_err();
+    assert!(err.contains("502"), "{err}");
   }
 }
