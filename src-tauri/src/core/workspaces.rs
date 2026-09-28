@@ -1042,14 +1042,20 @@ fn forget_workspace_record(
         .join(&workspace.workspace_path);
       let workspace_path_str = workspace_path.to_str().unwrap().to_string();
 
-      // Re-target direct children to the default branch
+      // Splice direct children onto this workspace's own target so a stack
+      // stays connected when a middle workspace goes away. Children keep
+      // their commits: work from the removed branch now counts as theirs.
       let children = local_db::get_workspaces_by_target_branch(repo_path, &workspace.branch_name)
         .map_err(|e| format!("Failed to get child workspaces: {}", e))?;
       if !children.is_empty() {
-        let default_branch =
-          jj::get_default_branch(repo_path).unwrap_or_else(|_| "main".to_string());
+        let new_target = match workspace.target_branch.as_deref() {
+          Some(target) if !target.is_empty() && target != workspace.branch_name => {
+            target.to_string()
+          }
+          _ => jj::get_default_branch(repo_path).unwrap_or_else(|_| "main".to_string()),
+        };
         for child in &children {
-          local_db::update_workspace_target_branch(repo_path, child.id, &default_branch)
+          local_db::update_workspace_target_branch(repo_path, child.id, &new_target)
             .map_err(|e| format!("Failed to update child target branch: {}", e))?;
         }
       }
