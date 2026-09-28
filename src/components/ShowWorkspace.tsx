@@ -43,7 +43,6 @@ import { useTerminalSettingsStore } from "../stores/terminalSettingsStore";
 import { useTreqSendStore } from "../stores/treqSendStore";
 import { listen } from "@tauri-apps/api/event";
 import {
-  checkAndRebaseWorkspaces,
   createSession,
   type DirectoryEntry,
   jjRestoreAll,
@@ -63,12 +62,9 @@ import {
   pullWorkspaceFromRemote,
   pushWorkspaceToRemote,
   rebaseHomeRepoBranch,
-  resolveBookmarkConflict,
   setGitSubmoduleSynced,
-  type SingleRebaseResult,
   updateWorkspace,
   type Workspace,
-  type WorkspaceBookmarkConflict,
 } from "../lib/api";
 import { FEATURES } from "../lib/features";
 import { usePreviewFeature } from "../stores/featurePreviewStore";
@@ -93,7 +89,6 @@ import {
   getCommitsTabLabel,
 } from "../lib/commitsTabLabel";
 import { cn, getFullWorkspacePath, resolveReadmeImageSrc } from "../lib/utils";
-import { sumWorkspaceLocFromLog } from "../lib/workspace-stack";
 import { isWorkspaceHidden } from "../lib/workspace-utils";
 import type { AgentReviewComment } from "../lib/api-types-review";
 import type { SessionCreationInfo } from "../types/sessions";
@@ -111,7 +106,6 @@ import { FileBrowser } from "./FileBrowser";
 import { LinearCommitHistory } from "./LinearCommitHistory";
 import { TRACKER_ICONS } from "./trackerIcons";
 import { TRACKER_PROVIDERS, type TrackerProvider } from "../lib/trackers";
-import { LocDiffMarker } from "./LocDiffMarker";
 import { MarkdownContent } from "./MarkdownContent";
 import {
   type BranchListItem,
@@ -123,7 +117,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -137,7 +130,6 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 import { ViewPrButton } from "./ViewPrButton";
-import { WorkspaceBookmarkConflictModal } from "./WorkspaceBookmarkConflictModal";
 import { ScheduleWorkspaceDialog } from "./ScheduleWorkspaceDialog";
 import { WorkspaceStackPanel } from "./WorkspaceStackPanel";
 import type { TerminalSessionSummary } from "./terminal/types";
@@ -310,9 +302,6 @@ export const ShowWorkspace = ({
   const [homeRebasing, setHomeRebasing] = useState(false);
 
   const [rebasing, setRebasing] = useState(false);
-  const [bookmarkConflict, setBookmarkConflict] =
-    useState<WorkspaceBookmarkConflict | null>(null);
-  const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [scheduleDialog, setScheduleDialog] = useState<{
     mode: "workspace" | "stack";
     workspaceIds: number[];
@@ -320,8 +309,6 @@ export const ShowWorkspace = ({
     canRemoveSchedule?: boolean;
   } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [resolvingBookmarkConflict, setResolvingBookmarkConflict] =
-    useState(false);
   const [refreshingFiles, setRefreshingFiles] = useState(false);
 
   // Show overview tab by default for main repo, changes tab for workspaces
@@ -377,8 +364,6 @@ export const ShowWorkspace = ({
 
   useEffect(() => {
     setActiveTab("overview");
-    setBookmarkConflict(null);
-    setConflictModalOpen(false);
     setChangedFiles(new Map());
   }, [workspace?.id]);
 
@@ -514,18 +499,6 @@ export const ShowWorkspace = ({
     ? 0
     : reviewChangeCount;
 
-  // Workspace LOC (committed + working copy) for the Gerrit-style marker
-  // on the tab row. Shares the stack panel's query key for cache reuse.
-  const { data: workspaceCommitsLog } = useSWR(
-    effectiveRepoPath && workspace?.id !== undefined
-      ? ["workspace-commits", repoCacheKey, workspace?.id ?? null]
-      : null,
-    () => listCommits(effectiveRepoPath, workspace!.id),
-  );
-  const workspaceLocStats = workspaceCommitsLog
-    ? sumWorkspaceLocFromLog(workspaceCommitsLog)
-    : undefined;
-
   const reviewTabPill = (() => {
     if (visibleReviewChangeCount <= 0) return null;
     const derived = getReviewTabPill({
@@ -575,7 +548,8 @@ export const ShowWorkspace = ({
   );
 
   const { data: startingPromptEntry } = useSWR(
-    effectiveRepoPath && workspace?.id !== undefined
+    // Only needed in the Details popover; fetch when it opens.
+    detailsOpen && effectiveRepoPath && workspace?.id !== undefined
       ? ["workspace-starting-prompt", repoCacheKey, workspace?.id ?? null]
       : null,
     () => getWorkspaceStartingPrompt(effectiveRepoPath, workspace!.id),
@@ -605,40 +579,6 @@ export const ShowWorkspace = ({
     ? getFullWorkspacePath(workspace)
     : effectiveRepoPath;
 
-  const handleBookmarkConflictsFromResult = (
-    result?: SingleRebaseResult | null,
-  ) => {
-    if (!workspace) {
-      setBookmarkConflict(null);
-      setConflictModalOpen(false);
-      return false;
-    }
-
-    const conflicts = result?.bookmark_conflicts ?? [];
-    const conflictForWorkspace = conflicts.find(
-      (conflict) => conflict.workspace_id === workspace.id,
-    );
-
-    if (conflictForWorkspace) {
-      setBookmarkConflict(conflictForWorkspace);
-      setConflictModalOpen(true);
-      return true;
-    }
-
-    if (bookmarkConflict) {
-      setBookmarkConflict(null);
-      setConflictModalOpen(false);
-    }
-
-    return false;
-  };
-
-  // Files list expansion state
-  // 		setTargetBranch(value);
-  // 	}
-  // }, [workspace?.target_branch, defaultBranch]);
-
-  // Invalidate sidebar query when conflicts change
   const submoduleSync = useMutation({
     mutationFn: ({ path, enabled }: { path: string; enabled: boolean }) =>
       setGitSubmoduleSynced(effectiveRepoPath, path, enabled),
@@ -1002,96 +942,6 @@ export const ShowWorkspace = ({
       });
     } finally {
       setHomeRebasing(false);
-    }
-  };
-
-  const handleForceRebaseWorkspace = async () => {
-    if (!workspace || !effectiveRepoPath) return;
-
-    setRebasing(true);
-    try {
-      const result = await checkAndRebaseWorkspaces(
-        effectiveRepoPath,
-        workspace.id,
-        targetBranch ?? defaultTargetBranch,
-        true,
-      );
-
-      handleBookmarkConflictsFromResult(result);
-
-      if (result.success) {
-        addToast({
-          title: "Force rebase complete",
-          description:
-            "Rebased workspace subtree from current workspace scope.",
-          type: "success",
-        });
-      } else {
-        addToast({
-          title: "Force rebase completed with errors",
-          description: result.message || "Some workspaces failed to rebase.",
-          type: "warning",
-        });
-      }
-
-      void invalidateQueries(["workspaces", repoCacheKey]);
-      void invalidateQueries(["workspace-statuses", repoCacheKey]);
-    } catch (error) {
-      addToast({
-        title: "Force rebase failed",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setRebasing(false);
-    }
-  };
-
-  const handleResolveBookmarkConflict = async () => {
-    if (
-      !workspace ||
-      !effectiveRepoPath ||
-      !bookmarkConflict ||
-      !targetBranch
-    ) {
-      return;
-    }
-
-    setResolvingBookmarkConflict(true);
-    try {
-      const resolution = await resolveBookmarkConflict(
-        effectiveRepoPath,
-        workspace.id,
-        workingDirectory,
-        bookmarkConflict.branch_name,
-      );
-
-      addToast({
-        title: "Bookmark updated",
-        description: `Preserved ${resolution.preserved_change_ids.length} local commit(s) on ${bookmarkConflict.branch_name}`,
-        type: "success",
-      });
-
-      setBookmarkConflict(null);
-      setConflictModalOpen(false);
-
-      const result = await checkAndRebaseWorkspaces(
-        effectiveRepoPath,
-        workspace.id,
-        targetBranch,
-        true,
-      );
-      if (result) {
-        handleBookmarkConflictsFromResult(result);
-      }
-    } catch (error) {
-      addToast({
-        title: "Failed to resolve conflict",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setResolvingBookmarkConflict(false);
     }
   };
 
@@ -1468,7 +1318,6 @@ export const ShowWorkspace = ({
               <span>{rebasing ? "Rebasing..." : "Refreshing..."}</span>
             </div>
           )}
-          {workspaceLocStats && <LocDiffMarker diffStats={workspaceLocStats} />}
         </div>
       </div>
       <div className="flex-1 overflow-auto">
@@ -2113,51 +1962,45 @@ export const ShowWorkspace = ({
               )}
 
               {/* Sync control - status + icon in one clickable button */}
-              {(!workspace || !workspace.not_on_remote) &&
-                syncStatus &&
-                (isHomeRepo || hasSyncChanges) && (
-                  <TooltipProvider delay={200}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant={syncStatus.ahead > 0 ? "outline" : "ghost"}
-                          size="sm"
-                          className="relative h-6 gap-1 px-2 text-xs text-muted-foreground"
-                          onClick={handleSync}
-                          disabled={!!actionPending || !hasSyncChanges}
-                        >
-                          {hasSyncChanges && (
-                            <span
-                              className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-600 opacity-50 animate-pulse"
-                              aria-hidden="true"
-                            />
+              {(!workspace || !workspace.not_on_remote) && hasSyncChanges && (
+                <TooltipProvider delay={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={syncStatus.ahead > 0 ? "outline" : "ghost"}
+                        size="sm"
+                        className="relative h-6 gap-1 px-2 text-xs text-muted-foreground"
+                        onClick={handleSync}
+                        disabled={!!actionPending}
+                      >
+                        <span
+                          className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-600 opacity-50 animate-pulse"
+                          aria-hidden="true"
+                        />
+                        {syncStatus.behind > 0 && (
+                          <span className="flex items-center">
+                            ↓{syncStatus.behind}
+                          </span>
+                        )}
+                        {syncStatus.ahead > 0 && (
+                          <span className="flex items-center">
+                            ↑{syncStatus.ahead}
+                          </span>
+                        )}
+                        <RefreshCw
+                          className={cn(
+                            "w-4 h-4",
+                            actionPending === "sync" && "animate-spin",
                           )}
-                          {(isHomeRepo || syncStatus.behind > 0) && (
-                            <span className="flex items-center">
-                              ↓{syncStatus.behind}
-                            </span>
-                          )}
-                          {(isHomeRepo || syncStatus.ahead > 0) && (
-                            <span className="flex items-center">
-                              ↑{syncStatus.ahead}
-                            </span>
-                          )}
-                          <RefreshCw
-                            className={cn(
-                              "w-4 h-4",
-                              actionPending === "sync" && "animate-spin",
-                            )}
-                          />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {hasSyncChanges
-                          ? "Sync with remote (fetch and push)"
-                          : "No commits to sync"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
+                        />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Sync with remote (fetch and push)
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
               {/* Merge queue button. Hidden entirely until the repo has
 								    opted into the merge queue in the GitHub panel. */}
               {FEATURES.mergeQueue &&
@@ -2356,53 +2199,30 @@ export const ShowWorkspace = ({
                   </PopoverContent>
                 </Popover>
               )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="px-1"
-                    disabled={!!actionPending}
-                    aria-label="More workspace actions"
-                  >
-                    <MoreVertical className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={4}>
-                  <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      handlePushToRemote();
-                    }}
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    Push to remote
-                  </DropdownMenuItem>
-                  {workspace && (
-                    <DropdownMenuItem
-                      onSelect={(e) => {
-                        e.preventDefault();
-                        handleForceRebaseWorkspace();
-                      }}
+              {workspace && onDeleteWorkspace && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="px-1"
+                      disabled={!!actionPending}
+                      aria-label="More workspace actions"
                     >
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Force Rebase Workspace
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={4}>
+                    <DropdownMenuItem
+                      onSelect={() => onDeleteWorkspace(workspace)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Workspace
                     </DropdownMenuItem>
-                  )}
-                  {workspace && onDeleteWorkspace && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onSelect={() => onDeleteWorkspace(workspace)}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete Workspace
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
           {/* Row 2: Title (if workspace title exists) */}
@@ -2442,13 +2262,6 @@ export const ShowWorkspace = ({
           </div>
         </div>
       </div>
-      <WorkspaceBookmarkConflictModal
-        conflict={bookmarkConflict}
-        open={conflictModalOpen && !!bookmarkConflict}
-        onClose={() => setConflictModalOpen(false)}
-        onResolve={handleResolveBookmarkConflict}
-        resolving={resolvingBookmarkConflict}
-      />
       {workspace && (
         <ScheduleWorkspaceDialog
           open={!!scheduleDialog}

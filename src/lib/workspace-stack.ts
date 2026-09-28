@@ -1,8 +1,4 @@
-import type {
-  JjLogCommit,
-  JjLogResult,
-  JjTentativeWorkingCopy,
-} from "./api-types";
+import type { JjLogCommit, JjTentativeWorkingCopy } from "./api-types";
 
 export interface WorkspaceDiffStats {
   insertions: number;
@@ -36,16 +32,6 @@ export function sumWorkspaceDiffStats(
     insertions: fromCommits.insertions + tentativeWorkingCopy.commit.insertions,
     deletions: fromCommits.deletions + tentativeWorkingCopy.commit.deletions,
   };
-}
-
-/** Aggregate LOC for a workspace from a `listCommits` result (commits + WC). */
-export function sumWorkspaceLocFromLog(
-  result: Pick<JjLogResult, "commits" | "tentative_working_copy">,
-): WorkspaceDiffStats {
-  return sumWorkspaceDiffStats(
-    result.commits ?? [],
-    result.tentative_working_copy,
-  );
 }
 
 /** Character columns for a signed LOC count (`+1234` / `-12`), including the sign. */
