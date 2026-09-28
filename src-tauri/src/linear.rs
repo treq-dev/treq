@@ -1148,4 +1148,70 @@ mod tests {
     let viewer = linear_get_viewer_impl("lin_api_test").await.unwrap();
     assert_eq!(viewer.id, "u1");
   }
+
+  fn issue_page(ids: &[&str], next: Option<&str>) -> serde_json::Value {
+    let nodes: Vec<_> = ids
+      .iter()
+      .map(|id| {
+        serde_json::json!({
+          "id": id,
+          "identifier": id.to_uppercase(),
+          "title": format!("Issue {id}"),
+          "branchName": format!("branch-{id}"),
+          "url": format!("https://linear.app/t/issue/{id}"),
+        })
+      })
+      .collect();
+    serde_json::json!({
+      "data": { "issues": {
+        "nodes": nodes,
+        "pageInfo": { "hasNextPage": next.is_some(), "endCursor": next },
+      } }
+    })
+  }
+
+  #[tokio::test]
+  async fn list_issues_follows_cursors_past_the_first_page() {
+    use wiremock::{
+      matchers::{body_partial_json, method},
+      Mock, MockServer, ResponseTemplate,
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(body_partial_json(
+        serde_json::json!({ "variables": { "after": "c1" } }),
+      ))
+      .respond_with(ResponseTemplate::new(200).set_body_json(issue_page(&["b"], None)))
+      .with_priority(1)
+      .expect(1)
+      .mount(&server)
+      .await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(issue_page(&["a"], Some("c1"))))
+      .with_priority(2)
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let issues = linear_list_issues_impl("lin_api_test", Some("ENG"))
+      .await
+      .unwrap();
+    let ids: Vec<_> = issues.iter().map(|i| i.id.as_str()).collect();
+    assert_eq!(ids, ["a", "b"]);
+  }
+
+  #[tokio::test]
+  async fn list_issues_stops_at_the_page_cap() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(issue_page(&["x"], Some("again"))))
+      .expect(MAX_ISSUE_PAGES as u64)
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let issues = linear_list_issues_impl("lin_api_test", None).await.unwrap();
+    assert_eq!(issues.len(), MAX_ISSUE_PAGES);
+  }
 }
