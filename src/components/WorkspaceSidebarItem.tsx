@@ -45,6 +45,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { useWorkspaceRowPointerHandlers } from "../hooks/useWorkspaceSidebarMultiSelect";
 import { PathContextMenuItems } from "./WorkspacePathContextMenu";
+import { StartTruncatedText } from "./StartTruncatedText";
 
 interface WorkspaceSidebarItemProps {
   node: FlattenedWorkspaceNode;
@@ -280,17 +281,16 @@ export const WorkspaceSidebarItem: React.FC<WorkspaceSidebarItemProps> = ({
                           }`}
                         />
                       )}
-                      <span
-                        className={`flex-1 min-w-0 truncate font-mono ${
-                          statusIndicator ? "pr-7" : ""
-                        } ${
+                      <StartTruncatedText
+                        text={workspaceTitle}
+                        className={cn(
+                          "flex-1 min-w-0 font-mono",
+                          statusIndicator && "pr-7",
                           isSelected
                             ? "text-primary font-medium"
-                            : "text-muted-foreground"
-                        }`}
-                      >
-                        {workspaceTitle}
-                      </span>
+                            : "text-muted-foreground",
+                        )}
+                      />
                       {workspaceScheduling && isHidden && (
                         <CalendarClock
                           className="w-3 h-3 text-muted-foreground shrink-0 mr-1"

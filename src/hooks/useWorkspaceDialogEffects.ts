@@ -34,8 +34,6 @@ export interface UseWorkspaceDialogEffectsParams {
   branchPattern: string;
   isEditingBranch: boolean;
   moveToExisting: boolean;
-  isStackOnRoot: boolean;
-  position: "before" | "after";
   fileHunksMap: HunkMap;
   setIntent: (v: string) => void;
   setTitle: (v: string) => void;
@@ -51,7 +49,6 @@ export interface UseWorkspaceDialogEffectsParams {
   setTargetBranch: (v: string | null) => void;
   setAvailableBranches: (v: BranchListItem[]) => void;
   setBranchesLoading: (v: boolean) => void;
-  setPosition: (v: "before" | "after") => void;
   setActiveRightTab: (v: "commits" | "changes") => void;
   setChangedFiles: (v: JjFileChange[]) => void;
   setFileHunksMap: Dispatch<SetStateAction<HunkMap>>;
@@ -89,8 +86,6 @@ export function useWorkspaceDialogEffects(
     branchPattern,
     isEditingBranch,
     moveToExisting,
-    isStackOnRoot,
-    position,
     fileHunksMap,
     setIntent,
     setTitle,
@@ -105,7 +100,6 @@ export function useWorkspaceDialogEffects(
     setTargetBranch,
     setAvailableBranches,
     setBranchesLoading,
-    setPosition,
     setActiveRightTab,
     setChangedFiles,
     setFileHunksMap,
@@ -265,10 +259,6 @@ export function useWorkspaceDialogEffects(
     setBranchStatusData(branchStatus ?? null);
     setBranchStatusName(branchStatus ? debouncedBranchName : null);
   }, [debouncedBranchName, moveToExisting, checkingBranch, branchStatus]);
-
-  useEffect(() => {
-    if (isStackOnRoot && position !== "after") setPosition("after");
-  }, [isStackOnRoot, position]);
 
   const pendingHunkPaths = [...fileHunksMap]
     .filter(([, data]) => data.isLoading && data.hunks.length === 0)

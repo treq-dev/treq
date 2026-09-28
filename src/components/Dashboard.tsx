@@ -1173,7 +1173,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Leave the workspace view only when the workspace on screen was removed.
   const leaveRemovedWorkspaces = (removedIds: ReadonlySet<number>) => {
-    if (selectedWorkspace && removedIds.has(selectedWorkspace.id)) {
+    // Removal retargets children, changing their commits-ahead counts.
+    void invalidateQueries(["workspace-status", queryRepoKey]);
+    if (!selectedWorkspace || !removedIds.has(selectedWorkspace.id)) return;
+    // Land on the removed workspace's stack parent rather than the home repo.
+    const parent = workspaces.find(
+      (workspace) =>
+        workspace.branch_name === selectedWorkspace.target_branch &&
+        !removedIds.has(workspace.id),
+    );
+    if (parent) {
+      setSelectedWorkspace(parent);
+      setActiveSessionId(null);
+    } else {
       handleReturnToDashboard();
     }
   };
@@ -1412,17 +1424,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         setShowTerminalMissionControl(false);
         return;
       }
-      if (unifiedDialogDefaults) setUnifiedDialogDefaults(null);
+      // UnifiedWorkspaceDialog handles its own Escape (it stays open mid-create).
       if (showCommandPalette) setShowCommandPalette(false);
       if (showFilePicker) setShowFilePicker(false);
       setShowKeyboardShortcuts(false);
     },
-    [
-      showTerminalMissionControl,
-      unifiedDialogDefaults,
-      showCommandPalette,
-      showFilePicker,
-    ],
+    [showTerminalMissionControl, showCommandPalette, showFilePicker],
   );
 
   useTwoFingerSwipe({

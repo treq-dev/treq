@@ -258,3 +258,43 @@ fn test_delete_workspace_retargets_children_to_default_branch() {
     Some("feat/child1".to_string())
   );
 }
+
+#[test]
+fn test_delete_middle_workspace_splices_children_onto_its_parent() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+
+  let base: Workspace =
+    treq_lib::core::create_workspace(&repo.repo_path, "feat/base", None, None, None, None, None)
+      .expect("Failed to create base workspace");
+  let middle: Workspace = treq_lib::core::create_workspace(
+    &repo.repo_path,
+    "feat/middle",
+    None,
+    None,
+    Some(&base.branch_name),
+    None,
+    None,
+  )
+  .expect("Failed to create middle workspace");
+  let top: Workspace = treq_lib::core::create_workspace(
+    &repo.repo_path,
+    "feat/top",
+    None,
+    None,
+    Some(&middle.branch_name),
+    None,
+    None,
+  )
+  .expect("Failed to create top workspace");
+
+  treq_lib::core::archive_workspace(&repo.repo_path, &middle.id)
+    .expect("Failed to archive middle workspace");
+
+  let workspaces =
+    treq_lib::local_db::get_workspaces(&repo.repo_path).expect("Failed to get workspaces");
+  let updated_top = workspaces
+    .iter()
+    .find(|w| w.id == top.id)
+    .expect("top should still exist");
+  assert_eq!(updated_top.target_branch, Some("feat/base".to_string()));
+}

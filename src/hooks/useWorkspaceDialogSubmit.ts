@@ -5,6 +5,7 @@ import {
   applyStash,
   createWorkspace,
   getRepoCurrentBranch,
+  getRepoDefaultBranch,
   getWorkspaces,
   moveWorkspaceChanges,
   setWorkspaceTargetBranch,
@@ -103,7 +104,8 @@ export function useWorkspaceDialogSubmit(
         const stackOnBranch =
           sourceWorkspace != null
             ? position === "before"
-              ? (sourceWorkspace.target_branch ?? "main")
+              ? (sourceWorkspace.target_branch ??
+                (await getRepoDefaultBranch(repoPath)))
               : sourceWorkspace.branch_name
             : (targetBranch ?? undefined);
         const metadata = JSON.stringify({
@@ -202,7 +204,8 @@ export function useWorkspaceDialogSubmit(
       ) {
         const stackOnBranch =
           position === "before"
-            ? (sourceWorkspace.target_branch ?? "main")
+            ? (sourceWorkspace.target_branch ??
+              (await getRepoDefaultBranch(repoPath)))
             : sourceWorkspace.branch_name;
         const metadata = JSON.stringify({
           title: title.trim() || undefined,
@@ -257,7 +260,8 @@ export function useWorkspaceDialogSubmit(
       ) {
         const stackOnBranch =
           position === "before"
-            ? (sourceWorkspace.target_branch ?? "main")
+            ? (sourceWorkspace.target_branch ??
+              (await getRepoDefaultBranch(repoPath)))
             : sourceWorkspace.branch_name;
         const metadata = JSON.stringify({
           title: title.trim() || undefined,
@@ -338,6 +342,11 @@ export function useWorkspaceDialogSubmit(
           branchName,
           description: description.trim() || undefined,
           position,
+          onCreated: (id) => {
+            createdWorkspaceId = id;
+          },
+          // The dialog reports failures itself, inline and in one toast.
+          reportErrors: false,
         });
         onSuccess(workspaceId);
         onOpenChange(false);
