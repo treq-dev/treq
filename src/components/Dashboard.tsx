@@ -101,10 +101,11 @@ import { useLinearAutoKickoff } from "../hooks/useLinearAutoKickoff";
 import { useTrackerAutoKickoff } from "../hooks/useTrackerAutoKickoff";
 import { TRACKER_PROVIDERS, type TrackerProvider } from "../lib/trackers";
 import { openRepositoryAtPath as openRepositoryAtPathShared } from "../lib/open-repository";
-import type {
-  GitHubIssueAttachment,
-  LinearIssueAttachment,
-  TrackerItemAttachment,
+import {
+  issueFromGitHub,
+  issueFromLinear,
+  issueFromTrackerItem,
+  type IssueAttachment,
 } from "../lib/promptAttachments";
 import {
   deleteInstance as deleteManagedInstance,
@@ -307,9 +308,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [runPromptRequest, setRunPromptRequest] = useState<{
     prompt?: string;
     workspaceId: number | null;
-    githubIssue?: GitHubIssueAttachment | null;
-    linearIssue?: LinearIssueAttachment | null;
-    trackerItem?: TrackerItemAttachment | null;
+    issue?: IssueAttachment | null;
   } | null>(null);
   const [showBranchSwitcher, setShowBranchSwitcher] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
@@ -2112,21 +2111,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setShowAgentPromptDialog(true);
   };
 
-  const handleStartPromptFromIssue = (issue: GitHubIssueAttachment) => {
-    setRunPromptRequest({
-      workspaceId: null,
-      githubIssue: issue,
-    });
-    setShowAgentPromptDialog(true);
-  };
-
-  const handleStartPromptFromLinearIssue = (issue: LinearIssueAttachment) => {
-    setRunPromptRequest({ workspaceId: null, linearIssue: issue });
-    setShowAgentPromptDialog(true);
-  };
-
-  const handleStartPromptFromTrackerItem = (item: TrackerItemAttachment) => {
-    setRunPromptRequest({ workspaceId: null, trackerItem: item });
+  // Every tracker panel starts a prompt the same way: attach the issue and
+  // open the shared prompt dialog.
+  const handleStartPromptFromIssue = (issue: IssueAttachment) => {
+    setRunPromptRequest({ workspaceId: null, issue });
     setShowAgentPromptDialog(true);
   };
 
@@ -3234,7 +3222,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <GitHubPanel
                   repoPath={dataRepoPath}
                   onOpenSettings={openSettings}
-                  onStartPromptFromIssue={handleStartPromptFromIssue}
+                  onStartPromptFromIssue={(issue) =>
+                    handleStartPromptFromIssue(issueFromGitHub(issue))
+                  }
                   onOpenWorkspace={async (workspaceId) => {
                     await invalidateQueries(["workspaces", queryRepoKey]);
                     invalidateQueries(["workspace-statuses", queryRepoKey]);
@@ -3256,7 +3246,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {viewMode === "linear" && linearIntegrationEnabled && (
                 <LinearPanel
                   repoPath={dataRepoPath}
-                  onStartPromptFromIssue={handleStartPromptFromLinearIssue}
+                  onStartPromptFromIssue={(issue) =>
+                    handleStartPromptFromIssue(issueFromLinear(issue))
+                  }
                 />
               )}
 
@@ -3267,7 +3259,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     key={viewMode}
                     provider={viewMode}
                     repoPath={dataRepoPath}
-                    onStartPromptFromItem={handleStartPromptFromTrackerItem}
+                    onStartPromptFromItem={(item) =>
+                      handleStartPromptFromIssue(issueFromTrackerItem(item))
+                    }
                   />
                 )}
 
@@ -3441,9 +3435,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onSessionCreated={handleSessionCreated}
             initialPrompt={runPromptRequest?.prompt}
             initialWorkspaceId={runPromptRequest?.workspaceId ?? null}
-            initialGitHubIssue={runPromptRequest?.githubIssue ?? null}
-            initialLinearIssue={runPromptRequest?.linearIssue ?? null}
-            initialTrackerItem={runPromptRequest?.trackerItem ?? null}
+            initialIssue={runPromptRequest?.issue ?? null}
           />
 
           <PromptHistoryModal

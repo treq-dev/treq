@@ -973,6 +973,7 @@ pub fn run() {
             commands::get_pr_checks_for_pr,
             commands::gh_list_issues,
             commands::gh_view_issue,
+            commands::github_open_or_create_workspace_from_issue,
             commands::gh_create_issue,
             commands::gh_create_issue_comment,
             commands::gh_close_issue,

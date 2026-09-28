@@ -8,21 +8,21 @@ vi.mock("./TaskInput", () => ({
   TaskInput: ({
     onSessionCreated,
     initialText,
-    initialGitHubIssue,
-    onLinearIssueChange,
+    initialIssue,
+    onIssueChange,
   }: {
     onSessionCreated: (value: unknown) => void;
     initialText?: string;
-    initialGitHubIssue?: { number: number; url: string; title: string } | null;
-    onLinearIssueChange?: (issue: null) => void;
+    initialIssue?: { source: string; key: string } | null;
+    onIssueChange?: (issue: null) => void;
   }) => (
     <div>
-      <button onClick={() => onLinearIssueChange?.(null)}>
-        Remove attached Linear issue
+      <button onClick={() => onIssueChange?.(null)}>
+        Remove attached issue
       </button>
       <div data-testid="task-input-initial-text">{initialText ?? ""}</div>
-      <div data-testid="task-input-initial-github-issue">
-        {initialGitHubIssue ? `#${initialGitHubIssue.number}` : ""}
+      <div data-testid="task-input-initial-issue">
+        {initialIssue ? `${initialIssue.source} ${initialIssue.key}` : ""}
       </div>
       <button onClick={() => onSessionCreated({ sessionId: 12 })}>
         Shared prompt input
@@ -145,29 +145,12 @@ describe("AgentPromptDialog", () => {
     );
   });
 
-  it("passes an initial GitHub issue chip into TaskInput", () => {
-    render(
-      <AgentPromptDialog
-        open
-        onOpenChange={vi.fn()}
-        repoPath="/repo"
-        defaultBranch="main"
-        workspaces={[workspace]}
-        onSessionCreated={vi.fn()}
-        initialGitHubIssue={{
-          number: 42,
-          url: "https://github.com/acme/treq/issues/42",
-          title: "Fix the login bug",
-        }}
-      />,
-    );
-
-    expect(
-      screen.getByTestId("task-input-initial-github-issue"),
-    ).toHaveTextContent("#42");
-  });
-
-  it("replaces the workspace picker with the issue's new workspace while a Linear issue is attached", async () => {
+  it.each([
+    ["github", "#42", "Opens a workspace for #42"],
+    ["linear", "ENG-101", "Opens a workspace for ENG-101"],
+    ["trello", "#12", "Opens a workspace for #12"],
+    ["jira", "ENG-42", "Opens a workspace for ENG-42"],
+  ] as const)("replaces the workspace picker with the issue's workspace for a %s issue", async (source, key, line) => {
     const user = userEvent.setup();
     render(
       <AgentPromptDialog
@@ -177,20 +160,49 @@ describe("AgentPromptDialog", () => {
         defaultBranch="main"
         workspaces={[workspace]}
         onSessionCreated={vi.fn()}
-        initialLinearIssue={{
-          id: "issue-1",
-          identifier: "ENG-101",
-          url: "https://linear.app/treq/issue/ENG-101",
-          title: "Rework the ranking pipeline",
-          includeSubissues: false,
+        initialIssue={{
+          source,
+          id: "1",
+          key,
+          url: "https://example.test/1",
+          title: "An issue",
+          includeSubItems: false,
         }}
       />,
     );
 
+    expect(screen.getByTestId("task-input-initial-issue")).toHaveTextContent(
+      `${source} ${key}`,
+    );
     expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.getByText(/Opens a workspace for ENG-101/)).toBeTruthy();
+    expect(screen.getByText(line)).toBeTruthy();
 
-    await user.click(screen.getByText("Remove attached Linear issue"));
+    await user.click(screen.getByText("Remove attached issue"));
     expect(screen.getByRole("combobox")).toHaveTextContent("main");
+  });
+
+  it("names the source's sub-items when they are included", () => {
+    render(
+      <AgentPromptDialog
+        open
+        onOpenChange={vi.fn()}
+        repoPath="/repo"
+        defaultBranch="main"
+        workspaces={[workspace]}
+        onSessionCreated={vi.fn()}
+        initialIssue={{
+          source: "jira",
+          id: "1",
+          key: "ENG-42",
+          url: "https://example.test/1",
+          title: "An issue",
+          includeSubItems: true,
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("Opens a workspace for ENG-42 and its subtasks"),
+    ).toBeTruthy();
   });
 });

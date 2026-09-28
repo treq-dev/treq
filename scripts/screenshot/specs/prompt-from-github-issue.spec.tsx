@@ -1,7 +1,7 @@
 /**
  * Verifies starting an agent prompt from a GitHub issue: the issue detail
  * page exposes "Agent...", and clicking it opens the agent prompt
- * dialog with a GitHub issue chip (#N) pre-attached.
+ * dialog with the GitHub issue attached as a chip, like every tracker.
  */
 
 import fs from "node:fs";
@@ -98,15 +98,21 @@ it("opens the agent prompt dialog with a GitHub issue chip from issue detail", a
 	expect(promptDialog).toBeTruthy();
 
 	const chip = await within(promptDialog as HTMLElement).findByTestId(
-		"github-issue-chip",
+		"issue-chip",
 	);
-	expect(chip).toHaveTextContent("#42");
+	expect(chip).toHaveTextContent("GitHub #42");
+	// Like every tracker, a GitHub issue runs in its own workspace, so the
+	// workspace picker gives way to the workspace the issue will open.
+	expect(
+		within(promptDialog as HTMLElement).getByText("Opens a workspace for #42"),
+	).toBeInTheDocument();
 
 	await captureDocument(document, {
 		name: "prompt-from-github-issue-02-dialog-chip",
 		expectations: [
 			'The agent prompt dialog titled "Start a new agent session" is open over the GitHub panel.',
-			'A GitHub issue chip labeled "#42" is visible above the "Describe a task..." textarea inside the prompt input.',
+			'A chip labeled "GitHub #42" with a green issue icon is visible above the "Describe a task..." textarea inside the prompt input.',
+			'In place of the branch picker, a muted line reads "Opens a workspace for #42".',
 		],
 	});
 }, 60000);
