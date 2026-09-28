@@ -215,6 +215,16 @@ struct LinearIssuesData {
 #[derive(Deserialize)]
 struct LinearIssuesConnection {
   nodes: Vec<LinearIssueNode>,
+  #[serde(default, rename = "pageInfo")]
+  page_info: LinearPageInfo,
+}
+
+#[derive(Deserialize, Default)]
+struct LinearPageInfo {
+  #[serde(default, rename = "hasNextPage")]
+  has_next_page: bool,
+  #[serde(default, rename = "endCursor")]
+  end_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -362,18 +372,63 @@ const ISSUE_FIELDS: &str = r#"
   project { id name }
 "#;
 
-fn list_issues_body(team_filter: Option<&str>) -> serde_json::Value {
-  match team_filter {
-    Some(team) => serde_json::json!({
-      "query": format!(
-        "query($team: String!) {{ issues(first: 100, filter: {{ team: {{ key: {{ eq: $team }} }} }}) {{ nodes {{ {ISSUE_FIELDS} }} }} }}"
-      ),
-      "variables": { "team": team },
-    }),
-    None => serde_json::json!({
-      "query": format!("query {{ issues(first: 100) {{ nodes {{ {ISSUE_FIELDS} }} }} }}"),
-    }),
+const ISSUE_PAGE_SIZE: u32 = 100;
+// 10 pages keeps a huge workspace from stalling the panel. Issues come back
+// most recently updated first, so the cap drops the stalest ones.
+const MAX_ISSUE_PAGES: usize = 10;
+
+/// Linear `IssueFilter` for the issue list. `None` means no filter.
+fn team_issue_filter(team_filter: Option<&str>) -> Option<serde_json::Value> {
+  team_filter.map(|team| serde_json::json!({ "team": { "key": { "eq": team } } }))
+}
+
+fn list_issues_body(filter: Option<&serde_json::Value>, after: Option<&str>) -> serde_json::Value {
+  serde_json::json!({
+    "query": format!(
+      "query($first: Int!, $after: String, $filter: IssueFilter) {{ issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {{ nodes {{ {ISSUE_FIELDS} }} pageInfo {{ hasNextPage endCursor }} }} }}"
+    ),
+    "variables": {
+      "first": ISSUE_PAGE_SIZE,
+      "after": after,
+      "filter": filter,
+    },
+  })
+}
+
+/// Follows `pageInfo` cursors until Linear reports no next page or the
+/// `MAX_ISSUE_PAGES` cap is hit.
+async fn fetch_issue_pages(
+  api_key: &str,
+  filter: Option<&serde_json::Value>,
+) -> Result<Vec<LinearIssue>, String> {
+  let mut issues = Vec::new();
+  let mut after: Option<String> = None;
+  for _ in 0..MAX_ISSUE_PAGES {
+    let data: LinearIssuesData = linear_graphql(
+      api_key,
+      &list_issues_body(filter, after.as_deref()),
+      "issues",
+    )
+    .await?;
+    let page = data.issues;
+    issues.extend(page.nodes.into_iter().map(map_issue_node));
+    match next_cursor(page.page_info) {
+      Some(cursor) => after = Some(cursor),
+      None => return Ok(issues),
+    }
   }
+  log::warn!(
+    "linear: issue list truncated at {} issues",
+    MAX_ISSUE_PAGES * ISSUE_PAGE_SIZE as usize
+  );
+  Ok(issues)
+}
+
+fn next_cursor(page_info: LinearPageInfo) -> Option<String> {
+  page_info
+    .has_next_page
+    .then_some(page_info.end_cursor)
+    .flatten()
 }
 
 fn get_issue_body(issue_id: &str) -> serde_json::Value {
@@ -433,10 +488,7 @@ pub async fn linear_list_issues_impl(
   api_key: &str,
   team_filter: Option<&str>,
 ) -> Result<Vec<LinearIssue>, String> {
-  let data: LinearIssuesData =
-    linear_graphql(api_key, &list_issues_body(team_filter), "issues").await?;
-
-  Ok(data.issues.nodes.into_iter().map(map_issue_node).collect())
+  fetch_issue_pages(api_key, team_issue_filter(team_filter).as_ref()).await
 }
 
 fn map_issue_node(node: LinearIssueNode) -> LinearIssue {
@@ -887,15 +939,48 @@ mod tests {
 
   #[test]
   fn list_issues_body_passes_team_as_variable() {
-    let body = list_issues_body(Some(HOSTILE));
+    let filter = team_issue_filter(Some(HOSTILE));
+    let body = list_issues_body(filter.as_ref(), None);
     assert!(!body["query"].as_str().unwrap().contains(HOSTILE));
-    assert_eq!(body["variables"]["team"], HOSTILE);
+    assert_eq!(body["variables"]["filter"]["team"]["key"]["eq"], HOSTILE);
   }
 
   #[test]
-  fn list_issues_body_omits_team_filter_when_unset() {
-    let body = list_issues_body(None);
-    assert!(!body["query"].as_str().unwrap().contains("$team"));
+  fn list_issues_body_sends_null_filter_when_unset() {
+    let body = list_issues_body(team_issue_filter(None).as_ref(), None);
+    assert!(body["variables"]["filter"].is_null());
+    assert!(body["variables"]["after"].is_null());
+  }
+
+  #[test]
+  fn list_issues_body_passes_cursor_as_variable() {
+    let body = list_issues_body(None, Some(HOSTILE));
+    assert!(!body["query"].as_str().unwrap().contains(HOSTILE));
+    assert_eq!(body["variables"]["after"], HOSTILE);
+    assert!(body["query"]
+      .as_str()
+      .unwrap()
+      .contains("pageInfo { hasNextPage endCursor }"));
+  }
+
+  #[test]
+  fn next_cursor_stops_on_last_page() {
+    let more = LinearPageInfo {
+      has_next_page: true,
+      end_cursor: Some("c1".into()),
+    };
+    assert_eq!(next_cursor(more).as_deref(), Some("c1"));
+    let last = LinearPageInfo {
+      has_next_page: false,
+      end_cursor: Some("c2".into()),
+    };
+    assert_eq!(next_cursor(last), None);
+    // A missing cursor must stop paging rather than refetch page one forever.
+    let broken = LinearPageInfo {
+      has_next_page: true,
+      end_cursor: None,
+    };
+    assert_eq!(next_cursor(broken), None);
   }
 
   #[test]
