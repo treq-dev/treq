@@ -83,6 +83,7 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
   const [branchStatusData, setBranchStatusData] = useState<BranchStatus | null>(
     null,
   );
+  const [branchStatusName, setBranchStatusName] = useState<string | null>(null);
   const [isCheckingBranch, setIsCheckingBranch] = useState(false);
 
   // ── target branch selector (create mode only) ────────────────────────────
@@ -131,8 +132,12 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     hasSourceWorkspace || isHomeRepo || applyStashId != null;
   const commitsAhead = workspaceStatus?.commits_ahead_of_target ?? [];
 
+  // Until the check for the name as typed resolves, the last result belongs
+  // to a different name.
+  const branchStatusIsStale =
+    branchName.trim() !== "" && branchStatusName !== branchName;
   const branchStatus: "new" | "local" | "remote" | "checking" | null =
-    isCheckingBranch
+    isCheckingBranch || branchStatusIsStale
       ? "checking"
       : branchStatusData
         ? branchStatusData.local_exists
@@ -346,6 +351,7 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     setLoading,
     setError,
     setBranchStatusData,
+    setBranchStatusName,
     setIsCheckingBranch,
     setTargetBranch,
     setAvailableBranches,
@@ -380,6 +386,7 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     targetBranch,
     allWorkspaces,
     branchStatusData,
+    branchStatusName,
     activeRightTab,
     selectedCommits,
     selectedHunks,
