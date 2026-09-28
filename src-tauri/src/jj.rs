@@ -4013,8 +4013,7 @@ pub fn jj_get_file_lines(
   start_line: usize,
   end_line: usize,
 ) -> Result<JjFileLines, JjError> {
-  // Paths come from the CLI and the remote exec channel: keep reads inside
-  // the workspace.
+  // CLI and remote callers pass these paths: keep reads inside the workspace.
   let relative = Path::new(file_path);
   if !relative.components().all(|c| {
     matches!(
