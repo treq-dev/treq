@@ -443,7 +443,12 @@ pub async fn set_workspace_target_branch(
       id,
       target_branch
     );
-    crate::core::retarget_workspace(&repo_path, id, &target_branch, "main")?;
+    crate::core::update_workspace(
+      &repo_path,
+      id,
+      crate::core::MaybeEmptyParam::Some(target_branch.clone()),
+      crate::core::MaybeEmptyParam::Omitted,
+    )?;
     log::debug!(
       "set_workspace_target_branch retarget end: repo_path={}, workspace_id={}",
       repo_path,
