@@ -3,6 +3,9 @@ mod agent_runtime;
 pub mod auto_rebase;
 pub mod auto_review;
 pub mod binary_paths;
+// The `treq` command-line entry point is desktop-only: it is backed by
+// `tauri-plugin-cli`, which has no Android/iOS implementation.
+#[cfg(desktop)]
 mod cli;
 mod commands;
 mod commit_timestamps;
@@ -269,6 +272,7 @@ fn pick_folder_and_open_new_window(app: AppHandle) {
     });
 }
 
+#[cfg(desktop)]
 fn is_cli_process<I, S>(args: I) -> bool
 where
   I: IntoIterator<Item = S>,
@@ -285,7 +289,11 @@ where
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   telemetry::install_panic_hook();
+  #[cfg(desktop)]
   let cli_process = is_cli_process(std::env::args_os());
+  // Mobile apps are never launched as a command-line tool.
+  #[cfg(mobile)]
+  let cli_process = false;
   let builder = tauri::Builder::default();
   let builder = if cli_process {
     builder
@@ -305,16 +313,18 @@ pub fn run() {
       .plugin(tauri_plugin_dialog::init())
       .plugin(tauri_plugin_deep_link::init());
     // Device-key storage for the mobile connectivity flow (mobile PRD,
-    // Phase 2) - both plugins are `#[cfg(mobile)]`-gated upstream and have
-    // no desktop implementation worth shipping, see `core::remote_device_key`.
+    // "Security and key custody") - both plugins are `#[cfg(mobile)]`-gated
+    // upstream and have no desktop implementation worth shipping, see
+    // `core::remote_device_key`.
     #[cfg(mobile)]
     let builder = builder
       .plugin(tauri_plugin_keystore::init())
       .plugin(tauri_plugin_biometric::init());
     builder
   };
+  #[cfg(desktop)]
+  let builder = builder.plugin(tauri_plugin_cli::init());
   builder
-        .plugin(tauri_plugin_cli::init())
         .on_window_event(|window, event| {
             // Fires once, after the window is actually gone (not on a
             // cancellable close request), for every window this app opens —
@@ -345,6 +355,7 @@ pub fn run() {
             };
 
             // --- CLI mode: handle commands and exit before any GUI init ---
+            #[cfg(desktop)]
             {
                 use tauri_plugin_cli::CliExt;
                 match app.cli().matches() {
