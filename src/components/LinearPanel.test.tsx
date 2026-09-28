@@ -88,4 +88,47 @@ describe("LinearPanel issue kickoff", () => {
     });
     expect(screen.queryByTestId("linear-issue-expanded")).toBeNull();
   });
+
+  it("shows a sub-issue whose parent is filtered out of the view", async () => {
+    const user = userEvent.setup();
+    const parent: LinearIssue = {
+      ...issue,
+      title: "Someone else's parent",
+      sub_issue_ids: ["child-id"],
+      assignee: { id: "other-id", name: "Other" },
+    };
+    const child: LinearIssue = {
+      ...issue,
+      id: "child-id",
+      identifier: "TREQ-282",
+      title: "My sub-issue",
+      parent_id: parent.id,
+      assignee: { id: "viewer-id", name: "Viewer" },
+    };
+    api.linearListIssues.mockResolvedValue([parent, child]);
+    render(<LinearPanel repoPath="/repo" />);
+
+    await screen.findByText("Someone else's parent");
+    await user.click(screen.getByRole("tab", { name: "My Issues" }));
+
+    expect(await screen.findByText("My sub-issue")).toBeInTheDocument();
+    expect(screen.queryByText("Someone else's parent")).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: "Kanban" }));
+    expect(await screen.findByText("My sub-issue")).toBeInTheDocument();
+  });
+
+  it("shows a sub-issue whose parent was not loaded", async () => {
+    const orphan: LinearIssue = {
+      ...issue,
+      id: "child-id",
+      identifier: "TREQ-282",
+      title: "Orphan sub-issue",
+      parent_id: "missing-parent-id",
+    };
+    api.linearListIssues.mockResolvedValue([orphan]);
+    render(<LinearPanel repoPath="/repo" />);
+
+    expect(await screen.findByText("Orphan sub-issue")).toBeInTheDocument();
+  });
 });
