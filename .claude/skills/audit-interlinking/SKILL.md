@@ -1,13 +1,10 @@
 ---
 name: audit-interlinking
 description: >-
-  Audit and fix internal interlinking across the treq content site (web/learn
-  and web/docs) for SEO and navigation. Checks existing links for relevance
-  and broken targets, finds articles that are under-linked or orphaned, and
-  adds links from an article's key terms to other relevant existing articles.
-  Use when asked to audit, improve, or fix interlinking, internal links, or
-  SEO link structure across the docs, or when asked to link a set of articles
-  together.
+  Audit and fix internal links across web/learn and web/docs: broken or
+  irrelevant links, and orphaned or under-linked articles. Use when asked to
+  audit or improve interlinking or SEO link structure, or to link a set of
+  articles together.
 ---
 
 # Auditing interlinking across the content site

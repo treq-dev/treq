@@ -1,19 +1,10 @@
 ---
 name: service-qa
 description: >-
-  Verify treq's integration with the local Supabase CLI stack (Auth, PostgREST
-  RPCs/RLS, Edge Functions) by driving real HTTP/RPC calls against
-  http://127.0.0.1:54321 — no mocked supabase-js. Use explicitly when the user
-  runs /service-qa or asks to QA auth, desktop token exchange, merge-queue
-  RPCs, webhooks, or other Supabase-backed flows. ALSO use proactively, without
-  being asked, right after implementing or modifying anything that changes the
-  service contract: supabase/migrations/**, supabase/functions/**,
-  supabase/config.toml, src/lib/supabase.ts, src/stores/authStore.ts,
-  src/hooks/useMergeQueueStatus.ts, or web auth/callback/GitHub-install pages
-  that call Supabase. Do this before telling the user the change is done. A
-  PostToolUse hook (.claude/hooks/post-edit-service-qa.sh) injects a reminder
-  for exactly this case — treat that reminder as the trigger to run this skill,
-  not just a suggestion.
+  Verify treq's Supabase contract (Auth, RPCs/RLS, Edge Functions) with real
+  calls against the local Supabase CLI stack, never a mocked client. Use on
+  /service-qa, when asked to QA auth or Supabase flows, and proactively after
+  changing supabase/** or app code that calls Supabase, before reporting done.
 ---
 
 # Service QA (Supabase CLI integration checks)

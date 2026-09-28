@@ -2,12 +2,8 @@
 name: writing
 description: >-
   Write or revise Learn articles under web/learn/, READMEs, changelogs, and
-  release notes. Owns Learn-site article structure, interlinking, and the doc
-  revision pass for those surfaces. For technical product docs under
-  web/docs/** (and roadmap/security feature-status copy), use the docs-writing
-  skill instead. Voice, Orwell's rules, ASD-STE100, buzzword banlists, and
-  AI-tell checks live in the explain-to-me skill: read that first whenever you
-  draft or edit prose.
+  release notes: article structure and interlinking. For web/docs/** use
+  docs-writing. Voice rules live in explain-to-me.
 ---
 
 # Writing in the treq voice
