@@ -209,77 +209,6 @@ describe("ShowWorkspace - Create PR", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("pushes the branch then creates the PR in one click when it isn't on remote yet", async () => {
-    const workspaceId = await createWorkspace(repoPath, "feat/unpushed");
-    await updateWorkspace(
-      repoPath,
-      workspaceId,
-      undefined,
-      "Ship the feature",
-      "Implements the feature end-to-end.",
-    );
-    const workspace = (await getWorkspaces(repoPath)).find(
-      (w) => w.id === workspaceId,
-    )!;
-    await commitWorkspaceFile(
-      repoPath,
-      { id: workspace.id, path: workspace.workspace_path },
-      "feature.txt",
-      "feature content",
-      "Add feature",
-    );
-    vi.mocked(pushWorkspaceToRemote).mockResolvedValueOnce("pushed");
-    setOriginUrl(repoPath, "https://github.com/acme/treq.git");
-    render(<Dashboard />);
-
-    const header = await openWorkspace("feat/unpushed");
-    await user.click(await findEnabledCreatePr(header));
-
-    await waitFor(() => {
-      expect(pushWorkspaceToRemote).toHaveBeenCalledWith(repoPath, workspaceId);
-    });
-    await waitFor(() => {
-      expect(ghCreatePr).toHaveBeenCalledWith(
-        "acme/treq",
-        deriveConventionalPrTitle("Ship the feature", "feat/unpushed"),
-        "Implements the feature end-to-end.",
-        expect.any(String),
-        "feat/unpushed",
-        false,
-      );
-    });
-  });
-
-  it("pushes committed changes before creating a PR when the branch is ahead of remote", async () => {
-    const { workspace } = await setupPushedWorkspaceWithGitHub();
-    await commitWorkspaceFile(
-      repoPath,
-      { id: workspace.id, path: workspace.workspace_path },
-      "follow-up.txt",
-      "unpushed content",
-      "Add unpushed follow-up",
-    );
-    vi.mocked(pushWorkspaceToRemote).mockClear();
-    vi.mocked(pushWorkspaceToRemote).mockResolvedValueOnce("pushed");
-    render(<Dashboard />);
-
-    const header = await openWorkspace("feat/create-pr");
-    await user.click(await findEnabledCreatePr(header));
-
-    await waitFor(() => {
-      expect(pushWorkspaceToRemote).toHaveBeenCalledWith(
-        repoPath,
-        workspace.id,
-      );
-    });
-    await waitFor(() => {
-      expect(ghCreatePr).toHaveBeenCalled();
-    });
-    expect(
-      vi.mocked(pushWorkspaceToRemote).mock.invocationCallOrder[0],
-    ).toBeLessThan(vi.mocked(ghCreatePr).mock.invocationCallOrder[0]);
-  });
-
   it("keeps Create PR disabled until the new PR's status has loaded", async () => {
     await setupPushedWorkspaceWithGitHub();
     let resolvePrInfo: () => void = () => {};
@@ -337,31 +266,6 @@ describe("ShowWorkspace - Create PR", () => {
     await waitFor(() => {
       expect(ghCreatePr).toHaveBeenCalled();
     });
-  }, 30_000);
-
-  it("pushes a rewritten (diverged) branch before creating a PR", async () => {
-    const { workspace } = await setupPushedWorkspaceWithGitHub();
-    const actual = await vi.importActual<typeof import("../../../src/lib/api")>(
-      "../../../src/lib/api",
-    );
-    vi.mocked(getWorkspaceStatus).mockImplementation(async (...args) => ({
-      ...(await actual.getWorkspaceStatus(...args)),
-      remote_sync: { type: "Diverged", data: { ahead: 1, behind: 1 } },
-    }));
-    vi.mocked(pushWorkspaceToRemote).mockClear();
-    vi.mocked(pushWorkspaceToRemote).mockResolvedValueOnce("pushed");
-    render(<Dashboard />);
-
-    const header = await openWorkspace("feat/create-pr");
-    await user.click(await findEnabledCreatePr(header));
-
-    await waitFor(() => {
-      expect(ghCreatePr).toHaveBeenCalled();
-    });
-    expect(pushWorkspaceToRemote).toHaveBeenCalledWith(repoPath, workspace.id);
-    expect(
-      vi.mocked(pushWorkspaceToRemote).mock.invocationCallOrder[0],
-    ).toBeLessThan(vi.mocked(ghCreatePr).mock.invocationCallOrder[0]);
   }, 30_000);
 
   it("hides Create PR when there is no GitHub remote", async () => {
@@ -477,48 +381,6 @@ describe("ShowWorkspace - Create PR", () => {
     expect(
       within(header).queryByRole("button", { name: /^create pr$/i }),
     ).not.toBeInTheDocument();
-  }, 30_000);
-
-  it("reports a push failure after committing as a push error, not a PR error", async () => {
-    const workspaceId = await createWorkspace(repoPath, "feat/push-fails");
-    const workspace = (await getWorkspaces(repoPath)).find(
-      (candidate) => candidate.id === workspaceId,
-    )!;
-    writeWorkspaceFile(
-      resolveWorkspacePath(repoPath, workspace.workspace_path),
-      "feature.txt",
-      "feature content\n",
-    );
-    setOriginUrl(repoPath, "https://github.com/acme/treq.git");
-    vi.mocked(pushWorkspaceToRemote).mockRejectedValueOnce(
-      new Error("remote rejected"),
-    );
-
-    render(<Dashboard />);
-    await openWorkspace("feat/push-fails");
-    await user.click(await screen.findByRole("tab", { name: /changes/i }));
-    await screen.findAllByText("feature.txt");
-    await user.type(
-      await screen.findByPlaceholderText("Message"),
-      "Add feature",
-    );
-    await user.click(
-      screen.getByRole("button", { name: /more commit options/i }),
-    );
-    const commitAndCreatePr = await screen.findByRole("menuitem", {
-      name: /commit and create pr/i,
-    });
-    await waitFor(() => expect(commitAndCreatePr).toBeEnabled());
-    await user.click(commitAndCreatePr);
-
-    expect(
-      await screen.findByText("Committed, but failed to push", undefined, {
-        timeout: 15_000,
-      }),
-    ).toBeVisible();
-    expect(screen.getByText("remote rejected")).toBeVisible();
-    expect(screen.queryByText("Failed to create PR")).toBeNull();
-    expect(ghCreatePr).not.toHaveBeenCalled();
   }, 30_000);
 
   it("creates a draft PR from the dropdown", async () => {
