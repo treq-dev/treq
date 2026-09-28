@@ -239,6 +239,7 @@ for (const c of CASES) {
       expectations: [
         "The prompt dialog is closed and the tracker panel is still the page on screen.",
         `The sidebar's Workspaces list includes '${c.branch}'.`,
+        `A 'Session started' toast in the bottom-left corner reads 'in ${c.branch}' and has an 'Open' link.`,
       ],
     });
   }, 120000);
