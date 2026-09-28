@@ -151,14 +151,14 @@ it("kicks off an agent prompt from a Linear issue in Kanban view", async () => {
     .closest("div") as HTMLElement;
   await user.click(within(card).getByRole("button", { name: "Kick off" }));
   await screen.findByText("Start a new agent session");
-  const chip = await screen.findByTestId("linear-issue-chip");
+  const chip = await screen.findByTestId("issue-chip");
   expect(chip.textContent).toContain("ENG-101");
 
   await captureDocument(document, {
     name: "linear-kickoff-03-prompt-dialog",
     expectations: [
       'The "Start a new agent session" dialog is open over the Linear panel.',
-      "An ENG-101 chip with a violet issue icon and a remove (x) button sits above the prompt textarea.",
+      "A 'Linear ENG-101' chip with a violet issue icon and a remove (x) button sits above the prompt textarea.",
       'In place of the branch picker, a muted line reads "Opens a workspace for ENG-101 and its sub-issues".',
     ],
   });
@@ -282,7 +282,7 @@ it("keeps the dialog open and shows an error toast when the Linear workspace can
   expect(
     screen.getByRole("heading", { name: "Start a new agent session" }),
   ).toBeInTheDocument();
-  expect(within(dialog).getByTestId("linear-issue-chip")).toHaveTextContent(
+  expect(within(dialog).getByTestId("issue-chip")).toHaveTextContent(
     "ENG-103",
   );
   expect(await getSessions(repoPath)).toHaveLength(0);

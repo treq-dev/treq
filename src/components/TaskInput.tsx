@@ -7,11 +7,10 @@ import {
 } from "react";
 import useSWR from "swr";
 import { open } from "@tauri-apps/plugin-dialog";
-import { CircleDot, X } from "lucide-react";
 import { FilePicker } from "./FilePicker";
 import { TaskInputMentionDropdown } from "./task-input/TaskInputMentionDropdown";
 import { TaskInputToolbar } from "./task-input/TaskInputToolbar";
-import { TrackerItemChip } from "./task-input/TrackerItemChip";
+import { IssueChip } from "./task-input/IssueChip";
 import {
   createSession,
   ensureWorkspaceIndexed,
@@ -22,15 +21,10 @@ import {
   type FileSearchResult,
 } from "../lib/api";
 import {
-  formatPromptWithLinearIssue,
-  formatPromptWithGitHubIssue,
-  formatPromptWithTrackerItem,
-  type GitHubIssueAttachment,
-  type LinearIssueAttachment,
-  type TrackerItemAttachment,
+  formatPromptWithIssue,
+  type IssueAttachment,
 } from "../lib/promptAttachments";
-import { linearOpenOrCreateWorkspaceFromIssue } from "../lib/api-linear";
-import { trackerOpenOrCreateWorkspaceFromItem } from "../lib/api-tracker";
+import { openOrCreateIssueWorkspace } from "../lib/issueWorkspace";
 import { useToast } from "./ui/toast";
 import { useDebounce } from "../hooks/useDebounce";
 import { cn } from "../lib/utils";
@@ -45,13 +39,12 @@ interface TaskInputProps {
   focusRequest?: number;
   /** Pre-fill the textarea with this text on mount (e.g. re-running a past prompt). */
   initialText?: string;
-  /** Pre-attach a GitHub issue chip (e.g. starting a prompt from an issue). */
-  initialGitHubIssue?: GitHubIssueAttachment | null;
-  initialLinearIssue?: LinearIssueAttachment | null;
-  onLinearIssueChange?: (issue: LinearIssueAttachment | null) => void;
-  /** Pre-attach a Trello card or Jira issue; submitting opens its workspace. */
-  initialTrackerItem?: TrackerItemAttachment | null;
-  onTrackerItemChange?: (item: TrackerItemAttachment | null) => void;
+  /**
+   * Pre-attach an issue from any tracker. Submitting opens (or creates) the
+   * issue's own workspace and starts the session there.
+   */
+  initialIssue?: IssueAttachment | null;
+  onIssueChange?: (issue: IssueAttachment | null) => void;
 }
 
 export const TaskInput: React.FC<TaskInputProps> = ({
@@ -61,22 +54,11 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   onSessionCreated,
   focusRequest,
   initialText,
-  initialGitHubIssue = null,
-  initialLinearIssue = null,
-  onLinearIssueChange,
-  initialTrackerItem = null,
-  onTrackerItemChange,
+  initialIssue = null,
+  onIssueChange,
 }) => {
   const [taskText, setTaskText] = useState(initialText ?? "");
-  const [githubIssue, setGithubIssue] = useState<GitHubIssueAttachment | null>(
-    initialGitHubIssue,
-  );
-  const [linearIssue, setLinearIssue] = useState<LinearIssueAttachment | null>(
-    initialLinearIssue,
-  );
-  const [trackerItem, setTrackerItem] = useState<TrackerItemAttachment | null>(
-    initialTrackerItem,
-  );
+  const [issue, setIssue] = useState<IssueAttachment | null>(initialIssue);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const [saveAsRepoDefault, setSaveAsRepoDefault] = useState(false);
@@ -302,15 +284,11 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   const [, submitTask, submitting] = useActionState(
     async (_prev: null, mode: "plan" | "acceptEdits") => {
       const trimmed = taskText.trim();
-      if (!trimmed && !githubIssue && !linearIssue && !trackerItem) return null;
+      if (!trimmed && !issue) return null;
 
-      const pendingPrompt = trackerItem
-        ? formatPromptWithTrackerItem(trimmed, trackerItem)
-        : linearIssue
-          ? formatPromptWithLinearIssue(trimmed, linearIssue)
-          : githubIssue
-            ? formatPromptWithGitHubIssue(trimmed, githubIssue)
-            : trimmed;
+      const pendingPrompt = issue
+        ? formatPromptWithIssue(trimmed, issue)
+        : trimmed;
 
       try {
         if (saveAsRepoDefault && selectedAgent !== configuredDefaultAgent) {
@@ -323,36 +301,9 @@ export const TaskInput: React.FC<TaskInputProps> = ({
             ? `${pendingPrompt.slice(0, 47)}...`
             : pendingPrompt;
 
-        let targetWorkspaceId = workspaceId;
-        if (linearIssue) {
-          const results = await linearOpenOrCreateWorkspaceFromIssue(
-            repoPath,
-            linearIssue.id,
-            linearIssue.includeSubissues,
-          );
-          const result =
-            results.find((item) => item.issue_id === linearIssue.id) ??
-            results[0];
-          if (!result)
-            throw new Error(
-              `Failed to create workspace for ${linearIssue.identifier}`,
-            );
-          targetWorkspaceId = result.workspace_id;
-        }
-        if (trackerItem) {
-          const results = await trackerOpenOrCreateWorkspaceFromItem(
-            repoPath,
-            trackerItem,
-          );
-          const result =
-            results.find((item) => item.item_id === trackerItem.id) ??
-            results[0];
-          if (!result)
-            throw new Error(
-              `Failed to create workspace for ${trackerItem.key}`,
-            );
-          targetWorkspaceId = result.workspace_id;
-        }
+        const targetWorkspaceId = issue
+          ? await openOrCreateIssueWorkspace(repoPath, issue)
+          : workspaceId;
 
         const dbSessionId = await createSession(
           repoPath,
@@ -374,9 +325,7 @@ export const TaskInput: React.FC<TaskInputProps> = ({
         });
 
         setTaskText("");
-        setGithubIssue(null);
-        setLinearIssue(null);
-        setTrackerItem(null);
+        setIssue(null);
         setShowSaveAsRepoDefault(false);
       } catch (error) {
         addToast({
@@ -430,11 +379,7 @@ export const TaskInput: React.FC<TaskInputProps> = ({
     }
   };
 
-  const isEmpty =
-    taskText.trim().length === 0 &&
-    !githubIssue &&
-    !linearIssue &&
-    !trackerItem;
+  const isEmpty = taskText.trim().length === 0 && !issue;
 
   return (
     <>
@@ -448,55 +393,12 @@ export const TaskInput: React.FC<TaskInputProps> = ({
             focused ? "border-blue-400" : "border-border",
           )}
         >
-          {githubIssue && (
-            <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3 pb-0">
-              <span
-                data-testid="github-issue-chip"
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs text-foreground"
-                title={githubIssue.title || `Issue #${githubIssue.number}`}
-              >
-                <CircleDot className="h-3 w-3 text-green-600 dark:text-green-400" />
-                <span className="font-medium">#{githubIssue.number}</span>
-                <button
-                  type="button"
-                  aria-label="Remove GitHub issue"
-                  className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => setGithubIssue(null)}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            </div>
-          )}
-          {linearIssue && (
-            <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3 pb-0">
-              <span
-                data-testid="linear-issue-chip"
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs text-foreground"
-                title={linearIssue.title}
-              >
-                <CircleDot className="h-3 w-3 text-violet-600 dark:text-violet-400" />
-                <span className="font-medium">{linearIssue.identifier}</span>
-                <button
-                  type="button"
-                  aria-label="Remove Linear issue"
-                  className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => {
-                    setLinearIssue(null);
-                    onLinearIssueChange?.(null);
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            </div>
-          )}
-          {trackerItem && (
-            <TrackerItemChip
-              item={trackerItem}
+          {issue && (
+            <IssueChip
+              issue={issue}
               onRemove={() => {
-                setTrackerItem(null);
-                onTrackerItemChange?.(null);
+                setIssue(null);
+                onIssueChange?.(null);
               }}
             />
           )}

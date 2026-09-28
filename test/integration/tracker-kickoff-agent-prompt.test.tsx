@@ -55,7 +55,7 @@ describe("Jira issue kickoff", () => {
     const dialog = (
       await screen.findByRole("heading", { name: "Start a new agent session" })
     ).closest('[data-testid="modal"]') as HTMLElement;
-    const chip = await within(dialog).findByTestId("tracker-item-chip");
+    const chip = await within(dialog).findByTestId("issue-chip");
     expect(chip).toHaveTextContent("Jira ENG-42");
     expect(
       within(dialog).getByText(/Opens a workspace for ENG-42/),
@@ -88,9 +88,6 @@ describe("Jira issue kickoff", () => {
     ).toHaveBeenCalledWith(repoPath, {
       provider: "jira",
       id: issue.id,
-      key: issue.key,
-      url: issue.url,
-      title: issue.title,
       includeSubItems: false,
     });
     expect(await findSidebarBranchElement(issue.branch_name)).toBeTruthy();

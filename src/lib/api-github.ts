@@ -21,6 +21,20 @@ export const ghViewIssue = (
   issueNumber: number,
 ): Promise<GhIssue> => invoke("gh_view_issue", { repoFullName, issueNumber });
 
+/** Opens (or creates) the `github-<number>-<slug>` workspace for an issue. */
+export const githubOpenOrCreateWorkspaceFromIssue = (
+  repoPath: string,
+  number: number,
+  title: string,
+  url: string,
+): Promise<{ workspace_id: number; created: boolean }> =>
+  invoke("github_open_or_create_workspace_from_issue", {
+    repoPath,
+    number,
+    title,
+    url,
+  });
+
 export const ghCreateIssue = (
   repoFullName: string,
   title: string,
