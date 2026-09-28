@@ -282,8 +282,18 @@ fn check_gh_output(output: std::process::Output) -> Result<Vec<u8>, String> {
   }
 }
 
-fn parse_number_from_url(url: &str) -> Option<u64> {
-  url.trim().rsplit('/').next()?.parse().ok()
+/// Parse `<n>` from a `gh ... create` output line shaped like
+/// `https://github.com/<owner>/<repo>/<kind>/<n>`, where `kind` is `issues` or
+/// `pull`. gh can print other lines before the URL (template notices, push
+/// output), and any of those can end in a number.
+fn parse_number_from_url(line: &str, kind: &str) -> Option<u64> {
+  let line = line.trim();
+  if !line.starts_with("https://") && !line.starts_with("http://") {
+    return None;
+  }
+  let mut segments = line.rsplit('/');
+  let number = segments.next()?.parse().ok()?;
+  (segments.next()? == kind).then_some(number)
 }
 
 pub const GH_LIST_PAGE_SIZE: u32 = 30;
@@ -391,7 +401,7 @@ pub fn gh_create_issue_impl(
   let bytes = check_gh_output(out)?;
   let text = String::from_utf8_lossy(&bytes);
   for line in text.lines() {
-    if let Some(n) = parse_number_from_url(line) {
+    if let Some(n) = parse_number_from_url(line, "issues") {
       return Ok(n);
     }
   }
@@ -611,7 +621,7 @@ pub fn gh_create_pr_impl(
   let bytes = check_gh_output(out)?;
   let text = String::from_utf8_lossy(&bytes);
   for line in text.lines() {
-    if let Some(n) = parse_number_from_url(line) {
+    if let Some(n) = parse_number_from_url(line, "pull") {
       return Ok(n);
     }
   }
@@ -1538,6 +1548,58 @@ echo 'https://github.com/owner/repo/pull/8'"#,
 
     assert_eq!(number, 3);
     assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_issue_skips_numeric_lines_that_are_not_the_issue_url() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "cat > /dev/null\necho 'Using template .github/ISSUE_TEMPLATE/2'\necho 'https://github.com/owner/repo/issues/8'",
+    );
+
+    let number = gh_create_issue_impl(&gh_path, "owner/repo", "T", "", "/usr/bin:/bin").unwrap();
+
+    assert_eq!(number, 8);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_issue_errors_when_output_has_no_issue_url() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "cat > /dev/null\necho 'https://github.com/owner/repo/pull/8'",
+    );
+
+    let err = gh_create_issue_impl(&gh_path, "owner/repo", "T", "", "/usr/bin:/bin").unwrap_err();
+
+    assert!(err.contains("Could not parse issue number"), "{err}");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_pr_skips_numeric_lines_that_are_not_the_pr_url() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "cat > /dev/null\necho 'Pushed branch feat/2'\necho 'https://github.com/owner/repo/pull/5'",
+    );
+
+    let number = gh_create_pr_impl(
+      &gh_path,
+      "owner/repo",
+      "T",
+      "",
+      "main",
+      "feat/2",
+      false,
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    assert_eq!(number, 5);
   }
 
   #[test]

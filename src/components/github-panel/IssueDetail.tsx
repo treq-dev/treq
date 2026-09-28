@@ -18,6 +18,7 @@ import { MarkdownContent } from "../MarkdownContent";
 import {
   ErrorState,
   formatDate,
+  ghErrorText,
   LabelChip,
   OpenInWebButton,
   StateChip,
@@ -304,7 +305,9 @@ export function CreateIssueForm({
         </Button>
       </div>
       {create.isError && (
-        <p className="text-base text-destructive">{String(create.error)}</p>
+        <p className="text-base text-destructive">
+          {ghErrorText(create.error)}
+        </p>
       )}
     </div>
   );
