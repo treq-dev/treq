@@ -6,7 +6,6 @@ import { invalidateQueries } from "../lib/swr-cache";
 import {
   AlertTriangle,
   ArrowRight,
-  ChevronDown,
   Code2,
   Copy,
   File,
@@ -16,29 +15,18 @@ import {
   GitBranch,
   GitCommitHorizontal,
   GitCompareArrows,
-  GitMerge,
-  Globe,
   Info,
   Layers2,
   Loader2,
-  CalendarClock,
   MoreVertical,
   RefreshCw,
   Search,
   Trash2,
   Upload,
   Database,
-  Zap,
 } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
-import {
-  useEnqueueWorkspace,
-  useGitRemoteInfo,
-  useMergeQueueEnabled,
-  useMergeQueueStatus,
-  usePrCiStatus,
-} from "../hooks/useMergeQueueStatus";
+import { useGitRemoteInfo, usePrCiStatus } from "../hooks/useMergeQueueStatus";
 import { useTerminalSettingsStore } from "../stores/terminalSettingsStore";
 import { useTreqSendStore } from "../stores/treqSendStore";
 import { listen } from "@tauri-apps/api/event";
@@ -70,7 +58,6 @@ import {
   type Workspace,
   type WorkspaceBookmarkConflict,
 } from "../lib/api";
-import { FEATURES } from "../lib/features";
 import { usePreviewFeature } from "../stores/featurePreviewStore";
 import { getStatusBgColor } from "../lib/git-status-colors";
 import { useRepositoryCacheKey } from "../lib/active-repository-context";
@@ -94,7 +81,6 @@ import {
 } from "../lib/commitsTabLabel";
 import { cn, getFullWorkspacePath, resolveReadmeImageSrc } from "../lib/utils";
 import { sumWorkspaceLocFromLog } from "../lib/workspace-stack";
-import { isWorkspaceHidden } from "../lib/workspace-utils";
 import type { AgentReviewComment } from "../lib/api-types-review";
 import type { SessionCreationInfo } from "../types/sessions";
 import {
@@ -102,15 +88,13 @@ import {
   type ChangesDiffViewerHandle,
 } from "./ChangesDiffViewer";
 import { BrowserPanel } from "./browser-panel/BrowserPanel";
-import type { BrowserOpenRequest } from "./browser-panel/types";
+import { useReviewSubView } from "./browser-panel/useReviewSubView";
 import { LogsTab } from "./LogsTab";
 import { CiStatusIndicator } from "./CiStatusIndicator";
 import { CommitDiffViewer } from "./CommitDiffViewer";
 import { CreatePrButtonGroup } from "./CreatePrButtonGroup";
 import { FileBrowser } from "./FileBrowser";
 import { LinearCommitHistory } from "./LinearCommitHistory";
-import { TRACKER_ICONS } from "./trackerIcons";
-import { TRACKER_PROVIDERS, type TrackerProvider } from "../lib/trackers";
 import { LocDiffMarker } from "./LocDiffMarker";
 import { MarkdownContent } from "./MarkdownContent";
 import {
@@ -138,8 +122,13 @@ import {
 } from "./ui/tooltip";
 import { ViewPrButton } from "./ViewPrButton";
 import { WorkspaceBookmarkConflictModal } from "./WorkspaceBookmarkConflictModal";
-import { ScheduleWorkspaceDialog } from "./ScheduleWorkspaceDialog";
 import { WorkspaceStackPanel } from "./WorkspaceStackPanel";
+import { MergeQueueButton } from "./workspace-header/MergeQueueButton";
+import { useWorkspaceScheduling } from "./workspace-header/useWorkspaceScheduling";
+import {
+  type WorkspaceTrackerMetadata,
+  WorkspaceTrackerBadges,
+} from "./workspace-header/WorkspaceTrackerBadges";
 import type { TerminalSessionSummary } from "./terminal/types";
 
 interface ShowWorkspaceProps {
@@ -244,28 +233,11 @@ export const ShowWorkspace = ({
   const repoCacheKey = useRepositoryCacheKey(effectiveRepoPath);
 
   const { addToast } = useToast();
-  const workspaceScheduling = usePreviewFeature("workspaceScheduling");
-  const linearIntegration = usePreviewFeature("linearIntegration");
-  const trackerEnabled: Record<TrackerProvider, boolean> = {
-    trello: usePreviewFeature("trelloIntegration"),
-    jira: usePreviewFeature("jiraIntegration"),
-  };
   const logsEnabled = usePreviewFeature("logs");
-  const browserEnabled = usePreviewFeature("browser");
+  const scheduling = useWorkspaceScheduling(effectiveRepoPath, workspace);
   const { fontSize } = useTerminalSettingsStore();
 
   const { data: remoteInfo } = useGitRemoteInfo(effectiveRepoPath || undefined);
-  const { data: queueEnabled } = useMergeQueueEnabled(
-    effectiveRepoPath || undefined,
-  );
-  const { data: queueStatus } = useMergeQueueStatus(
-    effectiveRepoPath || undefined,
-    workspace?.branch_name,
-  );
-  const { enqueue, dequeue } = useEnqueueWorkspace(
-    effectiveRepoPath || undefined,
-    workspace?.branch_name,
-  );
   const { data: mergeButtonCiStatus } = usePrCiStatus(
     effectiveRepoPath || undefined,
     workspace?.branch_name,
@@ -313,12 +285,6 @@ export const ShowWorkspace = ({
   const [bookmarkConflict, setBookmarkConflict] =
     useState<WorkspaceBookmarkConflict | null>(null);
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
-  const [scheduleDialog, setScheduleDialog] = useState<{
-    mode: "workspace" | "stack";
-    workspaceIds: number[];
-    currentHiddenUntil?: string | null;
-    canRemoveSchedule?: boolean;
-  } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [resolvingBookmarkConflict, setResolvingBookmarkConflict] =
     useState(false);
@@ -326,15 +292,12 @@ export const ShowWorkspace = ({
 
   // Show overview tab by default for main repo, changes tab for workspaces
   const [activeTab, setActiveTab] = useState("overview");
-  const [reviewSubView, setReviewSubView] = useState<"diff" | "browser">(
-    "diff",
-  );
-  const [browserOpenRequest, setBrowserOpenRequest] =
-    useState<BrowserOpenRequest | null>(null);
-  // Portal target for the browser address bar, rendered in the tab row so
-  // it sits alongside the Code/Commits/Changes tabs instead of its own row.
-  const [browserToolbarSlot, setBrowserToolbarSlot] =
-    useState<HTMLDivElement | null>(null);
+  const reviewSubView = useReviewSubView({
+    activeTab,
+    setActiveTab,
+    treqSendAssets: useTreqSendStore((s) => s.assets),
+    dismissTreqSendAsset: useTreqSendStore((s) => s.dismissAsset),
+  });
   const [scrollToCommitId, setScrollToCommitId] = useState<string | null>(null);
   const [showFileBrowserInCode, setShowFileBrowserInCode] = useState(false);
 
@@ -343,28 +306,6 @@ export const ShowWorkspace = ({
       setActiveTab("overview");
     }
   }, [activeTab, logsEnabled]);
-
-  useEffect(() => {
-    if (!browserEnabled && reviewSubView === "browser") {
-      setReviewSubView("diff");
-    }
-  }, [browserEnabled, reviewSubView]);
-
-  // `treq send --browser <url-or-file>` opens the Browser view directly,
-  // instead of showing an attachment preview like image/text sends do.
-  const treqSendAssets = useTreqSendStore((s) => s.assets);
-  const dismissTreqSendAsset = useTreqSendStore((s) => s.dismissAsset);
-  useEffect(() => {
-    if (!browserEnabled) return;
-    const browserAsset = treqSendAssets.find(
-      (asset) => asset.mediaType === "browser",
-    );
-    if (!browserAsset) return;
-    setActiveTab("changes");
-    setReviewSubView("browser");
-    setBrowserOpenRequest({ id: browserAsset.id, url: browserAsset.path });
-    dismissTreqSendAsset(browserAsset.id);
-  }, [browserEnabled, treqSendAssets, dismissTreqSendAsset]);
 
   const handleChangedFilesUpdate = (parsedFiles: ParsedFileChange[]) => {
     const map = new Map<string, ParsedFileChange>();
@@ -1414,51 +1355,10 @@ export const ShowWorkspace = ({
               )}
             </TabsList>
           </Tabs>
-          {activeTab === "changes" && browserEnabled && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5"
-                  aria-label="Switch review view"
-                >
-                  {reviewSubView === "browser" ? (
-                    <Globe className="w-4 h-4" />
-                  ) : (
-                    <FileDiff className="w-4 h-4" />
-                  )}
-                  <span>
-                    {reviewSubView === "browser" ? "Browser" : "Diff"}
-                  </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" sideOffset={4}>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setReviewSubView("diff");
-                    setActiveTab("changes");
-                  }}
-                >
-                  <FileDiff className="w-4 h-4 mr-2" />
-                  Diff
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setReviewSubView("browser");
-                    setActiveTab("changes");
-                  }}
-                >
-                  <Globe className="w-4 h-4 mr-2" />
-                  Browser
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          {reviewSubView.switcher}
         </div>
         <div
-          ref={setBrowserToolbarSlot}
+          ref={reviewSubView.setToolbarSlot}
           className="flex-1 min-w-0 flex items-center gap-2"
         />
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -1549,23 +1449,7 @@ export const ShowWorkspace = ({
                       workspace={workspace}
                       defaultBranch={defaultTargetBranch}
                       onSelectWorkspace={onNavigateToWorkspace}
-                      onScheduleStack={
-                        workspaceScheduling
-                          ? (stackWorkspaces) =>
-                              setScheduleDialog({
-                                mode: "stack",
-                                workspaceIds: stackWorkspaces.map(
-                                  (ws) => ws.id,
-                                ),
-                                currentHiddenUntil: stackWorkspaces.find((ws) =>
-                                  isWorkspaceHidden(ws),
-                                )?.hidden_until,
-                                canRemoveSchedule: stackWorkspaces.some((ws) =>
-                                  isWorkspaceHidden(ws),
-                                ),
-                              })
-                          : undefined
-                      }
+                      onScheduleStack={scheduling.onScheduleStack}
                     />
                   )}
                   {/* File Search Input */}
@@ -1731,13 +1615,13 @@ export const ShowWorkspace = ({
             repoPath={effectiveRepoPath ?? ""}
             onSendToAgent={handleSendLogsToAgent}
           />
-        ) : reviewSubView === "browser" ? (
+        ) : reviewSubView.showBrowser ? (
           <BrowserPanel
             repoPath={effectiveRepoPath}
             workspaceId={workspace?.id}
             onCreateAgentWithReview={handleCreateAgentWithPageReview}
-            openRequest={browserOpenRequest}
-            toolbarSlot={browserToolbarSlot}
+            openRequest={reviewSubView.openRequest}
+            toolbarSlot={reviewSubView.toolbarSlot}
           />
         ) : (
           <ChangesDiffViewer
@@ -1792,16 +1676,9 @@ export const ShowWorkspace = ({
   const workspaceMetadata = workspace?.metadata
     ? (() => {
         try {
-          return JSON.parse(workspace.metadata) as {
+          return JSON.parse(workspace.metadata) as WorkspaceTrackerMetadata & {
             title?: string;
             description?: string;
-            linear_issue_key?: string;
-            linear_issue_url?: string;
-            linear_issue_title?: string;
-            tracker_provider?: TrackerProvider;
-            tracker_item_key?: string;
-            tracker_item_url?: string;
-            tracker_item_title?: string;
           };
         } catch {
           return null;
@@ -1845,47 +1722,9 @@ export const ShowWorkspace = ({
                   {branchTitle}
                 </span>
               )}
-              {workspace &&
-                linearIntegration &&
-                workspaceMetadata?.linear_issue_key &&
-                workspaceMetadata?.linear_issue_url && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void openUrl(workspaceMetadata.linear_issue_url!)
-                    }
-                    data-testid="linear-issue-badge"
-                    title={workspaceMetadata.linear_issue_title}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors shrink-0"
-                  >
-                    <Zap className="w-3 h-3" />
-                    {workspaceMetadata.linear_issue_key}
-                  </button>
-                )}
-              {workspace &&
-                workspaceMetadata?.tracker_provider &&
-                workspaceMetadata.tracker_provider in TRACKER_PROVIDERS &&
-                trackerEnabled[workspaceMetadata.tracker_provider] &&
-                workspaceMetadata.tracker_item_key &&
-                workspaceMetadata.tracker_item_url &&
-                (() => {
-                  const TrackerIcon =
-                    TRACKER_ICONS[workspaceMetadata.tracker_provider];
-                  return (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void openUrl(workspaceMetadata.tracker_item_url!)
-                      }
-                      data-testid="tracker-item-badge"
-                      title={workspaceMetadata.tracker_item_title}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors shrink-0"
-                    >
-                      <TrackerIcon className="w-3 h-3" />
-                      {workspaceMetadata.tracker_item_key}
-                    </button>
-                  );
-                })()}
+              {workspace && (
+                <WorkspaceTrackerBadges metadata={workspaceMetadata} />
+              )}
               {workspace && workspace.branch_name !== defaultBranch && (
                 <>
                   <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -1903,33 +1742,7 @@ export const ShowWorkspace = ({
                   />
                 </>
               )}
-              {workspace && workspaceScheduling && (
-                <TooltipProvider delay={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setScheduleDialog({
-                            mode: "workspace",
-                            workspaceIds: [workspace.id],
-                            currentHiddenUntil: workspace.hidden_until,
-                            canRemoveSchedule: isWorkspaceHidden(workspace),
-                          })
-                        }
-                        data-testid="schedule-workspace-button"
-                      >
-                        <CalendarClock className="w-4 h-4" />
-                        Schedule
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Hide this workspace in the sidebar until a chosen time
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
+              {scheduling.button}
               {!workspace && (
                 <>
                   <button
@@ -2158,74 +1971,14 @@ export const ShowWorkspace = ({
                     </Tooltip>
                   </TooltipProvider>
                 )}
-              {/* Merge queue button. Hidden entirely until the repo has
-								    opted into the merge queue in the GitHub panel. */}
-              {FEATURES.mergeQueue &&
-                queueEnabled === true &&
-                workspace &&
+              {/* Merge queue button (build flag + repo opt-in) */}
+              {workspace &&
                 workspace.branch_name !== defaultBranch &&
                 !workspace.not_on_remote && (
-                  <TooltipProvider delay={200}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant={
-                            queueStatus && queueStatus.status !== "dequeued"
-                              ? "secondary"
-                              : "outline"
-                          }
-                          size="sm"
-                          className="gap-1"
-                          disabled={enqueue.isPending || dequeue.isPending}
-                          onClick={async () => {
-                            const isInQueue =
-                              !!queueStatus &&
-                              !["merged", "failed", "dequeued"].includes(
-                                queueStatus.status,
-                              );
-                            try {
-                              if (isInQueue) {
-                                await dequeue.mutateAsync();
-                                addToast({
-                                  title: "Removed from merge queue",
-                                  type: "success",
-                                });
-                              } else {
-                                await enqueue.mutateAsync();
-                                addToast({
-                                  title: "Added to merge queue",
-                                  type: "success",
-                                });
-                              }
-                            } catch (err) {
-                              addToast({
-                                title: "Queue error",
-                                description: (err as Error).message,
-                                type: "error",
-                              });
-                            }
-                          }}
-                        >
-                          <GitMerge className="w-4 h-4" />
-                          {queueStatus &&
-                          !["merged", "failed", "dequeued"].includes(
-                            queueStatus.status,
-                          )
-                            ? "Queued"
-                            : "Add to Queue"}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {queueStatus
-                          ? queueStatus.status === "merged"
-                            ? "Merged via queue"
-                            : queueStatus.status === "failed"
-                              ? `Failed: ${queueStatus.failure_reason ?? "unknown"}`
-                              : `In merge queue at position ${queueStatus.position}`
-                          : "Add this branch to the merge queue"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <MergeQueueButton
+                    repoPath={effectiveRepoPath}
+                    branchName={workspace.branch_name}
+                  />
                 )}
               {/* Merge button moved here */}
               {workspace && workspace.branch_name !== defaultBranch && (
@@ -2449,19 +2202,7 @@ export const ShowWorkspace = ({
         onResolve={handleResolveBookmarkConflict}
         resolving={resolvingBookmarkConflict}
       />
-      {workspace && (
-        <ScheduleWorkspaceDialog
-          open={!!scheduleDialog}
-          onOpenChange={(open) => {
-            if (!open) setScheduleDialog(null);
-          }}
-          repoPath={effectiveRepoPath}
-          workspaceIds={scheduleDialog?.workspaceIds ?? [workspace.id]}
-          currentHiddenUntil={scheduleDialog?.currentHiddenUntil}
-          canRemoveSchedule={scheduleDialog?.canRemoveSchedule}
-          mode={scheduleDialog?.mode ?? "workspace"}
-        />
-      )}
+      {scheduling.dialog}
     </>
   );
 };
