@@ -179,10 +179,15 @@ export const LinearIssuesSection: React.FC<{
     { revalidateOnFocus: false },
   );
 
-  const handleKickoff = (issueId: string, hasSubissues: boolean) => {
+  // Use the issue's real sub-issues, not the ones the current filter shows,
+  // to match what the backend kicks off.
+  const handleKickoff = (issueId: string) => {
     const issue = issues.find((candidate) => candidate.id === issueId);
     if (issue)
-      onStartPromptFromIssue?.({ ...issue, includeSubissues: hasSubissues });
+      onStartPromptFromIssue?.({
+        ...issue,
+        includeSubissues: issue.sub_issue_ids.length > 0,
+      });
   };
 
   const viewFilteredIssues = useMemo(
@@ -341,7 +346,6 @@ export const LinearIssuesSection: React.FC<{
           viewMode === "kanban" && (
             <LinearKanbanView
               columns={kanbanColumns}
-              subissuesMap={subissuesMap}
               identifiersById={identifiersById}
               onKickoff={handleKickoff}
             />
