@@ -36,7 +36,6 @@ interface TaskInputProps {
   workspaceId: number | null;
   workingDirectory: string;
   onSessionCreated?: (session: SessionCreationInfo) => void;
-  focusRequest?: number;
   /** Pre-fill the textarea with this text on mount (e.g. re-running a past prompt). */
   initialText?: string;
   /**
@@ -52,7 +51,6 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   workspaceId,
   workingDirectory,
   onSessionCreated,
-  focusRequest,
   initialText,
   initialIssue = null,
   onIssueChange,
@@ -77,10 +75,6 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   useEffect(() => {
     textareaRef.current?.focus();
   }, [workspaceId]);
-
-  useEffect(() => {
-    if (focusRequest) textareaRef.current?.focus();
-  }, [focusRequest]);
 
   const { data: agentSettings } = useSWR(
     ["task-default-agent", repoPath, workspaceId],
