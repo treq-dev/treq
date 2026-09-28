@@ -30,7 +30,7 @@ it("switches the agent to Codex and saves it as the repo default on submit", asy
 
     await user.selectOptions(within(dialog).getByLabelText("Agent"), "codex");
     expect(
-      within(dialog).queryByRole("button", { name: /^plan$/i }),
+      within(dialog).queryByRole("button", { name: "More submit options" }),
     ).not.toBeInTheDocument();
     const runButton = within(dialog).getByRole("button", { name: /^run$/i });
     const saveDefault = within(dialog).getByRole("checkbox", {
@@ -47,7 +47,7 @@ it("switches the agent to Codex and saves it as the repo default on submit", asy
       name: "agent-prompt-dialog-options-01-codex",
       expectations: [
         "The agent dropdown in the prompt toolbar reads 'Codex'.",
-        "There is no Plan button; the primary button reads 'Run' instead of 'Edit'.",
+        "The primary button reads 'Run' instead of 'Edit' and has no chevron (plan menu) attached.",
         "A checked 'Set as default for this repo' checkbox sits to the left of the agent dropdown.",
       ],
     });

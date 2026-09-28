@@ -1,12 +1,19 @@
-import { Paperclip, Plus } from "lucide-react";
+import { ChevronDown, Paperclip, Plus } from "lucide-react";
 import { AgentIcon } from "../icons/AgentIcons";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import { cn } from "../../lib/utils";
 import type { AgentPermissionMode, AgentType } from "../../lib/agentDeepLink";
 
 interface TaskInputToolbarProps {
@@ -35,86 +42,112 @@ export const TaskInputToolbar: React.FC<TaskInputToolbarProps> = ({
   onAgentChange,
   onSaveAsRepoDefaultChange,
   onSubmit,
-}) => (
-  <div className="px-2 pb-2 pt-1 flex min-w-0 flex-wrap items-center justify-between gap-1">
-    <div className="flex items-center gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 text-xs px-2 gap-1"
-        onClick={onOpenFilePicker}
-      >
-        <Plus className="w-4 h-4" />
-        File
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 text-xs px-2 gap-1"
-        onClick={onAttachFromFinder}
-      >
-        <Paperclip className="w-4 h-4" />
-        Attach
-      </Button>
-    </div>
-
-    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-      {showSaveAsRepoDefault && selectedAgent !== configuredDefaultAgent && (
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-          <input
-            type="checkbox"
-            checked={saveAsRepoDefault}
-            onChange={(e) => onSaveAsRepoDefaultChange(e.target.checked)}
-            className="h-3.5 w-3.5 accent-blue-500"
-          />
-          Set as default for this repo
-        </label>
-      )}
-      <div className="flex items-center gap-1.5">
-        <AgentIcon
-          agent={selectedAgent}
-          className="w-3.5 h-3.5 text-muted-foreground shrink-0"
-        />
-        <select
-          aria-label="Agent"
-          value={selectedAgent}
-          onChange={(e) => onAgentChange(e.target.value as AgentType)}
-          className="h-7 text-xs px-2 rounded-md border border-border bg-background text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400"
-        >
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-          <option value="cursor">Cursor</option>
-          <option value="copilot">Copilot</option>
-        </select>
-      </div>
-      {selectedAgent !== "codex" && selectedAgent !== "copilot" && (
+}) => {
+  const supportsPlan = selectedAgent !== "codex" && selectedAgent !== "copilot";
+  return (
+    <div className="px-2 pb-2 pt-1 flex min-w-0 flex-wrap items-center justify-between gap-1">
+      <div className="flex items-center gap-1">
         <Button
+          variant="ghost"
           size="sm"
-          variant="secondary"
-          disabled={isEmpty || submitting}
-          onClick={() => onSubmit("plan")}
-          className="h-7 text-xs px-3"
+          className="h-7 text-xs px-2 gap-1"
+          onClick={onOpenFilePicker}
         >
-          Plan
+          <Plus className="w-4 h-4" />
+          File
         </Button>
-      )}
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="sm"
-              disabled={isEmpty || submitting}
-              onClick={() => onSubmit("acceptEdits")}
-              className="h-7 text-xs px-3"
-            >
-              {selectedAgent === "claude" ? "Edit" : "Run"}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p className="text-xs">⌘+Enter</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs px-2 gap-1"
+          onClick={onAttachFromFinder}
+        >
+          <Paperclip className="w-4 h-4" />
+          Attach
+        </Button>
+      </div>
+
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        {showSaveAsRepoDefault && selectedAgent !== configuredDefaultAgent && (
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={saveAsRepoDefault}
+              onChange={(e) => onSaveAsRepoDefaultChange(e.target.checked)}
+              className="h-3.5 w-3.5 accent-blue-500"
+            />
+            Set as default for this repo
+          </label>
+        )}
+        <div className="flex items-center gap-1.5">
+          <AgentIcon
+            agent={selectedAgent}
+            className="w-3.5 h-3.5 text-muted-foreground shrink-0"
+          />
+          <select
+            aria-label="Agent"
+            value={selectedAgent}
+            onChange={(e) => onAgentChange(e.target.value as AgentType)}
+            className="h-7 text-xs px-2 rounded-md border border-border bg-background text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400"
+          >
+            <option value="claude">Claude</option>
+            <option value="codex">Codex</option>
+            <option value="cursor">Cursor</option>
+            <option value="copilot">Copilot</option>
+          </select>
+        </div>
+        {/* Edit (or Run) is always the main action; plan mode sits in the
+          menu, which only agents with a plan mode get. */}
+        <div className="inline-flex items-center">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  disabled={isEmpty || submitting}
+                  onClick={() => onSubmit("acceptEdits")}
+                  className={cn(
+                    "h-7 text-xs px-3",
+                    supportsPlan && "rounded-r-none",
+                  )}
+                >
+                  {selectedAgent === "claude" ? "Edit" : "Run"}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p className="text-xs">⌘+Enter</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          {supportsPlan && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  disabled={isEmpty || submitting}
+                  aria-label="More submit options"
+                  className="h-7 rounded-l-none border-l border-white/20 px-1.5"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={4} className="w-56">
+                <DropdownMenuItem
+                  onClick={() => onSubmit("plan")}
+                  className="items-start"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-medium">Plan</span>
+                    <span className="text-xs text-muted-foreground">
+                      Plan the change first, without editing files
+                    </span>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </div>
     </div>
-  </div>
-);
+  );
+};
