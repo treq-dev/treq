@@ -230,8 +230,23 @@ export interface TrustedHostKey {
   comment: string | null;
 }
 
+/**
+ * Reserved `key_reference` for the mobile device key kept in the OS keystore
+ * (mirrors `DEVICE_KEYSTORE_KEY_REFERENCE` in
+ * `src-tauri/src/core/remote_ssh_transport.rs`). Only the mobile app can
+ * resolve it; desktop rejects it with a clear error.
+ */
+export const DEVICE_KEYSTORE_KEY_REFERENCE = "keystore:device";
+
+/**
+ * `key_reference` always names key material on this device: a local key
+ * path on desktop (the `.pub` path from `listLocalSshIdentities` works), or
+ * `DEVICE_KEYSTORE_KEY_REFERENCE` on mobile. It is never a control-plane key
+ * id. `certificate` carries the issued OpenSSH certificate text inline; the
+ * transport falls back to `<key>-cert.pub` on disk only when it is absent.
+ */
 export type SshAuthentication =
-  | { type: "certificate"; key_reference: string }
+  | { type: "certificate"; key_reference: string; certificate?: string }
   | { type: "public_key"; key_reference: string };
 
 export type SshEndpointSource =

@@ -1363,10 +1363,11 @@ pub fn sync_discovered_workspaces(
   for workspace in discovered {
     // Prefer a discovered canonical bookmark (e.g. feat/foo) over a prior
     // sanitized fallback (feat-foo), even while the bookmark is conflicted.
-    // Still refuse to clobber a known canonical name with a sanitized fallback
-    // when discovery is ambiguous (has_conflicts).
+    // Never replace a known name with the sanitized fallback: discovery falls
+    // back to the directory name whenever no bookmark matches it, which is
+    // always the case after a rename (the directory keeps its old name).
     let discovered_has_canonical_bookmark = workspace.branch_name != workspace.workspace_name;
-    let update_branch_name = discovered_has_canonical_bookmark || !workspace.has_conflicts;
+    let update_branch_name = discovered_has_canonical_bookmark;
     let update_workspace_name = !workspace.has_conflicts;
     release_archived_workspace_path(&tx, &workspace.workspace_path)?;
     tx.execute(
@@ -2629,6 +2630,35 @@ mod tests {
     assert_eq!(workspaces.len(), 1);
     assert_ne!(workspaces[0].id, archived_id);
     assert!(!workspaces[0].archived);
+  }
+
+  #[test]
+  fn discovery_keeps_renamed_branch_when_no_bookmark_matches_directory() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    init_local_db(repo_path).expect("initialize database");
+    add_workspace(
+      repo_path,
+      "feat-alpha".to_string(),
+      "feat-alpha".to_string(),
+      "feat/beta".to_string(),
+      None,
+      None,
+      None,
+    )
+    .expect("register renamed workspace");
+
+    let discovered = vec![crate::jj::DiscoveredWorkspace {
+      workspace_name: "feat-alpha".to_string(),
+      workspace_path: "feat-alpha".to_string(),
+      branch_name: "feat-alpha".to_string(),
+      has_conflicts: false,
+      last_activity_at: None,
+    }];
+    let workspaces = sync_discovered_workspaces(repo_path, &discovered, "2026-08-08T00:00:00Z")
+      .expect("sync discovery");
+
+    assert_eq!(workspaces[0].branch_name, "feat/beta");
   }
 
   #[test]

@@ -568,13 +568,17 @@ pub async fn resolve_workspace_bookmark_conflict(
 /// Rename a workspace's branch/bookmark.
 /// Supports dry_run mode for validation without performing the rename.
 #[tauri::command]
-pub fn rename_workspace(
+pub async fn rename_workspace(
   repo_path: String,
   workspace_id: i64,
   new_branch_name: String,
   dry_run: bool,
 ) -> Result<crate::core::RenameWorkspaceResult, String> {
-  crate::core::rename_workspace(&repo_path, workspace_id, &new_branch_name, dry_run)
+  tauri::async_runtime::spawn_blocking(move || {
+    crate::core::rename_workspace(&repo_path, workspace_id, &new_branch_name, dry_run)
+  })
+  .await
+  .map_err(|e| format!("Failed to join rename_workspace task: {}", e))?
 }
 
 /// Move changes between two existing workspaces (files, hunks, or commits).

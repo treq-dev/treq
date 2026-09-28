@@ -47,6 +47,12 @@ export interface CertificateLease {
   keyId: string;
   endpointId: string;
   serial: string;
+  /**
+   * The issued OpenSSH certificate text. Renewal hands the fresh one to the
+   * caller so it can update the active endpoint; only connections opened
+   * after that pick it up, open channels keep running.
+   */
+  certificate: string;
   /** Epoch ms this lease was obtained (approximated client-side as "now"). */
   issuedAt: number;
   /** Epoch ms the certificate stops being valid. */
@@ -220,6 +226,7 @@ export class CertificateRenewalManager {
         keyId: this.opts.keyId,
         endpointId: this.opts.endpointId,
         serial: response.serial,
+        certificate: response.certificate,
         issuedAt,
         expiresAt,
       });

@@ -23,15 +23,56 @@ pub struct TrustedHostKey {
 }
 
 /// How the client authenticates to an [`SshEndpoint`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `key_reference` always names key material on this device: a path to an
+/// OpenSSH private key (or to its `.pub` file) on desktop, or
+/// [`crate::core::remote_ssh_transport::DEVICE_KEYSTORE_KEY_REFERENCE`] for
+/// the mobile device key held in the OS keystore. It is never a
+/// control-plane key ID, and the private key itself never appears here.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SshAuthentication {
   /// A short-lived certificate signed by the Treq CA, presented alongside
   /// the user's own private key. Used for managed instances.
-  Certificate { key_reference: String },
+  Certificate {
+    key_reference: String,
+    /// The OpenSSH certificate text the control plane issued for this key
+    /// (`ssh-ed25519-cert-v01@openssh.com ...`). The client carries it
+    /// inline so a renewed certificate reaches the next connection without
+    /// being written to disk. When absent, the transport reads the
+    /// `<key>-cert.pub` file next to the private key, which is where
+    /// `ssh-keygen -s` puts a certificate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    certificate: Option<String>,
+  },
   /// Direct authentication with a user-selected public key. Treq never
   /// generates or holds the private half.
   PublicKey { key_reference: String },
+}
+
+// Written by hand so `{:?}` on an endpoint never prints the certificate
+// text. A certificate is not secret, but it names the key and principals
+// and adds nothing useful to a log line.
+impl std::fmt::Debug for SshAuthentication {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Certificate {
+        key_reference,
+        certificate,
+      } => f
+        .debug_struct("Certificate")
+        .field("key_reference", key_reference)
+        .field(
+          "certificate",
+          &certificate.as_ref().map(|_| "<inline certificate>"),
+        )
+        .finish(),
+      Self::PublicKey { key_reference } => f
+        .debug_struct("PublicKey")
+        .field("key_reference", key_reference)
+        .finish(),
+    }
+  }
 }
 
 /// Where an [`SshEndpoint`] came from. `ExplicitAlias` requires the user to
@@ -277,5 +318,30 @@ mod tests {
     };
     let json = serde_json::to_value(&request).unwrap();
     assert!(json.get("alias").unwrap().is_null());
+  }
+
+  #[test]
+  fn deserializes_certificate_authentication_without_inline_certificate() {
+    let auth: SshAuthentication =
+      serde_json::from_str(r#"{"type":"certificate","key_reference":"~/.ssh/id_ed25519"}"#)
+        .unwrap();
+    assert_eq!(
+      auth,
+      SshAuthentication::Certificate {
+        key_reference: "~/.ssh/id_ed25519".to_string(),
+        certificate: None,
+      }
+    );
+  }
+
+  #[test]
+  fn omits_certificate_text_from_debug_output() {
+    let auth = SshAuthentication::Certificate {
+      key_reference: "keystore:device".to_string(),
+      certificate: Some("ssh-ed25519-cert-v01@openssh.com AAAACERTBODY".to_string()),
+    };
+    let debug = format!("{auth:?}");
+    assert!(!debug.contains("AAAACERTBODY"));
+    assert!(debug.contains("keystore:device"));
   }
 }

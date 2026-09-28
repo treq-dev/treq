@@ -113,3 +113,32 @@ Deno.test("sprites adapter executes argv through the documented HTTP endpoint", 
     "https://example.invalid/v1/sprites/treq-user-1/exec?cmd=bash&cmd=-lc&cmd=echo+installed&path=bash",
   );
 });
+
+Deno.test("sprites adapter wakes a paused sprite with a no-op exec, not a metadata GET", async () => {
+  const { SpritesProvider } = await import(
+    "../_shared/remote/sprites-adapter.ts"
+  );
+  const originalFetch = globalThis.fetch;
+  const requests: { method: string; url: string }[] = [];
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({ method: init?.method ?? "GET", url: String(input) });
+    return Promise.resolve(new Response("", { status: 200 }));
+  }) as typeof fetch;
+
+  try {
+    const provider = new SpritesProvider({
+      baseUrl: "https://example.invalid",
+      apiToken: "test-token",
+    });
+    await provider.wakeInstance("treq-user-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assertEquals(requests, [
+    {
+      method: "POST",
+      url: "https://example.invalid/v1/sprites/treq-user-1/exec?cmd=true&path=true",
+    },
+  ]);
+});
