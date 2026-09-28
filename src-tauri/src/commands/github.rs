@@ -254,6 +254,27 @@ pub async fn gh_close_issue(
 }
 
 #[tauri::command]
+pub async fn gh_edit_issue(
+  repo_full_name: String,
+  issue_number: u64,
+  title: String,
+  body: String,
+) -> Result<(), String> {
+  run_gh_blocking("gh_edit_issue", move |gh, path| {
+    crate::github::gh_edit_issue_impl(gh, &repo_full_name, issue_number, &title, &body, path)
+  })
+  .await
+}
+
+#[tauri::command]
+pub async fn gh_delete_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
+  run_gh_blocking("gh_delete_issue", move |gh, path| {
+    crate::github::gh_delete_issue_impl(gh, &repo_full_name, issue_number, path)
+  })
+  .await
+}
+
+#[tauri::command]
 pub async fn gh_reopen_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
   run_gh_blocking("gh_reopen_issue", move |gh, path| {
     crate::github::gh_reopen_issue_impl(gh, &repo_full_name, issue_number, path)

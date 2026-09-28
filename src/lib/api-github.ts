@@ -49,6 +49,20 @@ export const ghReopenIssue = (
   issueNumber: number,
 ): Promise<void> => invoke("gh_reopen_issue", { repoFullName, issueNumber });
 
+export const ghEditIssue = (
+  repoFullName: string,
+  issueNumber: number,
+  title: string,
+  body: string,
+): Promise<void> =>
+  invoke("gh_edit_issue", { repoFullName, issueNumber, title, body });
+
+/** Permanently deletes the issue. Callers must confirm with the user first. */
+export const ghDeleteIssue = (
+  repoFullName: string,
+  issueNumber: number,
+): Promise<void> => invoke("gh_delete_issue", { repoFullName, issueNumber });
+
 export const ghListPrs = (
   repoFullName: string,
   state: string,

@@ -23,6 +23,11 @@ import {
 import type { GitHubIssueAttachment } from "../../lib/promptAttachments";
 import { MarkdownContent } from "../MarkdownContent";
 import {
+  DeleteIssueButton,
+  EditIssueButton,
+  IssueEditForm,
+} from "./IssueEditActions";
+import {
   ErrorState,
   formatDate,
   ghErrorText,
@@ -50,6 +55,7 @@ export function IssueDetailPanel({
 }) {
   const ghErrorToast = useGhErrorToast();
   const [commentBody, setCommentBody] = useState("");
+  const [editing, setEditing] = useState(false);
 
   const {
     data: issue,
@@ -119,48 +125,62 @@ export function IssueDetailPanel({
 
       {issue && (
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-          <div>
-            <div className="flex items-start gap-3">
-              <h2 className="text-2xl font-semibold flex-1 min-w-0">
-                {issue.title}
-              </h2>
-              <div className="flex items-center gap-2 shrink-0">
-                {onStartPrompt && (
-                  <Button
-                    size="sm"
-                    className="text-base gap-1.5"
-                    onClick={() =>
-                      onStartPrompt({
-                        number: issue.number,
-                        url: issue.url,
-                        title: issue.title,
-                      })
-                    }
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    Agent...
-                  </Button>
-                )}
-                <OpenInWebButton url={issue.url} />
+          {editing ? (
+            <IssueEditForm
+              repoFullName={repoFullName}
+              issue={issue}
+              onDone={() => setEditing(false)}
+            />
+          ) : (
+            <div>
+              <div className="flex items-start gap-3">
+                <h2 className="text-2xl font-semibold flex-1 min-w-0">
+                  {issue.title}
+                </h2>
+                <div className="flex items-center gap-2 shrink-0">
+                  <EditIssueButton onClick={() => setEditing(true)} />
+                  <DeleteIssueButton
+                    repoFullName={repoFullName}
+                    issueNumber={issue.number}
+                    onDeleted={onClose}
+                  />
+                  {onStartPrompt && (
+                    <Button
+                      size="sm"
+                      className="text-base gap-1.5"
+                      onClick={() =>
+                        onStartPrompt({
+                          number: issue.number,
+                          url: issue.url,
+                          title: issue.title,
+                        })
+                      }
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      Agent...
+                    </Button>
+                  )}
+                  <OpenInWebButton url={issue.url} />
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <StateChip state={issue.state} />
-              <span className="text-base text-muted-foreground">
-                #{issue.number} opened by {issue.author.login} on{" "}
-                {formatDate(issue.created_at)}
-              </span>
-            </div>
-            {issue.labels.length > 0 && (
-              <div className="flex gap-1 flex-wrap mt-2">
-                {issue.labels.map((l) => (
-                  <LabelChip key={l.name} name={l.name} color={l.color} />
-                ))}
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <StateChip state={issue.state} />
+                <span className="text-base text-muted-foreground">
+                  #{issue.number} opened by {issue.author.login} on{" "}
+                  {formatDate(issue.created_at)}
+                </span>
               </div>
-            )}
-          </div>
+              {issue.labels.length > 0 && (
+                <div className="flex gap-1 flex-wrap mt-2">
+                  {issue.labels.map((l) => (
+                    <LabelChip key={l.name} name={l.name} color={l.color} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
-          {issue.body && (
+          {!editing && issue.body && (
             <div className="bg-muted/30 rounded-md p-3">
               <MarkdownContent
                 content={issue.body}
