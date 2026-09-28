@@ -36,14 +36,14 @@ it("captures agent session creation from the prompt dialog", async () => {
       within(dialog).getByRole("button", { name: /^edit$/i }),
     ).toBeDisabled();
     expect(
-      within(dialog).getByRole("button", { name: /^plan$/i }),
+      within(dialog).getByRole("button", { name: "More submit options" }),
     ).toBeDisabled();
 
     await captureDocument(document, {
       name: "agent-session-creation-01-dialog-empty",
       expectations: [
         "A centered modal titled 'Start a new agent session' shows a branch picker set to the home repo's default branch.",
-        "The task input shows the 'Describe a task...' placeholder, with Plan and Edit buttons that look disabled (dimmed).",
+        "The task input shows the 'Describe a task...' placeholder, with an Edit button joined to a chevron (the Plan menu) that both look disabled (dimmed).",
       ],
     });
 
@@ -69,7 +69,7 @@ it("captures agent session creation from the prompt dialog", async () => {
       name: "agent-session-creation-02-dialog-filled",
       expectations: [
         `The branch picker now reads '${TARGET_BRANCH}'.`,
-        `The task input contains "${PROMPT}" and the Plan and Edit buttons are no longer dimmed.`,
+        `The task input contains "${PROMPT}" and the Edit button and its chevron are no longer dimmed.`,
       ],
     });
 
