@@ -2678,6 +2678,8 @@ fn clone_repo_local(repo_url: &str, destination: &str) -> Result<RepositoryInspe
 /// Applies a base64-encoded unified diff to `path` inside the given
 /// workspace (or the repo root) using `git apply`. Base64 keeps the exec
 /// argument vector a plain string even though the payload contains newlines.
+/// Applies a base64 unified diff to `path`. The patch goes on stdin, since
+/// `git apply <path>` would read `path` itself as the patch.
 fn apply_remote_patch(
   repo: &str,
   workspace: Option<i64>,
@@ -2688,9 +2690,7 @@ fn apply_remote_patch(
   enforce_disk_quota(Path::new(&workspace_path))?;
   let decoded = decode_base64(patch_base64.trim())
     .map_err(|e| format!("invalid_arguments: patch is not valid base64: {e}"))?;
-  // `git apply <path>` would read `path` as the patch file; the patch is on
-  // stdin. `--numstat` applies nothing, so check the patch only touches `path`
-  // before applying it.
+  // Dry run first: the patch must change `path` and nothing else.
   let touched = run_git_apply(&workspace_path, &["--numstat"], &decoded)?;
   let touched: Vec<&str> = touched
     .lines()
@@ -2708,8 +2708,7 @@ fn apply_remote_patch(
 
 fn run_git_apply(workspace_path: &str, args: &[&str], patch: &[u8]) -> Result<String, String> {
   use std::io::Write;
-  // Workspaces sit inside the home repo; stop git from discovering it so
-  // patch paths stay relative to the workspace.
+  // Stop git finding the enclosing home repo so paths stay workspace-relative.
   let ceiling = Path::new(workspace_path)
     .parent()
     .unwrap_or(Path::new(workspace_path));
