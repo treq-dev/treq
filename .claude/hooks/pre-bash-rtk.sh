@@ -9,9 +9,10 @@ command -v rtk >/dev/null 2>&1 || exit 0
 input="$(cat)"
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty')"
 
-# rtk rewrites `npm run lint` to `rtk lint`, which runs ESLint alone and skips
-# the oxlint and ast-grep steps of our lint script. Leave it unwrapped.
-if printf '%s' "$cmd" | grep -Eq 'npm run lint($|[^:[:alnum:]_-])'; then
+# rtk rewrites `npm run lint` and `biome ...` to `rtk lint`, which runs ESLint:
+# the first would skip the oxlint and ast-grep steps of our lint script, the
+# second would swap Biome for ESLint. Leave both unwrapped.
+if printf '%s' "$cmd" | grep -Eq 'npm run lint($|[^:[:alnum:]_-])|(^|[;&| ])(npx )?biome( |$)'; then
 	exit 0
 fi
 
