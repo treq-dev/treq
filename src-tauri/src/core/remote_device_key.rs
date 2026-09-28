@@ -170,6 +170,21 @@ pub async fn ensure_device_key(app: &tauri::AppHandle) -> Result<DeviceKeyInfo, 
   device_key_info(&key)
 }
 
+/// Hands the SSH transport a way to load the device private key when an
+/// endpoint authenticates with
+/// [`crate::core::remote_ssh_transport::DEVICE_KEYSTORE_KEY_REFERENCE`].
+/// The key is read from the keystore per new connection and dropped once
+/// authentication finishes; it is never cached in the pool or sent to JS.
+#[cfg(mobile)]
+pub fn device_key_provider(
+  app: tauri::AppHandle,
+) -> crate::core::remote_ssh_transport::DeviceKeyProvider {
+  std::sync::Arc::new(move || {
+    let app = app.clone();
+    Box::pin(async move { mobile_storage::load_or_create(&app).await })
+  })
+}
+
 #[cfg(not(mobile))]
 pub async fn ensure_device_key(_app: &tauri::AppHandle) -> Result<DeviceKeyInfo, String> {
   Err(

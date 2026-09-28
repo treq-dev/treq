@@ -112,7 +112,11 @@ describe("CertificateRenewalManager", () => {
 
     expect(issue).toHaveBeenCalledWith("instance-1", "key-1");
     expect(onRenewed).toHaveBeenCalledWith(
-      expect.objectContaining({ expiresAt: 1000, serial: "1" }),
+      expect.objectContaining({
+        expiresAt: 1000,
+        serial: "1",
+        certificate: "cert-line",
+      }),
     );
     expect(onCutoff).not.toHaveBeenCalled();
 

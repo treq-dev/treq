@@ -7,8 +7,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   connectExistingReadyInstance,
+  composeManagedEndpoint,
   connectManagedInstance,
+  pickDefaultKeyReference,
   reauthenticateManagedInstance,
+  wakeIdempotencyKey,
+  wakeManagedInstance,
   type ManagedConnectionDeps,
 } from "./managed-ssh-connection";
 import type {
@@ -92,6 +96,7 @@ function makeDeps(
     } satisfies InstanceStatusResponse),
     issueCertificate: vi.fn().mockResolvedValue(makeCertResponse()),
     activateEndpoint: vi.fn(),
+    updateEndpointCertificate: vi.fn(),
     startRenewal: vi.fn().mockReturnValue({ stop: vi.fn() }),
     clearCutoff: vi.fn().mockResolvedValue(undefined),
     sleep: vi.fn().mockResolvedValue(undefined),
@@ -208,11 +213,58 @@ describe("connectManagedInstance", () => {
       generation: 1,
     });
     expect(activated.host_keys).toHaveLength(1);
+    // The server names its own key id; the transport needs the local key
+    // and the issued certificate instead.
     expect(activated.authentication).toEqual({
       type: "certificate",
-      key_reference: "key-1",
+      key_reference: "ref",
+      certificate: "ssh-ed25519-cert-v01@openssh.com AAAA...",
     });
     expect(result.endpoint).toBe(activated);
+  });
+
+  it("composes the endpoint from the local key reference and the issued certificate", async () => {
+    await connectManagedInstance(deps, {
+      region: "us_east",
+      size: "small",
+      keyReference: "/home/user/.ssh/id_ed25519.pub",
+    });
+    const [[activated]] = (deps.activateEndpoint as ReturnType<typeof vi.fn>)
+      .mock.calls;
+    expect(activated).toEqual(
+      composeManagedEndpoint(
+        makeCertResponse().endpoint,
+        "/home/user/.ssh/id_ed25519.pub",
+        "ssh-ed25519-cert-v01@openssh.com AAAA...",
+      ),
+    );
+    expect(activated.hostname).toBe("inst-1.fly.dev");
+    expect(activated.authentication.key_reference).not.toBe(KEY.id);
+  });
+
+  it("updates the active endpoint's certificate on renewal without re-activating it", async () => {
+    await connectManagedInstance(deps, {
+      region: "us_east",
+      size: "small",
+      keyReference: "ref",
+    });
+    const [[lease, onRenewed]] = (deps.startRenewal as ReturnType<typeof vi.fn>)
+      .mock.calls;
+    expect(lease.certificate).toBe("ssh-ed25519-cert-v01@openssh.com AAAA...");
+
+    onRenewed({ ...lease, serial: "serial-2", certificate: "renewed-cert" });
+
+    expect(deps.activateEndpoint).toHaveBeenCalledTimes(1);
+    expect(deps.updateEndpointCertificate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "endpoint-1",
+        authentication: {
+          type: "certificate",
+          key_reference: "ref",
+          certificate: "renewed-cert",
+        },
+      }),
+    );
   });
 
   it("starts silent certificate renewal once the endpoint is active", async () => {
@@ -299,5 +351,114 @@ describe("reauthenticateManagedInstance", () => {
     ).rejects.toThrow("revoked");
     expect(deps.clearCutoff).not.toHaveBeenCalled();
     expect(deps.activateEndpoint).not.toHaveBeenCalled();
+  });
+});
+
+describe("pickDefaultKeyReference", () => {
+  const identity = (label: string) => ({
+    reference: `/home/user/.ssh/${label}.pub`,
+    label,
+    fingerprint_sha256: `SHA256:${label}`,
+    algorithm: "ssh-ed25519",
+  });
+
+  it("prefers id_ed25519 over earlier identities", () => {
+    expect(
+      pickDefaultKeyReference([identity("deploy"), identity("id_ed25519")]),
+    ).toBe("/home/user/.ssh/id_ed25519.pub");
+  });
+
+  it("falls back to the first identity", () => {
+    expect(pickDefaultKeyReference([identity("work"), identity("home")])).toBe(
+      "/home/user/.ssh/work.pub",
+    );
+  });
+
+  it("returns null when there is no local key", () => {
+    expect(pickDefaultKeyReference([])).toBeNull();
+  });
+});
+
+describe("wakeManagedInstance", () => {
+  it("uses a new idempotency key for every wake attempt", async () => {
+    const wakeInstance = vi.fn().mockResolvedValue(undefined);
+    let attempt = 0;
+    const deps = makeDeps({
+      wakeInstance,
+      newAttemptId: () => {
+        attempt += 1;
+        return `attempt-${attempt}`;
+      },
+    });
+
+    await wakeManagedInstance(deps, {
+      instanceId: "inst-1",
+      keyReference: "ref",
+    });
+    await wakeManagedInstance(deps, {
+      instanceId: "inst-1",
+      keyReference: "ref",
+    });
+
+    const keys = wakeInstance.mock.calls.map(([, key]) => key);
+    expect(keys).toEqual([
+      wakeIdempotencyKey("inst-1", "attempt-1"),
+      wakeIdempotencyKey("inst-1", "attempt-2"),
+    ]);
+  });
+
+  it("generates distinct keys by default", async () => {
+    const wakeInstance = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({ wakeInstance });
+
+    await wakeManagedInstance(deps, {
+      instanceId: "inst-1",
+      keyReference: "ref",
+    });
+    await wakeManagedInstance(deps, {
+      instanceId: "inst-1",
+      keyReference: "ref",
+    });
+
+    const [[, first], [, second]] = wakeInstance.mock.calls;
+    expect(first).toMatch(/^wake-inst-1-/);
+    expect(first).not.toBe(second);
+  });
+
+  it("wakes, waits for readiness, then issues a certificate and activates the endpoint", async () => {
+    const order: string[] = [];
+    const deps = makeDeps({
+      wakeInstance: vi.fn().mockImplementation(async () => {
+        order.push("wake");
+      }),
+      getInstanceStatus: vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          order.push("status");
+          return { instance: makeInstance("waking"), endpoint: null };
+        })
+        .mockImplementation(async () => {
+          order.push("status");
+          return { instance: makeInstance("ready", 2), endpoint: null };
+        }),
+      issueCertificate: vi.fn().mockImplementation(async () => {
+        order.push("issue");
+        return makeCertResponse(2);
+      }),
+      activateEndpoint: vi.fn().mockImplementation(() => {
+        order.push("activate");
+      }),
+    });
+
+    const result = await wakeManagedInstance(deps, {
+      instanceId: "inst-1",
+      keyReference: "ref",
+    });
+
+    expect(order).toEqual(["wake", "status", "status", "issue", "activate"]);
+    expect(result.endpoint.source).toMatchObject({ generation: 2 });
+    expect(result.endpoint.authentication).toMatchObject({
+      key_reference: "ref",
+    });
   });
 });

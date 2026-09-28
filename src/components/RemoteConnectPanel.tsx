@@ -6,7 +6,11 @@ import {
   registerClientKey,
 } from "../lib/remote-control-plane";
 import { dispatchOverSsh } from "../lib/remote-dispatch";
-import type { SshEndpoint } from "../lib/api-types-remote";
+import {
+  DEVICE_KEYSTORE_KEY_REFERENCE,
+  type SshEndpoint,
+} from "../lib/api-types-remote";
+import { composeManagedEndpoint } from "../lib/managed-ssh-connection";
 import type { RemoteRepoProbe } from "../lib/api-types";
 import { RemoteRepoScreen } from "./RemoteRepoScreen";
 
@@ -87,7 +91,16 @@ export function RemoteConnectPanel() {
         key_id: clientKey.id,
       });
 
-      setEndpoint(issued.endpoint);
+      // Authenticate with the device key in the OS keystore plus the
+      // certificate just issued for it. The server's endpoint names its own
+      // key id, which the native transport cannot use.
+      setEndpoint(
+        composeManagedEndpoint(
+          issued.endpoint,
+          DEVICE_KEYSTORE_KEY_REFERENCE,
+          issued.certificate,
+        ),
+      );
       setStep("connected");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

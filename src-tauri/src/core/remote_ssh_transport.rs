@@ -483,29 +483,49 @@ impl ClientHandlerTrait for TreqSshClientHandler {
 // Authentication
 // ---------------------------------------------------------------------------
 
+/// Reserved [`SshAuthentication`] key reference for the mobile device key
+/// that `core::remote_device_key` keeps in the OS keystore. It resolves only
+/// through a pool built with [`SshConnectionPool::with_device_key_provider`],
+/// which only the mobile app does; desktop fails with a clear error instead
+/// of treating it as a file name under `~/.ssh`.
+pub const DEVICE_KEYSTORE_KEY_REFERENCE: &str = "keystore:device";
+
+/// Loads the device private key on demand for
+/// [`DEVICE_KEYSTORE_KEY_REFERENCE`]. Called once per new connection; the
+/// key is dropped as soon as authentication finishes.
+pub type DeviceKeyProvider = Arc<
+  dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<PrivateKey, String>> + Send>>
+    + Send
+    + Sync,
+>;
+
 /// Loads client key material for an [`SshEndpoint`]'s [`SshAuthentication`].
 ///
 /// Key material never lives in Supabase or any control-plane record (PRD:
 /// "Treq never generates a user private key" / "Supabase stores public keys
 /// ... only"). The `key_reference` string names a private key already on the
-/// user's device. Two forms are accepted, matching how `remote.rs` already
-/// treats host references as opaque, pre-existing local configuration rather
-/// than something Treq synthesizes:
+/// user's device. These forms are accepted:
 ///
-/// - an absolute or `~`-relative path to an OpenSSH private key file;
-/// - a bare filename, resolved under `~/.ssh/`.
+/// - an absolute or `~`-relative path to an OpenSSH private key file, or to
+///   its `.pub` / `-cert.pub` file (the desktop identity picker hands out the
+///   `.pub` path, see `remote_local_keys`), in which case the private key is
+///   the same path with that suffix removed;
+/// - a bare filename, resolved under `~/.ssh/`;
+/// - [`DEVICE_KEYSTORE_KEY_REFERENCE`], resolved through the pool's
+///   [`DeviceKeyProvider`] (mobile only).
 ///
-/// For certificate authentication, the signed certificate is expected next
-/// to the private key as `<key path>-cert.pub` (the standard OpenSSH
-/// convention `ssh-keygen -s` produces), unless `key_reference` already
-/// points at a `-cert.pub` file in which case the private key is the same
-/// path with that suffix stripped.
+/// For certificate authentication, the certificate text normally arrives
+/// inline in [`SshAuthentication::Certificate`]. Without it, the transport
+/// reads `<key path>-cert.pub`, the file `ssh-keygen -s` writes. Either way
+/// the certificate must certify the same public key as the private key, so
+/// a mismatch is reported locally instead of as an opaque server rejection.
 pub struct ClientAuthenticator;
 
 impl ClientAuthenticator {
   fn resolve_private_key_path(key_reference: &str) -> PathBuf {
     let reference = key_reference
       .strip_suffix("-cert.pub")
+      .or_else(|| key_reference.strip_suffix(".pub"))
       .unwrap_or(key_reference);
     let expanded = if let Some(rest) = reference.strip_prefix("~/") {
       dirs_home().join(rest)
@@ -519,7 +539,24 @@ impl ClientAuthenticator {
     }
   }
 
-  fn load_private_key(key_reference: &str) -> Result<PrivateKey, SshTransportError> {
+  async fn load_private_key(
+    key_reference: &str,
+    device_key: Option<&DeviceKeyProvider>,
+  ) -> Result<PrivateKey, SshTransportError> {
+    if key_reference == DEVICE_KEYSTORE_KEY_REFERENCE {
+      let Some(provider) = device_key else {
+        return Err(SshTransportError::KeyMaterialUnavailable(
+          "the device keystore key is only available in the mobile app; \
+           select a local SSH key on desktop"
+            .to_string(),
+        ));
+      };
+      return provider().await.map_err(|error| {
+        SshTransportError::KeyMaterialUnavailable(format!(
+          "failed to load the device key from the keystore: {error}"
+        ))
+      });
+    }
     let path = Self::resolve_private_key_path(key_reference);
     russh::keys::load_secret_key(&path, None).map_err(|error| {
       // Never log the path's contents; the path itself is not secret.
@@ -530,15 +567,44 @@ impl ClientAuthenticator {
     })
   }
 
-  fn load_certificate(key_reference: &str) -> Result<russh::keys::Certificate, SshTransportError> {
-    let key_path = Self::resolve_private_key_path(key_reference);
-    let cert_path = PathBuf::from(format!("{}-cert.pub", key_path.display()));
-    russh::keys::load_openssh_certificate(&cert_path).map_err(|error| {
-      SshTransportError::KeyMaterialUnavailable(format!(
-        "failed to load certificate from {}: {error}",
-        cert_path.display()
-      ))
-    })
+  /// Returns the certificate to present with `key`: the inline text when
+  /// the endpoint carries one, otherwise the `-cert.pub` file next to a
+  /// file-based key. Rejects a certificate issued for a different key.
+  fn load_certificate(
+    key_reference: &str,
+    inline_certificate: Option<&str>,
+    key: &PrivateKey,
+  ) -> Result<russh::keys::Certificate, SshTransportError> {
+    let certificate = match inline_certificate {
+      Some(text) => russh::keys::Certificate::from_openssh(text.trim()).map_err(|error| {
+        SshTransportError::KeyMaterialUnavailable(format!(
+          "failed to parse the issued certificate: {error}"
+        ))
+      })?,
+      None if key_reference == DEVICE_KEYSTORE_KEY_REFERENCE => {
+        return Err(SshTransportError::KeyMaterialUnavailable(
+          "the device keystore key has no certificate file; the endpoint must carry the \
+           issued certificate inline"
+            .to_string(),
+        ));
+      }
+      None => {
+        let key_path = Self::resolve_private_key_path(key_reference);
+        let cert_path = PathBuf::from(format!("{}-cert.pub", key_path.display()));
+        russh::keys::load_openssh_certificate(&cert_path).map_err(|error| {
+          SshTransportError::KeyMaterialUnavailable(format!(
+            "failed to load certificate from {}: {error}",
+            cert_path.display()
+          ))
+        })?
+      }
+    };
+    if certificate.public_key() != key.public_key().key_data() {
+      return Err(SshTransportError::KeyMaterialUnavailable(
+        "the certificate was issued for a different key than the selected identity".to_string(),
+      ));
+    }
+    Ok(certificate)
   }
 
   /// Authenticates `handle` per `authentication`, using `username` from the
@@ -548,10 +614,11 @@ impl ClientAuthenticator {
     handle: &mut Handle<TreqSshClientHandler>,
     username: &str,
     authentication: &SshAuthentication,
+    device_key: Option<&DeviceKeyProvider>,
   ) -> Result<(), SshTransportError> {
     let result = match authentication {
       SshAuthentication::PublicKey { key_reference } => {
-        let key = Arc::new(Self::load_private_key(key_reference)?);
+        let key = Arc::new(Self::load_private_key(key_reference, device_key).await?);
         let hash_alg = handle
           .best_supported_rsa_hash()
           .await
@@ -563,9 +630,13 @@ impl ClientAuthenticator {
           .await
           .map_err(|error| SshTransportError::AuthenticationFailed(error.to_string()))?
       }
-      SshAuthentication::Certificate { key_reference } => {
-        let key = Arc::new(Self::load_private_key(key_reference)?);
-        let cert = Self::load_certificate(key_reference)?;
+      SshAuthentication::Certificate {
+        key_reference,
+        certificate,
+      } => {
+        let key = Self::load_private_key(key_reference, device_key).await?;
+        let cert = Self::load_certificate(key_reference, certificate.as_deref(), &key)?;
+        let key = Arc::new(key);
         handle
           .authenticate_openssh_cert(username, key, cert)
           .await
@@ -599,6 +670,12 @@ fn dirs_home() -> PathBuf {
 /// address) must never share a pooled connection across a generation
 /// boundary, and a host-key rotation must never silently keep an old,
 /// now-untrusted connection alive.
+///
+/// Authentication is deliberately not part of the key. A renewed
+/// certificate changes `SshAuthentication::Certificate::certificate` but must
+/// not tear down open exec/PTY channels (PRD "Silent renewal while the
+/// session is active"), so the live connection is reused and the renewed
+/// certificate is presented the next time this key has to reconnect.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PoolKey {
   endpoint_id: String,
@@ -653,6 +730,9 @@ pub struct SshConnectionPool {
   /// revocation or expiry"), keyed by `SshEndpoint::id`. Checked before
   /// opening or reusing any connection for that endpoint.
   cutoffs: AsyncMutex<HashMap<String, CutoffReason>>,
+  /// Resolves [`DEVICE_KEYSTORE_KEY_REFERENCE`]. Set only by the mobile app
+  /// (see `lib.rs`); `None` on desktop, where that reference is an error.
+  device_key_provider: Option<DeviceKeyProvider>,
 }
 
 impl Default for SshConnectionPool {
@@ -669,7 +749,15 @@ impl SshConnectionPool {
       idle_timeout: Duration::from_secs(600),
       metrics: Arc::new(SshTransportMetrics::default()),
       cutoffs: AsyncMutex::new(HashMap::new()),
+      device_key_provider: None,
     }
+  }
+
+  /// Lets endpoints authenticate with [`DEVICE_KEYSTORE_KEY_REFERENCE`] by
+  /// loading the device key through `provider` for each new connection.
+  pub fn with_device_key_provider(mut self, provider: DeviceKeyProvider) -> Self {
+    self.device_key_provider = Some(provider);
+    self
   }
 
   /// Forces the endpoint into the hard-cutoff state and tears down any open
@@ -813,8 +901,13 @@ impl SshConnectionPool {
     self.metrics.dns_tcp_connect.record(dial_started.elapsed());
 
     let auth_started = Instant::now();
-    ClientAuthenticator::authenticate(&mut handle, &endpoint.username, &endpoint.authentication)
-      .await?;
+    ClientAuthenticator::authenticate(
+      &mut handle,
+      &endpoint.username,
+      &endpoint.authentication,
+      self.device_key_provider.as_ref(),
+    )
+    .await?;
     // "SSH negotiation and authentication duration": key exchange already
     // happened inside `connect()` above, but the negotiated session is not
     // usable until authentication completes, so this is the duration a
@@ -1395,6 +1488,7 @@ mod tests {
     host_key_algo: &'static str,
     reply: Arc<AtomicUsize>, // 0 = normal echo, 1 = slow (for deadline test), 2 = huge output
     call_count: Arc<AtomicUsize>,
+    certificate_key_ids: Arc<std::sync::Mutex<Vec<String>>>,
   }
 
   impl server::Server for MockServer {
@@ -1403,6 +1497,7 @@ mod tests {
       MockHandler {
         mode: self.reply.clone(),
         call_count: self.call_count.clone(),
+        certificate_key_ids: self.certificate_key_ids.clone(),
       }
     }
   }
@@ -1414,6 +1509,9 @@ mod tests {
     /// verification read, and any retry, so this must live at the
     /// connection level, not be reset per-channel.
     call_count: Arc<AtomicUsize>,
+    /// Key IDs of every certificate a client authenticated with, so tests
+    /// can prove the certificate path (not plain publickey) was used.
+    certificate_key_ids: Arc<std::sync::Mutex<Vec<String>>>,
   }
 
   impl server::Handler for MockHandler {
@@ -1424,6 +1522,19 @@ mod tests {
       _user: &str,
       _key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<server::Auth, Self::Error> {
+      Ok(server::Auth::Accept)
+    }
+
+    async fn auth_openssh_certificate(
+      &mut self,
+      _user: &str,
+      certificate: &russh::keys::Certificate,
+    ) -> Result<server::Auth, Self::Error> {
+      self
+        .certificate_key_ids
+        .lock()
+        .unwrap()
+        .push(certificate.key_id().to_string());
       Ok(server::Auth::Accept)
     }
 
@@ -1551,6 +1662,18 @@ mod tests {
   }
 
   async fn start_mock_server(mode: usize) -> (std::net::SocketAddr, PrivateKey) {
+    let (addr, host_key, _) = start_mock_server_with_certificate_log(mode).await;
+    (addr, host_key)
+  }
+
+  async fn start_mock_server_with_certificate_log(
+    mode: usize,
+  ) -> (
+    std::net::SocketAddr,
+    PrivateKey,
+    Arc<std::sync::Mutex<Vec<String>>>,
+  ) {
+    let certificate_key_ids = Arc::new(std::sync::Mutex::new(Vec::new()));
     let host_key = test_host_key();
     let mut config = server::Config::default();
     config.keys.push(host_key.clone());
@@ -1564,6 +1687,7 @@ mod tests {
       host_key_algo: "ssh-ed25519",
       reply: Arc::new(AtomicUsize::new(mode)),
       call_count: Arc::new(AtomicUsize::new(0)),
+      certificate_key_ids: certificate_key_ids.clone(),
     };
     let _ = server.host_key_algo;
 
@@ -1580,7 +1704,7 @@ mod tests {
       }
     });
 
-    (addr, host_key)
+    (addr, host_key, certificate_key_ids)
   }
 
   fn write_client_key(dir: &std::path::Path, key: &PrivateKey) -> String {
@@ -1796,6 +1920,278 @@ mod tests {
     .await
     .unwrap_err();
     assert!(matches!(error, SshTransportError::ConnectionFailed(_)));
+  }
+
+  // -- Certificate and key-source resolution -----------------------------------
+
+  /// Signs a user certificate for `subject` with `ca`, the way the control
+  /// plane's `issue_certificate` does, and returns its OpenSSH text.
+  fn issue_test_certificate(subject: &PrivateKey, ca: &PrivateKey, key_id: &str) -> String {
+    use russh::keys::ssh_key::certificate::{Builder, CertType};
+    let now = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .unwrap()
+      .as_secs();
+    let mut builder = Builder::new(
+      vec![7u8; 32],
+      subject.public_key().key_data().clone(),
+      now - 60,
+      now + 600,
+    )
+    .unwrap();
+    builder.cert_type(CertType::User).unwrap();
+    builder.key_id(key_id).unwrap();
+    builder.all_principals_valid().unwrap();
+    builder.sign(ca).unwrap().to_openssh().unwrap()
+  }
+
+  fn certificate_endpoint(
+    addr: std::net::SocketAddr,
+    host_key: &PrivateKey,
+    key_reference: String,
+    certificate: Option<String>,
+  ) -> SshEndpoint {
+    let mut endpoint = test_endpoint(addr, host_key, String::new());
+    endpoint.authentication = SshAuthentication::Certificate {
+      key_reference,
+      certificate,
+    };
+    endpoint
+  }
+
+  async fn inspect(
+    pool: &SshConnectionPool,
+    endpoint: &SshEndpoint,
+  ) -> Result<ExecOutput, SshTransportError> {
+    exec_command(
+      pool,
+      endpoint,
+      &["repo".to_string(), "inspect".to_string()],
+      ExecLimits::default(),
+      &CancellationToken::new(),
+    )
+    .await
+  }
+
+  fn assert_key_material_error(error: SshTransportError, expected: &str) {
+    match error {
+      SshTransportError::KeyMaterialUnavailable(message) => assert!(
+        message.contains(expected),
+        "expected {expected:?} in {message:?}"
+      ),
+      other => panic!("expected KeyMaterialUnavailable, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn resolves_a_public_key_reference_to_its_private_key_path() {
+    assert_eq!(
+      ClientAuthenticator::resolve_private_key_path("/keys/id_ed25519.pub"),
+      PathBuf::from("/keys/id_ed25519")
+    );
+    assert_eq!(
+      ClientAuthenticator::resolve_private_key_path("/keys/id_ed25519-cert.pub"),
+      PathBuf::from("/keys/id_ed25519")
+    );
+    assert_eq!(
+      ClientAuthenticator::resolve_private_key_path("/keys/id_ed25519"),
+      PathBuf::from("/keys/id_ed25519")
+    );
+  }
+
+  #[tokio::test]
+  async fn authenticates_with_an_inline_certificate_and_a_pub_key_reference() {
+    let (addr, host_key, certificate_log) = start_mock_server_with_certificate_log(0).await;
+    let client_key = test_host_key();
+    let ca_key = test_host_key();
+    let temp_dir = tempfile::tempdir().unwrap();
+    // The desktop identity picker hands out the `.pub` path; no
+    // `-cert.pub` file exists, so the inline certificate must be used.
+    let key_reference = format!("{}.pub", write_client_key(temp_dir.path(), &client_key));
+    let certificate = issue_test_certificate(&client_key, &ca_key, "inline-cert");
+    let endpoint = certificate_endpoint(addr, &host_key, key_reference, Some(certificate));
+
+    let output = inspect(&SshConnectionPool::new(), &endpoint).await.unwrap();
+
+    assert!(output.success());
+    assert_eq!(*certificate_log.lock().unwrap(), vec!["inline-cert"]);
+  }
+
+  #[tokio::test]
+  async fn falls_back_to_the_cert_file_next_to_the_key_without_an_inline_certificate() {
+    let (addr, host_key, certificate_log) = start_mock_server_with_certificate_log(0).await;
+    let client_key = test_host_key();
+    let ca_key = test_host_key();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let key_reference = write_client_key(temp_dir.path(), &client_key);
+    std::fs::write(
+      format!("{key_reference}-cert.pub"),
+      issue_test_certificate(&client_key, &ca_key, "file-cert"),
+    )
+    .unwrap();
+    let endpoint = certificate_endpoint(addr, &host_key, key_reference, None);
+
+    inspect(&SshConnectionPool::new(), &endpoint).await.unwrap();
+
+    assert_eq!(*certificate_log.lock().unwrap(), vec!["file-cert"]);
+  }
+
+  #[tokio::test]
+  async fn rejects_a_certificate_issued_for_a_different_key() {
+    let (addr, host_key) = start_mock_server(0).await;
+    let client_key = test_host_key();
+    let other_key = test_host_key();
+    let ca_key = test_host_key();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let key_reference = write_client_key(temp_dir.path(), &client_key);
+    let certificate = issue_test_certificate(&other_key, &ca_key, "wrong-key");
+    let endpoint = certificate_endpoint(addr, &host_key, key_reference, Some(certificate));
+
+    let error = inspect(&SshConnectionPool::new(), &endpoint)
+      .await
+      .unwrap_err();
+
+    assert_key_material_error(error, "different key");
+  }
+
+  #[tokio::test]
+  async fn rejects_unparseable_inline_certificate_text() {
+    let (addr, host_key) = start_mock_server(0).await;
+    let client_key = test_host_key();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let key_reference = write_client_key(temp_dir.path(), &client_key);
+    let endpoint = certificate_endpoint(
+      addr,
+      &host_key,
+      key_reference,
+      Some("not a certificate".to_string()),
+    );
+
+    let error = inspect(&SshConnectionPool::new(), &endpoint)
+      .await
+      .unwrap_err();
+
+    assert_key_material_error(error, "failed to parse the issued certificate");
+  }
+
+  #[tokio::test]
+  async fn reports_a_missing_private_key_as_unavailable_key_material() {
+    let (addr, host_key) = start_mock_server(0).await;
+    let client_key = test_host_key();
+    let ca_key = test_host_key();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let missing = temp_dir.path().join("id_missing.pub");
+    let certificate = issue_test_certificate(&client_key, &ca_key, "missing-key");
+    let endpoint = certificate_endpoint(
+      addr,
+      &host_key,
+      missing.to_string_lossy().into_owned(),
+      Some(certificate),
+    );
+
+    let error = inspect(&SshConnectionPool::new(), &endpoint)
+      .await
+      .unwrap_err();
+
+    assert_key_material_error(error, "failed to load private key");
+  }
+
+  #[tokio::test]
+  async fn rejects_the_device_keystore_reference_without_a_device_key_provider() {
+    let (addr, host_key) = start_mock_server(0).await;
+    let client_key = test_host_key();
+    let ca_key = test_host_key();
+    let certificate = issue_test_certificate(&client_key, &ca_key, "device");
+    let endpoint = certificate_endpoint(
+      addr,
+      &host_key,
+      DEVICE_KEYSTORE_KEY_REFERENCE.to_string(),
+      Some(certificate),
+    );
+
+    // A plain pool is what desktop builds use.
+    let error = inspect(&SshConnectionPool::new(), &endpoint)
+      .await
+      .unwrap_err();
+
+    assert_key_material_error(error, "only available in the mobile app");
+  }
+
+  #[tokio::test]
+  async fn authenticates_the_device_keystore_reference_through_the_provider() {
+    let (addr, host_key, certificate_log) = start_mock_server_with_certificate_log(0).await;
+    let device_key = test_host_key();
+    let ca_key = test_host_key();
+    let certificate = issue_test_certificate(&device_key, &ca_key, "device-cert");
+    let endpoint = certificate_endpoint(
+      addr,
+      &host_key,
+      DEVICE_KEYSTORE_KEY_REFERENCE.to_string(),
+      Some(certificate),
+    );
+    let provided = device_key.clone();
+    let pool = SshConnectionPool::new().with_device_key_provider(Arc::new(move || {
+      let key = provided.clone();
+      Box::pin(async move { Ok(key) })
+    }));
+
+    inspect(&pool, &endpoint).await.unwrap();
+
+    assert_eq!(*certificate_log.lock().unwrap(), vec!["device-cert"]);
+  }
+
+  #[tokio::test]
+  async fn requires_an_inline_certificate_for_the_device_keystore_reference() {
+    let (addr, host_key) = start_mock_server(0).await;
+    let device_key = test_host_key();
+    let endpoint = certificate_endpoint(
+      addr,
+      &host_key,
+      DEVICE_KEYSTORE_KEY_REFERENCE.to_string(),
+      None,
+    );
+    let pool = SshConnectionPool::new().with_device_key_provider(Arc::new(move || {
+      let key = device_key.clone();
+      Box::pin(async move { Ok(key) })
+    }));
+
+    let error = inspect(&pool, &endpoint).await.unwrap_err();
+
+    assert_key_material_error(error, "must carry the issued certificate inline");
+  }
+
+  #[tokio::test]
+  async fn uses_the_renewed_certificate_for_the_next_new_connection() {
+    let (addr, host_key, certificate_log) = start_mock_server_with_certificate_log(0).await;
+    let client_key = test_host_key();
+    let ca_key = test_host_key();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let key_reference = write_client_key(temp_dir.path(), &client_key);
+    let first = certificate_endpoint(
+      addr,
+      &host_key,
+      key_reference.clone(),
+      Some(issue_test_certificate(&client_key, &ca_key, "first")),
+    );
+    let renewed = certificate_endpoint(
+      addr,
+      &host_key,
+      key_reference,
+      Some(issue_test_certificate(&client_key, &ca_key, "renewed")),
+    );
+    let pool = SshConnectionPool::new();
+
+    inspect(&pool, &first).await.unwrap();
+    // The open connection keeps running on the certificate it was
+    // authenticated with; renewal must not force a reconnect.
+    inspect(&pool, &renewed).await.unwrap();
+    assert_eq!(*certificate_log.lock().unwrap(), vec!["first"]);
+
+    // Once that connection goes away, the next one presents the renewed
+    // certificate the caller passed in.
+    pool.mark_dead(&renewed).await;
+    inspect(&pool, &renewed).await.unwrap();
+    assert_eq!(*certificate_log.lock().unwrap(), vec!["first", "renewed"]);
   }
 
   #[test]

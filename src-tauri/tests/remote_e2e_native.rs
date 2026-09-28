@@ -7,7 +7,6 @@
 //! Run:
 //! `TREQ_REMOTE_E2E=1 TREQ_REMOTE_E2E_NATIVE=1 cargo test --test remote_e2e_native -- --ignored --test-threads=1`
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use russh::keys::PrivateKey;
@@ -324,8 +323,6 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
   .await;
   assert_eq!(issue_status, 200, "issue_certificate failed: {issue_json}");
   let cert_line = issue_json["certificate"].as_str().expect("certificate");
-  let cert_path = PathBuf::from(format!("{key_path}-cert.pub"));
-  std::fs::write(&cert_path, cert_line).expect("write cert");
 
   let endpoint_json = &issue_json["endpoint"];
   let host_keys = host_keys_from(endpoint_json);
@@ -356,6 +353,7 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     host_keys,
     authentication: SshAuthentication::Certificate {
       key_reference: key_path.clone(),
+      certificate: Some(cert_line.to_string()),
     },
   };
 
@@ -585,13 +583,15 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
     );
   }
 
-  std::fs::write(
-    &cert_path,
-    issue2["certificate"]
-      .as_str()
-      .expect("reissued certificate"),
-  )
-  .expect("write reissued cert");
+  endpoint.authentication = SshAuthentication::Certificate {
+    key_reference: key_path.clone(),
+    certificate: Some(
+      issue2["certificate"]
+        .as_str()
+        .expect("reissued certificate")
+        .to_string(),
+    ),
+  };
   endpoint.hostname = issue2["endpoint"]["hostname"]
     .as_str()
     .unwrap_or(&endpoint.hostname)
