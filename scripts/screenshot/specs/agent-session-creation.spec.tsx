@@ -1,9 +1,7 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { createTestRepo, openRepo } from "../../../test/utils";
+import { installFakeAgents } from "../../../test/fake-agent";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import { createWorkspace, getSessions } from "../../../src/lib/api";
@@ -17,15 +15,7 @@ const PROMPT = "Add input validation to the signup form";
 // submit with "Edit". A fake `claude` binary on PATH stands in for the real
 // agent so the spawned terminal has something to run.
 it("captures agent session creation from the prompt dialog", async () => {
-  const fakeAgentDir = mkdtempSync(join(tmpdir(), "treq-agent-create-"));
-  const fakeAgentPath = join(fakeAgentDir, "claude");
-  writeFileSync(
-    fakeAgentPath,
-    "#!/bin/sh\nprintf 'agent started\\n'\nsleep 5\n",
-  );
-  chmodSync(fakeAgentPath, 0o755);
-  const originalPath = process.env.PATH;
-  process.env.PATH = `${fakeAgentDir}:${originalPath ?? ""}`;
+  const restoreAgents = installFakeAgents();
 
   try {
     const { repoPath, defaultBranch } = createTestRepo(false);
@@ -117,15 +107,22 @@ it("captures agent session creation from the prompt dialog", async () => {
       }),
     ).toBeInTheDocument();
 
+    const pane = screen.getByTestId("workspace-terminal-pane");
+    await within(pane).findByText(
+      `prompt: ${PROMPT}`,
+      {},
+      { timeout: 15000 },
+    );
+
     await captureDocument(document, {
       name: "agent-session-creation-03-session-started",
       expectations: [
-        "The prompt dialog is closed and an agent terminal pane is open with a tab titled with the prompt.",
+        `The prompt dialog is closed and the agent terminal shows the fake agent's output, ending with 'prompt: ${PROMPT}'.`,
         `The terminal tab carries a '${TARGET_BRANCH}' badge naming the session's workspace.`,
         `The page stays on the home repo: the header and highlighted sidebar row show the default branch, not ${TARGET_BRANCH}.`,
       ],
     });
   } finally {
-    process.env.PATH = originalPath;
+    restoreAgents();
   }
 }, 120000);

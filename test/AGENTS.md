@@ -43,3 +43,11 @@ describe("workspace header", () => {
 - Assert visible text or ARIA roles, not internal state or which private functions ran
 - Keep `beforeEach` minimal; move complex repo setup into the test or a shared helper
 - Never mock the Rust backend in integration tests; use the real NAPI dispatch
+
+## Fake agent terminals
+
+Tests never run a real agent CLI. To start agent sessions with a working terminal, call `installFakeAgents()` from `test/fake-agent.ts` and restore it afterwards (`try/finally` or `onTestFinished(installFakeAgents())`).
+
+- `test/fake-agent/fake-agent.sh` stands in for `claude`, `codex`, `cursor-agent` and `copilot`. It prints `fake-agent: <cli>`, `mode:`, `model:`, `session:`, `ready` and `prompt:` lines, then echoes each typed line as `received: <line>`.
+- The helper sets `TREQ_TEST_PTY=1`, so the backend spawns a real PTY without a Tauri `AppHandle`. PTY output reaches the mocked `listen()` through `test/test-event-bus.ts`, and xterm renders it, so `within(pane).findByText("mode: plan")` works.
+- Without the helper, PTYs do not spawn in tests (the previous behavior).

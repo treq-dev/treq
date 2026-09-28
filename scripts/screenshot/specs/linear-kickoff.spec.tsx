@@ -16,9 +16,6 @@ import type {
   LinearTeam,
   LinearUser,
 } from "../../../src/lib/api-linear";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   createWorkspace,
   getSessions,
@@ -30,6 +27,7 @@ import {
   findSidebarBranchElement,
   openRepo,
 } from "../../../test/utils";
+import { installFakeAgents } from "../../../test/fake-agent";
 import { captureDocument } from "../capture";
 
 const {
@@ -179,18 +177,6 @@ it("kicks off an agent prompt from a Linear issue in Kanban view", async () => {
   });
 }, 60000);
 
-function withFakeClaude() {
-  const dir = mkdtempSync(join(tmpdir(), "treq-linear-kickoff-"));
-  const bin = join(dir, "claude");
-  writeFileSync(bin, "#!/bin/sh\nprintf 'agent started\\n'\nsleep 5\n");
-  chmodSync(bin, 0o755);
-  const originalPath = process.env.PATH;
-  process.env.PATH = `${dir}:${originalPath ?? ""}`;
-  return () => {
-    process.env.PATH = originalPath;
-  };
-}
-
 async function openKickoffDialog(
   user: ReturnType<typeof userEvent.setup>,
   issueTitle: string,
@@ -207,7 +193,7 @@ async function openKickoffDialog(
 }
 
 it("starts an agent session in the Linear issue's workspace on submit", async () => {
-  const restorePath = withFakeClaude();
+  const restoreAgents = installFakeAgents();
   try {
     const { repoPath } = createTestRepo(false);
     openRepo(repoPath);
@@ -261,7 +247,7 @@ it("starts an agent session in the Linear issue's workspace on submit", async ()
       ],
     });
   } finally {
-    restorePath();
+    restoreAgents();
   }
 }, 120000);
 

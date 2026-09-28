@@ -78,6 +78,16 @@ is the worked example: it drives the whole "Stack" dialog (open it, type a branc
 name, submit) with `userEvent`, not the API helper, because workspace creation is
 part of the scenario being verified.
 
+## Agent sessions need the fake agent
+
+A spec that starts an agent session (Edit/Run/Plan, sidebar agent buttons,
+Cmd+]) must call `installFakeAgents()` from `test/fake-agent.ts`, e.g.
+`onTestFinished(installFakeAgents())`. Without it no PTY spawns and the
+terminal shows an error card. With it, the fake agent's `fake-agent:`,
+`mode:`, `model:` and `prompt:` lines render in the terminal, so assert on
+them with `within(pane).findByText(...)` before capturing. See
+`test/AGENTS.md` ("Fake agent terminals").
+
 ## References
 
 - `references/setup.md`: first-time environment setup for a fresh sandbox (npm deps, GTK/webkit packages, proxy CA trust). Read it only when `npm run build:napi` or `npm run screenshot` fails on a missing dependency.
