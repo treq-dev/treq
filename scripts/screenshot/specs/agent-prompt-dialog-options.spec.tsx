@@ -1,9 +1,7 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { createTestRepo, openRepo } from "../../../test/utils";
+import { installFakeAgents } from "../../../test/fake-agent";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import {
@@ -11,22 +9,6 @@ import {
   getSessions,
 } from "../../../src/lib/api";
 import { captureDocument } from "../capture";
-
-// Puts fake `claude` and `codex` binaries on PATH so spawned agent terminals
-// have something to run.
-function withFakeAgents() {
-  const dir = mkdtempSync(join(tmpdir(), "treq-agent-options-"));
-  for (const name of ["claude", "codex"]) {
-    const bin = join(dir, name);
-    writeFileSync(bin, "#!/bin/sh\nprintf 'agent started\\n'\nsleep 5\n");
-    chmodSync(bin, 0o755);
-  }
-  const originalPath = process.env.PATH;
-  process.env.PATH = `${dir}:${originalPath ?? ""}`;
-  return () => {
-    process.env.PATH = originalPath;
-  };
-}
 
 async function openPromptDialog(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByTestId("show-workspace-header");
@@ -37,7 +19,7 @@ async function openPromptDialog(user: ReturnType<typeof userEvent.setup>) {
 }
 
 it("switches the agent to Codex and saves it as the repo default on submit", async () => {
-  const restorePath = withFakeAgents();
+  const restoreAgents = installFakeAgents();
   try {
     const { repoPath } = createTestRepo(false);
     openRepo(repoPath);
@@ -100,12 +82,12 @@ it("switches the agent to Codex and saves it as the repo default on submit", asy
       ],
     });
   } finally {
-    restorePath();
+    restoreAgents();
   }
 }, 120000);
 
 it("inserts an @-mentioned file and submits with Cmd+Enter", async () => {
-  const restorePath = withFakeAgents();
+  const restoreAgents = installFakeAgents();
   try {
     const { repoPath } = createTestRepo(false);
     openRepo(repoPath);
@@ -158,6 +140,6 @@ it("inserts an @-mentioned file and submits with Cmd+Enter", async () => {
       ).toBe(true),
     );
   } finally {
-    restorePath();
+    restoreAgents();
   }
 }, 120000);

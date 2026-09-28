@@ -19,6 +19,11 @@ import { configure } from "@testing-library/dom";
 
 // Shared DOM polyfills, browser API stubs, Tauri plugin mocks, and hook mocks
 import "./setup.common";
+import {
+  closeTestPtys,
+  setTestEventSource,
+  trackPtyInvoke,
+} from "./test-event-bus";
 
 // tauri-test invoke runs on spawn_blocking. Kept just under the global 5s
 // test timeout (vitest.integration.config.ts) so a stuck waitFor reports a
@@ -42,7 +47,11 @@ process.env.TREQ_APP_DATA_DIR = path.dirname(testDbPath);
 const require = createRequire(import.meta.url);
 const tauriTest = require("../src-tauri/target") as {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+  drainTestEvents: () => { event: string; payload: string }[];
 };
+
+setTestEventSource(() => tauriTest.drainTestEvents());
+afterEach(() => closeTestPtys(tauriTest.invoke));
 
 // Tracks NAPI invoke() calls still in flight. Some UI polling (e.g. the
 // sidebar's workspace-status fetch) isn't cancelled on unmount, so a call
@@ -93,6 +102,7 @@ export function waitForPendingInvokes(
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((cmd: string, args?: Record<string, unknown>) => {
+    trackPtyInvoke(cmd, args);
     pendingInvokes++;
     const promise = tauriTest.invoke(cmd, args ?? {}).finally(() => {
       pendingInvokes--;

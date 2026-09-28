@@ -20,6 +20,11 @@ import { createRequire } from "node:module";
 import { afterAll, afterEach, vi } from "vitest";
 
 import "./setup.common";
+import {
+  closeTestPtys,
+  setTestEventSource,
+  trackPtyInvoke,
+} from "./test-event-bus";
 
 process.env.TREQ_DISABLE_AUTO_REBASE = "1";
 process.env.TREQ_DISABLE_AUTO_UPDATE = "1";
@@ -31,12 +36,17 @@ process.env.TREQ_APP_DATA_DIR = path.dirname(testDbPath);
 const require = createRequire(import.meta.url);
 const tauriTest = require("../src-tauri/target") as {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+  drainTestEvents: () => { event: string; payload: string }[];
 };
+
+setTestEventSource(() => tauriTest.drainTestEvents());
+afterEach(() => closeTestPtys(tauriTest.invoke));
 
 const jjCalls: string[] = [];
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((cmd: string, args?: Record<string, unknown>) => {
+    trackPtyInvoke(cmd, args);
     if (cmd.startsWith("jj_")) {
       jjCalls.push(cmd);
     }

@@ -1,7 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, onTestFinished } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
   commitWorkspaceFile,
@@ -11,6 +8,7 @@ import {
   resolveWorkspacePath,
   writeWorkspaceFile,
 } from "../../../test/utils";
+import { installFakeAgents } from "../../../test/fake-agent";
 import {
   checkAndRebaseWorkspaces,
   createCommit,
@@ -27,15 +25,7 @@ import { captureDocument } from "../capture";
 // conflicted -- the same for every workspace whether or not it has an open
 // agent session (an open session only makes the pip spin while it streams).
 it("shows the right git-state pip for sessioned and session-less workspaces", async () => {
-  const fakeAgentDir = mkdtempSync(join(tmpdir(), "treq-agent-spinner-"));
-  const fakeAgentPath = join(fakeAgentDir, "claude");
-  writeFileSync(
-    fakeAgentPath,
-    "#!/bin/sh\nprintf 'agent is working\\n'\nsleep 2\n",
-  );
-  chmodSync(fakeAgentPath, 0o755);
-  const originalPath = process.env.PATH;
-  process.env.PATH = `${fakeAgentDir}:${originalPath ?? ""}`;
+  onTestFinished(installFakeAgents());
 
   const { repoPath, defaultBranch } = createTestRepo(false);
   openRepo(repoPath);

@@ -53,6 +53,9 @@ mod e2e_test_helpers;
 mod tauri_test_bridge;
 
 #[cfg(feature = "tauri-test")]
+pub(crate) mod test_pty_events;
+
+#[cfg(feature = "tauri-test")]
 use crate::commands::CutoffReasonDto;
 #[cfg(feature = "tauri-test")]
 use crate::core::remote::TreqCommandRequest;
