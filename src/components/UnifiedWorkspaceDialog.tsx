@@ -371,7 +371,7 @@ export const UnifiedWorkspaceDialog: React.FC<UnifiedWorkspaceDialogProps> = ({
     title,
     sparsePaths,
     symlinkedDirs,
-    branchName,
+    branchName: branchName.trim(),
     moveToExisting,
     isHomeRepo,
     hasSourceWorkspace,

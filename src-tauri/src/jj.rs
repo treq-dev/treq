@@ -4694,6 +4694,39 @@ pub fn jj_set_bookmark(
   Ok(())
 }
 
+/// Rename a local bookmark in a single transaction: the new name takes the old
+/// name's target and the old name is removed.
+pub fn jj_rename_bookmark(
+  workspace_path: &str,
+  old_name: &str,
+  new_name: &str,
+) -> Result<(), JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let target = loaded
+    .repo
+    .view()
+    .get_local_bookmark(RefName::new(old_name))
+    .clone();
+  if target.is_absent() {
+    return Err(JjError::IoError(format!(
+      "Bookmark '{}' does not exist",
+      old_name
+    )));
+  }
+  let mut tx = loaded.repo.start_transaction();
+  tx.repo_mut()
+    .set_local_bookmark_target(RefName::new(new_name), target);
+  tx.repo_mut()
+    .set_local_bookmark_target(RefName::new(old_name), RefTarget::absent());
+  block_on(tx.commit("rename bookmark")).map_err(|e| {
+    JjError::IoError(format!(
+      "Failed to rename bookmark '{}' to '{}': {}",
+      old_name, new_name, e
+    ))
+  })?;
+  Ok(())
+}
+
 /// Delete a jj bookmark
 /// Uses: jj bookmark delete <name>
 pub fn jj_delete_bookmark(workspace_path: &str, bookmark_name: &str) -> Result<(), JjError> {
