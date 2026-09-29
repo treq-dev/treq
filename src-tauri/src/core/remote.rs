@@ -2647,6 +2647,7 @@ fn init_repo_path(repo_path: &str) -> Result<RepositoryInspection, String> {
   fs::create_dir_all(path)
     .map_err(|e| format!("filesystem_error: Failed to create {trimmed}: {e}"))?;
   if !path.join(".jj").is_dir() && !path.join(".git").exists() {
+    // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
     let output = Command::new("jj")
       .current_dir(path)
       .args(["git", "init", "--colocate", "."])
@@ -2668,6 +2669,7 @@ fn clone_repo_local(repo_url: &str, destination: &str) -> Result<RepositoryInspe
   }
   validate_remote_path(destination)?;
   enforce_disk_quota(Path::new(destination))?;
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let output = Command::new("git")
     .args(["clone", repo_url, destination])
     .output()
@@ -2699,6 +2701,7 @@ fn apply_remote_patch(
   enforce_disk_quota(Path::new(&workspace_path))?;
   let decoded = decode_base64(patch_base64.trim())
     .map_err(|e| format!("invalid_arguments: patch is not valid base64: {e}"))?;
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let mut child = Command::new("git")
     .current_dir(&workspace_path)
     .args(["apply", "--whitespace=nowarn", "--", path])

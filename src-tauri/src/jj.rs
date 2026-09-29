@@ -4874,7 +4874,7 @@ pub fn jj_edit_bookmark(repo_path: &str, bookmark_name: &str) -> Result<String, 
     CheckoutMode::Immediate,
   )?;
 
-  // For colocated repos, best-effort sync git HEAD and branch tip.
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let _ = binary_command("git")
     .current_dir(repo_path)
     .args([
@@ -4884,7 +4884,7 @@ pub fn jj_edit_bookmark(repo_path: &str, bookmark_name: &str) -> Result<String, 
       bookmark_name,
       &destination.id().hex(),
     ])
-    .output();
+    .output(); // Colocated repos: best-effort sync of git HEAD and branch tip.
 
   Ok(format!("Switched to {}", bookmark_name))
 }
@@ -5443,6 +5443,7 @@ pub fn jj_split(
 
   // Only checkout branch in git for main repo
   if repo_path.is_none() {
+    // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
     let checkout = binary_command("git")
       .current_dir(workspace_path)
       .args(["checkout", &branch])
@@ -6567,6 +6568,7 @@ pub fn jj_git_fetch(repo_path: &str) -> Result<String, JjError> {
   if !get_git_remotes(repo_path).contains("origin") {
     return Ok(String::new());
   }
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let output = binary_command("git")
     .current_dir(repo_path)
     .args(["fetch", "origin"])
