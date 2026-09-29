@@ -11,7 +11,11 @@
 // never assumes they are still trustworthy.
 
 import { getSetting, setSetting } from "./api";
-import type { SshAuthentication, TrustedHostKey } from "./api-types-remote";
+import type {
+  SshAuthentication,
+  SshEndpoint,
+  TrustedHostKey,
+} from "./api-types-remote";
 
 const ENDPOINTS_KEY = "remote_user_managed_endpoints";
 const SAVED_REPOS_KEY = "remote_saved_repositories";
@@ -134,4 +138,20 @@ export function publicKeyAuthentication(
   keyReference: string,
 ): SshAuthentication {
   return { type: "public_key", key_reference: keyReference };
+}
+
+/** The endpoint the native transport connects with for a saved user-managed host. */
+export function sshEndpointFromUserManaged(
+  record: UserManagedEndpointRecord,
+): SshEndpoint {
+  return {
+    id: record.id,
+    instance_id: null,
+    source: { type: "user_managed" },
+    hostname: record.hostname,
+    port: record.port,
+    username: record.username,
+    host_keys: [trustedHostKeyFromFingerprint(record.host_key_fingerprint)],
+    authentication: publicKeyAuthentication(record.auth_identity_reference),
+  };
 }

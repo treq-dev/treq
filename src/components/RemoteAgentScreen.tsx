@@ -5,6 +5,11 @@ import {
   dispatchMutationOverSsh,
 } from "../lib/remote-dispatch";
 import type { SshEndpoint } from "../lib/api-types-remote";
+import { useActionIdempotencyKeys } from "../lib/remote-idempotency";
+import {
+  MutationButton,
+  describeMutationOutcome,
+} from "./remote/RemoteScreenControls";
 
 interface AgentStatusResult {
   workspace: string;
@@ -18,10 +23,12 @@ interface AgentStatusResult {
 const AGENTS = ["claude", "codex", "cursor-agent", "copilot"];
 
 /**
- * Phase 4 (agent control): start/status/logs/stop/input against the
- * VM-local agent supervisor via typed `TreqCommandRequest` dispatch. Input
- * here is non-interactive (a single message sent to the agent's stdin via
- * `AgentInput`), not a live PTY attach - that is Phase 7/8's terminal path.
+ * Agent control (mobile PRD, "Agents"): start/status/logs/stop/input
+ * against the VM-local agent supervisor via typed `TreqCommandRequest`
+ * dispatch. Status comes from the VM on every mount, so reopening the app
+ * shows the agent as the VM reports it. Input here is non-interactive (a
+ * single message sent to the agent's stdin via `AgentInput`), not a live
+ * PTY attach; that is the terminal screen's job.
  */
 export function RemoteAgentScreen({
   endpoint,
@@ -37,6 +44,7 @@ export function RemoteAgentScreen({
   const [input, setInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const actionKeys = useActionIdempotencyKeys();
 
   const {
     data: status,
@@ -65,6 +73,12 @@ export function RemoteAgentScreen({
   async function startAgent() {
     setActionError(null);
     setBusy(true);
+    const idempotencyKey = actionKeys.keyFor("agent-start", [
+      repo,
+      workspace,
+      agent,
+      prompt,
+    ]);
     try {
       const result = await dispatchMutationOverSsh(endpoint, {
         kind: "AgentStart",
@@ -72,8 +86,9 @@ export function RemoteAgentScreen({
         workspace,
         agent,
         prompt,
-        idempotency_key: `agent-start:${workspace}:${Date.now()}`,
+        idempotency_key: idempotencyKey,
       });
+      actionKeys.settle(idempotencyKey, result);
       if (result.status === "ambiguous") {
         setActionError(`Could not confirm the agent started: ${result.reason}`);
       }
@@ -89,14 +104,20 @@ export function RemoteAgentScreen({
     if (!input.trim()) return;
     setActionError(null);
     setBusy(true);
+    const idempotencyKey = actionKeys.keyFor("agent-input", [
+      repo,
+      workspace,
+      input,
+    ]);
     try {
       const result = await dispatchMutationOverSsh(endpoint, {
         kind: "AgentInput",
         repo,
         workspace,
         input,
-        idempotency_key: `agent-input:${workspace}:${Date.now()}`,
+        idempotency_key: idempotencyKey,
       });
+      actionKeys.settle(idempotencyKey, result);
       if (result.status === "ambiguous") {
         setActionError(
           `Could not confirm the input was sent: ${result.reason}`,
@@ -112,22 +133,24 @@ export function RemoteAgentScreen({
     }
   }
 
+  // Stopping is a no-op when repeated, so `AgentStop` carries no
+  // idempotency key. It still goes through verify-before-retry, and an
+  // ambiguous result is shown rather than treated as stopped.
   async function stopAgent() {
     setActionError(null);
-    setBusy(true);
     try {
-      await dispatchMutationOverSsh(endpoint, {
+      const result = await dispatchMutationOverSsh(endpoint, {
         kind: "AgentStop",
         repo,
         workspace,
       });
-      await mutateStatus();
-      await mutateLogs();
+      const outcome = describeMutationOutcome(result);
+      if (outcome) setActionError(outcome);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
     }
+    await mutateStatus();
+    await mutateLogs();
   }
 
   return (
@@ -171,14 +194,13 @@ export function RemoteAgentScreen({
             >
               {busy ? "Sending..." : "Send input"}
             </button>
-            <button
-              type="button"
-              onClick={stopAgent}
+            <MutationButton
+              label="Stop agent"
+              confirmLabel="Confirm stop"
+              variant="destructive"
               disabled={busy}
-              className="rounded-md border px-3 py-2 text-sm text-destructive"
-            >
-              {busy ? "Stopping..." : "Stop agent"}
-            </button>
+              onConfirm={stopAgent}
+            />
           </div>
         </div>
       ) : (

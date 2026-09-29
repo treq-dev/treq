@@ -197,10 +197,13 @@ vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
 
 // ── Tauri API / plugin stubs (identical in both suites) ───────────────────────
 
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
-  emit: vi.fn(),
-}));
+vi.mock("@tauri-apps/api/event", async () => {
+  const { listenOnTestBus } = await import("./test-event-bus");
+  return {
+    listen: vi.fn(listenOnTestBus),
+    emit: vi.fn(),
+  };
+});
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({

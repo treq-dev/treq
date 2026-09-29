@@ -282,8 +282,18 @@ fn check_gh_output(output: std::process::Output) -> Result<Vec<u8>, String> {
   }
 }
 
-fn parse_number_from_url(url: &str) -> Option<u64> {
-  url.trim().rsplit('/').next()?.parse().ok()
+/// Parse `<n>` from a `gh ... create` output line shaped like
+/// `https://github.com/<owner>/<repo>/<kind>/<n>`, where `kind` is `issues` or
+/// `pull`. gh can print other lines before the URL (template notices, push
+/// output), and any of those can end in a number.
+fn parse_number_from_url(line: &str, kind: &str) -> Option<u64> {
+  let line = line.trim();
+  if !line.starts_with("https://") && !line.starts_with("http://") {
+    return None;
+  }
+  let mut segments = line.rsplit('/');
+  let number = segments.next()?.parse().ok()?;
+  (segments.next()? == kind).then_some(number)
 }
 
 pub const GH_LIST_PAGE_SIZE: u32 = 30;
@@ -293,6 +303,10 @@ pub const GH_LIST_PAGE_SIZE: u32 = 30;
 pub struct GhListPage<T> {
   pub items: Vec<T>,
   pub has_more: bool,
+  /// Cursor to pass as `after` for the next page. Only cursor-paged lists
+  /// (issues) set it; offset-paged lists (PRs) leave it `None`.
+  #[serde(default)]
+  pub end_cursor: Option<String>,
 }
 
 /// Given items fetched with `--limit (limit * page)`, return the requested page slice.
@@ -306,7 +320,97 @@ pub fn take_list_page<T>(fetched: Vec<T>, limit: u32, page: u32) -> GhListPage<T
   } else {
     fetched.into_iter().skip(start).take(limit).collect()
   };
-  GhListPage { items, has_more }
+  GhListPage {
+    items,
+    has_more,
+    end_cursor: None,
+  }
+}
+
+/// One page of `repository.issues`, newest first. GitHub's cursor marks a
+/// position in the list, so the next page starts after the last issue this
+/// page returned even if issues were opened in between. `gh issue list` has
+/// no cursor, so this goes through `gh api graphql`.
+const ISSUES_PAGE_QUERY: &str = r#"query($owner: String!, $name: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    issues(first: $first, after: $after, STATES orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes {
+        number title state url createdAt updatedAt
+        author { login }
+        labels(first: 20) { nodes { name color } }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}"#;
+
+#[derive(serde::Deserialize)]
+struct IssuesPageResponse {
+  data: IssuesPageData,
+}
+
+#[derive(serde::Deserialize)]
+struct IssuesPageData {
+  repository: IssuesPageRepository,
+}
+
+#[derive(serde::Deserialize)]
+struct IssuesPageRepository {
+  issues: IssuesPageConnection,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssuesPageConnection {
+  nodes: Vec<IssuesPageNode>,
+  page_info: IssuesPageInfo,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssuesPageInfo {
+  has_next_page: bool,
+  end_cursor: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssuesPageNode {
+  number: u64,
+  title: String,
+  state: String,
+  url: String,
+  created_at: String,
+  updated_at: String,
+  /// Null when the author's account was deleted.
+  author: Option<GhAuthor>,
+  labels: IssuesPageLabels,
+}
+
+#[derive(serde::Deserialize)]
+struct IssuesPageLabels {
+  nodes: Vec<GhLabel>,
+}
+
+impl From<IssuesPageNode> for GhIssue {
+  fn from(node: IssuesPageNode) -> Self {
+    GhIssue {
+      number: node.number,
+      title: node.title,
+      state: node.state,
+      url: node.url,
+      body: None,
+      // GitHub shows deleted accounts as "ghost"; gh issue list did too.
+      author: node.author.unwrap_or_else(|| GhAuthor {
+        login: "ghost".to_string(),
+        avatar_url: None,
+      }),
+      labels: node.labels.nodes,
+      created_at: node.created_at,
+      updated_at: node.updated_at,
+      comments: None,
+    }
+  }
 }
 
 pub fn gh_list_issues_impl(
@@ -314,32 +418,41 @@ pub fn gh_list_issues_impl(
   repo_full_name: &str,
   state: &str,
   limit: u32,
-  page: u32,
+  after: Option<&str>,
   extended_path: &str,
 ) -> Result<GhListPage<GhIssue>, String> {
-  let limit = limit.max(1);
-  let page = page.max(1);
-  let fetch_limit = (limit * page).to_string();
-  let out = run_gh(
-    gh_path,
-    &[
-      "issue",
-      "list",
-      "--repo",
-      repo_full_name,
-      "--state",
-      state,
-      "--json",
-      "number,title,state,url,author,labels,createdAt,updatedAt",
-      "--limit",
-      &fetch_limit,
-    ],
-    extended_path,
-  )?;
+  let (owner, name) = repo_full_name
+    .split_once('/')
+    .filter(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
+    .ok_or_else(|| format!("Expected an OWNER/REPO name, got: {repo_full_name}"))?;
+  // The state becomes GraphQL text, so only these fixed values reach it.
+  let states = match state {
+    "open" => "states: [OPEN],",
+    "closed" => "states: [CLOSED],",
+    "all" => "",
+    other => return Err(format!("Unknown issue state: {other}")),
+  };
+  let query = format!("query={}", ISSUES_PAGE_QUERY.replace("STATES ", states));
+  let owner = format!("owner={owner}");
+  let name = format!("name={name}");
+  let first = format!("first={}", limit.clamp(1, 100));
+  let after = after.map(|cursor| format!("after={cursor}"));
+  let mut args = vec![
+    "api", "graphql", "-f", &query, "-f", &owner, "-f", &name, "-F", &first,
+  ];
+  if let Some(after) = &after {
+    args.extend(["-f", after]);
+  }
+  let out = run_gh(gh_path, &args, extended_path)?;
   let bytes = check_gh_output(out)?;
-  let fetched: Vec<GhIssue> =
+  let response: IssuesPageResponse =
     serde_json::from_slice(&bytes).map_err(|e| format!("Failed to parse gh output: {e}"))?;
-  Ok(take_list_page(fetched, limit, page))
+  let issues = response.data.repository.issues;
+  Ok(GhListPage {
+    items: issues.nodes.into_iter().map(GhIssue::from).collect(),
+    has_more: issues.page_info.has_next_page,
+    end_cursor: issues.page_info.end_cursor,
+  })
 }
 
 pub fn gh_view_issue_impl(
@@ -391,7 +504,7 @@ pub fn gh_create_issue_impl(
   let bytes = check_gh_output(out)?;
   let text = String::from_utf8_lossy(&bytes);
   for line in text.lines() {
-    if let Some(n) = parse_number_from_url(line) {
+    if let Some(n) = parse_number_from_url(line, "issues") {
       return Ok(n);
     }
   }
@@ -423,7 +536,62 @@ pub fn gh_create_issue_comment_impl(
   check_gh_output(out).map(|_| ())
 }
 
+/// Close reasons `gh issue close --reason` accepts.
+const ISSUE_CLOSE_REASONS: [&str; 2] = ["completed", "not planned"];
+
 pub fn gh_close_issue_impl(
+  gh_path: &str,
+  repo_full_name: &str,
+  issue_number: u64,
+  reason: Option<&str>,
+  extended_path: &str,
+) -> Result<(), String> {
+  let num = issue_number.to_string();
+  let mut args = vec!["issue", "close", &num, "--repo", repo_full_name];
+  if let Some(reason) = reason {
+    if !ISSUE_CLOSE_REASONS.contains(&reason) {
+      return Err(format!("Unknown issue close reason: {reason}"));
+    }
+    args.extend(["--reason", reason]);
+  }
+  let out = run_gh(gh_path, &args, extended_path)?;
+  check_gh_output(out).map(|_| ())
+}
+
+/// Replace an issue's title and body. The body goes over stdin, like
+/// `gh_create_issue_impl`, so its size and content never hit argv.
+pub fn gh_edit_issue_impl(
+  gh_path: &str,
+  repo_full_name: &str,
+  issue_number: u64,
+  title: &str,
+  body: &str,
+  extended_path: &str,
+) -> Result<(), String> {
+  let num = issue_number.to_string();
+  let out = run_gh_with_stdin(
+    gh_path,
+    &[
+      "issue",
+      "edit",
+      &num,
+      "--repo",
+      repo_full_name,
+      "--title",
+      title,
+      "--body-file",
+      "-",
+    ],
+    body,
+    extended_path,
+  )?;
+  check_gh_output(out).map(|_| ())
+}
+
+/// Delete an issue. GitHub allows this only for repo admins; gh reports the
+/// permission error otherwise. `--yes` skips gh's interactive prompt, so the
+/// caller must confirm with the user first.
+pub fn gh_delete_issue_impl(
   gh_path: &str,
   repo_full_name: &str,
   issue_number: u64,
@@ -432,7 +600,7 @@ pub fn gh_close_issue_impl(
   let num = issue_number.to_string();
   let out = run_gh(
     gh_path,
-    &["issue", "close", &num, "--repo", repo_full_name],
+    &["issue", "delete", &num, "--repo", repo_full_name, "--yes"],
     extended_path,
   )?;
   check_gh_output(out).map(|_| ())
@@ -611,7 +779,7 @@ pub fn gh_create_pr_impl(
   let bytes = check_gh_output(out)?;
   let text = String::from_utf8_lossy(&bytes);
   for line in text.lines() {
-    if let Some(n) = parse_number_from_url(line) {
+    if let Some(n) = parse_number_from_url(line, "pull") {
       return Ok(n);
     }
   }
@@ -1538,6 +1706,283 @@ echo 'https://github.com/owner/repo/pull/8'"#,
 
     assert_eq!(number, 3);
     assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_issue_skips_numeric_lines_that_are_not_the_issue_url() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "cat > /dev/null\necho 'Using template .github/ISSUE_TEMPLATE/2'\necho 'https://github.com/owner/repo/issues/8'",
+    );
+
+    let number = gh_create_issue_impl(&gh_path, "owner/repo", "T", "", "/usr/bin:/bin").unwrap();
+
+    assert_eq!(number, 8);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_issue_errors_when_output_has_no_issue_url() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "cat > /dev/null\necho 'https://github.com/owner/repo/pull/8'",
+    );
+
+    let err = gh_create_issue_impl(&gh_path, "owner/repo", "T", "", "/usr/bin:/bin").unwrap_err();
+
+    assert!(err.contains("Could not parse issue number"), "{err}");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_create_pr_skips_numeric_lines_that_are_not_the_pr_url() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "cat > /dev/null\necho 'Pushed branch feat/2'\necho 'https://github.com/owner/repo/pull/5'",
+    );
+
+    let number = gh_create_pr_impl(
+      &gh_path,
+      "owner/repo",
+      "T",
+      "",
+      "main",
+      "feat/2",
+      false,
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    assert_eq!(number, 5);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_close_issue_passes_the_close_reason() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "issue close 4 --repo owner/repo --reason not planned" || exit 9"#,
+    );
+
+    gh_close_issue_impl(
+      &gh_path,
+      "owner/repo",
+      4,
+      Some("not planned"),
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_close_issue_omits_reason_when_none_given() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "issue close 4 --repo owner/repo" || exit 9"#,
+    );
+
+    gh_close_issue_impl(&gh_path, "owner/repo", 4, None, "/usr/bin:/bin").unwrap();
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_close_issue_rejects_unknown_reason_without_running_gh() {
+    let bin_dir = TempDir::new().unwrap();
+    let marker = bin_dir.path().join("ran");
+    let gh_path = write_fake_gh(&bin_dir, &format!("touch '{}'", marker.display()));
+
+    let err = gh_close_issue_impl(
+      &gh_path,
+      "owner/repo",
+      4,
+      Some("duplicate"),
+      "/usr/bin:/bin",
+    )
+    .unwrap_err();
+
+    assert!(err.contains("duplicate"), "{err}");
+    assert!(!marker.exists());
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_edit_issue_sends_title_as_arg_and_body_over_stdin() {
+    let bin_dir = TempDir::new().unwrap();
+    let body_path = bin_dir.path().join("body");
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        "test \"$*\" = \"issue edit 6 --repo owner/repo --title New title --body-file -\" || exit 9\ncat > '{}'",
+        body_path.display()
+      ),
+    );
+    let body = oversized_body();
+
+    gh_edit_issue_impl(
+      &gh_path,
+      "owner/repo",
+      6,
+      "New title",
+      &body,
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_edit_issue_reports_gh_error() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "cat > /dev/null\necho 'GraphQL: Could not resolve to an issue' >&2\nexit 1",
+    );
+
+    let err = gh_edit_issue_impl(&gh_path, "owner/repo", 6, "T", "", "/usr/bin:/bin").unwrap_err();
+
+    assert!(err.contains("Could not resolve to an issue"), "{err}");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_delete_issue_confirms_non_interactively() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "issue delete 6 --repo owner/repo --yes" || exit 9"#,
+    );
+
+    gh_delete_issue_impl(&gh_path, "owner/repo", 6, "/usr/bin:/bin").unwrap();
+  }
+
+  const ISSUES_GRAPHQL_PAGE: &str = r#"{"data":{"repository":{"issues":{"nodes":[{"number":9,"title":"Newest","state":"OPEN","url":"https://github.com/owner/repo/issues/9","createdAt":"2026-01-02T00:00:00Z","updatedAt":"2026-01-03T00:00:00Z","author":{"login":"alice"},"labels":{"nodes":[{"name":"bug","color":"d73a4a"}]}},{"number":8,"title":"From a deleted account","state":"CLOSED","url":"https://github.com/owner/repo/issues/8","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","author":null,"labels":{"nodes":[]}}],"pageInfo":{"hasNextPage":true,"endCursor":"Y3Vyc29yOjg="}}}}}"#;
+
+  /// Fake gh that records each argument (one per `\0`-terminated record) and
+  /// prints `stdout`.
+  fn write_recording_gh(dir: &TempDir, stdout: &str) -> (String, std::path::PathBuf) {
+    let args_path = dir.path().join("args");
+    let out_path = dir.path().join("out.json");
+    fs::write(&out_path, stdout).unwrap();
+    let gh = write_fake_gh(
+      dir,
+      &format!(
+        "for a in \"$@\"; do printf '%s\\0' \"$a\"; done > '{}'\ncat '{}'",
+        args_path.display(),
+        out_path.display()
+      ),
+    );
+    (gh, args_path)
+  }
+
+  fn recorded_args(path: &std::path::Path) -> Vec<String> {
+    fs::read_to_string(path)
+      .unwrap()
+      .split('\0')
+      .filter(|a| !a.is_empty())
+      .map(str::to_string)
+      .collect()
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_list_issues_reads_one_graphql_page_with_its_cursor() {
+    let bin_dir = TempDir::new().unwrap();
+    let (gh_path, args_path) = write_recording_gh(&bin_dir, ISSUES_GRAPHQL_PAGE);
+
+    let page =
+      gh_list_issues_impl(&gh_path, "owner/repo", "open", 30, None, "/usr/bin:/bin").unwrap();
+
+    let args = recorded_args(&args_path);
+    assert_eq!(&args[..2], ["api", "graphql"]);
+    assert!(args.contains(&"owner=owner".to_string()), "{args:?}");
+    assert!(args.contains(&"name=repo".to_string()), "{args:?}");
+    assert!(args.contains(&"first=30".to_string()), "{args:?}");
+    assert!(!args.iter().any(|a| a.starts_with("after=")), "{args:?}");
+    let query = args.iter().find(|a| a.starts_with("query=")).unwrap();
+    assert!(query.contains("states: [OPEN]"), "{query}");
+
+    assert!(page.has_more);
+    assert_eq!(page.end_cursor.as_deref(), Some("Y3Vyc29yOjg="));
+    let numbers: Vec<u64> = page.items.iter().map(|i| i.number).collect();
+    assert_eq!(numbers, [9, 8]);
+    let newest = &page.items[0];
+    assert_eq!(newest.title, "Newest");
+    assert_eq!(newest.state, "OPEN");
+    assert_eq!(newest.author.login, "alice");
+    assert_eq!(newest.labels[0].name, "bug");
+    assert_eq!(newest.created_at, "2026-01-02T00:00:00Z");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_list_issues_passes_the_after_cursor() {
+    let bin_dir = TempDir::new().unwrap();
+    let (gh_path, args_path) = write_recording_gh(&bin_dir, ISSUES_GRAPHQL_PAGE);
+
+    gh_list_issues_impl(
+      &gh_path,
+      "owner/repo",
+      "closed",
+      30,
+      Some("Y3Vyc29yOjg="),
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    let args = recorded_args(&args_path);
+    assert!(args.contains(&"after=Y3Vyc29yOjg=".to_string()), "{args:?}");
+    let query = args.iter().find(|a| a.starts_with("query=")).unwrap();
+    assert!(query.contains("states: [CLOSED]"), "{query}");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_list_issues_all_state_applies_no_state_filter() {
+    let bin_dir = TempDir::new().unwrap();
+    let (gh_path, args_path) = write_recording_gh(&bin_dir, ISSUES_GRAPHQL_PAGE);
+
+    gh_list_issues_impl(&gh_path, "owner/repo", "all", 30, None, "/usr/bin:/bin").unwrap();
+
+    let args = recorded_args(&args_path);
+    let query = args.iter().find(|a| a.starts_with("query=")).unwrap();
+    assert!(!query.contains("states:"), "{query}");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_list_issues_shows_a_deleted_author_as_ghost() {
+    let bin_dir = TempDir::new().unwrap();
+    let (gh_path, _) = write_recording_gh(&bin_dir, ISSUES_GRAPHQL_PAGE);
+
+    let page =
+      gh_list_issues_impl(&gh_path, "owner/repo", "open", 30, None, "/usr/bin:/bin").unwrap();
+
+    assert_eq!(page.items[1].author.login, "ghost");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_list_issues_rejects_bad_input_without_running_gh() {
+    let bin_dir = TempDir::new().unwrap();
+    let marker = bin_dir.path().join("ran");
+    let gh_path = write_fake_gh(&bin_dir, &format!("touch '{}'", marker.display()));
+
+    let bad_repo = gh_list_issues_impl(&gh_path, "no-slash", "open", 30, None, "/usr/bin:/bin");
+    let bad_state =
+      gh_list_issues_impl(&gh_path, "owner/repo", "merged", 30, None, "/usr/bin:/bin");
+
+    assert!(bad_repo.err().unwrap().contains("no-slash"));
+    assert!(bad_state.err().unwrap().contains("merged"));
+    assert!(!marker.exists());
   }
 
   #[test]

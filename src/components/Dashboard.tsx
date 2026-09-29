@@ -101,10 +101,11 @@ import { useLinearAutoKickoff } from "../hooks/useLinearAutoKickoff";
 import { useTrackerAutoKickoff } from "../hooks/useTrackerAutoKickoff";
 import { TRACKER_PROVIDERS, type TrackerProvider } from "../lib/trackers";
 import { openRepositoryAtPath as openRepositoryAtPathShared } from "../lib/open-repository";
-import type {
-  GitHubIssueAttachment,
-  LinearIssueAttachment,
-  TrackerItemAttachment,
+import {
+  issueFromGitHub,
+  issueFromLinear,
+  issueFromTrackerItem,
+  type IssueAttachment,
 } from "../lib/promptAttachments";
 import {
   deleteInstance as deleteManagedInstance,
@@ -120,10 +121,8 @@ import {
 import {
   listUserManagedEndpoints,
   saveUserManagedEndpoint,
-  trustedHostKeyFromFingerprint,
-  publicKeyAuthentication,
+  sshEndpointFromUserManaged,
   type SavedRemoteRepositoryRecord,
-  type UserManagedEndpointRecord,
 } from "../lib/remote-endpoints";
 import {
   dispatchMutationOverSsh,
@@ -149,6 +148,7 @@ import {
   type RenewalController,
 } from "../lib/managed-ssh-connection";
 import { startManagedCertificateRenewal } from "../lib/remote-cert-lifecycle";
+import { ensureRelayAccessTokenSync } from "../lib/remote-relay-auth";
 import { resolveRemoteTerminalTarget } from "../lib/remote-terminal-target";
 import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 import { remoteForceCutoff } from "../lib/api-extra";
@@ -231,21 +231,6 @@ import {
   type WorkspaceTerminalPaneHandle,
 } from "./WorkspaceTerminalPane";
 
-function sshEndpointFromUserManaged(
-  record: UserManagedEndpointRecord,
-): SshEndpoint {
-  return {
-    id: record.id,
-    instance_id: null,
-    source: { type: "user_managed" },
-    hostname: record.hostname,
-    port: record.port,
-    username: record.username,
-    host_keys: [trustedHostKeyFromFingerprint(record.host_key_fingerprint)],
-    authentication: publicKeyAuthentication(record.auth_identity_reference),
-  };
-}
-
 function generationFromEndpoint(
   endpoint: SshEndpoint,
   fallback: number,
@@ -324,9 +309,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [runPromptRequest, setRunPromptRequest] = useState<{
     prompt?: string;
     workspaceId: number | null;
-    githubIssue?: GitHubIssueAttachment | null;
-    linearIssue?: LinearIssueAttachment | null;
-    trackerItem?: TrackerItemAttachment | null;
+    issue?: IssueAttachment | null;
   } | null>(null);
   const [showBranchSwitcher, setShowBranchSwitcher] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
@@ -377,7 +360,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [activeRemoteRepo, setActiveRemoteRepo] =
     useState<RemoteRepository | null>(null);
 
-  // -- Phase 6: remote setup flow (managed + user-owned endpoints) ---------
+  // -- Remote setup flow (managed + user-owned endpoints) ------------------
   const [showRemoteSetupDialog, setShowRemoteSetupDialog] = useState(false);
   const [instanceStatus, setInstanceStatus] =
     useState<InstanceStatusResponse | null>(null);
@@ -594,6 +577,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }),
     startRenewal: (lease, onRenewed) =>
       startManagedCertificateRenewal(lease, onRenewed),
+    prepareRelay: () => ensureRelayAccessTokenSync(),
     clearCutoff: (endpointId) => clearRemoteCutoff(endpointId),
   });
 
@@ -1191,7 +1175,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Leave the workspace view only when the workspace on screen was removed.
   const leaveRemovedWorkspaces = (removedIds: ReadonlySet<number>) => {
-    if (selectedWorkspace && removedIds.has(selectedWorkspace.id)) {
+    // Removal retargets children, changing their commits-ahead counts.
+    void invalidateQueries(["workspace-status", queryRepoKey]);
+    if (!selectedWorkspace || !removedIds.has(selectedWorkspace.id)) return;
+    // Land on the removed workspace's stack parent rather than the home repo.
+    const parent = workspaces.find(
+      (workspace) =>
+        workspace.branch_name === selectedWorkspace.target_branch &&
+        !removedIds.has(workspace.id),
+    );
+    if (parent) {
+      setSelectedWorkspace(parent);
+      setActiveSessionId(null);
+    } else {
       handleReturnToDashboard();
     }
   };
@@ -1430,17 +1426,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         setShowTerminalMissionControl(false);
         return;
       }
-      if (unifiedDialogDefaults) setUnifiedDialogDefaults(null);
+      // UnifiedWorkspaceDialog handles its own Escape (it stays open mid-create).
       if (showCommandPalette) setShowCommandPalette(false);
       if (showFilePicker) setShowFilePicker(false);
       setShowKeyboardShortcuts(false);
     },
-    [
-      showTerminalMissionControl,
-      unifiedDialogDefaults,
-      showCommandPalette,
-      showFilePicker,
-    ],
+    [showTerminalMissionControl, showCommandPalette, showFilePicker],
   );
 
   useTwoFingerSwipe({
@@ -2051,6 +2042,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setSessionSelectedFile(options?.selectedFilePath ?? null);
   };
 
+  // A session started away from the visible terminal (a tracker kickoff, or a
+  // dialog pointed at another workspace) gets a toast instead of a jump.
+  const announceSessionStarted = async (
+    sessionId: number,
+    workspaceId: number | null,
+  ) => {
+    const known =
+      workspaceId == null || workspaces.some((ws) => ws.id === workspaceId)
+        ? workspaces
+        : await fetchAndCache(["workspaces", queryRepoKey], () =>
+            getWorkspaces(dataRepoPath),
+          ).catch(() => workspaces);
+    const workspace = known.find((ws) => ws.id === workspaceId) ?? null;
+    addToast({
+      title: "Session started",
+      description: `in ${workspace?.branch_name ?? effectiveDefaultBranch}`,
+      type: "success",
+      action: {
+        label: "Open",
+        onClick: () => {
+          handleSelectWorkspace(workspace);
+          setActiveSessionId(sessionId);
+        },
+      },
+    });
+  };
+
   const handleSessionCreated = (sessionData: {
     sessionId: number;
     workspaceId?: number | null;
@@ -2070,6 +2088,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       invalidateQueries(["workspace-statuses", queryRepoKey]);
     }
     setActiveSessionId(sessionData.sessionId);
+    const targetWorkspaceId = sessionData.workspaceId ?? null;
+    const onScreen =
+      isSessionView && (selectedWorkspace?.id ?? null) === targetWorkspaceId;
+    if (!onScreen) {
+      void announceSessionStarted(sessionData.sessionId, targetWorkspaceId);
+    }
     if (
       sessionData.pendingPrompt ||
       sessionData.permissionMode ||
@@ -2122,21 +2146,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setShowAgentPromptDialog(true);
   };
 
-  const handleStartPromptFromIssue = (issue: GitHubIssueAttachment) => {
-    setRunPromptRequest({
-      workspaceId: null,
-      githubIssue: issue,
-    });
-    setShowAgentPromptDialog(true);
-  };
-
-  const handleStartPromptFromLinearIssue = (issue: LinearIssueAttachment) => {
-    setRunPromptRequest({ workspaceId: null, linearIssue: issue });
-    setShowAgentPromptDialog(true);
-  };
-
-  const handleStartPromptFromTrackerItem = (item: TrackerItemAttachment) => {
-    setRunPromptRequest({ workspaceId: null, trackerItem: item });
+  // Every tracker panel starts a prompt the same way: attach the issue and
+  // open the shared prompt dialog.
+  const handleStartPromptFromIssue = (issue: IssueAttachment) => {
+    setRunPromptRequest({ workspaceId: null, issue });
     setShowAgentPromptDialog(true);
   };
 
@@ -2161,7 +2174,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       forceNew: true,
       agent,
     });
-    handleSessionCreated({ sessionId, agent });
+    handleSessionCreated({
+      sessionId,
+      workspaceId: selectedWorkspace?.id ?? null,
+      agent,
+    });
   };
 
   // Navigate to workspace without creating an agent session
@@ -3244,7 +3261,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <GitHubPanel
                   repoPath={dataRepoPath}
                   onOpenSettings={openSettings}
-                  onStartPromptFromIssue={handleStartPromptFromIssue}
+                  onStartPromptFromIssue={(issue) =>
+                    handleStartPromptFromIssue(issueFromGitHub(issue))
+                  }
                   onOpenWorkspace={async (workspaceId) => {
                     await invalidateQueries(["workspaces", queryRepoKey]);
                     invalidateQueries(["workspace-statuses", queryRepoKey]);
@@ -3266,7 +3285,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {viewMode === "linear" && linearIntegrationEnabled && (
                 <LinearPanel
                   repoPath={dataRepoPath}
-                  onStartPromptFromIssue={handleStartPromptFromLinearIssue}
+                  onStartPromptFromIssue={(issue) =>
+                    handleStartPromptFromIssue(issueFromLinear(issue))
+                  }
                 />
               )}
 
@@ -3277,7 +3298,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     key={viewMode}
                     provider={viewMode}
                     repoPath={dataRepoPath}
-                    onStartPromptFromItem={handleStartPromptFromTrackerItem}
+                    onStartPromptFromItem={(item) =>
+                      handleStartPromptFromIssue(issueFromTrackerItem(item))
+                    }
                   />
                 )}
 
@@ -3451,9 +3474,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onSessionCreated={handleSessionCreated}
             initialPrompt={runPromptRequest?.prompt}
             initialWorkspaceId={runPromptRequest?.workspaceId ?? null}
-            initialGitHubIssue={runPromptRequest?.githubIssue ?? null}
-            initialLinearIssue={runPromptRequest?.linearIssue ?? null}
-            initialTrackerItem={runPromptRequest?.trackerItem ?? null}
+            initialIssue={runPromptRequest?.issue ?? null}
           />
 
           <PromptHistoryModal

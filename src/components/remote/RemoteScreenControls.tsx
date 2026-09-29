@@ -20,10 +20,10 @@ export function RefreshButton({
 }
 
 /**
- * Phase 5 (controlled mutations): arm/confirm button wired to
- * `dispatchMutationOverSsh`. First press arms and shows a "Confirm" label;
- * a second press within the armed state actually dispatches, since Phase 5
- * requires explicit confirmation before any mutation goes out.
+ * Arm/confirm button wired to `dispatchMutationOverSsh`. First press arms
+ * and shows a "Confirm" label; a second press within the armed state
+ * actually dispatches, since the mobile PRD ("Mutations") requires explicit
+ * confirmation before any mutation goes out.
  */
 export function MutationButton({
   label,

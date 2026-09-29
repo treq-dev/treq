@@ -194,7 +194,7 @@ pub async fn gh_list_issues(
   repo_full_name: String,
   state: String,
   limit: Option<u32>,
-  page: Option<u32>,
+  after: Option<String>,
 ) -> Result<GhListPage<GhIssue>, String> {
   run_gh_blocking("gh_list_issues", move |gh, path| {
     crate::github::gh_list_issues_impl(
@@ -202,7 +202,7 @@ pub async fn gh_list_issues(
       &repo_full_name,
       &state,
       limit.unwrap_or(crate::github::GH_LIST_PAGE_SIZE),
-      page.unwrap_or(1),
+      after.as_deref(),
       path,
     )
   })
@@ -242,9 +242,34 @@ pub async fn gh_create_issue_comment(
 }
 
 #[tauri::command]
-pub async fn gh_close_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
+pub async fn gh_close_issue(
+  repo_full_name: String,
+  issue_number: u64,
+  reason: Option<String>,
+) -> Result<(), String> {
   run_gh_blocking("gh_close_issue", move |gh, path| {
-    crate::github::gh_close_issue_impl(gh, &repo_full_name, issue_number, path)
+    crate::github::gh_close_issue_impl(gh, &repo_full_name, issue_number, reason.as_deref(), path)
+  })
+  .await
+}
+
+#[tauri::command]
+pub async fn gh_edit_issue(
+  repo_full_name: String,
+  issue_number: u64,
+  title: String,
+  body: String,
+) -> Result<(), String> {
+  run_gh_blocking("gh_edit_issue", move |gh, path| {
+    crate::github::gh_edit_issue_impl(gh, &repo_full_name, issue_number, &title, &body, path)
+  })
+  .await
+}
+
+#[tauri::command]
+pub async fn gh_delete_issue(repo_full_name: String, issue_number: u64) -> Result<(), String> {
+  run_gh_blocking("gh_delete_issue", move |gh, path| {
+    crate::github::gh_delete_issue_impl(gh, &repo_full_name, issue_number, path)
   })
   .await
 }
@@ -482,4 +507,32 @@ echo 'https://github.com/owner/repo/pull/42'"#,
 
     assert_eq!(number, 42);
   }
+}
+
+#[derive(serde::Serialize)]
+pub struct GithubIssueKickoffResult {
+  pub workspace_id: i64,
+  pub created: bool,
+}
+
+/// Opens the workspace for a GitHub issue, creating it (branch
+/// `github-<number>-<slug>`) when it does not exist yet.
+#[tauri::command]
+pub async fn github_open_or_create_workspace_from_issue(
+  repo_path: String,
+  number: u64,
+  title: String,
+  url: String,
+) -> Result<GithubIssueKickoffResult, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    crate::core::github_issues::open_or_create_workspace_from_github_issue(
+      &repo_path, number, &title, &url,
+    )
+    .map(|(workspace, created)| GithubIssueKickoffResult {
+      workspace_id: workspace.id,
+      created,
+    })
+  })
+  .await
+  .map_err(|e| format!("Failed to join GitHub issue kickoff: {e}"))?
 }

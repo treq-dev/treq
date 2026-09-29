@@ -3,6 +3,7 @@ use std::path::Path;
 use tauri_plugin_cli::Matches;
 
 use crate::core;
+use crate::db::Database;
 use crate::local_db;
 
 use super::status_output::{
@@ -76,6 +77,7 @@ pub(super) fn handle_workspace_add(matches: &Matches) -> bool {
   };
 
   let description = get_arg_value(matches, "description");
+  let title = get_arg_value(matches, "title");
   let source_branch = get_arg_value(matches, "source-branch");
   let sparse_patterns = get_arg_values(matches, "sparse");
   let sparse_patterns = (!sparse_patterns.is_empty()).then_some(sparse_patterns);
@@ -96,18 +98,34 @@ pub(super) fn handle_workspace_add(matches: &Matches) -> bool {
     return false;
   }
 
-  match core::create_workspace_with_symlinked_dirs(
+  // Same settings the app applies when it creates a workspace.
+  let included_copy_files = Database::new(core::resolve_app_db_path(&repo_path))
+    .ok()
+    .and_then(|db| {
+      db.get_repo_setting(&repo_path, "included_copy_files")
+        .ok()
+        .flatten()
+    });
+  let metadata = core::WorkspaceMetadata {
+    title,
+    description,
+    sparse_patterns,
+    symlinked_dirs: symlinked_dirs.clone(),
+    ..Default::default()
+  };
+
+  match core::create_new_workspace(
     &repo_path,
     &branch_name,
-    description,
-    None,
     source_branch.as_deref(),
-    None,
-    sparse_patterns,
-    symlinked_dirs.clone(),
+    metadata,
+    core::parse_included_copy_files(included_copy_files.as_deref()),
   ) {
     Ok(workspace) => {
       println!("Created workspace: {}", workspace.branch_name);
+      if workspace.title != workspace.branch_name {
+        println!("  Title: {}", workspace.title);
+      }
       if let Some(ref description) = workspace.description {
         println!("  Description: {}", description);
       }
@@ -119,10 +137,39 @@ pub(super) fn handle_workspace_add(matches: &Matches) -> bool {
         .join("workspaces")
         .join(&workspace.workspace_path);
       println!("  Path: {}", full_path.display());
-      true
+      run_setup_script_for_cli(&repo_path, workspace.id, &full_path.to_string_lossy())
     }
     Err(e) => {
       super::log_cli_error(&format!("Error creating workspace: {}", e));
+      false
+    }
+  }
+}
+
+/// Runs the repo's setup script in the foreground. The app runs it in the
+/// background, but the CLI process exits right after `add`, and checks stay
+/// blocked for a workspace whose setup script never ran.
+fn run_setup_script_for_cli(repo_path: &str, workspace_id: i64, workspace_path: &str) -> bool {
+  let script = match core::configured_setup_script(repo_path) {
+    Ok(Some(script)) => script,
+    Ok(None) => return true,
+    Err(e) => {
+      super::log_cli_error(&format!("Error reading setup_script: {}", e));
+      return false;
+    }
+  };
+  println!("Running setup script...");
+  match core::run_setup_script_sync(repo_path, workspace_id, workspace_path, &script) {
+    Ok(result) if result.success => {
+      println!("  Setup script finished");
+      true
+    }
+    Ok(_) => {
+      super::log_cli_error("Setup script failed; see the workspace's Checks logs");
+      false
+    }
+    Err(e) => {
+      super::log_cli_error(&format!("Error running setup script: {}", e));
       false
     }
   }

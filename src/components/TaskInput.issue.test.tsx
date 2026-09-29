@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   setRepoSetting: vi.fn(),
   searchWorkspaceFiles: vi.fn(),
   getWorkspaces: vi.fn(),
+  githubOpenOrCreateWorkspaceFromIssue: vi.fn(),
 }));
 
 const linearApi = vi.hoisted(() => ({
@@ -26,6 +27,8 @@ vi.mock("../lib/api", async (importOriginal) => {
     setRepoSetting: api.setRepoSetting,
     searchWorkspaceFiles: api.searchWorkspaceFiles,
     getWorkspaces: api.getWorkspaces,
+    githubOpenOrCreateWorkspaceFromIssue:
+      api.githubOpenOrCreateWorkspaceFromIssue,
   };
 });
 
@@ -38,7 +41,7 @@ vi.mock("../lib/api-linear", async (importOriginal) => ({
   ...linearApi,
 }));
 
-describe("TaskInput GitHub issue chip", () => {
+describe("TaskInput issue chip", () => {
   let user: ReturnType<typeof userEvent.setup>;
 
   beforeEach(() => {
@@ -51,32 +54,40 @@ describe("TaskInput GitHub issue chip", () => {
     api.searchWorkspaceFiles.mockResolvedValue([]);
     api.getWorkspaces.mockResolvedValue([]);
     linearApi.linearOpenOrCreateWorkspaceFromIssue.mockReset();
+    api.githubOpenOrCreateWorkspaceFromIssue.mockReset();
+    api.githubOpenOrCreateWorkspaceFromIssue.mockResolvedValue({
+      workspace_id: 5,
+      created: true,
+    });
   });
 
-  it("renders a dismissible GitHub issue chip from initialGitHubIssue", async () => {
+  it("renders a dismissible issue chip from initialIssue", async () => {
     render(
       <TaskInput
         repoPath="/repo"
         workspaceId={null}
         workingDirectory="/repo"
-        initialGitHubIssue={{
-          number: 42,
+        initialIssue={{
+          source: "github",
+          id: "42",
+          key: "#42",
           url: "https://github.com/acme/treq/issues/42",
           title: "Fix the login bug",
+          includeSubItems: false,
         }}
       />,
     );
 
-    const chip = await screen.findByTestId("github-issue-chip");
-    expect(chip).toHaveTextContent("#42");
+    const chip = await screen.findByTestId("issue-chip");
+    expect(chip).toHaveTextContent("GitHub #42");
 
     await user.click(
       screen.getByRole("button", { name: /remove github issue/i }),
     );
-    expect(screen.queryByTestId("github-issue-chip")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("issue-chip")).not.toBeInTheDocument();
   });
 
-  it("includes the issue number in the pending prompt on submit", async () => {
+  it("starts a GitHub issue's session in the issue's workspace with the issue in the prompt", async () => {
     const onSessionCreated = vi.fn();
     render(
       <TaskInput
@@ -84,15 +95,18 @@ describe("TaskInput GitHub issue chip", () => {
         workspaceId={1}
         workingDirectory="/repo/.treq/feat"
         onSessionCreated={onSessionCreated}
-        initialGitHubIssue={{
-          number: 42,
+        initialIssue={{
+          source: "github",
+          id: "42",
+          key: "#42",
           url: "https://github.com/acme/treq/issues/42",
           title: "Fix the login bug",
+          includeSubItems: false,
         }}
       />,
     );
 
-    await screen.findByTestId("github-issue-chip");
+    await screen.findByTestId("issue-chip");
     await user.type(
       screen.getByPlaceholderText("Describe a task..."),
       "fix auth",
@@ -108,6 +122,13 @@ describe("TaskInput GitHub issue chip", () => {
     expect(onSessionCreated.mock.calls[0][0].pendingPrompt).toContain(
       "fix auth",
     );
+    expect(api.githubOpenOrCreateWorkspaceFromIssue).toHaveBeenCalledWith(
+      "/repo",
+      42,
+      "Fix the login bug",
+      "https://github.com/acme/treq/issues/42",
+    );
+    expect(onSessionCreated.mock.calls[0][0].workspaceId).toBe(5);
   });
 
   it("identifies the workspace without sending a working directory", async () => {
@@ -159,18 +180,19 @@ describe("TaskInput GitHub issue chip", () => {
         workspaceId={null}
         workingDirectory="/repo"
         onSessionCreated={onSessionCreated}
-        initialLinearIssue={{
+        initialIssue={{
+          source: "linear",
           id: "issue-id",
-          identifier: "TREQ-281",
+          key: "TREQ-281",
           title: "Linear integration should CRUD issues",
           url: "https://linear.app/treq/issue/TREQ-281",
-          includeSubissues: false,
+          includeSubItems: false,
         }}
       />,
     );
 
-    expect(await screen.findByTestId("linear-issue-chip")).toHaveTextContent(
-      "TREQ-281",
+    expect(await screen.findByTestId("issue-chip")).toHaveTextContent(
+      "Linear TREQ-281",
     );
     await user.click(screen.getByRole("button", { name: /^edit$/i }));
 

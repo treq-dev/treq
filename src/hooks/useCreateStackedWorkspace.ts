@@ -1,15 +1,12 @@
 import {
   type Workspace,
   createWorkspace,
+  getRepoDefaultBranch,
   getRepoSetting,
   getWorkspaces,
   setWorkspaceTargetBranch,
 } from "../lib/api";
-import {
-  generateStackedBranchName,
-  generateStackedIntent,
-  getFullWorkspacePath,
-} from "../lib/utils";
+import { generateStackedBranchName, getFullWorkspacePath } from "../lib/utils";
 import { useToast } from "../components/ui/toast";
 import { useRepositoryCacheKey } from "../lib/active-repository-context";
 import { invalidateQueries } from "../lib/swr-cache";
@@ -24,6 +21,10 @@ export interface CreateStackedWorkspaceOptions {
   description?: string;
   // Position relative to parent; "before" triggers reparenting. Default: "after".
   position?: "before" | "after";
+  // Called as soon as the workspace exists, before the follow-up retargets.
+  onCreated?: (workspaceId: number) => void;
+  // When false, failures are only thrown; the caller reports them.
+  reportErrors?: boolean;
 }
 
 export function useCreateStackedWorkspace() {
@@ -39,6 +40,8 @@ export function useCreateStackedWorkspace() {
     branchName: userBranchName,
     description: userIntent,
     position = "after",
+    onCreated,
+    reportErrors = true,
   }: CreateStackedWorkspaceOptions) => {
     try {
       // Step 1: Load branch pattern (only needed if auto-generating)
@@ -70,37 +73,29 @@ export function useCreateStackedWorkspace() {
         } while (existingBranches.has(branchName));
       }
 
-      // Step 4: Determine description
-      let description: string;
-      if (userIntent !== undefined) {
-        description = userIntent;
-      } else {
-        const parentIntent = parentWorkspace?.metadata
-          ? (() => {
-              try {
-                return JSON.parse(parentWorkspace.metadata).description || null;
-              } catch {
-                return null;
-              }
-            })()
-          : null;
-        description = generateStackedIntent(parentIntent, parentBranch);
-      }
-      const metadata = JSON.stringify({ description });
+      // Step 4: Persist only a user-written description; an auto one goes stale on reorder.
+      const metadata =
+        userIntent !== undefined
+          ? JSON.stringify({ description: userIntent })
+          : undefined;
 
-      // "before": new workspace targets parent's parent; original parent reparents onto the new workspace.
+      // "before": new workspace targets parent's parent (default branch if unset); original parent reparents onto it.
+      const defaultBranch = await getRepoDefaultBranch(repoPath);
       const effectiveParentBranch =
-        position === "before" && parentWorkspace?.target_branch
-          ? parentWorkspace.target_branch
+        position === "before" && parentWorkspace
+          ? parentWorkspace.target_branch || defaultBranch
           : parentBranch;
 
-      // Step 5: Create workspace (branches from effective parent)
+      // Step 5: Create workspace. No source for the default branch: naming it bases the workspace on the home working copy.
       const workspaceId = await createWorkspace(
         repoPath,
         branchName,
-        effectiveParentBranch,
+        effectiveParentBranch === defaultBranch
+          ? undefined
+          : effectiveParentBranch,
         metadata,
       );
+      onCreated?.(workspaceId);
 
       // Step 6: Set target branch
       const updatedWorkspaces = await getWorkspaces(repoPath);
@@ -141,12 +136,14 @@ export function useCreateStackedWorkspace() {
 
       return workspaceId;
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      addToast({
-        title: "Failed to create stacked workspace",
-        description: errorMsg,
-        type: "error",
-      });
+      if (reportErrors) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        addToast({
+          title: "Failed to create stacked workspace",
+          description: errorMsg,
+          type: "error",
+        });
+      }
       throw error;
     }
   };

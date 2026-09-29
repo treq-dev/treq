@@ -18,7 +18,11 @@
 //! - OpenSSH user-certificate accept (trusted CA + valid principal +
 //!   current validity window) and reject (wrong CA, invalid principal,
 //!   not-yet-valid, expired);
-//! - PTY start in a selected directory, input/output, resize, and close.
+//! - PTY start in a selected directory, input/output, resize, and close;
+//! - the WebSocket relay transport used for managed Sprites, through a
+//!   local WebSocket-to-TCP bridge standing in for `remote-ssh-relay` and
+//!   the Sprites TCP proxy: certificate auth, host-key pinning, pooling,
+//!   and token refusal all run through the relayed byte stream.
 //!
 //! Certificates are issued with `ssh-keygen -s`, which writes the same
 //! `ssh-ed25519-cert-v01@openssh.com` user-certificate format the Edge
@@ -75,7 +79,7 @@ use std::sync::Once;
 use std::time::Duration;
 
 use treq_lib::core::remote_control_plane::{
-  SshAuthentication, SshEndpoint, SshEndpointSource, TrustedHostKey,
+  SshAuthentication, SshEndpoint, SshEndpointSource, SshTransport, TrustedHostKey,
 };
 use treq_lib::core::remote_ssh_transport::{
   exec_command, CancellationToken, CutoffReason, ExecLimits, RemotePtyChannel, SshConnectionPool,
@@ -149,6 +153,7 @@ fn it_config() -> Option<ItConfig> {
       username,
       host_keys,
       authentication: SshAuthentication::PublicKey { key_reference },
+      transport: Default::default(),
     },
   })
 }
@@ -812,4 +817,154 @@ async fn pty_round_trips_input_output_resize_and_close() {
     matches!(after_close, Ok(Ok(None)) | Ok(Err(_)) | Err(_)),
     "closed PTY must not keep yielding data, got {after_close:?}"
   );
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket relay transport
+// ---------------------------------------------------------------------------
+
+const RELAY_IT_TOKEN: &str = "relay-it-session-token";
+
+/// Stands in for the `remote-ssh-relay` Edge Function: accepts a WebSocket
+/// only when the Authorization header carries `RELAY_IT_TOKEN`, then pipes
+/// raw bytes to the real sshd over TCP, as the Sprites TCP proxy does.
+/// Returns the relay URL.
+async fn spawn_ws_to_tcp_bridge(sshd_host: String, sshd_port: u16) -> String {
+  use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+  use tokio_tungstenite::tungstenite::http::StatusCode;
+
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(async move {
+    loop {
+      let Ok((tcp, _)) = listener.accept().await else {
+        return;
+      };
+      let sshd_host = sshd_host.clone();
+      tokio::spawn(async move {
+        #[allow(clippy::result_large_err)]
+        let check = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
+          let authorized = request
+            .headers()
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            == Some(&format!("Bearer {RELAY_IT_TOKEN}"));
+          if authorized {
+            Ok(response)
+          } else {
+            let mut refusal = ErrorResponse::new(None);
+            *refusal.status_mut() = StatusCode::UNAUTHORIZED;
+            Err(refusal)
+          }
+        };
+        let Ok(ws) = tokio_tungstenite::accept_hdr_async(tcp, check).await else {
+          return;
+        };
+        let Ok(mut sshd) = tokio::net::TcpStream::connect((sshd_host.as_str(), sshd_port)).await
+        else {
+          return;
+        };
+        let mut client = treq_lib::core::remote_ssh_ws_stream::WsByteStream::new(ws);
+        let _ = tokio::io::copy_bidirectional(&mut client, &mut sshd).await;
+      });
+    }
+  });
+  format!("ws://{addr}/functions/v1/remote-ssh-relay?endpoint_id=it&key_id=it")
+}
+
+async fn relay_endpoint(mut endpoint: SshEndpoint) -> SshEndpoint {
+  let url = spawn_ws_to_tcp_bridge(endpoint.hostname.clone(), endpoint.port).await;
+  endpoint.id = format!("{}-relay", endpoint.id);
+  endpoint.transport = SshTransport::Relay { url };
+  // The relay transport never dials these; poison them to prove it.
+  endpoint.hostname = "sshd-inside-the-sprite.invalid".to_string();
+  endpoint.port = 1;
+  endpoint
+}
+
+#[tokio::test]
+async fn certificate_auth_runs_exec_through_a_websocket_relay() {
+  let (cfg, (ca, src_key, username)) = require_cert_it!();
+  let temp = tempfile::tempdir().unwrap();
+  let endpoint = issue_and_endpoint(&cfg, &ca, &src_key, temp.path(), &username, "+5m", "relay");
+  let endpoint = relay_endpoint(endpoint).await;
+  let pool = SshConnectionPool::new();
+  pool.set_relay_access_token(Some(RELAY_IT_TOKEN.to_string()));
+  let cancellation = CancellationToken::new();
+
+  for round in 0..2 {
+    let output = exec_command(
+      &pool,
+      &endpoint,
+      &["ok".to_string(), format!("via-relay-{round}")],
+      ExecLimits::default(),
+      &cancellation,
+    )
+    .await
+    .expect("certificate auth must work end to end through the relay");
+    assert_eq!(
+      String::from_utf8_lossy(&output.stdout).trim(),
+      format!("stub-ok:via-relay-{round}")
+    );
+  }
+  assert_eq!(
+    pool.metrics_snapshot().pooled_connection_reuse_count,
+    1,
+    "the second exec must reuse the relayed connection"
+  );
+}
+
+#[tokio::test]
+async fn relay_transport_still_pins_the_host_key() {
+  let cfg = require_it!();
+  let mut endpoint = relay_endpoint(cfg.endpoint.clone()).await;
+  poison_host_keys(&mut endpoint);
+  let pool = SshConnectionPool::new();
+  pool.set_relay_access_token(Some(RELAY_IT_TOKEN.to_string()));
+  let error = exec_command(
+    &pool,
+    &endpoint,
+    &["ok".to_string()],
+    ExecLimits::default(),
+    &CancellationToken::new(),
+  )
+  .await
+  .expect_err("a relayed connection must still reject an unpinned host key");
+  assert!(
+    matches!(error, SshTransportError::ConnectionFailed(_)),
+    "{error:?}"
+  );
+}
+
+#[tokio::test]
+async fn relay_transport_requires_a_valid_session_token() {
+  let cfg = require_it!();
+  let endpoint = relay_endpoint(cfg.endpoint.clone()).await;
+
+  let no_token = SshConnectionPool::new();
+  let error = exec_command(
+    &no_token,
+    &endpoint,
+    &["ok".to_string()],
+    ExecLimits::default(),
+    &CancellationToken::new(),
+  )
+  .await
+  .expect_err("no token means no relay connection");
+  assert!(format!("{error:?}").contains("sign in"), "{error:?}");
+
+  let wrong_token = SshConnectionPool::new();
+  wrong_token.set_relay_access_token(Some("not-the-token".to_string()));
+  let error = exec_command(
+    &wrong_token,
+    &endpoint,
+    &["ok".to_string()],
+    ExecLimits::default(),
+    &CancellationToken::new(),
+  )
+  .await
+  .expect_err("a refused relay handshake must fail the connection");
+  let message = format!("{error:?}");
+  assert!(message.contains("401"), "{message}");
+  assert!(!message.contains("not-the-token"), "{message}");
 }
