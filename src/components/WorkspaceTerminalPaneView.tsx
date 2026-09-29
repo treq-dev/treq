@@ -14,6 +14,7 @@ import { AgentTerminalPanel } from "./terminal/AgentTerminalPanel";
 import { ResizeDivider } from "./terminal/ResizeDivider";
 import { ShellTerminalPanel } from "./terminal/ShellTerminalPanel";
 import { type TerminalWithWorkspace } from "./workspace-terminal-pane/types";
+import { agentTerminalId } from "./terminal/agentTerminalId";
 
 interface WorkspaceTerminalPaneViewProps {
   paneRef: React.RefObject<HTMLDivElement | null>;
@@ -42,14 +43,9 @@ interface WorkspaceTerminalPaneViewProps {
     rightId: string,
     deltaX: number,
   ) => void;
-  handleCloseClaudeSession: (sessionId: number) => void | Promise<void>;
+  handleCloseAgentSession: (sessionId: number) => void | Promise<void>;
   onTerminalDoubleClick: (terminalId: string) => void;
-  onTerminalOutput?: (
-    terminalId: string,
-    output: string,
-    fromProcess?: boolean,
-  ) => void;
-  onTerminalInput?: (terminalId: string) => void;
+  onTerminalOutput?: (terminalId: string, fromProcess?: boolean) => void;
   onTerminalIdle?: (terminalId: string) => void;
 }
 
@@ -78,10 +74,9 @@ export const WorkspaceTerminalPaneView: React.FC<
   terminalRefs,
   terminalWidths,
   handleTerminalResize,
-  handleCloseClaudeSession,
+  handleCloseAgentSession,
   onTerminalDoubleClick,
   onTerminalOutput,
-  onTerminalInput,
   onTerminalIdle,
 }) => (
   <div
@@ -197,7 +192,7 @@ export const WorkspaceTerminalPaneView: React.FC<
             const nextId = next
               ? next.type === "shell"
                 ? next.data.id
-                : `claude-${next.data.sessionId}`
+                : agentTerminalId(next.data.sessionId)
               : null;
             const navigate = () =>
               onNavigateToWorkspace?.(
@@ -219,10 +214,9 @@ export const WorkspaceTerminalPaneView: React.FC<
                     onClose={() => handleCloseShell(terminalId)}
                     canClose={true}
                     onSessionError={onSessionError}
-                    onTerminalOutput={(output, fromProcess) =>
-                      onTerminalOutput?.(terminalId, output, fromProcess)
+                    onTerminalOutput={(_output, fromProcess) =>
+                      onTerminalOutput?.(terminalId, fromProcess)
                     }
-                    onTerminalInput={() => onTerminalInput?.(terminalId)}
                     onTerminalIdle={() => onTerminalIdle?.(terminalId)}
                     terminalRefs={
                       terminalRefs as React.MutableRefObject<
@@ -245,7 +239,7 @@ export const WorkspaceTerminalPaneView: React.FC<
               );
             }
 
-            const terminalId = `claude-${terminal.data.sessionId}`;
+            const terminalId = agentTerminalId(terminal.data.sessionId);
             const ptyId = terminal.data.ptySessionId;
             return (
               <React.Fragment key={terminalId}>
@@ -257,13 +251,12 @@ export const WorkspaceTerminalPaneView: React.FC<
                   onFocus={() => setActivePtySessionId(ptyId)}
                   onDoubleClick={() => onTerminalDoubleClick(terminalId)}
                   onClose={() =>
-                    handleCloseClaudeSession(terminal.data.sessionId)
+                    handleCloseAgentSession(terminal.data.sessionId)
                   }
                   onSessionError={onSessionError}
-                  onTerminalOutput={(output, fromProcess) =>
-                    onTerminalOutput?.(terminalId, output, fromProcess)
+                  onTerminalOutput={(_output, fromProcess) =>
+                    onTerminalOutput?.(terminalId, fromProcess)
                   }
-                  onTerminalInput={() => onTerminalInput?.(terminalId)}
                   onTerminalIdle={() => onTerminalIdle?.(terminalId)}
                   terminalRefs={
                     terminalRefs as React.MutableRefObject<

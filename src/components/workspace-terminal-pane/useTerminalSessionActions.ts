@@ -1,52 +1,47 @@
-import {
-  isTerminalSessionIdle,
-  type ClaudeSessionData,
-  type TerminalSessionSummary,
-} from "../terminal/types";
+import { type AgentSessionData } from "../terminal/types";
 import { type ShellTerminalData } from "./types";
+import { agentSessionIdOf } from "../terminal/agentTerminalId";
 
 interface UseTerminalSessionActionsOptions {
-  claudeSessions: ClaudeSessionData[];
+  agentSessions: AgentSessionData[];
   shellTerminals: ShellTerminalData[];
   workspaceBranchByPath?: Map<string, string>;
-  terminalSummariesRef: React.MutableRefObject<TerminalSessionSummary[]>;
   setCollapsed: (collapsed: boolean) => void;
-  setMountedClaudeSessions: React.Dispatch<React.SetStateAction<Set<number>>>;
+  setMountedAgentSessions: React.Dispatch<React.SetStateAction<Set<number>>>;
   setTerminalOrder: React.Dispatch<React.SetStateAction<string[]>>;
   setActivePtySessionId: React.Dispatch<React.SetStateAction<string | null>>;
   onActiveSessionChange?: (sessionId: number | null) => void;
   onNavigateToWorkspace?: (workspaceKey: string, isMainRepo: boolean) => void;
   scrollToTerminal: (terminalId: string) => void;
-  handleCloseClaudeSession: (sessionId: number) => void;
+  handleCloseAgentSession: (sessionId: number) => void;
   handleCloseShell: (terminalId: string) => void;
 }
 
 /**
- * Focus/close actions driven by the sidebar's terminal sessions list, keyed
- * by the same composite ids used in `terminalOrder` ("shell-..." / "claude-<id>").
+ * Focus and close actions keyed by the composite ids used in `terminalOrder`
+ * ("shell-..." / "agent-<sessionId>").
  */
 export function useTerminalSessionActions({
-  claudeSessions,
+  agentSessions,
   shellTerminals,
   workspaceBranchByPath,
-  terminalSummariesRef,
   setCollapsed,
-  setMountedClaudeSessions,
+  setMountedAgentSessions,
   setTerminalOrder,
   setActivePtySessionId,
   onActiveSessionChange,
   onNavigateToWorkspace,
   scrollToTerminal,
-  handleCloseClaudeSession,
+  handleCloseAgentSession,
   handleCloseShell,
 }: UseTerminalSessionActionsOptions) {
   const handleFocusTerminalById = (id: string) => {
     setCollapsed(false);
-    if (id.startsWith("claude-")) {
-      const sessionId = Number(id.slice("claude-".length));
-      const sessionData = claudeSessions.find((s) => s.sessionId === sessionId);
+    const sessionId = agentSessionIdOf(id);
+    if (sessionId !== null) {
+      const sessionData = agentSessions.find((s) => s.sessionId === sessionId);
       if (!sessionData) return;
-      setMountedClaudeSessions((prev) =>
+      setMountedAgentSessions((prev) =>
         prev.has(sessionId) ? prev : new Set(prev).add(sessionId),
       );
       setTerminalOrder((prev) => (prev.includes(id) ? prev : [...prev, id]));
@@ -64,29 +59,6 @@ export function useTerminalSessionActions({
     scrollToTerminal(id);
   };
 
-  const handleCloseTerminalById = (id: string) => {
-    if (id.startsWith("claude-")) {
-      handleCloseClaudeSession(Number(id.slice("claude-".length)));
-    } else {
-      handleCloseShell(id);
-    }
-  };
-
-  const handleCloseIdleTerminals = () => {
-    const now = Date.now();
-    for (const summary of terminalSummariesRef.current) {
-      if (isTerminalSessionIdle(summary, now)) {
-        handleCloseTerminalById(summary.id);
-      }
-    }
-  };
-
-  const handleCloseAllTerminals = () => {
-    for (const summary of terminalSummariesRef.current) {
-      handleCloseTerminalById(summary.id);
-    }
-  };
-
   // Close every terminal (shell + agent) belonging to a workspace, killing their
   // PTY processes. Used when the owning workspace itself is being deleted, so
   // terminals don't linger as orphaned processes.
@@ -95,16 +67,13 @@ export function useTerminalSessionActions({
       .filter((t) => t.workingDirectory === workspaceKey)
       .forEach((t) => handleCloseShell(t.id));
 
-    claudeSessions
+    agentSessions
       .filter((s) => (s.workspacePath || s.repoPath) === workspaceKey)
-      .forEach((s) => handleCloseClaudeSession(s.sessionId));
+      .forEach((s) => handleCloseAgentSession(s.sessionId));
   };
 
   return {
     handleFocusTerminalById,
-    handleCloseTerminalById,
-    handleCloseIdleTerminals,
-    handleCloseAllTerminals,
     closeTerminalsForWorkspace,
   };
 }

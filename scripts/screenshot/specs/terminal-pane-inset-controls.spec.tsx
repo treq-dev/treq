@@ -48,7 +48,7 @@ it("pane expand/control buttons sit in an inset top-right pull", async () => {
   );
   await waitFor(() => {
     expect(
-      document.querySelector('[data-terminal-id^="claude-"]'),
+      document.querySelector('[data-terminal-id^="agent-"]'),
     ).not.toBeNull();
   });
   expect(screen.getByLabelText(/Collapse terminal/i)).toBeInTheDocument();

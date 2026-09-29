@@ -4,13 +4,19 @@ import { useTerminalSessionSummaries } from "./useTerminalSessionSummaries";
 import type { TerminalEntry } from "./types";
 import { REFRESH_WORKSPACE_CHANGES_EVENT } from "../../lib/change-file-drag";
 
-describe("useTerminalSessionSummaries preview output", () => {
-  it("stores a formatted preview when terminal output arrives", () => {
-    const onTerminalsChange = vi.fn();
-    const allTerminals: TerminalEntry[] = [
-      { type: "shell", data: { id: "shell-1", workingDirectory: "/tmp/ws" } },
-    ];
+const allTerminals: TerminalEntry[] = [
+  { type: "shell", data: { id: "shell-1", workingDirectory: "/tmp/ws" } },
+];
 
+const latestSummaries = (onTerminalsChange: ReturnType<typeof vi.fn>) =>
+  onTerminalsChange.mock.calls.at(-1)?.[0] as Array<{
+    id: string;
+    isStreaming: boolean;
+  }>;
+
+describe("useTerminalSessionSummaries streaming state", () => {
+  it("marks a terminal streaming when process output arrives", () => {
+    const onTerminalsChange = vi.fn();
     const { result } = renderHook(() =>
       useTerminalSessionSummaries({
         allTerminals,
@@ -20,120 +26,58 @@ describe("useTerminalSessionSummaries preview output", () => {
     );
 
     act(() => {
-      result.current.handleTerminalOutput(
-        "shell-1",
-        "\x1b[32m$ \x1b[0mecho hi\r\nhi\r\n",
-      );
+      result.current.handleTerminalOutput("shell-1");
     });
 
-    expect(onTerminalsChange).toHaveBeenCalled();
-    const latest = onTerminalsChange.mock.calls.at(-1)?.[0] as Array<{
-      id: string;
-      previewOutput: string;
-      isStreaming: boolean;
-    }>;
-    expect(latest[0].previewOutput).toContain("echo hi");
-    expect(latest[0].previewOutput).toContain("hi");
-    expect(latest[0].previewOutput).not.toContain("\x1b");
-    expect(latest[0].isStreaming).toBe(true);
+    expect(latestSummaries(onTerminalsChange)[0].isStreaming).toBe(true);
   });
 
-  it("does not refresh lastActivityAt when output is local echo of user input", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000);
-    const onTerminalsChange = vi.fn();
-    const allTerminals: TerminalEntry[] = [
-      { type: "shell", data: { id: "shell-1", workingDirectory: "/tmp/ws" } },
-    ];
-
-    const { result } = renderHook(() =>
-      useTerminalSessionSummaries({
-        allTerminals,
-        onTerminalsChange,
-      }),
-    );
-
-    act(() => {
-      result.current.handleTerminalInput("shell-1");
-    });
-    const afterInput = onTerminalsChange.mock.calls.at(-1)?.[0] as Array<{
-      lastActivityAt: number;
-      lastUserInputAt: number;
-      isStreaming: boolean;
-    }>;
-    const activityAt = afterInput[0].lastActivityAt;
-
-    vi.setSystemTime(1_500);
-    act(() => {
-      result.current.handleTerminalOutput("shell-1", "ls", false);
-    });
-
-    const afterEcho = onTerminalsChange.mock.calls.at(-1)?.[0] as Array<{
-      lastActivityAt: number;
-      lastUserInputAt: number;
-      isStreaming: boolean;
-      previewOutput: string;
-    }>;
-    expect(afterEcho[0].lastActivityAt).toBe(activityAt);
-    expect(afterEcho[0].isStreaming).toBe(false);
-    expect(afterEcho[0].lastUserInputAt).toBeGreaterThan(0);
-
-    vi.useRealTimers();
-  });
-
-  it("does not dispatch a filesystem refresh when a streaming terminal goes idle", () => {
-    const onRefresh = vi.fn();
-    window.addEventListener(REFRESH_WORKSPACE_CHANGES_EVENT, onRefresh);
-
-    const allTerminals: TerminalEntry[] = [
-      { type: "shell", data: { id: "shell-1", workingDirectory: "/tmp/ws" } },
-    ];
+  it("does not mark a terminal streaming for local echo of user input", () => {
     const onTerminalsChange = vi.fn();
     const { result } = renderHook(() =>
       useTerminalSessionSummaries({ allTerminals, onTerminalsChange }),
     );
 
     act(() => {
-      result.current.handleTerminalOutput("shell-1", "agent wrote files\n");
+      result.current.handleTerminalOutput("shell-1", false);
+    });
+
+    expect(latestSummaries(onTerminalsChange)[0].isStreaming).toBe(false);
+  });
+
+  it("clears streaming on idle without dispatching a filesystem refresh", () => {
+    const onRefresh = vi.fn();
+    window.addEventListener(REFRESH_WORKSPACE_CHANGES_EVENT, onRefresh);
+    const onTerminalsChange = vi.fn();
+    const { result } = renderHook(() =>
+      useTerminalSessionSummaries({ allTerminals, onTerminalsChange }),
+    );
+
+    act(() => {
+      result.current.handleTerminalOutput("shell-1");
     });
     act(() => {
       result.current.handleTerminalIdlePulse("shell-1");
     });
 
     expect(onRefresh).not.toHaveBeenCalled();
-    const latest = onTerminalsChange.mock.calls.at(-1)?.[0] as Array<{
-      isStreaming: boolean;
-    }>;
-    expect(latest[0].isStreaming).toBe(false);
-
+    expect(latestSummaries(onTerminalsChange)[0].isStreaming).toBe(false);
     window.removeEventListener(REFRESH_WORKSPACE_CHANGES_EVENT, onRefresh);
   });
 
-  it("coalesces output bursts and publishes the newest preview", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000);
+  it("publishes once for a burst of output", () => {
     const onTerminalsChange = vi.fn();
-    const allTerminals: TerminalEntry[] = [
-      { type: "shell", data: { id: "shell-1", workingDirectory: "/tmp/ws" } },
-    ];
     const { result } = renderHook(() =>
       useTerminalSessionSummaries({ allTerminals, onTerminalsChange }),
     );
     const callsBeforeOutput = onTerminalsChange.mock.calls.length;
 
     act(() => {
-      result.current.handleTerminalOutput("shell-1", "first\n");
-      result.current.handleTerminalOutput("shell-1", "second\n");
-      result.current.handleTerminalOutput("shell-1", "newest\n");
+      result.current.handleTerminalOutput("shell-1");
+      result.current.handleTerminalOutput("shell-1");
+      result.current.handleTerminalOutput("shell-1");
     });
-    expect(onTerminalsChange.mock.calls.length - callsBeforeOutput).toBe(1);
 
-    act(() => vi.advanceTimersByTime(100));
-    const latest = onTerminalsChange.mock.calls.at(-1)?.[0] as Array<{
-      previewOutput: string;
-    }>;
-    expect(latest[0].previewOutput).toContain("newest");
-    expect(onTerminalsChange.mock.calls.length - callsBeforeOutput).toBe(2);
-    vi.useRealTimers();
+    expect(onTerminalsChange.mock.calls.length - callsBeforeOutput).toBe(1);
   });
 });

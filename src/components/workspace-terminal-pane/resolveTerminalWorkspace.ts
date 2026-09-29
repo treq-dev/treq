@@ -1,4 +1,4 @@
-import { type ClaudeSessionData } from "../terminal/types";
+import { type AgentSessionData } from "../terminal/types";
 import { type TerminalEntry } from "./types";
 
 export interface TerminalWorkspaceInfo {
@@ -10,15 +10,15 @@ export interface TerminalWorkspaceInfo {
 export function resolveTerminalWorkspace(
   terminal: TerminalEntry,
   options: {
-    claudeSessions: ClaudeSessionData[];
+    agentSessions: AgentSessionData[];
     workspaceBranchByPath?: Map<string, string>;
     currentBranch?: string | null;
   },
 ): TerminalWorkspaceInfo {
-  const { claudeSessions, workspaceBranchByPath, currentBranch } = options;
+  const { agentSessions, workspaceBranchByPath, currentBranch } = options;
   const fallbackName = currentBranch || "main";
 
-  if (terminal.type === "claude") {
+  if (terminal.type === "agent") {
     const workspaceKey = terminal.data.workspacePath || terminal.data.repoPath;
     const named = terminal.data.workspaceName ?? null;
     return {
@@ -30,7 +30,7 @@ export function resolveTerminalWorkspace(
 
   const workspaceKey = terminal.data.workingDirectory;
   const fromMap = workspaceBranchByPath?.get(workspaceKey) ?? null;
-  const matchingClaude = claudeSessions.find((session) => {
+  const matchingClaude = agentSessions.find((session) => {
     const sessionDir = session.workspacePath || session.repoPath;
     return sessionDir === workspaceKey;
   });

@@ -78,7 +78,7 @@ it("shows the right git-state pip for sessioned and session-less workspaces", as
     await user.keyboard("{Meta>}]{/Meta}");
     await waitFor(() => {
       expect(
-        document.querySelector('[data-terminal-id^="claude-"]'),
+        document.querySelector('[data-terminal-id^="agent-"]'),
       ).not.toBeNull();
     });
   }
@@ -91,7 +91,7 @@ it("shows the right git-state pip for sessioned and session-less workspaces", as
     );
   await waitFor(() => {
     expect(dirtyIndicator()).not.toBeNull();
-    expect(document.querySelector('[data-terminal-id^="claude-"]')).not.toBeNull();
+    expect(document.querySelector('[data-terminal-id^="agent-"]')).not.toBeNull();
   });
   await captureDocument(document, {
     name: "workspace-agent-session-spinner-01-active",

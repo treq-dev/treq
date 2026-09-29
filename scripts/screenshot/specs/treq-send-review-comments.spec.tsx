@@ -62,14 +62,14 @@ it("captures attachment review comments in the send lightbox", async () => {
 
   const terminalEl = await waitFor(() => {
     const el = document.querySelector(
-      '[data-terminal-id^="claude-"]',
+      '[data-terminal-id^="agent-"]',
     ) as HTMLElement | null;
     expect(el).not.toBeNull();
     return el as HTMLElement;
   });
   const terminalId = terminalEl.getAttribute("data-terminal-id");
   expect(terminalId).toBeTruthy();
-  const ptySessionId = `session-${terminalId!.replace(/^claude-/, "")}`;
+  const ptySessionId = `session-${terminalId!.replace(/^agent-/, "")}`;
 
   await waitFor(() => {
     expect(

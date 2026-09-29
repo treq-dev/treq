@@ -1,6 +1,6 @@
 import type { Ref } from "react";
 import {
-  type ClaudeSessionData,
+  type AgentSessionData,
   type TerminalSessionSummary,
 } from "../terminal/types";
 
@@ -16,13 +16,10 @@ export interface WorkspaceTerminalPaneProps {
   remoteHost?: string;
   onSessionError?: (message: string) => void;
   currentBranch?: string | null;
-  claudeSessions?: ClaudeSessionData[];
-  activeClaudeSessionId?: number | null;
+  agentSessions?: AgentSessionData[];
+  activeAgentSessionId?: number | null;
   onActiveSessionChange?: (sessionId: number | null) => void;
-  onCreateNewSession?: (
-    activeWorkspacePath?: string | null,
-    agent?: "claude" | "codex" | "cursor" | "copilot",
-  ) => void;
+  onCreateNewSession?: (activeWorkspacePath?: string | null) => void;
   onCloseSession?: (sessionId: number) => void;
   onNavigateToWorkspace?: (workspaceKey: string, isMainRepo: boolean) => void;
   /** Full workspace path -> branch name, used to resolve shell terminal branches for the sidebar list. */
@@ -35,21 +32,14 @@ export interface WorkspaceTerminalPaneProps {
 export interface WorkspaceTerminalPaneHandle {
   toggleCollapse: () => void;
   toggleMaximize: () => void;
-  createAgentSession: (
-    agent?: "claude" | "codex" | "cursor" | "copilot",
-  ) => void;
   createShellSession: (workingDir?: string) => void;
   closeTerminalsForWorkspace: (workspaceKey: string) => void;
-  focusTerminal: (id: string) => void;
   sendToTerminal: (id: string, text: string) => void;
-  closeTerminal: (id: string) => void;
-  closeIdleTerminals: () => void;
-  closeAllTerminals: () => void;
 }
 
 export type TerminalEntry =
   | { type: "shell"; data: ShellTerminalData }
-  | { type: "claude"; data: ClaudeSessionData };
+  | { type: "agent"; data: AgentSessionData };
 
 export interface TerminalWithWorkspace {
   terminal: TerminalEntry;

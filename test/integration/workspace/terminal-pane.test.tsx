@@ -49,7 +49,7 @@ describe("WorkspaceTerminalPane integration", () => {
     await user.keyboard("{Meta>}]{/Meta}");
     await waitFor(() => {
       expect(
-        document.querySelector('[data-terminal-id^="claude-"]'),
+        document.querySelector('[data-terminal-id^="agent-"]'),
       ).not.toBeNull();
     });
 
@@ -71,7 +71,7 @@ describe("WorkspaceTerminalPane integration", () => {
     await user.keyboard("{Meta>}]{/Meta}");
     await waitFor(() => {
       expect(
-        document.querySelector('[data-terminal-id^="claude-"]'),
+        document.querySelector('[data-terminal-id^="agent-"]'),
       ).not.toBeNull();
     });
 
@@ -114,7 +114,7 @@ describe("WorkspaceTerminalPane integration", () => {
     await user.keyboard("{Meta>}]{/Meta}");
 
     const terminalPanel = await waitFor(() => {
-      const el = document.querySelector('[data-terminal-id^="claude-"]');
+      const el = document.querySelector('[data-terminal-id^="agent-"]');
       expect(el).not.toBeNull();
       return el as Element;
     });
@@ -124,7 +124,7 @@ describe("WorkspaceTerminalPane integration", () => {
 
     await waitFor(() => {
       expect(
-        document.querySelector('[data-terminal-id^="claude-"]'),
+        document.querySelector('[data-terminal-id^="agent-"]'),
       ).not.toBeInTheDocument();
     });
   });
@@ -139,7 +139,7 @@ describe("WorkspaceTerminalPane integration", () => {
     await user.keyboard("{Meta>}]{/Meta}");
 
     const terminalPanel = await waitFor(() => {
-      const el = document.querySelector('[data-terminal-id^="claude-"]');
+      const el = document.querySelector('[data-terminal-id^="agent-"]');
       expect(el).not.toBeNull();
       return el as HTMLElement;
     });
@@ -207,7 +207,7 @@ describe("WorkspaceTerminalPane integration", () => {
     await user.keyboard("{Meta>}]{/Meta}");
 
     const terminalPanel = await waitFor(() => {
-      const el = document.querySelector('[data-terminal-id^="claude-"]');
+      const el = document.querySelector('[data-terminal-id^="agent-"]');
       expect(el).not.toBeNull();
       return el as HTMLElement;
     });
@@ -285,7 +285,7 @@ describe("WorkspaceTerminalPane integration", () => {
 
     await user.keyboard("{Meta>}]{/Meta}");
     const agentPanel = await waitFor(() => {
-      const el = document.querySelector('[data-terminal-id^="claude-"]');
+      const el = document.querySelector('[data-terminal-id^="agent-"]');
       expect(el).not.toBeNull();
       return el as HTMLElement;
     });

@@ -91,7 +91,7 @@ it("captures agent session creation from the prompt dialog", async () => {
     });
     await waitFor(() =>
       expect(
-        document.querySelector('[data-terminal-id^="claude-"]'),
+        document.querySelector('[data-terminal-id^="agent-"]'),
       ).not.toBeNull(),
     );
 

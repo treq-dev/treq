@@ -189,9 +189,6 @@ export const setWindowRepoPath = (repoPath: string): Promise<void> =>
     windowLabel: currentWindowLabel(),
   });
 
-export const getWindowRepoPath = (): Promise<string | null> =>
-  invoke("get_window_repo_path", { windowLabel: currentWindowLabel() });
-
 export const detectEditorApps = (): Promise<EditorAppsResponse> =>
   invoke("detect_editor_apps");
 

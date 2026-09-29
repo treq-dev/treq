@@ -70,7 +70,7 @@ it("switches the agent to Codex and saves it as the repo default on submit", asy
     );
     await waitFor(() =>
       expect(
-        document.querySelector('[data-terminal-id^="claude-"]'),
+        document.querySelector('[data-terminal-id^="agent-"]'),
       ).not.toBeNull(),
     );
 
