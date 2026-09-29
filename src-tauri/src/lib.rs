@@ -28,6 +28,7 @@ pub mod send_dispatch;
 pub mod telemetry;
 pub mod tracker;
 pub mod trello;
+pub mod unified_patch;
 
 use agent_runtime::{
   parse_agent_request_from_url, route_agent_deep_link, route_agent_dispatch_request,
