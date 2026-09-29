@@ -4877,17 +4877,10 @@ pub fn jj_edit_bookmark(repo_path: &str, bookmark_name: &str) -> Result<String, 
     CheckoutMode::Immediate,
   )?;
 
-  // For colocated repos, best-effort sync git HEAD and branch tip.
-  let _ = binary_command("git")
-    .current_dir(repo_path)
-    .args([
-      "checkout",
-      "-f",
-      "-B",
-      bookmark_name,
-      &destination.id().hex(),
-    ])
-    .output();
+  // Home repo only: a workspace dir has no .git of its own.
+  if derive_repo_path_from_workspace(repo_path).is_none() {
+    attach_git_head_to_branch(repo_path, bookmark_name);
+  }
 
   Ok(format!("Switched to {}", bookmark_name))
 }
@@ -5196,6 +5189,32 @@ fn read_origin_head_default_branch(repo_path: &str) -> Option<String> {
   Some(trimmed.strip_prefix(prefix)?.to_string())
 }
 
+/// Points git HEAD at `refs/heads/<branch>` and resets the index to it, so a
+/// colocated home repo stays on the branch jj just moved to. Best effort.
+fn attach_git_head_to_branch(repo_path: &str, branch: &str) {
+  if let Err(e) = set_git_head_branch_with_gix(repo_path, branch) {
+    tracing::warn!(
+      "Warning: Failed to set git HEAD to branch '{}': {}",
+      branch,
+      e
+    );
+    return;
+  }
+  if let Err(e) = reset_git_index_to_head_with_gix(repo_path) {
+    tracing::warn!("Warning: Failed to reset git index to HEAD: {}", e);
+  }
+}
+
+fn export_git_refs(workspace_path: &str) -> Result<(), JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let mut tx = loaded.repo.start_transaction();
+  git::export_refs(tx.repo_mut())
+    .map_err(|e| JjError::IoError(format!("Failed to export refs: {}", e)))?;
+  block_on(tx.commit("export git refs"))
+    .map_err(|e| JjError::IoError(format!("Failed to commit ref export: {}", e)))?;
+  Ok(())
+}
+
 fn set_git_head_branch_with_gix(repo_path: &str, branch: &str) -> Result<(), String> {
   let repo = gix::open(repo_path).map_err(|e| format!("Failed to open git repo with gix: {e}"))?;
   let target: gix::refs::FullName = format!("refs/heads/{branch}")
@@ -5444,15 +5463,12 @@ pub fn jj_split(
   jj_set_bookmark(workspace_path, &branch, "@-")
     .map_err(|e| JjError::IoError(format!("Failed to advance bookmark '{}': {}", branch, e)))?;
 
-  // Only checkout branch in git for main repo
+  // Home repo only: move the git branch to the new commit and keep HEAD on it.
   if repo_path.is_none() {
-    let checkout = binary_command("git")
-      .current_dir(workspace_path)
-      .args(["checkout", &branch])
-      .output();
-    if let Err(e) = checkout {
-      tracing::warn!("Warning: Failed to checkout git branch '{}': {}", branch, e);
+    if let Err(e) = export_git_refs(workspace_path) {
+      tracing::warn!("Warning: Failed to export refs to git: {}", e);
     }
+    attach_git_head_to_branch(workspace_path, &branch);
   }
 
   Ok(format!("Committed successfully to branch '{}'", branch))
