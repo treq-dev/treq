@@ -164,7 +164,9 @@ const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
 
 // reqwest has no default timeout. Without one, a stalled Linear request holds
 // the auto-kickoff poller thread forever and stops kickoffs for every repo.
-const LINEAR_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+// Connecting fails fast; a connected request may take a while, since a large
+// issue page or a busy proxy can be slow to answer.
+const LINEAR_REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const LINEAR_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 // Tests point requests at a local mock server and shorten the timeout.

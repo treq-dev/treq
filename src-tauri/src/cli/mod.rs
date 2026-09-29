@@ -17,22 +17,33 @@ pub(super) fn normalize_repo_path(path: &Path) -> String {
     .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
-/// Walk up from CWD to find a directory containing `.git`.
+/// Walk up from CWD to the repository root. See [`find_repo_root`].
 pub fn detect_repo_path() -> Result<String, String> {
   let cwd = std::env::current_dir().map_err(|e| format!("Failed to get CWD: {}", e))?;
+  find_repo_root(&cwd)
+    .map(|root| normalize_repo_path(&root))
+    .ok_or_else(|| "Not inside a repository (no .git or .jj found)".to_string())
+}
 
-  let mut dir = cwd.as_path();
-  loop {
-    if dir.join(".git").is_dir() {
-      return Ok(normalize_repo_path(dir));
-    }
-    match dir.parent() {
-      Some(parent) => dir = parent,
-      None => break,
-    }
-  }
+/// The nearest ancestor of `start` (inclusive) that is a repository root: it
+/// has `.git` (a directory, or the file a git worktree uses) or `.jj`. Treq's
+/// own workspace directories (`.treq/workspaces/<name>`, which hold a `.jj`)
+/// are skipped so they resolve to their home repository.
+pub(super) fn find_repo_root(start: &Path) -> Option<std::path::PathBuf> {
+  start
+    .ancestors()
+    .find(|dir| {
+      !is_treq_workspace_dir(dir) && (dir.join(".git").exists() || dir.join(".jj").is_dir())
+    })
+    .map(Path::to_path_buf)
+}
 
-  Err("Not inside a git repository (no .git directory found)".to_string())
+fn is_treq_workspace_dir(dir: &Path) -> bool {
+  let Some(parent) = dir.parent() else {
+    return false;
+  };
+  parent.file_name() == Some(std::ffi::OsStr::new("workspaces"))
+    && parent.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new(".treq"))
 }
 
 /// Directory name under `.treq/workspaces/` when `cwd` is inside a workspace.
@@ -105,7 +116,7 @@ pub(super) fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
   Ok(())
 }
 
-pub(super) fn print_json_error(code: &str, message: &str) {
+fn write_json_error(out: &mut dyn std::io::Write, code: &str, message: &str) {
   let body = CliErrorBody {
     error: CliErrorDetail {
       code: code.to_string(),
@@ -113,8 +124,43 @@ pub(super) fn print_json_error(code: &str, message: &str) {
     },
   };
   if let Ok(json) = serde_json::to_string(&body) {
-    println!("{json}");
+    let _ = writeln!(out, "{json}");
   }
+}
+
+/// Runs a command that supports `--format` and reports any error exactly
+/// once: a JSON error body on `out` for `--format json`, `Error: ...` on `err`
+/// otherwise. Handlers return their errors instead of printing them, so
+/// argument errors are never swallowed.
+pub(super) fn run_structured_command(
+  matches: &Matches,
+  out: &mut dyn std::io::Write,
+  err: &mut dyn std::io::Write,
+  run: impl FnOnce(OutputFormat) -> Result<(), String>,
+) -> bool {
+  let format = match OutputFormat::parse(get_arg_value(matches, "format").as_deref()) {
+    Ok(format) => format,
+    Err(error) => {
+      let _ = writeln!(err, "Error: {error}");
+      return false;
+    }
+  };
+  match run(format) {
+    Ok(()) => true,
+    Err(error) => {
+      match format {
+        OutputFormat::Json => write_json_error(out, classify_cli_error(&error), &error),
+        OutputFormat::Human => {
+          let _ = writeln!(err, "Error: {error}");
+        }
+      }
+      false
+    }
+  }
+}
+
+fn run_structured(matches: &Matches, run: impl FnOnce(OutputFormat) -> Result<(), String>) -> bool {
+  run_structured_command(matches, &mut std::io::stdout(), &mut std::io::stderr(), run)
 }
 
 pub(super) fn get_arg_value(matches: &Matches, name: &str) -> Option<String> {
@@ -169,15 +215,15 @@ pub(super) fn classify_cli_error(message: &str) -> &'static str {
   }
 }
 
-fn handle_repo_command(matches: &Matches) -> Result<(), String> {
-  let format = OutputFormat::parse(get_arg_value(matches, "format").as_deref())?;
+fn handle_repo_command(matches: &Matches, format: OutputFormat) -> Result<(), String> {
   let action =
     get_arg_value(matches, "action").ok_or_else(|| "repo action is required".to_string())?;
   let repo_path = get_arg_value(matches, "repo").ok_or_else(|| "--repo is required".to_string())?;
 
   match action.as_str() {
-    "inspect" => match crate::core::remote::inspect_repository_path(&repo_path) {
-      Ok(inspection) => match format {
+    "inspect" => {
+      let inspection = crate::core::remote::inspect_repository_path(&repo_path)?;
+      match format {
         OutputFormat::Json => print_json(&inspection),
         OutputFormat::Human => {
           println!("Repository: {}", inspection.root);
@@ -192,28 +238,12 @@ fn handle_repo_command(matches: &Matches) -> Result<(), String> {
           println!("Current commit: {}", inspection.current_commit_id);
           Ok(())
         }
-      },
-      Err(error) => {
-        if format == OutputFormat::Json {
-          print_json_error(classify_cli_error(&error), &error);
-        } else {
-          eprintln!("Error: {error}");
-        }
-        Err(error)
       }
-    },
+    }
     "status" | "branches" | "probe" | "init" | "clone" | "usage" => {
-      handle_remote_review_command("repo", matches)
+      handle_remote_review_command("repo", matches, format)
     }
-    other => {
-      let message = format!("unknown repo action '{other}'");
-      if format == OutputFormat::Json {
-        print_json_error("invalid_arguments", &message);
-      } else {
-        eprintln!("Error: {message}");
-      }
-      Err(message)
-    }
+    other => Err(format!("unknown repo action '{other}'")),
   }
 }
 
@@ -513,24 +543,18 @@ pub(crate) fn parse_remote_command_request(
   }
 }
 
-fn handle_remote_review_command(command: &str, matches: &Matches) -> Result<(), String> {
-  let format = OutputFormat::parse(get_arg_value(matches, "format").as_deref())?;
+fn handle_remote_review_command(
+  command: &str,
+  matches: &Matches,
+  format: OutputFormat,
+) -> Result<(), String> {
   let request = parse_remote_command_request(command, matches)?;
-  match crate::core::remote::execute_local_request(request) {
-    Ok(value) => match format {
-      OutputFormat::Json => print_json(&value),
-      OutputFormat::Human => {
-        println!("{value:#}");
-        Ok(())
-      }
-    },
-    Err(error) => {
-      if format == OutputFormat::Json {
-        print_json_error(classify_cli_error(&error), &error);
-      } else {
-        eprintln!("Error: {error}");
-      }
-      Err(error)
+  let value = crate::core::remote::execute_local_request(request)?;
+  match format {
+    OutputFormat::Json => print_json(&value),
+    OutputFormat::Human => {
+      println!("{value:#}");
+      Ok(())
     }
   }
 }
@@ -548,12 +572,16 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
     "commit" => workspace_handlers::handle_workspace_commit(&subcommand.matches),
     "resolve" => workspace_handlers::handle_resolve(&subcommand.matches),
     "send" => workspace_handlers::handle_send(&subcommand.matches),
-    "repo" => handle_repo_command(&subcommand.matches).is_ok(),
-    "agent-review" => {
-      agent_review_handlers::handle_agent_review_command(&subcommand.matches).is_ok()
-    }
+    "repo" => run_structured(&subcommand.matches, |format| {
+      handle_repo_command(&subcommand.matches, format)
+    }),
+    "agent-review" => run_structured(&subcommand.matches, |format| {
+      agent_review_handlers::handle_agent_review_command(&subcommand.matches, format)
+    }),
     "workspace" | "changes" | "file" | "commits" | "conflicts" | "git" | "agent-remote"
-    | "pty-remote" => handle_remote_review_command(&subcommand.name, &subcommand.matches).is_ok(),
+    | "pty-remote" => run_structured(&subcommand.matches, |format| {
+      handle_remote_review_command(&subcommand.name, &subcommand.matches, format)
+    }),
     "help" => {
       print_cli_help();
       true
@@ -563,26 +591,46 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
   Some(if success { 0 } else { 1 })
 }
 
+/// How long a command waits for piped stdin it did not explicitly ask for.
+const IMPLICIT_STDIN_WAIT: Duration = Duration::from_secs(1);
+
+/// `true` when `fd` has data or EOF within `timeout`. Agent harnesses often
+/// run commands with stdin as a pipe nobody writes to or closes; reading it to
+/// EOF would hang forever.
+#[cfg(unix)]
+pub(super) fn fd_has_input(fd: std::os::unix::io::RawFd, timeout: Duration) -> bool {
+  let mut poll_fd = libc::pollfd {
+    fd,
+    events: libc::POLLIN,
+    revents: 0,
+  };
+  let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+  let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+  ready > 0 && poll_fd.revents & (libc::POLLIN | libc::POLLHUP) != 0
+}
+
+/// Whether to read stdin a command did not explicitly ask for (no `-`
+/// argument): it must be redirected and deliver data or EOF promptly.
+pub(super) fn implicit_stdin_available() -> bool {
+  use std::io::IsTerminal;
+  if std::io::stdin().is_terminal() {
+    return false;
+  }
+  #[cfg(unix)]
+  {
+    use std::os::unix::io::AsRawFd;
+    fd_has_input(std::io::stdin().as_raw_fd(), IMPLICIT_STDIN_WAIT)
+  }
+  #[cfg(not(unix))]
+  {
+    true
+  }
+}
+
 /// Prints an error to stderr and records it in the app's log file.
 pub(super) fn log_cli_error(msg: &str) {
   eprintln!("{}", msg);
   tracing::error!("{}", msg);
-}
-
-/// Handles top-level CLI args that do not map to subcommands.
-/// Returns `true` when an arg is consumed and no GUI should be opened.
-pub fn handle_cli_global_args(matches: &Matches) -> bool {
-  if let Some(help_text) = matches.args.get("help").and_then(|arg| arg.value.as_str()) {
-    println!("{}", help_text);
-    return true;
-  }
-
-  if matches.args.contains_key("version") {
-    println!("treq {}", env!("CARGO_PKG_VERSION"));
-    return true;
-  }
-
-  false
 }
 
 #[cfg(test)]
@@ -802,6 +850,7 @@ fn send_json_dispatch_request<T: serde::Serialize>(
     .map_err(|e| format!("invalid dispatch response payload: {}", e))
 }
 
+pub mod args;
 mod workspace_handlers;
 
 mod agent_review_handlers;

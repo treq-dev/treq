@@ -28,7 +28,7 @@ import { openOrCreateIssueWorkspace } from "../lib/issueWorkspace";
 import { useToast } from "./ui/toast";
 import { useDebounce } from "../hooks/useDebounce";
 import { cn } from "../lib/utils";
-import type { AgentType } from "../lib/agentDeepLink";
+import { DEFAULT_AGENT, toAgentKind, type AgentKind } from "../lib/agents";
 import type { SessionCreationInfo } from "../types/sessions";
 
 interface TaskInputProps {
@@ -36,7 +36,6 @@ interface TaskInputProps {
   workspaceId: number | null;
   workingDirectory: string;
   onSessionCreated?: (session: SessionCreationInfo) => void;
-  focusRequest?: number;
   /** Pre-fill the textarea with this text on mount (e.g. re-running a past prompt). */
   initialText?: string;
   /**
@@ -52,7 +51,6 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   workspaceId,
   workingDirectory,
   onSessionCreated,
-  focusRequest,
   initialText,
   initialIssue = null,
   onIssueChange,
@@ -78,39 +76,22 @@ export const TaskInput: React.FC<TaskInputProps> = ({
     textareaRef.current?.focus();
   }, [workspaceId]);
 
-  useEffect(() => {
-    if (focusRequest) textareaRef.current?.focus();
-  }, [focusRequest]);
-
   const { data: agentSettings } = useSWR(
     ["task-default-agent", repoPath, workspaceId],
-    async (): Promise<{ agent: AgentType; fromRepo: boolean }> => {
-      const repoAgent = await getRepoSetting(repoPath, "default_agent");
-      if (
-        repoAgent === "claude" ||
-        repoAgent === "codex" ||
-        repoAgent === "cursor" ||
-        repoAgent === "copilot"
-      ) {
-        return { agent: repoAgent, fromRepo: true as const };
-      }
-      const globalAgent = await getSetting("default_agent");
+    async (): Promise<{ agent: AgentKind; fromRepo: boolean }> => {
+      const repoAgent = toAgentKind(
+        await getRepoSetting(repoPath, "default_agent"),
+      );
+      if (repoAgent) return { agent: repoAgent, fromRepo: true as const };
       const agent =
-        globalAgent === "claude" ||
-        globalAgent === "codex" ||
-        globalAgent === "cursor" ||
-        globalAgent === "copilot"
-          ? globalAgent
-          : ("claude" as const);
+        toAgentKind(await getSetting("default_agent")) ?? DEFAULT_AGENT;
       return { agent, fromRepo: false as const };
     },
   );
-  const [agentOverride, setAgentOverride] = useState<
-    "claude" | "codex" | "cursor" | "copilot" | null
-  >(null);
-  const selectedAgent: AgentType =
-    agentOverride ?? agentSettings?.agent ?? "claude";
-  const configuredDefaultAgent: AgentType = agentSettings?.agent ?? "claude";
+  const [agentOverride, setAgentOverride] = useState<AgentKind | null>(null);
+  const selectedAgent: AgentKind =
+    agentOverride ?? agentSettings?.agent ?? DEFAULT_AGENT;
+  const configuredDefaultAgent: AgentKind = agentSettings?.agent ?? "claude";
   const setSelectedAgent = setAgentOverride;
 
   useEffect(() => {

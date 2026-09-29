@@ -64,7 +64,6 @@ export interface ConsolidatedTerminalHandle {
   findPrevious: (term: string, options?: ISearchOptions) => boolean;
   clearSearch: () => void;
   focus: () => void;
-  scrollToBottom: () => void;
   getScreenText: () => string;
 }
 
@@ -516,7 +515,6 @@ export const ConsolidatedTerminal = ({
       !!term && !!searchAddonRef.current?.findPrevious(term, options),
     clearSearch: () => searchAddonRef.current?.clearDecorations(),
     focus: () => xtermRef.current?.focus(),
-    scrollToBottom: () => xtermRef.current?.scrollToBottom(),
     getScreenText: () => readXtermScreen(xtermRef.current),
   }));
 

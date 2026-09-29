@@ -20,7 +20,6 @@ export { FILE_COMMENT_HUNK_ID };
 export type { LineComment, PendingComment };
 
 export interface ChangesDiffViewerProps {
-  ref?: Ref<ChangesDiffViewerHandle>;
   workspacePath: string;
   repoPath?: string;
   workspaceId?: number;
@@ -55,11 +54,6 @@ export interface ChangesDiffViewerProps {
   onMoveFilesToNewWorkspace?: (files: string[]) => void;
   workspace?: Workspace | null;
   baseBranch?: string;
-}
-
-export interface ChangesDiffViewerHandle {
-  focusCommitInput: () => void;
-  refresh: () => void;
 }
 
 export interface ConflictComment {

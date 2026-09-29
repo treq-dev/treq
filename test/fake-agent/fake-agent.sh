@@ -23,15 +23,14 @@ if [ ${#prompt} -gt 120 ]; then
   prompt="$(printf '%s' "$prompt" | cut -c1-117)..."
 fi
 
-# The PTY reader hides early lines that repeat part of the typed command
-# (echo suppression, see pty.rs) until five other lines have been shown, so
-# the prompt, which is part of that command, comes after five status lines.
+# The prompt comes first on purpose: it repeats text from the typed command,
+# which the PTY reader's echo filter must not mistake for the echo.
+printf 'prompt: %s\n' "${prompt:-<none>}"
 printf 'fake-agent: %s\n' "$name"
 printf 'mode: %s\n' "$mode"
 printf 'model: %s\n' "$model"
 printf 'session: %s\n' "${TREQ_PTY_SESSION_ID:-none}"
 printf 'ready\n'
-printf 'prompt: %s\n' "${prompt:-<none>}"
 
 while IFS= read -r line; do
   printf 'received: %s\n' "$line"

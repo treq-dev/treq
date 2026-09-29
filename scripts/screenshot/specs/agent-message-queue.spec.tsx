@@ -154,7 +154,7 @@ it("hides the agent message queue when its feature preview is off", async () => 
     expect(el).not.toBeNull();
     return el as HTMLElement;
   });
-  await within(terminalPanel).findByLabelText(/reset terminal/i);
+  await within(terminalPanel).findByRole("button", { name: "Close session" });
   expect(
     within(terminalPanel).queryByTestId("agent-message-queue-button"),
   ).not.toBeInTheDocument();
@@ -163,7 +163,7 @@ it("hides the agent message queue when its feature preview is off", async () => 
     name: "agent-message-queue-06-toolbar-flag-off",
     expectations: [
       "The agent terminal toolbar has no Queue (list) icon left of the model selector.",
-      "The rest of the toolbar (model, scroll, reset, search, close) renders normally.",
+      "The rest of the toolbar (model, search, close) renders normally.",
     ],
   });
 }, 60000);
