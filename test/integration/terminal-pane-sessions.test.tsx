@@ -8,7 +8,7 @@ import { createTestRepo, openRepo } from "../utils";
 
 const agentColumns = () =>
   Array.from(
-    document.querySelectorAll<HTMLElement>('[data-terminal-id^="claude-"]'),
+    document.querySelectorAll<HTMLElement>('[data-terminal-id^="agent-"]'),
   );
 
 const pane = () => screen.getByTestId("workspace-terminal-pane");

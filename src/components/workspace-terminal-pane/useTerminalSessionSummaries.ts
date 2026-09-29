@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { type TerminalSessionSummary } from "../terminal/types";
 import { type TerminalEntry } from "./types";
+import { agentTerminalId } from "../terminal/agentTerminalId";
 
 interface UseTerminalSessionSummariesOptions {
   allTerminals: TerminalEntry[];
@@ -10,7 +11,7 @@ interface UseTerminalSessionSummariesOptions {
 }
 
 function getTerminalSummaryId(t: TerminalEntry) {
-  return t.type === "shell" ? t.data.id : `claude-${t.data.sessionId}`;
+  return t.type === "shell" ? t.data.id : agentTerminalId(t.data.sessionId);
 }
 
 function summariesEqual(
@@ -67,7 +68,7 @@ export function useTerminalSessionSummaries({
   const terminalSummaries: TerminalSessionSummary[] = allTerminals.map((t) => {
     const id = getTerminalSummaryId(t);
     const isStreaming = streaming.has(id);
-    if (t.type === "claude") {
+    if (t.type === "agent") {
       return {
         id,
         kind: "agent" as const,

@@ -1,5 +1,5 @@
 import { useKeyboardShortcut } from "../../hooks/useKeyboard";
-import { type ClaudeSessionData } from "../terminal/types";
+import { type AgentSessionData } from "../terminal/types";
 
 interface UseTerminalPaneKeyboardShortcutsOptions {
   setCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
@@ -8,9 +8,9 @@ interface UseTerminalPaneKeyboardShortcutsOptions {
   handleCreateAgentSession: () => void;
   handleAddShell: () => void;
   activePtySessionId: string | null;
-  claudeSessions: ClaudeSessionData[];
+  agentSessions: AgentSessionData[];
   handleCloseShell: (terminalId: string) => void;
-  handleCloseClaudeSession: (sessionId: number) => void;
+  handleCloseAgentSession: (sessionId: number) => void;
 }
 
 /** Registers the terminal pane's global keyboard shortcuts (Cmd+J, Cmd+], Cmd+\, Cmd+W, ...). */
@@ -21,9 +21,9 @@ export function useTerminalPaneKeyboardShortcuts({
   handleCreateAgentSession,
   handleAddShell,
   activePtySessionId,
-  claudeSessions,
+  agentSessions,
   handleCloseShell,
-  handleCloseClaudeSession,
+  handleCloseAgentSession,
 }: UseTerminalPaneKeyboardShortcutsOptions) {
   // Cmd+J: Toggle bottom terminal pane
   useKeyboardShortcut(
@@ -83,18 +83,18 @@ export function useTerminalPaneKeyboardShortcuts({
         handleCloseShell(activePtySessionId);
         return;
       }
-      const claudeSession = claudeSessions.find(
+      const agentSession = agentSessions.find(
         (s) => s.ptySessionId === activePtySessionId,
       );
-      if (claudeSession) {
-        handleCloseClaudeSession(claudeSession.sessionId);
+      if (agentSession) {
+        handleCloseAgentSession(agentSession.sessionId);
       }
     },
     [
       activePtySessionId,
-      claudeSessions,
+      agentSessions,
       handleCloseShell,
-      handleCloseClaudeSession,
+      handleCloseAgentSession,
     ],
   );
 }

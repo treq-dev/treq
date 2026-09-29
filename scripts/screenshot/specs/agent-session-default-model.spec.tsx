@@ -37,7 +37,7 @@ it("starts a prompt-dialog session on the repo default model", async () => {
 
 		await waitFor(() =>
 			expect(
-				document.querySelector('[data-terminal-id^="claude-"]'),
+				document.querySelector('[data-terminal-id^="agent-"]'),
 			).not.toBeNull(),
 		);
 		await screen.findByRole("button", { name: /opus/i });

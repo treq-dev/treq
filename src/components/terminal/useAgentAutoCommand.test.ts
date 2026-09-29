@@ -3,7 +3,7 @@ import { createElement, type ReactNode, useMemo } from "react";
 import { SWRConfig } from "swr";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestSWRConfig } from "../../lib/swr-cache";
-import type { ClaudeSessionData } from "./types";
+import type { AgentSessionData } from "./types";
 import { useAgentAutoCommand } from "./useAgentAutoCommand";
 
 vi.mock("../../lib/api", async (importOriginal) => {
@@ -27,7 +27,7 @@ vi.mock("../ui/toast", () => ({
 
 import { prepareAgentAutoCommand } from "../../lib/prepareAgentAutoCommand";
 
-const session: ClaudeSessionData = {
+const session: AgentSessionData = {
   sessionId: 1,
   sessionName: "agent",
   ptySessionId: "pty-1",
@@ -98,7 +98,7 @@ describe("useAgentAutoCommand", () => {
     );
 
     const { result, rerender } = renderHook(
-      ({ currentSession }: { currentSession: ClaudeSessionData }) =>
+      ({ currentSession }: { currentSession: AgentSessionData }) =>
         useAgentAutoCommand(currentSession),
       {
         initialProps: { currentSession: session },

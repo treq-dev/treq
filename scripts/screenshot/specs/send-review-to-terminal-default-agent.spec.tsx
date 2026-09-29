@@ -62,7 +62,7 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 	});
 	await user.click(existingAgentItem);
 	await waitFor(() => {
-		expect(document.querySelector('[data-terminal-id^="claude-"]')).not.toBeNull();
+		expect(document.querySelector('[data-terminal-id^="agent-"]')).not.toBeNull();
 	});
 
 	// Open the Changes tab.
@@ -115,7 +115,7 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 	await waitFor(
 		async () => {
 			expect(
-				document.querySelectorAll('[data-terminal-id^="claude-"]').length,
+				document.querySelectorAll('[data-terminal-id^="agent-"]').length,
 			).toBe(1);
 		},
 		{ timeout: 10000 },

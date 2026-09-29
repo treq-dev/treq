@@ -1,6 +1,6 @@
 import type { Ref } from "react";
 import {
-  type ClaudeSessionData,
+  type AgentSessionData,
   type TerminalSessionSummary,
 } from "../terminal/types";
 
@@ -16,8 +16,8 @@ export interface WorkspaceTerminalPaneProps {
   remoteHost?: string;
   onSessionError?: (message: string) => void;
   currentBranch?: string | null;
-  claudeSessions?: ClaudeSessionData[];
-  activeClaudeSessionId?: number | null;
+  agentSessions?: AgentSessionData[];
+  activeAgentSessionId?: number | null;
   onActiveSessionChange?: (sessionId: number | null) => void;
   onCreateNewSession?: (activeWorkspacePath?: string | null) => void;
   onCloseSession?: (sessionId: number) => void;
@@ -39,7 +39,7 @@ export interface WorkspaceTerminalPaneHandle {
 
 export type TerminalEntry =
   | { type: "shell"; data: ShellTerminalData }
-  | { type: "claude"; data: ClaudeSessionData };
+  | { type: "agent"; data: AgentSessionData };
 
 export interface TerminalWithWorkspace {
   terminal: TerminalEntry;
