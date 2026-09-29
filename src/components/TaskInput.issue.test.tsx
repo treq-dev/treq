@@ -74,6 +74,7 @@ describe("TaskInput issue chip", () => {
           url: "https://github.com/acme/treq/issues/42",
           title: "Fix the login bug",
           includeSubItems: false,
+          subItemIds: [],
         }}
       />,
     );
@@ -102,6 +103,7 @@ describe("TaskInput issue chip", () => {
           url: "https://github.com/acme/treq/issues/42",
           title: "Fix the login bug",
           includeSubItems: false,
+          subItemIds: [],
         }}
       />,
     );
@@ -159,9 +161,11 @@ describe("TaskInput issue chip", () => {
 
   it("creates the Linear issue workspace before creating its agent session", async () => {
     const onSessionCreated = vi.fn();
-    linearApi.linearOpenOrCreateWorkspaceFromIssue.mockResolvedValue([
-      { issue_id: "issue-id", workspace_id: 7, created: true },
-    ]);
+    linearApi.linearOpenOrCreateWorkspaceFromIssue.mockResolvedValue({
+      issue_id: "issue-id",
+      workspace_id: 7,
+      created: true,
+    });
     api.getWorkspaces.mockResolvedValue([
       {
         id: 7,
@@ -187,6 +191,7 @@ describe("TaskInput issue chip", () => {
           title: "Linear integration should CRUD issues",
           url: "https://linear.app/treq/issue/TREQ-281",
           includeSubItems: false,
+          subItemIds: [],
         }}
       />,
     );
@@ -197,10 +202,12 @@ describe("TaskInput issue chip", () => {
     await user.click(screen.getByRole("button", { name: /^edit$/i }));
 
     await waitFor(() => expect(api.createSession).toHaveBeenCalled());
+    expect(
+      linearApi.linearOpenOrCreateWorkspaceFromIssue,
+    ).toHaveBeenCalledTimes(1);
     expect(linearApi.linearOpenOrCreateWorkspaceFromIssue).toHaveBeenCalledWith(
       "/repo",
       "issue-id",
-      false,
     );
     expect(api.createSession).toHaveBeenCalledWith(
       "/repo",
@@ -214,5 +221,71 @@ describe("TaskInput issue chip", () => {
         pendingPrompt: expect.stringContaining("Linear issue TREQ-281"),
       }),
     );
+  });
+
+  it("reports sub-issue workspaces created, opened, and failed", async () => {
+    const outcomes: Record<
+      string,
+      { workspace_id: number; created: boolean } | Error
+    > = {
+      "issue-id": { workspace_id: 7, created: true },
+      "child-a": { workspace_id: 8, created: true },
+      "child-b": { workspace_id: 9, created: false },
+      "child-c": new Error(
+        "Failed to create workspace for Linear issue TREQ-290",
+      ),
+      "child-d": new Error("Issue child-d not found"),
+    };
+    linearApi.linearOpenOrCreateWorkspaceFromIssue.mockImplementation(
+      async (_repo: string, id: string) => {
+        const outcome = outcomes[id];
+        if (outcome instanceof Error) throw outcome;
+        return { issue_id: id, ...outcome };
+      },
+    );
+    render(
+      <TaskInput
+        repoPath="/repo"
+        workspaceId={null}
+        workingDirectory="/repo"
+        initialIssue={{
+          source: "linear",
+          id: "issue-id",
+          key: "TREQ-281",
+          title: "Linear integration should CRUD issues",
+          url: "https://linear.app/treq/issue/TREQ-281",
+          includeSubItems: true,
+          subItemIds: ["child-a", "child-b", "child-c", "child-d"],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled());
+    expect(api.createSession).toHaveBeenCalledWith(
+      "/repo",
+      7,
+      expect.any(String),
+    );
+    expect(
+      await screen.findByText("Sub-issue workspaces ready"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Created 1 and opened 1 existing."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("2 sub-issue workspaces failed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Failed to create workspace for Linear issue TREQ-290; Issue child-d not found",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      linearApi.linearOpenOrCreateWorkspaceFromIssue.mock.calls.map(
+        (c) => c[1],
+      ),
+    ).toEqual(["issue-id", "child-a", "child-b", "child-c", "child-d"]);
   });
 });

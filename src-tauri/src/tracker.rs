@@ -283,42 +283,16 @@ pub async fn open_or_create_workspace_from_item(
   .map_err(|e| format!("Failed to join workspace creation task: {e}"))?
 }
 
-/// Opens or creates the workspace for `item_id`, plus one per sub-item when
-/// asked. Sub-item failures are logged and skipped so one bad child does not
-/// block the parent.
+/// Opens or creates the workspace for `item_id`. The core never creates more
+/// than one workspace per call; the UI opens sub-items one call at a time.
 pub async fn kickoff_item(
   client: &TrackerClient,
   provider: TrackerProvider,
   repo_path: &str,
   item_id: &str,
-  include_sub_items: bool,
-) -> Result<Vec<TrackerKickoffResult>, String> {
+) -> Result<TrackerKickoffResult, String> {
   let item = client.get_item(item_id).await?;
-  let mut results = vec![open_or_create_workspace_from_item(repo_path, provider, &item).await?];
-
-  if include_sub_items {
-    for sub_id in &item.sub_item_ids {
-      let sub_item = match client.get_item(sub_id).await {
-        Ok(sub_item) => sub_item,
-        Err(e) => {
-          log::warn!(
-            "{}: failed to fetch sub-item {sub_id}: {e}",
-            provider.as_str()
-          );
-          continue;
-        }
-      };
-      match open_or_create_workspace_from_item(repo_path, provider, &sub_item).await {
-        Ok(result) => results.push(result),
-        Err(e) => log::warn!(
-          "{}: failed to kick off sub-item {sub_id}: {e}",
-          provider.as_str()
-        ),
-      }
-    }
-  }
-
-  Ok(results)
+  open_or_create_workspace_from_item(repo_path, provider, &item).await
 }
 
 pub const MAX_KICKOFF_ATTEMPTS: u32 = 3;
@@ -529,7 +503,7 @@ fn poll_tracker_kickoff(provider: TrackerProvider, repo_path: &str) -> Result<()
   let failures_key = provider.setting_key("kickoff_failures");
   let mut ledger = KickoffLedger::load(&db, repo_path, &handled_key, &failures_key)?;
   for item_id in ledger.due(&labeled_ids) {
-    match rt.block_on(kickoff_item(&client, provider, repo_path, &item_id, false)) {
+    match rt.block_on(kickoff_item(&client, provider, repo_path, &item_id)) {
       Ok(_) => ledger.record_success(&item_id),
       Err(e) => {
         let attempts = ledger.record_failure(&item_id);

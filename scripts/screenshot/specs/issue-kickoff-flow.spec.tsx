@@ -146,13 +146,11 @@ const CASES: Case[] = [
       external.linearListIssues.mockResolvedValue([LINEAR_ISSUE]);
       external.linearGetViewer.mockResolvedValue({ id: "me", name: "Me" });
       external.linearOpenOrCreateWorkspaceFromIssue.mockImplementation(
-        async (path: string) => [
-          {
-            issue_id: LINEAR_ISSUE.id,
-            workspace_id: await createWorkspace(path, LINEAR_ISSUE.branch_name),
-            created: true,
-          },
-        ],
+        async (path: string) => ({
+          issue_id: LINEAR_ISSUE.id,
+          workspace_id: await createWorkspace(path, LINEAR_ISSUE.branch_name),
+          created: true,
+        }),
       );
     },
     open: async (user) => {
@@ -173,13 +171,11 @@ const CASES: Case[] = [
         external.trackerListItems.mockResolvedValue([item]);
         external.trackerGetViewer.mockResolvedValue({ id: "me", name: "Me" });
         external.trackerOpenOrCreateWorkspaceFromItem.mockImplementation(
-          async (path: string) => [
-            {
-              item_id: item.id,
-              workspace_id: await createWorkspace(path, item.branch_name),
-              created: true,
-            },
-          ],
+          async (path: string) => ({
+            item_id: item.id,
+            workspace_id: await createWorkspace(path, item.branch_name),
+            created: true,
+          }),
         );
       },
       open: async (user: ReturnType<typeof userEvent.setup>) => {
@@ -191,7 +187,6 @@ const CASES: Case[] = [
     };
   }),
 ];
-
 
 for (const c of CASES) {
   it(`captures the ${c.source} kickoff dialog and submit`, async () => {
@@ -229,9 +224,9 @@ for (const c of CASES) {
       const workspace = (await getWorkspaces(repoPath)).find(
         (ws) => ws.branch_name === c.branch,
       );
-      expect((await getSessions(repoPath)).map((s) => s.workspace_id)).toContain(
-        workspace?.id,
-      );
+      expect(
+        (await getSessions(repoPath)).map((s) => s.workspace_id),
+      ).toContain(workspace?.id);
     });
 
     await captureDocument(document, {

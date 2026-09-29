@@ -56,15 +56,15 @@ export const trackerGetViewer = (
   repoPath: string,
 ): Promise<TrackerUser> => invoke("tracker_get_viewer", { provider, repoPath });
 
+/** Opens or creates the workspace for one item. Sub-items are separate calls. */
 export const trackerOpenOrCreateWorkspaceFromItem = (
   repoPath: string,
-  item: { provider: TrackerProvider; id: string; includeSubItems: boolean },
-): Promise<TrackerKickoffResult[]> =>
+  item: { provider: TrackerProvider; id: string },
+): Promise<TrackerKickoffResult> =>
   invoke("tracker_open_or_create_workspace_from_item", {
     provider: item.provider,
     repoPath,
     itemId: item.id,
-    includeSubItems: item.includeSubItems,
   });
 
 export const trackerStartAutoKickoffPolling = (

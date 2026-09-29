@@ -54,10 +54,9 @@ pub async fn tracker_open_or_create_workspace_from_item(
   provider: TrackerProvider,
   repo_path: String,
   item_id: String,
-  include_sub_items: bool,
-) -> Result<Vec<TrackerKickoffResult>, String> {
+) -> Result<TrackerKickoffResult, String> {
   let client = client_for(&state, provider, &repo_path)?;
-  crate::tracker::kickoff_item(&client, provider, &repo_path, &item_id, include_sub_items).await
+  crate::tracker::kickoff_item(&client, provider, &repo_path, &item_id).await
 }
 
 #[tauri::command]

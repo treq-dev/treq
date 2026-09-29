@@ -762,7 +762,7 @@ fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
   let mut ledger = KickoffLedger::load(&db, repo_path, HANDLED_KEY, FAILURES_KEY)?;
   for issue_id in ledger.due(&labeled_ids) {
     match rt.block_on(kickoff_linear_issue_internal(
-      &db, repo_path, &api_key, &issue_id, false,
+      repo_path, &api_key, &issue_id,
     )) {
       Ok(_) => ledger.record_success(&issue_id),
       Err(e) => {
@@ -780,48 +780,12 @@ const HANDLED_KEY: &str = "linear_handled_issue_ids";
 const FAILURES_KEY: &str = "linear_kickoff_failures";
 
 async fn kickoff_linear_issue_internal(
-  db: &crate::db::Database,
   repo_path: &str,
   api_key: &str,
   issue_id: &str,
-  include_subissues: bool,
-) -> Result<Vec<crate::commands::linear::LinearKickoffResult>, String> {
+) -> Result<crate::commands::linear::LinearKickoffResult, String> {
   let issue = linear_get_issue_impl(api_key, issue_id).await?;
-  let mut results = vec![];
-
-  let workspace_result =
-    crate::commands::linear::open_or_create_workspace_from_linear_issue(repo_path, &issue).await?;
-  results.push(workspace_result);
-
-  if include_subissues && !issue.sub_issue_ids.is_empty() {
-    for sub_id in &issue.sub_issue_ids {
-      match linear_get_issue_impl(api_key, sub_id).await {
-        Ok(sub_issue) => match crate::commands::linear::open_or_create_workspace_from_linear_issue(
-          repo_path, &sub_issue,
-        )
-        .await
-        {
-          Ok(result) => {
-            if result.created {
-              if let Err(e) = crate::commands::linear::record_linear_workspace_parent(
-                db,
-                repo_path,
-                result.workspace_id,
-                issue_id,
-              ) {
-                log::warn!("linear-kickoff: failed to record parent for sub-issue {sub_id}: {e}");
-              }
-            }
-            results.push(result);
-          }
-          Err(e) => log::warn!("linear-kickoff: failed to kickoff sub-issue {sub_id}: {e}"),
-        },
-        Err(e) => log::warn!("linear-kickoff: failed to fetch sub-issue {sub_id}: {e}"),
-      }
-    }
-  }
-
-  Ok(results)
+  crate::commands::linear::open_or_create_workspace_from_linear_issue(repo_path, &issue).await
 }
 
 static GLOBAL_KICKOFF_POLLER: std::sync::OnceLock<KickoffPoller> = std::sync::OnceLock::new();

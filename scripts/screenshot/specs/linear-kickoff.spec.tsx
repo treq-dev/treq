@@ -204,9 +204,7 @@ it("starts an agent session in the Linear issue's workspace on submit", async ()
     // by the real backend, under the issue's branch name.
     mockLinearKickoff.mockImplementation(async (path: string) => {
       const workspaceId = await createWorkspace(path, "eng-103");
-      return [
-        { issue_id: "issue-3", workspace_id: workspaceId, created: true },
-      ];
+      return { issue_id: "issue-3", workspace_id: workspaceId, created: true };
     });
 
     const user = userEvent.setup();
@@ -282,9 +280,7 @@ it("keeps the dialog open and shows an error toast when the Linear workspace can
   expect(
     screen.getByRole("heading", { name: "Start a new agent session" }),
   ).toBeInTheDocument();
-  expect(within(dialog).getByTestId("issue-chip")).toHaveTextContent(
-    "ENG-103",
-  );
+  expect(within(dialog).getByTestId("issue-chip")).toHaveTextContent("ENG-103");
   expect(await getSessions(repoPath)).toHaveLength(0);
 
   await captureDocument(document, {
