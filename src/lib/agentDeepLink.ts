@@ -1,26 +1,20 @@
+import { isAgentKind, type AgentKind } from "./agents";
 import type { Workspace } from "./api";
 
 export type AgentPermissionMode = "plan" | "acceptEdits";
-export type AgentType = "claude" | "codex" | "cursor" | "copilot";
 
 export type AgentDeepLinkRequest = {
   repo: string;
   branch: string;
   prompt: string;
   mode: AgentPermissionMode;
-  agent: AgentType;
+  agent: AgentKind;
   requestId: string;
 };
 
 const PROCESSED_PREFIX = "treq.agent.processed.";
 const PENDING_PREFIX = "treq.agent.pending.";
 const CLAIM_PREFIX = "treq.agent.claim.";
-
-const isAgentType = (value: string): value is AgentType =>
-  value === "claude" ||
-  value === "codex" ||
-  value === "cursor" ||
-  value === "copilot";
 
 const normalizeMode = (value: string): AgentPermissionMode | null => {
   if (value === "plan") return "plan";
@@ -56,7 +50,7 @@ export const parseAgentDeepLinkUrl = (
     return null;
   }
   const mode = normalizeMode(modeRaw);
-  if (!mode || !isAgentType(agentRaw)) {
+  if (!mode || !isAgentKind(agentRaw)) {
     return null;
   }
 
