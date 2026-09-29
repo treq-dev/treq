@@ -20,21 +20,6 @@ export interface AutoReviewEvent {
   operation_id: string;
 }
 
-/** Agents a terminal session can run. */
-export type ReviewAgent = "claude" | "codex" | "cursor" | "copilot";
-
-/** Narrows a stored `review_agent` setting, dropping anything unrecognized. */
-export function normalizeReviewAgent(
-  value: string | undefined,
-): ReviewAgent | undefined {
-  return value === "claude" ||
-    value === "codex" ||
-    value === "cursor" ||
-    value === "copilot"
-    ? value
-    : undefined;
-}
-
 /** What a review terminal needs: the prompt to seed it and which agent runs it. */
 export interface ReviewLaunch {
   prompt: string;

@@ -1,3 +1,4 @@
+// @include-parallel
 import * as React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createTestRepo, findSidebarBranchElement, openRepo } from "../utils";
@@ -10,6 +11,7 @@ import {
 } from "../../src/lib/api";
 import { render, screen, waitFor, within } from "../test-utils";
 import { Dashboard } from "../../src/components/Dashboard";
+import { AGENTS } from "../../src/lib/agents";
 import userEvent from "@testing-library/user-event";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,6 +24,33 @@ describe("default agent configuration", () => {
     ({ repoPath } = createTestRepo(false));
     openRepo(repoPath);
     user = userEvent.setup();
+  });
+
+  it("lists every supported agent in every agent picker", async () => {
+    const agentValues = (select: HTMLElement) =>
+      within(select)
+        .getAllByRole("option")
+        .map((option) => (option as HTMLOptionElement).value)
+        .filter(Boolean);
+    const everyAgent = AGENTS.map((agent) => agent.id);
+
+    render(<Dashboard />);
+    expect(
+      agentValues(await screen.findByRole("combobox", { name: "Agent" })),
+    ).toEqual(everyAgent);
+
+    await user.click(await screen.findByLabelText("Settings"));
+    expect(agentValues(await screen.findByLabelText("Default Agent"))).toEqual(
+      everyAgent,
+    );
+    expect(agentValues(await screen.findByLabelText("Review Agent"))).toEqual(
+      everyAgent,
+    );
+
+    await user.click(await screen.findByRole("tab", { name: /application/i }));
+    expect(agentValues(await screen.findByLabelText("Default Agent"))).toEqual(
+      everyAgent,
+    );
   });
 
   it("saves app-level default_agent via Application settings tab", async () => {

@@ -17,6 +17,10 @@ export const integrationBaseTest: ViteUserConfig["test"] = {
   // "threads") -- otherwise files sharing a worker process would share an
   // app.db.
   pool: "forks",
+  // Every forked worker transforms and imports the app's module graph
+  // again. The on-disk module cache lets later runs skip the transform and
+  // part of the import cost; CI restores it between runs (see ci.yml).
+  experimental: { fsModuleCache: true },
   testTimeout: 5_000,
   hookTimeout: 5_000,
 };

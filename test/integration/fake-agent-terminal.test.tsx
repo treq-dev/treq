@@ -1,3 +1,4 @@
+// @include-parallel
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Dashboard } from "../../src/components/Dashboard";
@@ -45,5 +46,8 @@ describe("fake agent terminal", () => {
     expect(
       within(pane).getByText("prompt: Add a changelog entry"),
     ).toBeInTheDocument();
+    expect(await within(pane).findByText("ready")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(within(pane).queryByText(/^received:/)).not.toBeInTheDocument();
   }, 30000);
 });

@@ -3311,29 +3311,55 @@ pub fn move_workspace_changes(
     }
   }
 
+  // Only files changed in the source move; the rest become warnings.
+  let mut files = Vec::new();
   if !request.files.is_empty() {
     // Record the source changes before the filesystem transfer so tracked
     // files can be restored to their parent state rather than left deleted.
-    jj::jj_get_changed_files(&source_full_path_str)
+    let changed = jj::jj_get_changed_files(&source_full_path_str)
       .map_err(|e| format!("Failed to snapshot source files: {}", e))?;
+    for file in &request.files {
+      let prefix = format!("{}/", file.trim_end_matches('/'));
+      let has_changes = changed.iter().any(|change| {
+        std::iter::once(&change.path)
+          .chain(change.previous_path.as_ref())
+          .any(|path| path == file || path.starts_with(&prefix))
+      });
+      if has_changes {
+        files.push(file.clone());
+      } else {
+        result.warnings.push(format!(
+          "'{}' has no changes in '{}'; skipped",
+          file, source_branch
+        ));
+      }
+    }
+    if files.is_empty() && request.commits.is_empty() && request.hunks.is_empty() {
+      return Err(format!(
+        "Nothing to move: the selected files have no changes in '{}': {}",
+        source_branch,
+        request.files.join(", ")
+      ));
+    }
+  }
+  if !files.is_empty() {
     jj::move_paths_between_workspace_paths(
       &source_full_path_str,
       &destination_full_path_str,
-      Some(request.files.clone()),
+      Some(files.clone()),
     )
     .map_err(|e| format!("Failed to move files: {}", e))?;
     // Source restoration can reconcile other workspaces and check out the
     // destination before its copied paths have been snapshotted. Preserve
     // those bytes across that rewrite, then snapshot them afterward.
-    let destination_file_saves: Vec<(String, Option<Vec<u8>>)> = request
-      .files
+    let destination_file_saves: Vec<(String, Option<Vec<u8>>)> = files
       .iter()
       .map(|file_path| {
         let path = Path::new(&destination_full_path_str).join(file_path);
         (file_path.clone(), std::fs::read(path).ok())
       })
       .collect();
-    for file_path in &request.files {
+    for file_path in &files {
       jj::jj_restore_file(&source_full_path_str, file_path)
         .map_err(|e| format!("Failed to restore source file '{}': {}", file_path, e))?;
     }
@@ -3353,7 +3379,7 @@ pub fn move_workspace_changes(
     }
     jj::jj_get_changed_files(&destination_full_path_str)
       .map_err(|e| format!("Failed to snapshot destination files: {}", e))?;
-    result.files_moved = request.files.len();
+    result.files_moved = files.len();
   }
 
   if !request.hunks.is_empty() {

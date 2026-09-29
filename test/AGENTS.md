@@ -43,6 +43,7 @@ describe("workspace header", () => {
 - Assert visible text or ARIA roles, not internal state or which private functions ran
 - Keep `beforeEach` minimal; move complex repo setup into the test or a shared helper
 - Never mock the Rust backend in integration tests; use the real NAPI dispatch
+- Start every integration file with `// @include-parallel` or `// @include-serial` on its own line; the Vitest config reads it to pick the project, and a file without one runs serially. Use serial for files that edit the working copy and drive the Changes or Review views
 
 ## Fake agent terminals
 

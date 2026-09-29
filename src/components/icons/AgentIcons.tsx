@@ -1,5 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
-import type { AgentType } from "../../lib/agentDeepLink";
+import { DEFAULT_AGENT, type AgentKind } from "../../lib/agents";
 
 export type AgentIconProps = SVGProps<SVGSVGElement>;
 
@@ -72,14 +72,21 @@ export function CopilotIcon({ className, ...props }: AgentIconProps) {
   );
 }
 
+// Keyed by every supported agent, so adding one to AGENTS without an icon
+// fails the typecheck.
+const AGENT_ICONS: Record<AgentKind, ComponentType<AgentIconProps>> = {
+  claude: ClaudeIcon,
+  codex: CodexIcon,
+  cursor: CursorIcon,
+  copilot: CopilotIcon,
+};
+
 /** Component type for the brand mark of a known agent. Defaults to Claude. */
 export function agentIconComponent(
-  agent?: AgentType | null,
+  agent?: AgentKind | null,
 ): ComponentType<AgentIconProps> {
-  if (agent === "codex") return CodexIcon;
-  if (agent === "cursor") return CursorIcon;
-  if (agent === "copilot") return CopilotIcon;
-  return ClaudeIcon;
+  // Session rows can carry an agent this build no longer knows.
+  return AGENT_ICONS[agent ?? DEFAULT_AGENT] ?? ClaudeIcon;
 }
 
 /** Brand icon for a known agent. Defaults to Claude when unset. */
@@ -87,7 +94,7 @@ export function AgentIcon({
   agent,
   className,
   ...props
-}: AgentIconProps & { agent?: AgentType | null }) {
+}: AgentIconProps & { agent?: AgentKind | null }) {
   const Icon = agentIconComponent(agent);
   return <Icon className={className} {...props} />;
 }

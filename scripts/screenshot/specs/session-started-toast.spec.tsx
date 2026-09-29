@@ -85,7 +85,7 @@ it("captures the session-started toast and its Open action", async () => {
     ISSUE.branch_name,
   );
   await within(screen.getByTestId("workspace-terminal-pane")).findByText(
-    "prompt: Rework it",
+    /prompt: Rework it$/,
     {},
     { timeout: 15000 },
   );

@@ -22,8 +22,8 @@ import { captureDocument } from "../capture";
 
 // Verifies the workspace sidebar's right-aligned git status pip: nothing
 // when clean, a yellow pip with uncommitted changes, and a red pip when
-// conflicted -- the same for every workspace whether or not it has an open
-// agent session (an open session only makes the pip spin while it streams).
+// conflicted. The pip spins while an agent in the workspace streams output;
+// a clean workspace with a working agent shows a gray spinner.
 it("shows the right git-state pip for sessioned and session-less workspaces", async () => {
   onTestFinished(installFakeAgents());
 
@@ -109,9 +109,29 @@ it("shows the right git-state pip for sessioned and session-less workspaces", as
   });
 
   await openAgentSession("feat/session-clean");
+  const cleanSpinner = await screen.findByTestId(
+    `workspace-status-indicator-${sessionCleanId}`,
+  );
+  expect(cleanSpinner).toHaveAttribute("aria-label", "Agent working");
+  await captureDocument(document, {
+    name: "workspace-agent-session-spinner-04-clean-working",
+    expectations: [
+      "feat/session-clean shows a small gray spinning indicator at its right edge while its new agent starts up.",
+      "feat/no-session-clean, the other clean row, has no indicator.",
+    ],
+  });
+  // The spinner stops once the agent goes idle.
+  await waitFor(
+    () =>
+      expect(
+        screen.queryByTestId(`workspace-status-indicator-${sessionCleanId}`),
+      ).not.toBeInTheDocument(),
+    { timeout: 15000 },
+  );
+
   await openAgentSession("feat/session-conflict");
 
-  // Clean rows never show a pip, session or not.
+  // Clean rows show no pip once no agent in them is working.
   expect(
     screen.queryByTestId(`workspace-status-indicator-${noSessionCleanId}`),
   ).not.toBeInTheDocument();
