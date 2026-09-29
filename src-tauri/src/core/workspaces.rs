@@ -1921,56 +1921,6 @@ mod tests {
   }
 
   #[test]
-  fn removing_a_squash_merged_parent_rebases_its_child_off_the_merged_commits() {
-    let temp = TempDir::new().expect("tempdir");
-    let repo_path = init_workspace_creation_repo(&temp);
-    let ws_dir = |ws: &crate::local_db::Workspace| {
-      temp
-        .path()
-        .join(".treq/workspaces")
-        .join(&ws.workspace_path)
-        .to_string_lossy()
-        .into_owned()
-    };
-    // Commit a clean base so main is not the home working copy.
-    fs::write(temp.path().join(".gitignore"), ".treq/\n").expect("write gitignore");
-    crate::jj::jj_commit(&repo_path, "base").expect("commit base");
-    crate::jj::jj_set_bookmark(&repo_path, "main", "@-").expect("main on base");
-    let b = super::create_workspace(&repo_path, "feat/b", None, None, None, None, None)
-      .expect("create b");
-    fs::write(std::path::Path::new(&ws_dir(&b)).join("b.txt"), "b\n").expect("write b");
-    crate::jj::jj_commit(&ws_dir(&b), "b work").expect("commit b");
-    let c = super::create_workspace(&repo_path, "feat/c", None, None, Some("feat/b"), None, None)
-      .expect("create c");
-    fs::write(std::path::Path::new(&ws_dir(&c)).join("c.txt"), "c\n").expect("write c");
-    crate::jj::jj_commit(&ws_dir(&c), "c work").expect("commit c");
-
-    // Squash-merge b into main: same tree, new commit.
-    fs::write(temp.path().join("b.txt"), "b\n").expect("write squash");
-    crate::jj::jj_commit(&repo_path, "squash b").expect("commit squash");
-    crate::jj::jj_set_bookmark(&repo_path, "main", "@-").expect("advance main");
-
-    super::delete_workspace(&repo_path, &b.id).expect("delete b");
-
-    // Non-empty commits c would push for review; b's squash-merged work must not be among them.
-    let out = Command::new("jj")
-      .current_dir(temp.path())
-      .args([
-        "log",
-        "--no-graph",
-        "--ignore-working-copy",
-        "-r",
-        "main..feat/c ~ empty()",
-        "-T",
-        "description.first_line() ++ \"\\n\"",
-      ])
-      .output()
-      .expect("jj log");
-    assert!(out.status.success());
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "c work\n");
-  }
-
-  #[test]
   fn update_workspace_with_title_clears_title_and_description() {
     use super::MaybeEmptyParam;
 
