@@ -4,7 +4,10 @@ import {
   integrationPlugins,
 } from "./vitest.integration.base";
 import { serialIntegrationFiles } from "./vitest.integration.serial";
-import { VITEST_PROJECT_SEQUENCE } from "./vitest.projects";
+import {
+  VITEST_PROJECT_SEQUENCE,
+  VITEST_PROJECT_WORKERS,
+} from "./vitest.projects";
 
 /**
  * Integration tests that mutate/poll the jj "Changes" file list (staging,
@@ -25,6 +28,6 @@ export default defineConfig({
     },
     include: serialIntegrationFiles,
     fileParallelism: false,
-    maxWorkers: 1,
+    maxWorkers: VITEST_PROJECT_WORKERS.integrationSerial,
   },
 });
