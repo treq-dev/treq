@@ -256,12 +256,6 @@ export const ShowWorkspace = ({
     null,
   );
 
-  // Sync status state (ahead/behind counts)
-  const [syncStatus, setSyncStatus] = useState<{
-    ahead: number;
-    behind: number;
-  } | null>(null);
-
   // Target branch and conflicts state
   const [targetBranch, setTargetBranch] = useState<string | null>(null);
   const defaultBranch = "main";
@@ -269,8 +263,6 @@ export const ShowWorkspace = ({
 
   // Committed changes toggle state
   const [showCommittedChanges, setShowCommittedChanges] = useState(true);
-  // Whether the workspace has any of its own commits (not target-only, not working-copy)
-  const [hasWorkspaceCommits, setHasWorkspaceCommits] = useState(false);
 
   // Home-repo branch divergence: counts of target-ahead commits and conflict dry-run result
   const [homeRepoTargetAheadCount, setHomeRepoTargetAheadCount] = useState(0);
@@ -318,32 +310,12 @@ export const ShowWorkspace = ({
     setChangedFiles(new Map());
   }, [workspace?.id]);
 
-  // Load workspace commit count to control Committed toggle availability
-  const loadWorkspaceCommitCount = async () => {
-    if (!effectiveRepoPath || workspace?.id === undefined) {
-      setHasWorkspaceCommits(false);
-      return;
-    }
-    try {
-      const result = await listCommits(effectiveRepoPath, workspace.id);
-      setHasWorkspaceCommits(
-        (result.commits ?? []).some(
-          (c) => !c.on_target_only && !c.is_working_copy,
-        ),
-      );
-    } catch {
-      setHasWorkspaceCommits(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadWorkspaceCommitCount();
-  }, [effectiveRepoPath, workspace?.id]);
-
   // After a child refresh (e.g. post-commit), re-check if workspace now has commits
   const handleRefreshingChange = (r: boolean) => {
     setRefreshingFiles(r);
-    if (!r) loadWorkspaceCommitCount();
+    if (!r && workspace?.id !== undefined) {
+      void invalidateQueries(["workspace-commits", repoCacheKey, workspace.id]);
+    }
   };
 
   // When commits are loaded from LinearCommitHistory, capture divergence counts
@@ -411,6 +383,18 @@ export const ShowWorkspace = ({
   })();
   const conflictCount = normalizedConflictedFiles.length;
 
+  // Ahead/behind counts against the remote.
+  const syncStatus = (() => {
+    const sync = workspaceStatusData?.remote_sync;
+    if (!sync) return null;
+    if (sync.type === "Ahead") return { ahead: sync.data.count, behind: 0 };
+    if (sync.type === "Behind") return { ahead: 0, behind: sync.data.count };
+    if (sync.type === "Diverged") {
+      return { ahead: sync.data.ahead, behind: sync.data.behind };
+    }
+    return { ahead: 0, behind: 0 };
+  })();
+
   // Review badge: unique working-copy + committed files, independent of
   // whether the Changes tab (ChangesDiffViewer) is mounted. Mounting Review
   // must not change this number.
@@ -457,6 +441,11 @@ export const ShowWorkspace = ({
   const workspaceLocStats = workspaceCommitsLog
     ? sumWorkspaceLocFromLog(workspaceCommitsLog)
     : undefined;
+  // Whether the workspace has any of its own commits (not target-only, not
+  // working-copy). Controls the Committed toggle and Create PR availability.
+  const hasWorkspaceCommits = (workspaceCommitsLog?.commits ?? []).some(
+    (c) => !c.on_target_only && !c.is_working_copy,
+  );
 
   const reviewTabPill = (() => {
     if (visibleReviewChangeCount <= 0) return null;
@@ -640,20 +629,6 @@ export const ShowWorkspace = ({
     };
   }, [activeTab, showFileBrowserInCode, workspace?.id, effectiveRepoPath]);
 
-  useEffect(() => {
-    if (!workspaceStatusData) return;
-    const sync = workspaceStatusData.remote_sync;
-    if (sync.type === "Ahead") {
-      setSyncStatus({ ahead: sync.data.count, behind: 0 });
-    } else if (sync.type === "Behind") {
-      setSyncStatus({ ahead: 0, behind: sync.data.count });
-    } else if (sync.type === "Diverged") {
-      setSyncStatus({ ahead: sync.data.ahead, behind: sync.data.behind });
-    } else {
-      setSyncStatus({ ahead: 0, behind: 0 });
-    }
-  }, [workspaceStatusData]);
-
   // Handle file selection from Cmd+P (or other external sources)
   useEffect(() => {
     if (initialSelectedFile) {
@@ -817,6 +792,26 @@ export const ShowWorkspace = ({
   const handleDeleteTentativeChanges = async () => {
     if (!workspace?.workspace_path || !effectiveRepoPath) return;
 
+    const refreshAfterRestore = () =>
+      Promise.all([
+        refetchWorkspaceStatus(),
+        invalidateQueries([
+          "commit-diff-viewer-commits",
+          effectiveRepoPath,
+          workspace.id,
+        ]),
+        invalidateQueries([
+          "workspace-status",
+          effectiveRepoPath,
+          workspace.id,
+        ]),
+        invalidateQueries([
+          "workspace-overview",
+          effectiveRepoPath,
+          workspace.id,
+        ]),
+      ]);
+
     try {
       const snapshotId = await jjSnapshotWorkingCopy(workingDirectory);
       await jjRestoreAll(workingDirectory);
@@ -830,24 +825,7 @@ export const ShowWorkspace = ({
             void (async () => {
               try {
                 await jjRestoreSnapshot(workingDirectory, snapshotId);
-                await Promise.all([
-                  refetchWorkspaceStatus(),
-                  void invalidateQueries([
-                    "commit-diff-viewer-commits",
-                    effectiveRepoPath,
-                    workspace.id,
-                  ]),
-                  void invalidateQueries([
-                    "workspace-status",
-                    effectiveRepoPath,
-                    workspace.id,
-                  ]),
-                  void invalidateQueries([
-                    "workspace-overview",
-                    effectiveRepoPath,
-                    workspace.id,
-                  ]),
-                ]);
+                await refreshAfterRestore();
                 addToast({
                   title: "Restored",
                   description: "Working copy changes were restored",
@@ -867,24 +845,7 @@ export const ShowWorkspace = ({
           },
         },
       });
-      await Promise.all([
-        refetchWorkspaceStatus(),
-        void invalidateQueries([
-          "commit-diff-viewer-commits",
-          effectiveRepoPath,
-          workspace.id,
-        ]),
-        void invalidateQueries([
-          "workspace-status",
-          effectiveRepoPath,
-          workspace.id,
-        ]),
-        void invalidateQueries([
-          "workspace-overview",
-          effectiveRepoPath,
-          workspace.id,
-        ]),
-      ]);
+      await refreshAfterRestore();
     } catch (error) {
       addToast({
         title: "Failed to discard changes",
@@ -1020,6 +981,55 @@ export const ShowWorkspace = ({
     }
   };
 
+  const toRelativePath = (filePath: string) =>
+    filePath.startsWith(`${workingDirectory}/`)
+      ? filePath.slice(workingDirectory.length + 1)
+      : filePath;
+
+  /** Sends to the idle agent in this workspace, if any. Returns false when none. */
+  const sendToIdleAgent = (prompt: string) => {
+    if (!idleAgentSession || !onSendToIdleAgent) return false;
+    onSendToIdleAgent(
+      Number(idleAgentSession.id.replace("claude-", "")),
+      prompt,
+    );
+    return true;
+  };
+
+  /**
+   * Creates a session record and hands it to the parent, which opens the agent
+   * terminal and sends `pendingPrompt` once the agent initializes.
+   */
+  const startAgentSession = async (
+    sessionName: string,
+    pendingPrompt: string,
+    permissionMode?: "plan" | "acceptEdits",
+    agent?: SessionCreationInfo["agent"],
+  ) => {
+    const dbSessionId = await createSession(
+      effectiveRepoPath,
+      workspace?.id ?? null,
+      sessionName,
+    );
+    onSessionCreated?.({
+      sessionId: dbSessionId,
+      sessionName,
+      workspaceId: workspace?.id ?? null,
+      workspacePath: null,
+      repoPath: effectiveRepoPath || workingDirectory,
+      pendingPrompt,
+      permissionMode,
+      ...(agent ? { agent } : {}),
+    });
+  };
+
+  const toastError = (title: string, error: unknown) =>
+    addToast({
+      title,
+      description: error instanceof Error ? error.message : String(error),
+      type: "error",
+    });
+
   const handleCreateAgentWithComment = async (
     filePath: string,
     startLine: number,
@@ -1029,80 +1039,42 @@ export const ShowWorkspace = ({
     commitShortId?: string,
     mode?: "plan" | "acceptEdits",
   ) => {
+    const lineRef = `${toRelativePath(filePath)}:${startLine}${
+      startLine !== endLine ? `-${endLine}` : ""
+    }${commitShortId ? ` (commit ${commitShortId})` : ""}`;
+    const formattedComment = `${lineRef}\n\`\`\`\n${lineContent.join(
+      "\n",
+    )}\n\`\`\`\n> ${commentText}\n`;
     try {
-      // Format comment as markdown
-      const relativePath = filePath.startsWith(`${workingDirectory}/`)
-        ? filePath.slice(workingDirectory.length + 1)
-        : filePath;
-
-      const lineRef = `${relativePath}:${startLine}${
-        startLine !== endLine ? `-${endLine}` : ""
-      }${commitShortId ? ` (commit ${commitShortId})` : ""}`;
-      const formattedComment = `${lineRef}\n\`\`\`\n${lineContent.join(
-        "\n",
-      )}\n\`\`\`\n> ${commentText}\n`;
-      const sessionName = "Code Comment";
-
-      // Create new database session
-      const dbSessionId = await createSession(
-        effectiveRepoPath,
-        workspace?.id ?? null,
-        sessionName,
-      );
-      const sessionRepoPath = effectiveRepoPath || workingDirectory;
-
-      // Notify parent with pending prompt to be sent after Claude initializes
-      // (ConsolidatedTerminal will create the PTY session when it mounts)
-      onSessionCreated?.({
-        sessionId: dbSessionId,
-        sessionName,
-        workspaceId: workspace?.id ?? null,
-        workspacePath: null,
-        repoPath: sessionRepoPath,
-        pendingPrompt: formattedComment,
-        permissionMode: mode,
-      });
-
+      await startAgentSession("Code Comment", formattedComment, mode);
       addToast({
         title: "Comment sent to agent",
         description: `Created new agent session and sent comment`,
         type: "success",
       });
     } catch (error) {
-      addToast({
-        title: "Failed to create agent",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      toastError("Failed to create agent", error);
     }
   };
 
   /**
-   * Send one local review comment to a fresh agent terminal, formatted the same
-   * way {@link handleCreateAgentWithComment} formats a human comment, plus the
-   * agent's suggested replacement when it left one.
+   * Send one local review comment to the idle agent, or a fresh agent terminal,
+   * formatted like {@link handleCreateAgentWithComment} plus the agent's
+   * suggested replacement when it left one.
    */
   const handleSendAgentReviewCommentToAgent = async (
     comment: AgentReviewComment,
   ) => {
+    const lineRef = `${toRelativePath(comment.file_path)}:${comment.start_line}${
+      comment.start_line !== comment.end_line ? `-${comment.end_line}` : ""
+    }`;
+    const suggestion =
+      comment.suggested_replacement != null
+        ? `\nSuggested change:\n\`\`\`\n${comment.suggested_replacement}\n\`\`\`\n`
+        : "";
+    const formattedComment = `Please address this review comment.\n\n${lineRef}\n> ${comment.comment_text}\n${suggestion}`;
     try {
-      const relativePath = comment.file_path.startsWith(`${workingDirectory}/`)
-        ? comment.file_path.slice(workingDirectory.length + 1)
-        : comment.file_path;
-
-      const lineRef = `${relativePath}:${comment.start_line}${
-        comment.start_line !== comment.end_line ? `-${comment.end_line}` : ""
-      }`;
-      const suggestion =
-        comment.suggested_replacement != null
-          ? `\nSuggested change:\n\`\`\`\n${comment.suggested_replacement}\n\`\`\`\n`
-          : "";
-      const formattedComment = `Please address this review comment.\n\n${lineRef}\n> ${comment.comment_text}\n${suggestion}`;
-      if (idleAgentSession && onSendToIdleAgent) {
-        onSendToIdleAgent(
-          Number(idleAgentSession.id.replace("claude-", "")),
-          formattedComment,
-        );
+      if (sendToIdleAgent(formattedComment)) {
         addToast({
           title: "Comment sent to agent",
           description: "Sent review comment to the idle agent",
@@ -1110,37 +1082,33 @@ export const ShowWorkspace = ({
         });
         return;
       }
-      const sessionName = "Review Comment";
-
-      const dbSessionId = await createSession(
-        effectiveRepoPath,
-        workspace?.id ?? null,
-        sessionName,
+      await startAgentSession(
+        "Review Comment",
+        formattedComment,
+        "acceptEdits",
       );
-      const sessionRepoPath = effectiveRepoPath || workingDirectory;
-
-      onSessionCreated?.({
-        sessionId: dbSessionId,
-        sessionName,
-        workspaceId: workspace?.id ?? null,
-        workspacePath: null,
-        repoPath: sessionRepoPath,
-        pendingPrompt: formattedComment,
-        permissionMode: "acceptEdits",
-      });
-
       addToast({
         title: "Comment sent to agent",
         description: "Created new agent session and sent review comment",
         type: "success",
       });
     } catch (error) {
-      addToast({
-        title: "Failed to create agent",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      toastError("Failed to create agent", error);
     }
+  };
+
+  /** Resolves the default agent from repo-level, then app-level settings. */
+  const resolveDefaultAgent = async (
+    agentOverride?: string,
+  ): Promise<AgentKind | undefined> => {
+    const repoPathForSettings = effectiveRepoPath || workingDirectory;
+    const repoDefault = await getRepoSetting(
+      repoPathForSettings,
+      "default_agent",
+    ).catch(() => null); // repo may not be initialized yet
+    const appDefault = await getSetting("default_agent").catch(() => null);
+    // undefined falls back to Dashboard's default (claude)
+    return toAgentKind(agentOverride || repoDefault || appDefault);
   };
 
   const createAgentWithReview = async (
@@ -1150,11 +1118,7 @@ export const ShowWorkspace = ({
     agentOverride?: string,
   ) => {
     try {
-      if (idleAgentSession && onSendToIdleAgent) {
-        onSendToIdleAgent(
-          Number(idleAgentSession.id.replace("claude-", "")),
-          reviewMarkdown,
-        );
+      if (sendToIdleAgent(reviewMarkdown)) {
         addToast({
           title: "Review sent to agent",
           description: "Sent review to the idle agent",
@@ -1162,58 +1126,14 @@ export const ShowWorkspace = ({
         });
         return;
       }
-
-      // Resolve the default agent from repo-level then app-level settings,
-      // so "send review to terminal" honours the configured default agent.
-      let resolvedAgent: AgentKind | undefined;
-      const repoPathForSettings = effectiveRepoPath || workingDirectory;
-      try {
-        let repoDefault: string | null = null;
-        let appDefault: string | null = null;
-        try {
-          repoDefault = await getRepoSetting(
-            repoPathForSettings,
-            "default_agent",
-          );
-        } catch {
-          // repo may not be initialized yet
-        }
-        try {
-          appDefault = await getSetting("default_agent");
-        } catch {
-          // ignore
-        }
-        resolvedAgent = toAgentKind(agentOverride || repoDefault || appDefault);
-      } catch {
-        // fall back to undefined (Dashboard will default to claude)
-      }
-
-      // Create new database session
-      const dbSessionId = await createSession(
-        effectiveRepoPath,
-        workspace?.id ?? null,
+      await startAgentSession(
         sessionName,
+        reviewMarkdown,
+        mode,
+        await resolveDefaultAgent(agentOverride),
       );
-      const sessionRepoPath = effectiveRepoPath || workingDirectory;
-
-      // Notify parent with pending prompt to be sent after agent initializes
-      // (ConsolidatedTerminal will create the PTY session when it mounts)
-      onSessionCreated?.({
-        sessionId: dbSessionId,
-        sessionName,
-        workspaceId: workspace?.id ?? null,
-        workspacePath: null,
-        repoPath: sessionRepoPath,
-        pendingPrompt: reviewMarkdown,
-        permissionMode: mode,
-        agent: resolvedAgent,
-      });
     } catch (error) {
-      addToast({
-        title: "Failed to create agent",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      toastError("Failed to create agent", error);
       throw error;
     }
   };
@@ -1221,27 +1141,9 @@ export const ShowWorkspace = ({
   /** Opens a fresh agent session seeded with the selected log content. */
   const handleSendLogsToAgent = async (prompt: string) => {
     try {
-      const sessionName = "Logs";
-      const dbSessionId = await createSession(
-        effectiveRepoPath,
-        workspace?.id ?? null,
-        sessionName,
-      );
-      onSessionCreated?.({
-        sessionId: dbSessionId,
-        sessionName,
-        workspaceId: workspace?.id ?? null,
-        workspacePath: null,
-        repoPath: effectiveRepoPath || workingDirectory,
-        pendingPrompt: prompt,
-        permissionMode: "plan",
-      });
+      await startAgentSession("Logs", prompt, "plan");
     } catch (error) {
-      addToast({
-        title: "Failed to send logs to agent",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      toastError("Failed to send logs to agent", error);
     }
   };
 
