@@ -4,6 +4,7 @@ import {
   locSignedCountCh,
   stackLocColumnCh,
   sumWorkspaceDiffStats,
+  sumWorkspaceLocFromLog,
 } from "./workspace-stack";
 
 function makeCommit(overrides: Partial<JjLogCommit> = {}): JjLogCommit {
@@ -66,6 +67,35 @@ describe("sumWorkspaceDiffStats", () => {
       insertions: 9,
       deletions: 3,
     });
+  });
+});
+
+describe("sumWorkspaceLocFromLog", () => {
+  it("sums commits plus tentative working copy from a listCommits result", () => {
+    expect(
+      sumWorkspaceLocFromLog({
+        commits: [
+          makeCommit({ insertions: 10, deletions: 6 }),
+          makeCommit({ insertions: 50, deletions: 50, on_target_only: true }),
+        ],
+        tentative_working_copy: {
+          workspace_label: "feat/thing",
+          commit: makeCommit({
+            is_working_copy: true,
+            insertions: 2,
+            deletions: 3,
+          }),
+        },
+      }),
+    ).toEqual({ insertions: 12, deletions: 9 });
+  });
+
+  it("handles a result with no tentative working copy", () => {
+    expect(
+      sumWorkspaceLocFromLog({
+        commits: [makeCommit({ insertions: 1, deletions: 0 })],
+      }),
+    ).toEqual({ insertions: 1, deletions: 0 });
   });
 });
 

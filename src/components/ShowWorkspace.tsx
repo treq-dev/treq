@@ -76,6 +76,7 @@ import {
   getCommitsTabLabel,
 } from "../lib/commitsTabLabel";
 import { cn, getFullWorkspacePath, resolveReadmeImageSrc } from "../lib/utils";
+import { sumWorkspaceLocFromLog } from "../lib/workspace-stack";
 import type { AgentReviewComment } from "../lib/api-types-review";
 import type { SessionCreationInfo } from "../types/sessions";
 import {
@@ -84,6 +85,7 @@ import {
 } from "./ChangesDiffViewer";
 import { BrowserPanel } from "./browser-panel/BrowserPanel";
 import { useReviewSubView } from "./browser-panel/useReviewSubView";
+import { LocDiffMarker } from "./LocDiffMarker";
 import { LogsTab } from "./LogsTab";
 import { CiStatusIndicator } from "./CiStatusIndicator";
 import { CommitDiffViewer } from "./CommitDiffViewer";
@@ -439,6 +441,18 @@ export const ShowWorkspace = ({
   const visibleReviewChangeCount = reviewChangeCountPending
     ? 0
     : reviewChangeCount;
+
+  // Workspace LOC (committed + working copy) for the Gerrit-style marker
+  // on the tab row. Shares the stack panel's query key for cache reuse.
+  const { data: workspaceCommitsLog } = useSWR(
+    effectiveRepoPath && workspace?.id !== undefined
+      ? ["workspace-commits", repoCacheKey, workspace?.id ?? null]
+      : null,
+    () => listCommits(effectiveRepoPath, workspace!.id),
+  );
+  const workspaceLocStats = workspaceCommitsLog
+    ? sumWorkspaceLocFromLog(workspaceCommitsLog)
+    : undefined;
 
   const reviewTabPill = (() => {
     if (visibleReviewChangeCount <= 0) return null;
@@ -1218,6 +1232,7 @@ export const ShowWorkspace = ({
               <span>{rebasing ? "Rebasing..." : "Refreshing..."}</span>
             </div>
           )}
+          {workspaceLocStats && <LocDiffMarker diffStats={workspaceLocStats} />}
         </div>
       </div>
       <div className="flex-1 overflow-auto">
