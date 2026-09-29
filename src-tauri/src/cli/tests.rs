@@ -1118,6 +1118,45 @@ fn every_typed_remote_request_round_trips_through_cli_args() {
   }
 }
 
+#[cfg(unix)]
+#[test]
+fn symlink_report_separates_created_links_from_missing_sources() {
+  let dir = tempfile::tempdir().unwrap();
+  std::os::unix::fs::symlink(dir.path(), dir.path().join("node_modules")).unwrap();
+  let (linked, missing) = super::workspace_handlers::split_symlinks(
+    dir.path(),
+    &["node_modules".to_string(), "target".to_string()],
+  );
+  assert_eq!(linked, vec!["node_modules".to_string()]);
+  assert_eq!(missing, vec!["target".to_string()]);
+}
+
+#[cfg(feature = "tauri-test")]
+mod commit_outcomes {
+  use super::super::workspace_handlers::commit_workspace_for_cli;
+  use crate::e2e_test_helpers::TestRepo;
+
+  #[test]
+  fn refuses_when_there_is_nothing_to_commit() {
+    let repo = TestRepo::new().unwrap();
+    let ws = repo.create_workspace_simple("feat/empty").unwrap();
+    let err = commit_workspace_for_cli(&repo.repo_path, &ws, "msg", false).unwrap_err();
+    assert!(err.contains("nothing to commit"), "{err}");
+  }
+
+  #[test]
+  fn a_failed_push_says_the_commit_landed() {
+    let repo = TestRepo::new().unwrap();
+    let ws = repo.create_workspace_simple("feat/push").unwrap();
+    TestRepo::write_workspace_file(&repo.workspace_full_path(&ws), "a.txt", "a\n").unwrap();
+    let err = commit_workspace_for_cli(&repo.repo_path, &ws, "msg", true).unwrap_err();
+    assert!(
+      err.contains("committed to 'feat/push'") && err.contains("push failed"),
+      "{err}"
+    );
+  }
+}
+
 mod repo_root_detection {
   use super::super::find_repo_root;
   use std::fs;
