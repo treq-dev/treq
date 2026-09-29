@@ -34,8 +34,6 @@ export interface UseWorkspaceDialogEffectsParams {
   branchPattern: string;
   isEditingBranch: boolean;
   moveToExisting: boolean;
-  isStackOnRoot: boolean;
-  position: "before" | "after";
   fileHunksMap: HunkMap;
   setIntent: (v: string) => void;
   setTitle: (v: string) => void;
@@ -45,11 +43,12 @@ export interface UseWorkspaceDialogEffectsParams {
   setLoading: (v: boolean) => void;
   setError: (v: string) => void;
   setBranchStatusData: (v: BranchStatus | null) => void;
+  /** Branch name that `branchStatusData` was checked for. */
+  setBranchStatusName: (v: string | null) => void;
   setIsCheckingBranch: (v: boolean) => void;
   setTargetBranch: (v: string | null) => void;
   setAvailableBranches: (v: BranchListItem[]) => void;
   setBranchesLoading: (v: boolean) => void;
-  setPosition: (v: "before" | "after") => void;
   setActiveRightTab: (v: "commits" | "changes") => void;
   setChangedFiles: (v: JjFileChange[]) => void;
   setFileHunksMap: Dispatch<SetStateAction<HunkMap>>;
@@ -87,8 +86,6 @@ export function useWorkspaceDialogEffects(
     branchPattern,
     isEditingBranch,
     moveToExisting,
-    isStackOnRoot,
-    position,
     fileHunksMap,
     setIntent,
     setTitle,
@@ -98,11 +95,11 @@ export function useWorkspaceDialogEffects(
     setLoading,
     setError,
     setBranchStatusData,
+    setBranchStatusName,
     setIsCheckingBranch,
     setTargetBranch,
     setAvailableBranches,
     setBranchesLoading,
-    setPosition,
     setActiveRightTab,
     setChangedFiles,
     setFileHunksMap,
@@ -121,6 +118,7 @@ export function useWorkspaceDialogEffects(
 
     setError("");
     setBranchStatusData(null);
+    setBranchStatusName(null);
     setIsEditingBranch(false);
     setLoading(false);
     setMoveToExisting(false);
@@ -251,16 +249,16 @@ export function useWorkspaceDialogEffects(
   useEffect(() => {
     if (!debouncedBranchName.trim() || moveToExisting) {
       setBranchStatusData(null);
+      setBranchStatusName(null);
       setIsCheckingBranch(false);
       return;
     }
     setIsCheckingBranch(checkingBranch);
-    if (branchStatus) setBranchStatusData(branchStatus);
+    // A new name has no result until its check resolves; never carry the
+    // previous name's result over, or its remote ref seeds the new branch.
+    setBranchStatusData(branchStatus ?? null);
+    setBranchStatusName(branchStatus ? debouncedBranchName : null);
   }, [debouncedBranchName, moveToExisting, checkingBranch, branchStatus]);
-
-  useEffect(() => {
-    if (isStackOnRoot && position !== "after") setPosition("after");
-  }, [isStackOnRoot, position]);
 
   const pendingHunkPaths = [...fileHunksMap]
     .filter(([, data]) => data.isLoading && data.hunks.length === 0)

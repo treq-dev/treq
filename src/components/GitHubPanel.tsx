@@ -181,9 +181,12 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
 
   const isListLoading = activeTab === "issues" ? issuesLoading : prsLoading;
 
+  // A direct link can land here before the remote resolves. Hold the detail
+  // panel until the repo name is known so it never asks gh for `--repo ""`.
   const showDetail =
-    (activeTab === "issues" && selectedIssue !== null) ||
-    (activeTab === "prs" && selectedPr !== null);
+    !!repoFullName &&
+    ((activeTab === "issues" && selectedIssue !== null) ||
+      (activeTab === "prs" && selectedPr !== null));
 
   function handleTabChange(v: string) {
     navigate(

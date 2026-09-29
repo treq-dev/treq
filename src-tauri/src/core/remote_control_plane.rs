@@ -101,6 +101,33 @@ pub struct SshEndpoint {
   pub username: String,
   pub host_keys: Vec<TrustedHostKey>,
   pub authentication: SshAuthentication,
+  /// How the client reaches sshd. Absent in older serialized endpoints,
+  /// which all dial directly, so it defaults to [`SshTransport::Direct`].
+  #[serde(default, skip_serializing_if = "SshTransport::is_direct")]
+  pub transport: SshTransport,
+}
+
+/// The byte path to an endpoint's sshd. SSH (host-key pinning and client
+/// authentication) runs end to end over either variant.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SshTransport {
+  /// TCP to `hostname:port`.
+  #[default]
+  Direct,
+  /// A WebSocket to Treq's `remote-ssh-relay` Edge Function, which forwards
+  /// raw bytes to sshd on a managed Sprite. Sprites have no raw TCP ingress,
+  /// so `hostname`/`port` then name sshd as seen from inside the Sprite and
+  /// are not dialed. The URL carries only ids; the Supabase session token is
+  /// sent in a header on each connection (see
+  /// `SshConnectionPool::set_relay_access_token`).
+  Relay { url: String },
+}
+
+impl SshTransport {
+  pub fn is_direct(&self) -> bool {
+    matches!(self, Self::Direct)
+  }
 }
 
 /// Newtype wrapper for idempotency keys carried on mutating requests. A
@@ -332,6 +359,43 @@ mod tests {
         certificate: None,
       }
     );
+  }
+
+  const ENDPOINT_WITHOUT_TRANSPORT: &str = r#"{
+    "id": "ep-1",
+    "instance_id": null,
+    "source": {"type": "user_managed"},
+    "hostname": "dev.example.com",
+    "port": 22,
+    "username": "me",
+    "host_keys": [],
+    "authentication": {"type": "public_key", "key_reference": "~/.ssh/id_ed25519"}
+  }"#;
+
+  #[test]
+  fn endpoint_without_transport_defaults_to_direct_and_round_trips_unchanged() {
+    let endpoint: SshEndpoint = serde_json::from_str(ENDPOINT_WITHOUT_TRANSPORT).unwrap();
+    assert_eq!(endpoint.transport, SshTransport::Direct);
+    let json = serde_json::to_value(&endpoint).unwrap();
+    assert!(json.get("transport").is_none());
+  }
+
+  #[test]
+  fn endpoint_relay_transport_round_trips() {
+    let mut value: serde_json::Value = serde_json::from_str(ENDPOINT_WITHOUT_TRANSPORT).unwrap();
+    value["transport"] = serde_json::json!({
+      "type": "relay",
+      "url": "wss://proj.supabase.co/functions/v1/remote-ssh-relay?endpoint_id=ep-1&key_id=k"
+    });
+    let endpoint: SshEndpoint = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(
+      endpoint.transport,
+      SshTransport::Relay {
+        url: "wss://proj.supabase.co/functions/v1/remote-ssh-relay?endpoint_id=ep-1&key_id=k"
+          .to_string()
+      }
+    );
+    assert_eq!(serde_json::to_value(&endpoint).unwrap(), value);
   }
 
   #[test]

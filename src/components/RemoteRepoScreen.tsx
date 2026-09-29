@@ -22,8 +22,15 @@ import {
   MutationButton,
   describeMutationOutcome,
 } from "./remote/RemoteScreenControls";
+import { useActionIdempotencyKeys } from "../lib/remote-idempotency";
 
-type Screen =
+/**
+ * Where the user is inside a remote repository. It only names remote
+ * objects (workspace name, file path), so the mobile shell persists it and
+ * reopens the same screen after a restart; each screen then re-reads its
+ * data from the VM.
+ */
+export type RemoteRepoScreenState =
   | { name: "workspaces" }
   | { name: "workspace"; workspace: string }
   | { name: "diff"; workspace: string; path: string }
@@ -33,8 +40,8 @@ type Screen =
   | { name: "terminal"; workspace: string };
 
 /**
- * Phase 3 (read-only review), Phase 4 (agent control), and Phase 5
- * (controlled mutations) mobile UI, driven entirely over
+ * Mobile review, agent control, and controlled mutations (mobile PRD,
+ * "Mobile product behavior"), driven entirely over
  * `dispatchOverSsh`/`dispatchMutationOverSsh` against the connected VM.
  * Single-column navigation: workspace list -> workspace detail ->
  * diff/commits/conflicts/agent, each with manual refresh. Mutations
@@ -45,11 +52,21 @@ type Screen =
 export function RemoteRepoScreen({
   endpoint,
   repo,
+  initialScreen,
+  onScreenChange,
 }: {
   endpoint: SshEndpoint;
   repo: string;
+  initialScreen?: RemoteRepoScreenState;
+  onScreenChange?: (screen: RemoteRepoScreenState) => void;
 }) {
-  const [screen, setScreen] = useState<Screen>({ name: "workspaces" });
+  const [screen, setScreen] = useState<RemoteRepoScreenState>(
+    initialScreen ?? { name: "workspaces" },
+  );
+  const navigate = (next: RemoteRepoScreenState) => {
+    setScreen(next);
+    onScreenChange?.(next);
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -59,8 +76,8 @@ export function RemoteRepoScreen({
           className="self-start text-sm text-muted-foreground"
           onClick={() =>
             "workspace" in screen && screen.name !== "workspace"
-              ? setScreen({ name: "workspace", workspace: screen.workspace })
-              : setScreen({ name: "workspaces" })
+              ? navigate({ name: "workspace", workspace: screen.workspace })
+              : navigate({ name: "workspaces" })
           }
         >
           ← Back
@@ -70,7 +87,7 @@ export function RemoteRepoScreen({
         <WorkspaceListScreen
           endpoint={endpoint}
           repo={repo}
-          onSelect={(workspace) => setScreen({ name: "workspace", workspace })}
+          onSelect={(workspace) => navigate({ name: "workspace", workspace })}
         />
       )}
       {screen.name === "workspace" && (
@@ -79,19 +96,19 @@ export function RemoteRepoScreen({
           repo={repo}
           workspace={screen.workspace}
           onOpenDiff={(path) =>
-            setScreen({ name: "diff", workspace: screen.workspace, path })
+            navigate({ name: "diff", workspace: screen.workspace, path })
           }
           onOpenCommits={() =>
-            setScreen({ name: "commits", workspace: screen.workspace })
+            navigate({ name: "commits", workspace: screen.workspace })
           }
           onOpenConflicts={() =>
-            setScreen({ name: "conflicts", workspace: screen.workspace })
+            navigate({ name: "conflicts", workspace: screen.workspace })
           }
           onOpenAgent={() =>
-            setScreen({ name: "agent", workspace: screen.workspace })
+            navigate({ name: "agent", workspace: screen.workspace })
           }
           onOpenTerminal={() =>
-            setScreen({ name: "terminal", workspace: screen.workspace })
+            navigate({ name: "terminal", workspace: screen.workspace })
           }
         />
       )}
@@ -153,6 +170,7 @@ function WorkspaceListScreen({
   const [branchName, setBranchName] = useState("");
   const [sourceBranch, setSourceBranch] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const actionKeys = useActionIdempotencyKeys();
 
   return (
     <section className="flex flex-col gap-2">
@@ -186,14 +204,22 @@ function WorkspaceListScreen({
           disabled={!branchName.trim()}
           onConfirm={async () => {
             setCreateError(null);
+            const branch = branchName.trim();
+            const source = sourceBranch.trim() || null;
+            const idempotencyKey = actionKeys.keyFor("create-workspace", [
+              repo,
+              branch,
+              source,
+            ]);
             try {
               const result = await dispatchMutationOverSsh(endpoint, {
                 kind: "CreateWorkspace",
                 repo,
-                branch_name: branchName.trim(),
-                source_branch: sourceBranch.trim() || null,
-                idempotency_key: `create-workspace:${repo}:${branchName.trim()}:${Date.now()}`,
+                branch_name: branch,
+                source_branch: source,
+                idempotency_key: idempotencyKey,
               });
+              actionKeys.settle(idempotencyKey, result);
               const outcome = describeMutationOutcome(result);
               if (outcome) {
                 setCreateError(outcome);

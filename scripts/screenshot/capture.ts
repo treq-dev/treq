@@ -91,6 +91,15 @@ export type CaptureOptions = {
   publishTo?: string | string[];
 };
 
+// xterm sizes its rows from measured character cells. jsdom measures every
+// cell as 0x0, so the rows it writes have no height and Chromium paints an
+// empty terminal. Give the rows a real line box so terminal text shows up.
+const XTERM_CAPTURE_CSS = `
+.xterm .xterm-screen { width: auto !important; height: auto !important; }
+.xterm .xterm-rows > div { height: 17px !important; line-height: 17px !important; width: auto !important; }
+.xterm .xterm-rows span { height: auto !important; }
+`;
+
 export async function captureDocument(
   doc: Document,
   options: CaptureOptions,
@@ -150,6 +159,7 @@ export async function captureDocument(
 <meta charset="utf-8" />
 <style>
 html, body { margin: 0; padding: 0; }
+${XTERM_CAPTURE_CSS}
 ${css}
 </style>
 </head>

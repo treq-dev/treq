@@ -52,6 +52,24 @@ describe("leaving a workspace when workspaces are removed", () => {
     );
   });
 
+  it("lands on the stack parent when the open workspace is archived", async () => {
+    await createWorkspace(repoPath, "feat/child", "feat/alpha");
+    render(<Dashboard />);
+    await openWorkspace("feat/child");
+
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: await findSidebarBranchElement("feat/child"),
+    });
+    await user.click(await screen.findByText("Archive Workspace"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("show-workspace-header")).toHaveTextContent(
+        "feat/alpha",
+      ),
+    );
+  });
+
   it("leaves the open workspace when it is removed outside the app", async () => {
     render(<Dashboard />);
     await openWorkspace("feat/alpha");

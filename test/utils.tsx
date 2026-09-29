@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, expect } from "vitest";
+import { afterAll, expect } from "vitest";
 import { waitFor, within } from "./test-utils";
 import { waitForPendingInvokes } from "./setup.integration";
 
@@ -47,32 +47,33 @@ function getNapiBindings(): NapiTestBindings {
   return require("../src-tauri/target") as NapiTestBindings;
 }
 
-const testRepoPaths = new Set<string>();
-// Per-test copies made from the golden fixture below; cleaned up by removing
-// the directory tree directly since Rust's TEST_REPOS registry (and thus
-// cleanupTestRepo) only knows about repos it created via createTestRepo.
+// Repos created by Rust's createTestRepo (the `withRemote: true` case) and
+// the per-test copies made from the golden fixture below. Both are removed
+// in afterAll (once per file), not afterEach: a test's async chain (SWR
+// revalidation, effect cleanup, a background working-copy snapshot) can
+// still be running against the repo after its own assertions finish.
+// Deleting the directory under it produced an unhandled "unable to open
+// database file" rejection in a *later* test. It can also trip jj-lib's
+// debug-only snapshot assertion (local_working_copy.rs): a snapshot of an
+// unchanged working copy first reads its tree in that assertion, and if
+// the git objects are already gone the tree reads as empty.
 //
-// Cleaned up in afterAll (once per file), not afterEach: a test's async
-// chain (SWR revalidation, effect cleanup) can still be settling after its
-// own assertions finish, and deleting the directory between tests raced
-// that tail, producing an unhandled "unable to open database file"
-// rejection that surfaced in a *later* test. Deferring cleanup to the end
-// of the file gives any straggling async work time to finish first.
+// Rust-created repos go through cleanupTestRepo so the TEST_REPOS registry
+// drops them; copies are removed directly since that registry only knows
+// about repos it created.
+const testRepoPaths = new Set<string>();
 const copiedRepoDirs = new Set<string>();
 
-afterEach(() => {
+afterAll(async () => {
+  // Let any straggling invoke() calls against these repos finish before
+  // removing the directories out from under them (see
+  // waitForPendingInvokes in test/setup.integration.ts).
+  await waitForPendingInvokes();
   const napi = getNapiBindings();
   for (const tempDirPath of testRepoPaths) {
     napi.cleanupTestRepo(tempDirPath);
   }
   testRepoPaths.clear();
-});
-
-afterAll(async () => {
-  // Let any straggling invoke() calls against these repos' local.db finish
-  // before removing the directories out from under them (see
-  // waitForPendingInvokes in test/setup.integration.ts).
-  await waitForPendingInvokes();
   for (const dir of copiedRepoDirs) {
     fs.rmSync(dir, { recursive: true, force: true });
   }

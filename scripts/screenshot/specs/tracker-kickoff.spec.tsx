@@ -95,7 +95,7 @@ it("kicks off an agent prompt from a Trello card", async () => {
   const dialog = (
     await screen.findByRole("heading", { name: "Start a new agent session" })
   ).closest('[data-testid="modal"]') as HTMLElement;
-  expect(within(dialog).getByTestId("tracker-item-chip")).toHaveTextContent(
+  expect(within(dialog).getByTestId("issue-chip")).toHaveTextContent(
     "Trello #12",
   );
   await captureDocument(document, {

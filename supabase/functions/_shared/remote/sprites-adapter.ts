@@ -81,6 +81,33 @@ export interface ManagedComputeProvider {
     timeoutSeconds?: number,
     environment?: Readonly<Record<string, string>>,
   ): Promise<MachineExecResult>;
+  // Creates or updates a named service and (re)starts it so a changed
+  // definition takes effect. Services run at boot and come back after a
+  // cold wake, which is what keeps sshd available without Treq restarting
+  // it on every connection.
+  ensureService(
+    providerId: string,
+    name: string,
+    spec: ServiceSpec,
+  ): Promise<void>;
+}
+
+export interface ServiceSpec {
+  cmd: string;
+  args: string[];
+}
+
+/// WebSocket URL of the Sprites TCP proxy for one Sprite
+/// (`WSS /v1/sprites/{name}/proxy`, sprites.dev/api/sprites/proxy). The
+/// caller authenticates with the org token in an Authorization header, then
+/// sends `{"host","port"}` and waits for `{"status":"connected"}` before the
+/// socket carries raw TCP bytes.
+export function spritesProxyUrl(config: SpritesConfig, name: string): string {
+  const url = new URL(
+    `${config.baseUrl.replace(/\/+$/, "")}/v1/sprites/${encodeURIComponent(name)}/proxy`,
+  );
+  url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
+  return url.toString();
 }
 
 function normalizeState(vendorState: string): ManagedInstanceState {
@@ -180,6 +207,43 @@ export class SpritesProvider implements ManagedComputeProvider {
           ? "timeout"
           : "unavailable",
         `Sprite exec failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  async ensureService(
+    providerId: string,
+    name: string,
+    spec: ServiceSpec,
+  ): Promise<void> {
+    const serviceUrl = `${this.spriteUrl(providerId)}/services/${encodeURIComponent(name)}`;
+    try {
+      const put = await fetch(serviceUrl, {
+        method: "PUT",
+        headers: this.headers(),
+        body: JSON.stringify({ cmd: spec.cmd, args: spec.args }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!put.ok) throw await this.mapErrorResponse(put);
+      await put.body?.cancel();
+      // `restart` rather than `start` so a repaired definition or rotated CA
+      // file is picked up by an already-running sshd.
+      const restart = await fetch(`${serviceUrl}/restart`, {
+        method: "POST",
+        headers: this.headers(),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!restart.ok) throw await this.mapErrorResponse(restart);
+      // The response streams NDJSON progress; drain it so the service has
+      // finished starting before the caller reads host keys.
+      await restart.text();
+    } catch (err) {
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError(
+        err instanceof DOMException && err.name === "TimeoutError"
+          ? "timeout"
+          : "unavailable",
+        `Sprite service setup failed: ${(err as Error).message}`,
       );
     }
   }

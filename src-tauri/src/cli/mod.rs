@@ -17,22 +17,33 @@ pub(super) fn normalize_repo_path(path: &Path) -> String {
     .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
-/// Walk up from CWD to find a directory containing `.git`.
+/// Walk up from CWD to the repository root. See [`find_repo_root`].
 pub fn detect_repo_path() -> Result<String, String> {
   let cwd = std::env::current_dir().map_err(|e| format!("Failed to get CWD: {}", e))?;
+  find_repo_root(&cwd)
+    .map(|root| normalize_repo_path(&root))
+    .ok_or_else(|| "Not inside a repository (no .git or .jj found)".to_string())
+}
 
-  let mut dir = cwd.as_path();
-  loop {
-    if dir.join(".git").is_dir() {
-      return Ok(normalize_repo_path(dir));
-    }
-    match dir.parent() {
-      Some(parent) => dir = parent,
-      None => break,
-    }
-  }
+/// The nearest ancestor of `start` (inclusive) that is a repository root: it
+/// has `.git` (a directory, or the file a git worktree uses) or `.jj`. Treq's
+/// own workspace directories (`.treq/workspaces/<name>`, which hold a `.jj`)
+/// are skipped so they resolve to their home repository.
+pub(super) fn find_repo_root(start: &Path) -> Option<std::path::PathBuf> {
+  start
+    .ancestors()
+    .find(|dir| {
+      !is_treq_workspace_dir(dir) && (dir.join(".git").exists() || dir.join(".jj").is_dir())
+    })
+    .map(Path::to_path_buf)
+}
 
-  Err("Not inside a git repository (no .git directory found)".to_string())
+fn is_treq_workspace_dir(dir: &Path) -> bool {
+  let Some(parent) = dir.parent() else {
+    return false;
+  };
+  parent.file_name() == Some(std::ffi::OsStr::new("workspaces"))
+    && parent.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new(".treq"))
 }
 
 /// Directory name under `.treq/workspaces/` when `cwd` is inside a workspace.
@@ -563,26 +574,46 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
   Some(if success { 0 } else { 1 })
 }
 
+/// How long a command waits for piped stdin it did not explicitly ask for.
+const IMPLICIT_STDIN_WAIT: Duration = Duration::from_secs(1);
+
+/// `true` when `fd` has data or EOF within `timeout`. Agent harnesses often
+/// run commands with stdin as a pipe nobody writes to or closes; reading it to
+/// EOF would hang forever.
+#[cfg(unix)]
+pub(super) fn fd_has_input(fd: std::os::unix::io::RawFd, timeout: Duration) -> bool {
+  let mut poll_fd = libc::pollfd {
+    fd,
+    events: libc::POLLIN,
+    revents: 0,
+  };
+  let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+  let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+  ready > 0 && poll_fd.revents & (libc::POLLIN | libc::POLLHUP) != 0
+}
+
+/// Whether to read stdin a command did not explicitly ask for (no `-`
+/// argument): it must be redirected and deliver data or EOF promptly.
+pub(super) fn implicit_stdin_available() -> bool {
+  use std::io::IsTerminal;
+  if std::io::stdin().is_terminal() {
+    return false;
+  }
+  #[cfg(unix)]
+  {
+    use std::os::unix::io::AsRawFd;
+    fd_has_input(std::io::stdin().as_raw_fd(), IMPLICIT_STDIN_WAIT)
+  }
+  #[cfg(not(unix))]
+  {
+    true
+  }
+}
+
 /// Prints an error to stderr and records it in the app's log file.
 pub(super) fn log_cli_error(msg: &str) {
   eprintln!("{}", msg);
   tracing::error!("{}", msg);
-}
-
-/// Handles top-level CLI args that do not map to subcommands.
-/// Returns `true` when an arg is consumed and no GUI should be opened.
-pub fn handle_cli_global_args(matches: &Matches) -> bool {
-  if let Some(help_text) = matches.args.get("help").and_then(|arg| arg.value.as_str()) {
-    println!("{}", help_text);
-    return true;
-  }
-
-  if matches.args.contains_key("version") {
-    println!("treq {}", env!("CARGO_PKG_VERSION"));
-    return true;
-  }
-
-  false
 }
 
 #[cfg(test)]
@@ -802,6 +833,7 @@ fn send_json_dispatch_request<T: serde::Serialize>(
     .map_err(|e| format!("invalid dispatch response payload: {}", e))
 }
 
+pub mod args;
 mod workspace_handlers;
 
 mod agent_review_handlers;

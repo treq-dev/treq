@@ -10,6 +10,7 @@ import type {
   ManagedInstanceState,
   ProviderInstance,
   ReplaceInstanceParams,
+  ServiceSpec,
 } from "./sprites-adapter.ts";
 import { ProviderError } from "./sprites-adapter.ts";
 
@@ -83,6 +84,11 @@ export class StubSpritesProvider implements ManagedComputeProvider {
     // this records success without touching anything, matching the rest of
     // this adapter's "warm in-memory fake" behavior.
     return Promise.resolve({ exitCode: 0, stdout: "", stderr: "" });
+  }
+
+  ensureService(providerId: string, _name: string, _spec: ServiceSpec): Promise<void> {
+    if (!machines.has(providerId)) throw new ProviderError("not_found", "stub instance not found");
+    return Promise.resolve();
   }
 }
 

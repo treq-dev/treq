@@ -218,6 +218,19 @@ pub async fn remote_clear_cutoff(
   Ok(())
 }
 
+/// Hands the native SSH pool the signed-in user's Supabase access token for
+/// managed endpoints reached through the `remote-ssh-relay` Edge Function.
+/// The frontend calls this on sign-in, on every token refresh, and with
+/// `None` on sign-out. The token is kept in memory only and never logged.
+#[tauri::command]
+pub async fn remote_set_relay_access_token(
+  token: Option<String>,
+  state: State<'_, RemoteExecState>,
+) -> Result<(), String> {
+  state.0.set_relay_access_token(token);
+  Ok(())
+}
+
 /// Returns the current cutoff reason for `endpoint_id`, if any, so the UI can
 /// synchronously check state (e.g. on mount) instead of relying solely on the
 /// `remote://cutoff` event.

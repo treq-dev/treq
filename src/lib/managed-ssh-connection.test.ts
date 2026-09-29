@@ -105,6 +105,46 @@ function makeDeps(
   };
 }
 
+describe("relay transport", () => {
+  const RELAY_URL =
+    "wss://proj.supabase.co/functions/v1/remote-ssh-relay?endpoint_id=endpoint-1&key_id=key-1";
+
+  it("prepares relay auth before activating a relayed endpoint and keeps the transport", async () => {
+    const order: string[] = [];
+    const response = makeCertResponse();
+    response.endpoint.transport = { type: "relay", url: RELAY_URL };
+    const deps = makeDeps({
+      issueCertificate: vi.fn().mockResolvedValue(response),
+      prepareRelay: vi.fn(async () => {
+        order.push("prepare");
+      }),
+      activateEndpoint: vi.fn(() => {
+        order.push("activate");
+      }),
+    });
+    const result = await connectManagedInstance(deps, {
+      region: "us_east",
+      size: "small",
+      keyReference: "/home/user/.ssh/id_ed25519.pub",
+    });
+    expect(order).toEqual(["prepare", "activate"]);
+    expect(result.endpoint.transport).toEqual({
+      type: "relay",
+      url: RELAY_URL,
+    });
+  });
+
+  it("does not prepare relay auth for a direct endpoint", async () => {
+    const deps = makeDeps({ prepareRelay: vi.fn() });
+    await connectManagedInstance(deps, {
+      region: "us_east",
+      size: "small",
+      keyReference: "/home/user/.ssh/id_ed25519.pub",
+    });
+    expect(deps.prepareRelay).not.toHaveBeenCalled();
+  });
+});
+
 describe("connectManagedInstance", () => {
   let deps: ManagedConnectionDeps;
 

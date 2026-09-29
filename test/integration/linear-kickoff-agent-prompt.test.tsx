@@ -59,7 +59,7 @@ describe("Linear issue kickoff", () => {
     ).closest('[data-testid="modal"]') as HTMLElement;
     expect(dialog).toBeTruthy();
 
-    const chip = await within(dialog).findByTestId("linear-issue-chip");
+    const chip = await within(dialog).findByTestId("issue-chip");
     expect(chip).toHaveTextContent("TREQ-281");
     expect(
       within(dialog).getByRole("button", { name: /^edit$/i }),
