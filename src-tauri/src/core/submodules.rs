@@ -395,6 +395,12 @@ fn checkout_detached(
   }
   index.write(Default::default()).map_err(|e| e.to_string())?;
 
+  // The HEAD reflog entry needs a committer; like git, fall back to a
+  // generated identity when none is configured.
+  let mut repo = repo.clone();
+  repo
+    .committer_or_set_generic_fallback()
+    .map_err(|e| e.to_string())?;
   repo
     .edit_reference(RefEdit {
       change: Change::Update {
