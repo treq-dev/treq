@@ -1,3 +1,4 @@
+// @include-serial
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Dashboard } from "../../../src/components/Dashboard";
@@ -15,11 +16,8 @@ import {
   createTestRepo,
   findSidebarBranchElement,
   openRepo,
-  runSerially,
   writeRepoFile,
 } from "../../utils";
-
-runSerially();
 
 const LOGGING_WORKFLOW = `
 name: Logging CI

@@ -1,3 +1,4 @@
+// @include-serial
 import { openUrl } from "@tauri-apps/plugin-opener";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
@@ -18,11 +19,8 @@ import {
   createTestRepo,
   findSidebarBranchElement,
   openRepo,
-  runSerially,
   setOriginUrl,
 } from "../../utils";
-
-runSerially();
 
 vi.mock("../../../src/lib/api", async (importOriginal) => {
   const original =

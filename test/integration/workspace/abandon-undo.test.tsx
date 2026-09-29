@@ -1,3 +1,4 @@
+// @include-serial
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -8,14 +9,11 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
-  runSerially,
 } from "../../utils";
 import * as api from "../../../src/lib/api";
 import { Dashboard } from "../../../src/components/Dashboard";
 import fs from "node:fs";
 import path from "node:path";
-
-runSerially();
 
 describe("Commits tab - abandon undo", () => {
   let user: ReturnType<typeof userEvent.setup>;

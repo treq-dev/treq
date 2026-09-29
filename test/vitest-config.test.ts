@@ -4,7 +4,7 @@ import {
   assertUniqueGroupOrderPerMaxWorkers,
 } from "../vitest.projects";
 import {
-  isSerialTestSource,
+  integrationProjectOf,
   serialIntegrationFiles,
 } from "../vitest.integration.serial";
 
@@ -26,22 +26,32 @@ describe("vitest project sequence", () => {
   });
 });
 
-describe("serial integration file detection", () => {
-  it("selects a file that calls runSerially() at its top level", () => {
+describe("integration project directive", () => {
+  it("runs a file marked @include-parallel in the parallel project", () => {
     expect(
-      isSerialTestSource(
-        'import { runSerially } from "../utils";\n\nrunSerially();\n\ndescribe("x", () => {});\n',
+      integrationProjectOf(
+        '// @include-parallel\nimport { it } from "vitest";\n',
       ),
-    ).toBe(true);
+    ).toBe("parallel");
   });
 
-  it("ignores a file that only imports it or calls it inside a block", () => {
-    expect(
-      isSerialTestSource('import { runSerially } from "../utils";\n'),
-    ).toBe(false);
-    expect(
-      isSerialTestSource('describe("x", () => {\n  runSerially();\n});\n'),
-    ).toBe(false);
+  it("runs a file marked @include-serial, or with no directive, serially", () => {
+    expect(integrationProjectOf("// @include-serial\n")).toBe("serial");
+    expect(integrationProjectOf('import { it } from "vitest";\n')).toBe(
+      "serial",
+    );
+  });
+
+  it("ignores the directive when it is not a whole-line comment", () => {
+    expect(integrationProjectOf('const note = "// @include-parallel";\n')).toBe(
+      "serial",
+    );
+  });
+
+  it("rejects a file with both directives", () => {
+    expect(() =>
+      integrationProjectOf("// @include-parallel\n// @include-serial\n"),
+    ).toThrow(/both @include-parallel and @include-serial/);
   });
 
   it("marks at least one real integration file serial", () => {

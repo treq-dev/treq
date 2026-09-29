@@ -1,3 +1,4 @@
+// @include-serial
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Dashboard } from "../../../src/components/Dashboard";
@@ -13,10 +14,7 @@ import {
   createTestRepo,
   findSidebarBranchElement,
   openRepo,
-  runSerially,
 } from "../../utils";
-
-runSerially();
 
 describe("ShowWorkspace - stack panel", () => {
   let repoPath: string;

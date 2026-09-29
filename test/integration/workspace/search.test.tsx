@@ -1,9 +1,9 @@
+// @include-serial
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   createTestRepo,
   openRepo,
   resolveWorkspacePath,
-  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -14,8 +14,6 @@ import {
 import { screen, waitFor } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { openReviewTab, waitForChangedFile } from "../review/comments-helpers";
-
-runSerially();
 
 async function setupWorkspaceWithChange(branchName: string): Promise<{
   repoPath: string;

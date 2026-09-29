@@ -1,3 +1,4 @@
+// @include-serial
 import * as React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
@@ -8,7 +9,6 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
-  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -18,8 +18,6 @@ import {
 } from "../../../src/lib/api";
 import { render, screen, waitFor } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
-
-runSerially();
 
 describe("Review - deleted file collapsible", () => {
   let user: ReturnType<typeof userEvent.setup>;

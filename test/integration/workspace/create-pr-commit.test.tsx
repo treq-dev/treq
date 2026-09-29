@@ -1,3 +1,4 @@
+// @include-serial
 import { openUrl } from "@tauri-apps/plugin-opener";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
@@ -17,7 +18,6 @@ import {
   createTestRepo,
   openRepo,
   resolveWorkspacePath,
-  runSerially,
   setOriginUrl,
   writeWorkspaceFile,
 } from "../../utils";
@@ -28,8 +28,6 @@ import {
   openWorkspace as openWorkspaceAs,
   setupPushedWorkspaceWithGitHub as setupPushedWorkspace,
 } from "./create-pr-helpers";
-
-runSerially();
 vi.mock("../../../src/lib/api", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("../../../src/lib/api")>();

@@ -1,3 +1,4 @@
+// @include-serial
 import fs from "node:fs";
 import path from "node:path";
 import { fireEvent } from "@testing-library/react";
@@ -11,11 +12,8 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
-  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
-
-runSerially();
 
 async function createTwoWorkspacesWithDirtySource() {
   const { repoPath } = createTestRepo(false);

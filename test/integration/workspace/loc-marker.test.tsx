@@ -1,3 +1,4 @@
+// @include-serial
 import * as React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
@@ -6,7 +7,6 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
-  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -18,8 +18,6 @@ import {
 import { sumWorkspaceLocFromLog } from "../../../src/lib/workspace-stack";
 import { render, screen, waitFor } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
-
-runSerially();
 
 describe("ShowWorkspace tab-row LOC marker", () => {
   let user: ReturnType<typeof userEvent.setup>;

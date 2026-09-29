@@ -1,3 +1,4 @@
+// @include-serial
 import * as React from "react";
 import { beforeEach, describe, it } from "vitest";
 import {
@@ -5,7 +6,6 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
-  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -18,8 +18,6 @@ import type { LineComment } from "../../../src/lib/api-types";
 import { render, screen, waitFor } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
-
-runSerially();
 
 async function setupWorkspaceWithChange(branchName: string): Promise<{
   repoPath: string;

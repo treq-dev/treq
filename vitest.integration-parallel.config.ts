@@ -9,8 +9,9 @@ import { VITEST_PROJECT_SEQUENCE } from "./vitest.projects";
 /**
  * Integration tests that don't touch the jj "Changes" file list under
  * contention (settings, sidebar, command palette, GitHub panel, browser
- * webviews, file picker, ...): every file that doesn't call
- * `runSerially()`. These are safe to fan out across a small
+ * webviews, file picker, ...): files with a `// @include-parallel`
+ * directive (see vitest.integration.serial.ts). These are safe to fan out
+ * across a small
  * worker pool -- see vitest.integration-serial.config.ts for the files
  * that stay serial because of spawn_blocking contention.
  *

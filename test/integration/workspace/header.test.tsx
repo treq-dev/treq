@@ -1,3 +1,4 @@
+// @include-serial
 import { execFileSync } from "node:child_process";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
@@ -13,11 +14,8 @@ import {
   openRepo,
   resolveRevsetCommitIds,
   resolveWorkspacePath,
-  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
-
-runSerially();
 
 describe("ShowWorkspace - header", () => {
   let repoPath: string;

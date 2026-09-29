@@ -1,3 +1,4 @@
+// @include-serial
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -7,7 +8,6 @@ import {
   openRepo,
   resolveChangeId,
   resolveWorkspacePath,
-  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -22,8 +22,6 @@ import { render, screen, waitFor, within, act } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
 import * as api from "../../../src/lib/api";
-
-runSerially();
 
 type ReviewFixture = {
   repoPath: string;

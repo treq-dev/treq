@@ -43,7 +43,7 @@ describe("workspace header", () => {
 - Assert visible text or ARIA roles, not internal state or which private functions ran
 - Keep `beforeEach` minimal; move complex repo setup into the test or a shared helper
 - Never mock the Rust backend in integration tests; use the real NAPI dispatch
-- Call `runSerially()` (from `test/utils.tsx`) at the top level of a file that edits the working copy and drives the Changes or Review views; the Vitest config reads it to run that file in the serial project. Other files run in parallel
+- Start every integration file with `// @include-parallel` or `// @include-serial` on its own line; the Vitest config reads it to pick the project, and a file without one runs serially. Use serial for files that edit the working copy and drive the Changes or Review views
 
 ## Fake agent terminals
 

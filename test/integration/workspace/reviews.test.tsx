@@ -1,10 +1,10 @@
+// @include-serial
 import * as api from "../../../src/lib/api";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTestRepo,
   openRepo,
   resolveWorkspacePath,
-  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -21,8 +21,6 @@ import {
   openReviewTab,
   waitForChangedFile,
 } from "../review/comments-helpers";
-
-runSerially();
 
 const REVIEW_FILE = "reviews-flow.txt";
 

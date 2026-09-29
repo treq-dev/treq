@@ -8,15 +8,6 @@ import { afterAll, expect } from "vitest";
 import { waitFor, within } from "./test-utils";
 import { waitForPendingInvokes } from "./setup.integration";
 
-/**
- * Marks the calling test file for the serial integration project. The
- * Vitest config reads it from the file's source (`isSerialTestSource` in
- * vitest.integration.serial.ts); at runtime it does nothing. Call it at the top
- * level of a file that drives the jj working copy and the Changes/Review
- * views hard.
- */
-export function runSerially(): void {}
-
 export function openRepo(repoPath: string) {
   // Point the app at a repo via the URL search param it reads
   window.history.pushState({}, "", `?repo=${encodeURIComponent(repoPath)}`);
