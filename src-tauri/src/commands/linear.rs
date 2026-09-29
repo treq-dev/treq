@@ -5,7 +5,6 @@ use crate::linear::{
 use crate::lock_ext::LockExt;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tauri::State;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -67,8 +66,7 @@ pub async fn linear_open_or_create_workspace_from_issue(
   state: State<'_, AppState>,
   repo_path: String,
   issue_id: String,
-  include_subissues: bool,
-) -> Result<Vec<LinearKickoffResult>, String> {
+) -> Result<LinearKickoffResult, String> {
   crate::commands::feature_preview::require(
     &state,
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
@@ -81,35 +79,7 @@ pub async fn linear_open_or_create_workspace_from_issue(
   match client_source {
     LinearClientSource::ApiKey(api_key) => {
       let issue = crate::linear::linear_get_issue_impl(&api_key, &issue_id).await?;
-      let mut results = vec![];
-      results.push(open_or_create_workspace_from_linear_issue(&repo_path, &issue).await?);
-
-      if include_subissues {
-        for sub_id in &issue.sub_issue_ids {
-          match crate::linear::linear_get_issue_impl(&api_key, sub_id).await {
-            Ok(sub_issue) => {
-              match open_or_create_workspace_from_linear_issue(&repo_path, &sub_issue).await {
-                Ok(result) => {
-                  if result.created {
-                    let db = state.db.lock_or_recover();
-                    record_linear_workspace_parent(
-                      &db,
-                      &repo_path,
-                      result.workspace_id,
-                      &issue_id,
-                    )?;
-                  }
-                  results.push(result);
-                }
-                Err(e) => log::warn!("Failed to kickoff sub-issue {sub_id}: {e}"),
-              }
-            }
-            Err(e) => log::warn!("Failed to fetch sub-issue {sub_id}: {e}"),
-          }
-        }
-      }
-
-      Ok(results)
+      open_or_create_workspace_from_linear_issue(&repo_path, &issue).await
     }
     LinearClientSource::ProxyToken => {
       Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
@@ -117,28 +87,9 @@ pub async fn linear_open_or_create_workspace_from_issue(
   }
 }
 
-// Holding a mutex guard across an .await would poison the tauri command's
-// Send bound, so workspace creation stays lock-free; callers lock briefly
-// afterward, only for this synchronous bookkeeping write.
-pub fn record_linear_workspace_parent(
-  db: &crate::db::Database,
-  repo_path: &str,
-  workspace_id: i64,
-  parent_issue_id: &str,
-) -> Result<(), String> {
-  let mut current: HashMap<String, String> = db
-    .get_repo_setting(repo_path, "linear_workspace_parents")
-    .ok()
-    .flatten()
-    .and_then(|s| serde_json::from_str(&s).ok())
-    .unwrap_or_default();
-  current.insert(workspace_id.to_string(), parent_issue_id.to_string());
-  let json = serde_json::to_string(&current)
-    .map_err(|e| format!("Failed to serialize workspace parents: {e}"))?;
-  db.set_repo_setting(repo_path, "linear_workspace_parents", &json)
-    .map_err(|e| format!("Failed to save workspace parents: {e}"))
-}
-
+/// Opens or creates the workspace for one Linear issue. The core never
+/// creates more than one workspace per call; the UI opens sub-issues one
+/// call at a time.
 pub async fn open_or_create_workspace_from_linear_issue(
   repo_path: &str,
   issue: &LinearIssue,

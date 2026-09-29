@@ -15,6 +15,7 @@ const githubIssue: IssueAttachment = {
   url: "https://github.com/acme/treq/issues/42",
   title: "Fix the login bug",
   includeSubItems: false,
+  subItemIds: [],
 };
 
 describe("formatPromptWithIssue", () => {
@@ -67,7 +68,7 @@ describe("issue adapters", () => {
     ).toEqual(githubIssue);
   });
 
-  it("maps a Linear issue, keeping its sub-issue choice", () => {
+  it("maps a Linear issue, keeping its sub-issue choice and ids", () => {
     expect(
       issueFromLinear({
         id: "issue-1",
@@ -75,6 +76,7 @@ describe("issue adapters", () => {
         url: "https://linear.app/x/ENG-101",
         title: "Rework ranking",
         includeSubissues: true,
+        sub_issue_ids: ["child-1"],
       }),
     ).toEqual({
       source: "linear",
@@ -83,6 +85,7 @@ describe("issue adapters", () => {
       url: "https://linear.app/x/ENG-101",
       title: "Rework ranking",
       includeSubItems: true,
+      subItemIds: ["child-1"],
     });
   });
 
@@ -95,6 +98,7 @@ describe("issue adapters", () => {
         url: "https://acme.atlassian.net/browse/ENG-42",
         title: "Add Jira integration",
         includeSubItems: false,
+        subItemIds: [],
       }).source,
     ).toBe("jira");
   });

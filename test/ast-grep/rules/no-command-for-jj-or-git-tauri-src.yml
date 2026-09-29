@@ -2,18 +2,28 @@ id: no-command-for-jj-or-git-tauri-src
 language: rust
 severity: error
 message: >
-  Avoid shelling out via `command_for("jj")` or `command_for("git")` in
-  `src-tauri/src`. Prefer direct `jj-lib` APIs, using the `jj-cli`
-  implementation as the behavioral reference. `git checkout` via
-  `command_for("git")` is allowed for colocated git working trees.
+  Do not shell out to `git` or `jj` from `src-tauri/src`. Use `jj-lib` (with
+  the `jj-cli` implementation as the behavioral reference) or `gix` instead.
+  Covers `Command::new("git"|"jj")`, `command_for`, `binary_command` and the
+  `git_command()` helper. Test modules (`#[cfg(test)] mod`) are exempt.
 files:
   - "src-tauri/src/**/*.rs"
 rule:
-  any:
-    - pattern: 'command_for("jj")'
-    - all:
-        - pattern: 'command_for("git")'
-        - not:
-            inside:
-              stopBy: end
-              pattern: 'command_for("git").current_dir($$$DIR).args(["checkout", $$$ARGS])'
+  all:
+    - any:
+        - pattern: Command::new("git")
+        - pattern: Command::new("jj")
+        - pattern: std::process::Command::new("git")
+        - pattern: std::process::Command::new("jj")
+        - pattern: command_for("git")
+        - pattern: command_for("jj")
+        - pattern: binary_command("git")
+        - pattern: binary_command("jj")
+        - pattern: git_command()
+    - not:
+        inside:
+          stopBy: end
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: cfg\(test\)

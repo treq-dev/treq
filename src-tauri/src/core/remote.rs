@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::jj;
 
@@ -2679,40 +2678,27 @@ fn require_existing_repo(repo: &str) -> Result<(), String> {
   inspect_repository_path(repo).map(|_| ())
 }
 
+/// Applies a base64-encoded unified diff to `path` inside the given
+/// workspace (or the repo root). Base64 keeps the exec argument vector a plain
+/// string even though the payload contains newlines.
 fn apply_remote_patch(
   repo: &str,
   workspace: Option<i64>,
   path: &str,
   patch_base64: &str,
 ) -> Result<String, String> {
-  use std::io::Write;
   let workspace_path = resolve_workspace_path(repo, workspace)?;
   enforce_disk_quota(Path::new(&workspace_path))?;
   let decoded = decode_base64(patch_base64.trim())
     .map_err(|e| format!("invalid_arguments: patch is not valid base64: {e}"))?;
-  let mut child = Command::new("git")
-    .current_dir(&workspace_path)
-    .args(["apply", "--whitespace=nowarn", "--", path])
-    .stdin(std::process::Stdio::piped())
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::piped())
-    .spawn()
-    .map_err(|e| format!("dependency_error: Failed to run git apply: {e}"))?;
-  child
-    .stdin
-    .take()
-    .ok_or("dependency_error: Failed to open git apply stdin")?
-    .write_all(&decoded)
-    .map_err(|e| format!("filesystem_error: Failed to write patch input: {e}"))?;
-  let output = child
-    .wait_with_output()
-    .map_err(|e| format!("dependency_error: git apply failed: {e}"))?;
-  if !output.status.success() {
-    return Err(format!(
-      "git_command_failed: {}",
-      String::from_utf8_lossy(&output.stderr).trim()
-    ));
-  }
+  let patch = String::from_utf8(decoded)
+    .map_err(|_| "invalid_arguments: patch is not UTF-8 text".to_string())?;
+  jj::jj_apply_file_patch(&workspace_path, path, &patch).map_err(|e| match e {
+    jj::JjError::IoError(message) if message.starts_with("Invalid patch:") => {
+      format!("invalid_arguments: {message}")
+    }
+    other => format!("filesystem_error: {other}"),
+  })?;
   Ok(format!("Applied patch to {path}"))
 }
 
@@ -3168,6 +3154,7 @@ fn validate_remote_path(path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::process::Command;
 
   #[test]
   fn parses_ssh_hosts_ignoring_patterns() {
@@ -4461,6 +4448,90 @@ mod tests {
         .iter()
         .any(|c| c["description"].as_str().map(str::trim_end) == Some("first"));
       assert!(described, "split commit must carry the message: {commits}");
+    }
+
+    fn patch_file(
+      repo: &TestRepo,
+      ws: i64,
+      path: &str,
+      patch: &str,
+      tag: &str,
+    ) -> Result<serde_json::Value, String> {
+      execute_local_request(TreqCommandRequest::PatchFile {
+        repo: repo.repo_path.clone(),
+        workspace: Some(ws.to_string()),
+        path: path.into(),
+        patch_base64: patch.into(),
+        idempotency_key: key(tag),
+      })
+    }
+
+    // "--- a/a.txt / +++ b/a.txt / -hi / +patched"
+    const PATCH_A_TXT: &str =
+      "LS0tIGEvYS50eHQKKysrIGIvYS50eHQKQEAgLTEgKzEgQEAKLWhpCitwYXRjaGVkCg==";
+
+    #[test]
+    fn patch_file_applies_the_base64_patch_to_the_path() {
+      let repo = TestRepo::new().unwrap();
+      let ws = repo.create_workspace_simple("feat-patch").unwrap();
+      let path = workspace_path(&repo, ws.id);
+      TestRepo::write_workspace_file(&path, "a.txt", "hi\n").unwrap();
+
+      patch_file(&repo, ws.id, "a.txt", PATCH_A_TXT, "patch").unwrap();
+      assert_eq!(
+        std::fs::read_to_string(Path::new(&path).join("a.txt")).unwrap(),
+        "patched\n"
+      );
+      let changes = crate::core::changes::list_changed_files(&repo.repo_path, Some(ws.id)).unwrap();
+      assert!(
+        changes.iter().any(|c| c.path == "a.txt"),
+        "jj should record the patched file: {changes:?}"
+      );
+    }
+
+    #[test]
+    fn patch_file_creates_a_new_file() {
+      let repo = TestRepo::new().unwrap();
+      let ws = repo.create_workspace_simple("feat-patch-new").unwrap();
+      let path = workspace_path(&repo, ws.id);
+      // "--- /dev/null / +++ b/new/file.txt / +created"
+      let patch = "LS0tIC9kZXYvbnVsbAorKysgYi9uZXcvZmlsZS50eHQKQEAgLTAsMCArMSBAQAorY3JlYXRlZAo=";
+      patch_file(&repo, ws.id, "new/file.txt", patch, "patch-new").unwrap();
+      assert_eq!(
+        std::fs::read_to_string(Path::new(&path).join("new/file.txt")).unwrap(),
+        "created\n"
+      );
+    }
+
+    #[test]
+    fn patch_file_refuses_a_patch_for_another_path() {
+      let repo = TestRepo::new().unwrap();
+      let ws = repo.create_workspace_simple("feat-patch-other").unwrap();
+      let path = workspace_path(&repo, ws.id);
+      TestRepo::write_workspace_file(&path, "a.txt", "hi\n").unwrap();
+      TestRepo::write_workspace_file(&path, "b.txt", "hi\n").unwrap();
+
+      let err = patch_file(&repo, ws.id, "b.txt", PATCH_A_TXT, "patch-other").unwrap_err();
+      assert!(err.starts_with("invalid_arguments:"), "{err}");
+      assert_eq!(
+        std::fs::read_to_string(Path::new(&path).join("a.txt")).unwrap(),
+        "hi\n"
+      );
+    }
+
+    #[test]
+    fn patch_file_refuses_paths_outside_the_workspace() {
+      let repo = TestRepo::new().unwrap();
+      let ws = repo.create_workspace_simple("feat-patch-escape").unwrap();
+      // "--- a/../escape.txt / +++ b/../escape.txt / +x"
+      let patch = "LS0tIGEvLi4vZXNjYXBlLnR4dAorKysgYi8uLi9lc2NhcGUudHh0CkBAIC0wLDAgKzEgQEAKK3gK";
+      let err = patch_file(&repo, ws.id, "../escape.txt", patch, "patch-escape").unwrap_err();
+      assert!(err.starts_with("invalid_arguments:"), "{err}");
+      let outside = Path::new(&workspace_path(&repo, ws.id))
+        .parent()
+        .unwrap()
+        .join("escape.txt");
+      assert!(!outside.exists());
     }
 
     #[test]

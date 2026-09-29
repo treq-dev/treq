@@ -28,6 +28,7 @@ pub mod send_dispatch;
 pub mod telemetry;
 pub mod tracker;
 pub mod trello;
+pub mod unified_patch;
 
 use agent_runtime::{
   parse_agent_request_from_url, route_agent_deep_link, route_agent_dispatch_request,
@@ -877,7 +878,6 @@ pub fn run() {
       commands::remote_set_relay_access_token,
       commands::remote_cutoff_reason,
       commands::set_window_repo_path,
-      commands::get_window_repo_path,
       commands::rebase_home_repo_branch,
       commands::dry_run_home_repo_rebase,
       commands::get_git_remote_url,

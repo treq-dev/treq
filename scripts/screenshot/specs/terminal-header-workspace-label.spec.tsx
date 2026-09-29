@@ -37,7 +37,7 @@ it("shows workspace name as a label on each terminal header", async () => {
     await screen.findByRole("button", { name: "New agent terminal" }),
   );
   const agentPanel = await waitFor(() => {
-    const el = document.querySelector('[data-terminal-id^="claude-"]');
+    const el = document.querySelector('[data-terminal-id^="agent-"]');
     expect(el).not.toBeNull();
     return el as HTMLElement;
   });

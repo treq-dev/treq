@@ -17,6 +17,8 @@ export interface IssueAttachment {
   title: string;
   /** Also open workspaces for the issue's sub-items, where the source has them. */
   includeSubItems: boolean;
+  /** The sub-items to open, one workspace each, after the issue's own. */
+  subItemIds: string[];
 }
 
 export const ISSUE_SOURCES: Record<
@@ -50,6 +52,7 @@ export interface LinearIssueAttachment {
   url: string;
   title: string;
   includeSubissues: boolean;
+  sub_issue_ids?: string[];
 }
 
 export interface TrackerItemAttachment {
@@ -59,6 +62,7 @@ export interface TrackerItemAttachment {
   url: string;
   title: string;
   includeSubItems: boolean;
+  subItemIds?: string[];
 }
 
 export const issueFromGitHub = (
@@ -70,6 +74,7 @@ export const issueFromGitHub = (
   url: issue.url,
   title: issue.title,
   includeSubItems: false,
+  subItemIds: [],
 });
 
 export const issueFromLinear = (
@@ -81,6 +86,7 @@ export const issueFromLinear = (
   url: issue.url,
   title: issue.title,
   includeSubItems: issue.includeSubissues,
+  subItemIds: issue.sub_issue_ids ?? [],
 });
 
 export const issueFromTrackerItem = (
@@ -92,6 +98,7 @@ export const issueFromTrackerItem = (
   url: item.url,
   title: item.title,
   includeSubItems: item.includeSubItems,
+  subItemIds: item.subItemIds ?? [],
 });
 
 export function formatPromptWithIssue(

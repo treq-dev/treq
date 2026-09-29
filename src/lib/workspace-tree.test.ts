@@ -98,6 +98,21 @@ describe("workspace tree root detection", () => {
     );
   });
 
+  it("cycle next to a normal stack still shows the cycle's workspaces", () => {
+    expectTree(
+      [
+        makeStatus(1, "main-stack", { targetBranch: null }),
+        makeStatus(2, "a", { targetBranch: "b" }),
+        makeStatus(3, "b", { targetBranch: "a" }),
+      ],
+      {
+        expectedRootCount: 3,
+        expectedBranches: ["a", "b", "main-stack"],
+        expectedDepths: [0, 0, 0],
+      },
+    );
+  });
+
   it("normal acyclic hierarchy remains unchanged", () => {
     expectTree(
       [

@@ -36,7 +36,7 @@ it("captures agent terminal message queue button and dialog", async () => {
   await user.keyboard("{Meta>}]{/Meta}");
 
   const terminalPanel = await waitFor(() => {
-    const el = document.querySelector('[data-terminal-id^="claude-"]');
+    const el = document.querySelector('[data-terminal-id^="agent-"]');
     expect(el).not.toBeNull();
     return el as HTMLElement;
   });
@@ -150,7 +150,7 @@ it("hides the agent message queue when its feature preview is off", async () => 
   await user.keyboard("{Meta>}]{/Meta}");
 
   const terminalPanel = await waitFor(() => {
-    const el = document.querySelector('[data-terminal-id^="claude-"]');
+    const el = document.querySelector('[data-terminal-id^="agent-"]');
     expect(el).not.toBeNull();
     return el as HTMLElement;
   });

@@ -7,10 +7,10 @@ vi.mock("../../lib/api", () => ({ ptyClose: vi.fn() }));
 
 describe("useTerminalSessionActions close paths", () => {
   it("routes workspace agent closure through the single shared close callback", () => {
-    const handleCloseClaudeSession = vi.fn();
+    const handleCloseAgentSession = vi.fn();
     const { result } = renderHook(() =>
       useTerminalSessionActions({
-        claudeSessions: [
+        agentSessions: [
           {
             sessionId: 1,
             ptySessionId: "pty-1",
@@ -21,20 +21,19 @@ describe("useTerminalSessionActions close paths", () => {
           },
         ],
         shellTerminals: [],
-        terminalSummariesRef: { current: [] },
         setCollapsed: vi.fn(),
-        setMountedClaudeSessions: vi.fn(),
+        setMountedAgentSessions: vi.fn(),
         setTerminalOrder: vi.fn(),
         setActivePtySessionId: vi.fn(),
         scrollToTerminal: vi.fn(),
-        handleCloseClaudeSession,
+        handleCloseAgentSession,
         handleCloseShell: vi.fn(),
       }),
     );
 
     result.current.closeTerminalsForWorkspace("/repo/ws");
 
-    expect(handleCloseClaudeSession).toHaveBeenCalledOnce();
+    expect(handleCloseAgentSession).toHaveBeenCalledOnce();
     expect(ptyClose).not.toHaveBeenCalled();
   });
 });

@@ -122,6 +122,7 @@ import {
 } from "./workspace-header/WorkspaceTrackerBadges";
 import type { TerminalSessionSummary } from "./terminal/types";
 import { toAgentKind, type AgentKind } from "../lib/agents";
+import { agentSessionIdOf } from "./terminal/agentTerminalId";
 
 interface ShowWorkspaceProps {
   repositoryPath?: string;
@@ -859,10 +860,9 @@ export const ShowWorkspace = ({
   /** Sends to the idle agent in this workspace, if any. Returns false when none. */
   const sendToIdleAgent = (prompt: string) => {
     if (!idleAgentSession || !onSendToIdleAgent) return false;
-    onSendToIdleAgent(
-      Number(idleAgentSession.id.replace("claude-", "")),
-      prompt,
-    );
+    const sessionId = agentSessionIdOf(idleAgentSession.id);
+    if (sessionId === null) return false;
+    onSendToIdleAgent(sessionId, prompt);
     return true;
   };
 

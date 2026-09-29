@@ -140,7 +140,7 @@ it("materializes installed library skills into a new workspace", async () => {
   );
   await waitFor(() => {
     expect(
-      document.querySelector('[data-terminal-id^="claude-"]'),
+      document.querySelector('[data-terminal-id^="agent-"]'),
     ).not.toBeNull();
   });
 

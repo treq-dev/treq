@@ -167,6 +167,7 @@ describe("AgentPromptDialog", () => {
           url: "https://example.test/1",
           title: "An issue",
           includeSubItems: false,
+          subItemIds: [],
         }}
       />,
     );
@@ -197,6 +198,7 @@ describe("AgentPromptDialog", () => {
           url: "https://example.test/1",
           title: "An issue",
           includeSubItems: true,
+          subItemIds: ["ENG-43"],
         }}
       />,
     );
