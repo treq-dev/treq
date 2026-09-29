@@ -1,24 +1,34 @@
+export type WorkspaceStatusColor = "red" | "yellow" | "neutral";
+
 export interface WorkspaceStatusIndicator {
-  color: "red" | "yellow";
+  color: WorkspaceStatusColor;
   spin: boolean;
   label: string;
 }
 
-export const WORKSPACE_STATUS_DOT_TEXT_CLASS: Record<"red" | "yellow", string> =
-  {
-    red: "text-destructive",
-    yellow: "text-yellow-500",
-  };
+export const WORKSPACE_STATUS_DOT_TEXT_CLASS: Record<
+  WorkspaceStatusColor,
+  string
+> = {
+  red: "text-destructive",
+  yellow: "text-yellow-500",
+  neutral: "text-muted-foreground",
+};
 
-export const WORKSPACE_STATUS_DOT_BG_CLASS: Record<"red" | "yellow", string> = {
+export const WORKSPACE_STATUS_DOT_BG_CLASS: Record<
+  WorkspaceStatusColor,
+  string
+> = {
   red: "bg-destructive",
   yellow: "bg-yellow-500",
+  neutral: "bg-muted-foreground",
 };
 
 /**
  * Sidebar row indicator: a color-coded dot -- red for conflicts, yellow for
- * uncommitted changes, nothing when clean -- shown the same way whether or
- * not an agent session is open, but spinning while one is actively streaming.
+ * uncommitted changes, nothing when clean -- that spins while an agent in the
+ * workspace is streaming output. A clean workspace with a working agent gets
+ * a neutral spinner, so a running agent always shows in the sidebar.
  */
 export function getWorkspaceStatusIndicator(params: {
   isConflicted: boolean;
@@ -39,6 +49,9 @@ export function getWorkspaceStatusIndicator(params: {
       spin: isAgentSessionStreaming,
       label: "Uncommitted changes",
     };
+  }
+  if (isAgentSessionStreaming) {
+    return { color: "neutral", spin: true, label: "Agent working" };
   }
   return null;
 }
