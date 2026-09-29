@@ -14,18 +14,20 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
-import type { AgentPermissionMode, AgentType } from "../../lib/agentDeepLink";
+import type { AgentPermissionMode } from "../../lib/agentDeepLink";
+import { agentInfo, type AgentKind } from "../../lib/agents";
+import { AgentOptions } from "../AgentOptions";
 
 interface TaskInputToolbarProps {
   isEmpty: boolean;
   submitting: boolean;
-  selectedAgent: AgentType;
-  configuredDefaultAgent: AgentType;
+  selectedAgent: AgentKind;
+  configuredDefaultAgent: AgentKind;
   saveAsRepoDefault: boolean;
   showSaveAsRepoDefault: boolean;
   onOpenFilePicker: () => void;
   onAttachFromFinder: () => void;
-  onAgentChange: (agent: AgentType) => void;
+  onAgentChange: (agent: AgentKind) => void;
   onSaveAsRepoDefaultChange: (checked: boolean) => void;
   onSubmit: (mode: AgentPermissionMode) => void;
 }
@@ -43,7 +45,7 @@ export const TaskInputToolbar: React.FC<TaskInputToolbarProps> = ({
   onSaveAsRepoDefaultChange,
   onSubmit,
 }) => {
-  const supportsPlan = selectedAgent !== "codex" && selectedAgent !== "copilot";
+  const supportsPlan = agentInfo(selectedAgent).hasPlanMode;
   return (
     <div className="px-2 pb-2 pt-1 flex min-w-0 flex-wrap items-center justify-between gap-1">
       <div className="flex items-center gap-1">
@@ -87,13 +89,10 @@ export const TaskInputToolbar: React.FC<TaskInputToolbarProps> = ({
           <select
             aria-label="Agent"
             value={selectedAgent}
-            onChange={(e) => onAgentChange(e.target.value as AgentType)}
+            onChange={(e) => onAgentChange(e.target.value as AgentKind)}
             className="h-7 text-xs px-2 rounded-md border border-border bg-background text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400"
           >
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-            <option value="cursor">Cursor</option>
-            <option value="copilot">Copilot</option>
+            <AgentOptions />
           </select>
         </div>
         {/* Edit (or Run) is always the main action; plan mode sits in the

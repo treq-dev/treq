@@ -1,5 +1,5 @@
+import type { AgentKind } from "./agents";
 import {
-  type AgentKind,
   buildAgentAutoCommand,
   buildClaudeFilesystemSettings,
   buildTreqAgentSystemPrompt,

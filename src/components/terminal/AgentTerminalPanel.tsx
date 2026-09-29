@@ -51,6 +51,7 @@ import {
 } from "./terminalOutputTail";
 import type { ClaudeSessionData } from "./types";
 import { useAgentAutoCommand } from "./useAgentAutoCommand";
+import { agentInfo, DEFAULT_AGENT } from "../../lib/agents";
 
 export interface AgentTerminalPanelProps {
   sessionData: ClaudeSessionData;
@@ -336,15 +337,13 @@ export const AgentTerminalPanel = ({
             />
           )}
           {/* Model selector — Claude only */}
-          {sessionData.agent !== "codex" &&
-            sessionData.agent !== "cursor" &&
-            sessionData.agent !== "copilot" && (
-              <ModelSelector
-                currentModel={sessionModel}
-                onModelChange={handleModelChange}
-                disabled={isChangingModel}
-              />
-            )}
+          {agentInfo(sessionData.agent ?? DEFAULT_AGENT).hasModelPicker && (
+            <ModelSelector
+              currentModel={sessionModel}
+              onModelChange={handleModelChange}
+              disabled={isChangingModel}
+            />
+          )}
           {/* Search button */}
           <TooltipProvider>
             <Tooltip>

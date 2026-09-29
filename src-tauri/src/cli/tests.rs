@@ -1118,6 +1118,45 @@ fn every_typed_remote_request_round_trips_through_cli_args() {
   }
 }
 
+#[cfg(unix)]
+#[test]
+fn symlink_report_separates_created_links_from_missing_sources() {
+  let dir = tempfile::tempdir().unwrap();
+  std::os::unix::fs::symlink(dir.path(), dir.path().join("node_modules")).unwrap();
+  let (linked, missing) = super::workspace_handlers::split_symlinks(
+    dir.path(),
+    &["node_modules".to_string(), "target".to_string()],
+  );
+  assert_eq!(linked, vec!["node_modules".to_string()]);
+  assert_eq!(missing, vec!["target".to_string()]);
+}
+
+#[cfg(feature = "tauri-test")]
+mod commit_outcomes {
+  use super::super::workspace_handlers::commit_workspace_for_cli;
+  use crate::e2e_test_helpers::TestRepo;
+
+  #[test]
+  fn refuses_when_there_is_nothing_to_commit() {
+    let repo = TestRepo::new().unwrap();
+    let ws = repo.create_workspace_simple("feat/empty").unwrap();
+    let err = commit_workspace_for_cli(&repo.repo_path, &ws, "msg", false).unwrap_err();
+    assert!(err.contains("nothing to commit"), "{err}");
+  }
+
+  #[test]
+  fn a_failed_push_says_the_commit_landed() {
+    let repo = TestRepo::new().unwrap();
+    let ws = repo.create_workspace_simple("feat/push").unwrap();
+    TestRepo::write_workspace_file(&repo.workspace_full_path(&ws), "a.txt", "a\n").unwrap();
+    let err = commit_workspace_for_cli(&repo.repo_path, &ws, "msg", true).unwrap_err();
+    assert!(
+      err.contains("committed to 'feat/push'") && err.contains("push failed"),
+      "{err}"
+    );
+  }
+}
+
 mod repo_root_detection {
   use super::super::find_repo_root;
   use std::fs;
@@ -1159,5 +1198,91 @@ mod repo_root_detection {
   fn no_repo_markers_means_no_root() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(find_repo_root(dir.path()), None);
+  }
+}
+
+#[cfg(unix)]
+mod implicit_stdin {
+  use super::super::fd_has_input;
+  use std::time::{Duration, Instant};
+
+  fn pipe() -> (i32, i32) {
+    let mut fds = [0; 2];
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+    (fds[0], fds[1])
+  }
+
+  #[test]
+  fn an_idle_open_pipe_is_not_input() {
+    let (read, write) = pipe();
+    let started = Instant::now();
+    assert!(!fd_has_input(read, Duration::from_millis(50)));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    unsafe {
+      libc::close(read);
+      libc::close(write);
+    }
+  }
+
+  #[test]
+  fn a_pipe_with_data_or_eof_is_input() {
+    let (read, write) = pipe();
+    assert_eq!(unsafe { libc::write(write, b"{}".as_ptr().cast(), 2) }, 2);
+    assert!(fd_has_input(read, Duration::from_millis(50)));
+    unsafe { libc::close(read) };
+
+    let (read, write) = pipe();
+    unsafe { libc::close(write) };
+    assert!(fd_has_input(read, Duration::from_millis(50)));
+    unsafe { libc::close(read) };
+  }
+}
+
+mod structured_errors {
+  use super::super::run_structured_command;
+  use super::remote_matches;
+
+  fn run(pairs: &[(&str, &str)], result: Result<(), String>) -> (bool, String, String) {
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let ok = run_structured_command(&remote_matches(pairs), &mut out, &mut err, |_| {
+      result.clone()
+    });
+    (
+      ok,
+      String::from_utf8(out).unwrap(),
+      String::from_utf8(err).unwrap(),
+    )
+  }
+
+  #[test]
+  fn argument_errors_print_a_json_error_body() {
+    let (ok, out, err) = run(&[("format", "json")], Err("--workspace is required".into()));
+    assert!(!ok);
+    assert!(err.is_empty(), "{err}");
+    let body: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    assert_eq!(body["error"]["code"], "invalid_arguments");
+    assert_eq!(body["error"]["message"], "--workspace is required");
+  }
+
+  #[test]
+  fn argument_errors_print_to_stderr_in_human_format() {
+    let (ok, out, err) = run(&[], Err("unknown workspace action 'x'".into()));
+    assert!(!ok);
+    assert!(out.is_empty(), "{out}");
+    assert_eq!(err.trim(), "Error: unknown workspace action 'x'");
+  }
+
+  #[test]
+  fn an_invalid_format_is_reported() {
+    let (ok, _, err) = run(&[("format", "yaml")], Ok(()));
+    assert!(!ok);
+    assert!(err.contains("invalid format 'yaml'"), "{err}");
+  }
+
+  #[test]
+  fn success_prints_nothing_extra() {
+    let (ok, out, err) = run(&[("format", "json")], Ok(()));
+    assert!(ok);
+    assert!(out.is_empty() && err.is_empty());
   }
 }

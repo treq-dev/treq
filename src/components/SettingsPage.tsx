@@ -40,6 +40,7 @@ import { Label } from "./ui/label";
 import { Slider } from "./ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { useToast } from "./ui/toast";
+import { AgentOptions } from "./AgentOptions";
 
 type TabValue =
   | "application"
@@ -330,10 +331,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         className="mt-2 w-full px-3 py-2 border rounded-md bg-background text-foreground"
                       >
                         <option value="">Default (Claude)</option>
-                        <option value="claude">Claude</option>
-                        <option value="codex">Codex</option>
-                        <option value="cursor">Cursor</option>
-                        <option value="copilot">Copilot</option>
+                        <AgentOptions />
                       </select>
                       <p className="text-sm text-muted-foreground mt-1">
                         Default agent for new sessions

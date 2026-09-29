@@ -21,6 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
+import { DEFAULT_AGENT, toAgentKind, type AgentKind } from "../lib/agents";
 
 const RESOLVE_DOCS_URL = `${WEB_URL}/docs/concepts/commit-management#resolve-commit-conflicts-inplace`;
 
@@ -77,19 +78,11 @@ export const ResolveConflictsDialog: React.FC<ResolveConflictsDialogProps> = ({
         resolveSession,
       );
 
-      let resolvedAgent: "claude" | "codex" | "cursor" | "copilot" = "claude";
+      let resolvedAgent: AgentKind = DEFAULT_AGENT;
       try {
         const repoDefault = await getRepoSetting(repoPath, "default_agent");
         const appDefault = await getSetting("default_agent");
-        const pick = repoDefault || appDefault;
-        if (
-          pick === "codex" ||
-          pick === "cursor" ||
-          pick === "copilot" ||
-          pick === "claude"
-        ) {
-          resolvedAgent = pick;
-        }
+        resolvedAgent = toAgentKind(repoDefault || appDefault) ?? DEFAULT_AGENT;
       } catch {
         // keep default
       }

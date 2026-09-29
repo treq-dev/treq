@@ -7,6 +7,7 @@ import { Label } from "./ui/label";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
 import { useToast } from "./ui/toast";
+import { AgentOptions } from "./AgentOptions";
 
 interface RepositorySettingsContentProps {
   repoPath: string;
@@ -291,9 +292,7 @@ export const RepositorySettingsContent = ({
           disabled={defaultAgentManaged}
         >
           <option value="">Use Application Default</option>
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-          <option value="cursor">Cursor</option>
+          <AgentOptions />
         </select>
         <p className="text-sm text-muted-foreground mt-1">
           Default agent for new sessions in this repository (overrides
@@ -372,9 +371,7 @@ export const RepositorySettingsContent = ({
             disabled={reviewAgentManaged}
           >
             <option value="">Use Default Agent</option>
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-            <option value="cursor">Cursor</option>
+            <AgentOptions />
           </select>
           <p className="text-sm text-muted-foreground mt-1">
             Agent launched by Start Review (overrides the default agent)

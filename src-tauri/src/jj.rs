@@ -2856,6 +2856,7 @@ fn move_paths_between_workspaces(
 pub fn jj_abandon(workspace_path: &str, change_id: &str) -> Result<String, JjError> {
   let loaded = load_workspace_repo(workspace_path)?;
   let commit = resolve_commit_by_revision(&loaded, change_id)?;
+  reject_root_commit(&loaded, &commit)?;
   let mut tx = loaded.repo.start_transaction();
   tx.repo_mut().record_abandoned_commit(&commit);
   block_on(tx.repo_mut().rebase_descendants())
@@ -3065,6 +3066,7 @@ pub fn jj_describe(
   validate_commit_message(message)?;
   let loaded = load_workspace_repo(workspace_path)?;
   let commit = resolve_commit_by_revision(&loaded, change_id)?;
+  reject_root_commit(&loaded, &commit)?;
   let mut tx = loaded.repo.start_transaction();
 
   let mut builder = tx.repo_mut().rewrite_commit(&commit).detach();
@@ -3082,6 +3084,48 @@ pub fn jj_describe(
   let _ = reconcile_all_workspaces_after_rewrite(&repo_path, None);
 
   Ok(String::new())
+}
+
+fn reject_root_commit(loaded: &LoadedWorkspaceRepo, commit: &Commit) -> Result<(), JjError> {
+  if commit.id() == loaded.repo.store().root_commit_id() {
+    return Err(JjError::IoError(
+      "Cannot rewrite the root commit".to_string(),
+    ));
+  }
+  Ok(())
+}
+
+/// Checks that `revision` names one commit this workspace may rewrite: not the
+/// root commit, an ancestor of (or) the workspace's working copy, and not on
+/// `protected_branch`. Revisions arrive as revset strings from the CLI, so
+/// without this `main` or another workspace's commit could be rewritten.
+pub fn ensure_commit_rewritable(
+  workspace_path: &str,
+  revision: &str,
+  protected_branch: Option<&str>,
+) -> Result<(), JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let commit = resolve_commit_by_revision(&loaded, revision)?;
+  reject_root_commit(&loaded, &commit)?;
+
+  let lineage = evaluate_revset(&loaded, "::@")?;
+  if !lineage.containing_fn()(commit.id()).unwrap_or(false) {
+    return Err(JjError::IoError(format!(
+      "Revision '{revision}' is not in this workspace's history"
+    )));
+  }
+
+  if let Some(branch) = protected_branch {
+    if let Ok(symbol) = resolve_target_branch_symbol(&loaded, workspace_path, branch) {
+      let protected = evaluate_revset(&loaded, &format!("::{}", format_revset_symbol(&symbol)))?;
+      if protected.containing_fn()(commit.id()).unwrap_or(false) {
+        return Err(JjError::IoError(format!(
+          "Revision '{revision}' is on the default branch '{branch}' and cannot be rewritten"
+        )));
+      }
+    }
+  }
+  Ok(())
 }
 
 /// Rewrite author timestamps for a mutable commit and descendants on the
@@ -4013,6 +4057,19 @@ pub fn jj_get_file_lines(
   start_line: usize,
   end_line: usize,
 ) -> Result<JjFileLines, JjError> {
+  // CLI and remote callers pass these paths: keep reads inside the workspace.
+  let relative = Path::new(file_path);
+  if !relative.components().all(|c| {
+    matches!(
+      c,
+      std::path::Component::Normal(_) | std::path::Component::CurDir
+    )
+  }) {
+    return Err(JjError::IoError(format!(
+      "Path '{}' is outside the workspace",
+      file_path
+    )));
+  }
   let content = if from_parent {
     let repo = gix::open(workspace_path).map_err(|e| JjError::IoError(e.to_string()))?;
     let head_commit = repo
@@ -4040,7 +4097,7 @@ pub fn jj_get_file_lines(
 
   let all_lines: Vec<&str> = content.lines().collect();
   let start_idx = start_line.saturating_sub(1).min(all_lines.len());
-  let end_idx = end_line.min(all_lines.len());
+  let end_idx = end_line.min(all_lines.len()).max(start_idx);
 
   let lines: Vec<String> = all_lines[start_idx..end_idx]
     .iter()
@@ -9773,6 +9830,37 @@ mod tests {
     assert_eq!(lines.lines, vec!["two".to_string(), "three".to_string()]);
     assert_eq!(lines.start_line, 2);
     assert_eq!(lines.end_line, 3);
+  }
+
+  #[test]
+  fn jj_get_file_lines_rejects_paths_outside_the_workspace() {
+    let root = TempDir::new().expect("tempdir");
+    let workspace = root.path().join("ws");
+    fs::create_dir(&workspace).expect("mkdir");
+    fs::write(root.path().join("secret.txt"), "secret\n").expect("write secret");
+    let workspace = workspace.to_str().expect("utf8 path");
+    let absolute = root.path().join("secret.txt");
+
+    for path in [
+      "../secret.txt",
+      "a/../../secret.txt",
+      absolute.to_str().unwrap(),
+    ] {
+      let err = jj_get_file_lines(workspace, path, false, 1, 10).unwrap_err();
+      assert!(
+        err.to_string().contains("outside the workspace"),
+        "{path}: {err}"
+      );
+    }
+  }
+
+  #[test]
+  fn jj_get_file_lines_returns_empty_for_a_reversed_range() {
+    let temp = TempDir::new().expect("tempdir");
+    fs::write(temp.path().join("f.txt"), "1\n2\n3\n4\n5\n6\n").expect("write");
+    let lines =
+      jj_get_file_lines(temp.path().to_str().unwrap(), "f.txt", false, 5, 2).expect("read");
+    assert!(lines.lines.is_empty());
   }
 
   #[test]
