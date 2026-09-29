@@ -6,8 +6,24 @@ valid:
       cmd.arg("-la");
     }
   - |
+    fn gh() {
+      let _ = std::process::Command::new("gh").arg("pr").output();
+    }
+  - |
+    fn detect() {
+      let _ = binary_paths::detect_binary("git");
+    }
+  - |
+    #[cfg(test)]
+    mod tests {
+      fn init_git_repo() {
+        let _ = std::process::Command::new("git").arg("init").status();
+      }
+    }
+invalid:
+  - |
     fn status() {
-      let mut cmd = std::process::Command::new("jj");
+      let mut cmd = command_for("jj");
       cmd.arg("status");
     }
   - |
@@ -17,14 +33,27 @@ valid:
         .args(["checkout", branch])
         .output();
     }
-invalid:
   - |
     fn status() {
-      let mut cmd = command_for("jj");
+      let mut cmd = std::process::Command::new("jj");
       cmd.arg("status");
     }
   - |
-    fn status() {
-      let mut cmd = command_for("git");
-      cmd.arg("status");
+    fn clone() {
+      let _ = Command::new("git").args(["clone", "url"]).output();
+    }
+  - |
+    fn fetch() {
+      let _ = binary_command("git").args(["fetch", "origin"]).output();
+    }
+  - |
+    fn ls_tree() {
+      let _ = git_command().args(["ls-tree", "-r", "HEAD"]).output();
+    }
+  - |
+    fn git_command() -> Command {
+      match binary_paths::get_binary_path("git") {
+        Some(path) => Command::new(path),
+        None => Command::new("git"),
+      }
     }

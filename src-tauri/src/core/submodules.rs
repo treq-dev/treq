@@ -173,6 +173,7 @@ fn working_copy_commit_hex(workspace_path: &str) -> Option<String> {
 }
 
 fn gitlinks_from_rev(git_repo_path: &str, rev: &str) -> BTreeMap<String, String> {
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let output = git_command()
     .current_dir(git_repo_path)
     .args(["ls-tree", "-r", rev])
@@ -244,6 +245,7 @@ fn nested_head_hex(checkout: &Path) -> Option<String> {
 }
 
 fn nested_is_dirty(checkout: &Path) -> bool {
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let output = git_command()
     .current_dir(checkout)
     .args(["status", "--porcelain"])
@@ -303,6 +305,7 @@ fn populate_submodule(
 
   let work_tree = checkout.to_string_lossy().into_owned();
   let git_dir = modules_dir.to_string_lossy().into_owned();
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let output = git_command()
     .args([
       "--git-dir",
@@ -353,6 +356,7 @@ fn pathdiff_to_modules(checkout: &Path, modules_dir: &Path) -> String {
 fn git_command() -> Command {
   match binary_paths::get_binary_path("git") {
     Some(path) => Command::new(path),
+    // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
     None => Command::new("git"),
   }
 }
@@ -362,6 +366,7 @@ fn run_git(cwd: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn run_git_with_config(cwd: &str, args: &[&str]) -> Result<String, String> {
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let output = git_command()
     .current_dir(cwd)
     .args(["-c", "protocol.file.allow=always"])

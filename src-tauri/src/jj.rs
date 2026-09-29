@@ -6664,6 +6664,7 @@ pub fn jj_git_fetch(repo_path: &str) -> Result<String, JjError> {
   if !get_git_remotes(repo_path).contains("origin") {
     return Ok(String::new());
   }
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let output = binary_command("git")
     .current_dir(repo_path)
     .args(["fetch", "origin"])

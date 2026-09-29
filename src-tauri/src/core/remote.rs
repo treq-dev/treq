@@ -2659,6 +2659,7 @@ fn clone_repo_local(repo_url: &str, destination: &str) -> Result<RepositoryInspe
   }
   validate_remote_path(destination)?;
   enforce_disk_quota(Path::new(destination))?;
+  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
   let output = Command::new("git")
     .args(["clone", repo_url, destination])
     .output()
