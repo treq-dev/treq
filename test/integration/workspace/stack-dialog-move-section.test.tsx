@@ -4,8 +4,10 @@ import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { render, screen, within } from "../../test-utils";
-import { createTestRepo, openRepo } from "../../utils";
+import { createTestRepo, openRepo, runSerially } from "../../utils";
 import { Dashboard } from "../../../src/components/Dashboard";
+
+runSerially();
 
 describe("Stack dialog - move to workspace section", () => {
   let user: ReturnType<typeof userEvent.setup>;

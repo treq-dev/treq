@@ -2,8 +2,8 @@ import { defineConfig } from "vitest/config";
 import {
   integrationBaseTest,
   integrationPlugins,
-  serialIntegrationFiles,
 } from "./vitest.integration.base";
+import { serialIntegrationFiles } from "./vitest.integration.serial";
 import { VITEST_PROJECT_SEQUENCE } from "./vitest.projects";
 
 /**
@@ -11,7 +11,9 @@ import { VITEST_PROJECT_SEQUENCE } from "./vitest.projects";
  * discard, review, commit refresh, ...). These contend heavily for
  * spawn_blocking / jj-lib: running them concurrently with other NAPI forks
  * starves that pool and the Changes list never resolves in time, so they
- * stay serial. See vitest.integration-parallel.config.ts for the rest.
+ * stay serial. A file joins this project by calling `runSerially()` at its
+ * top level (see vitest.integration.serial.ts). See
+ * vitest.integration-parallel.config.ts for the rest.
  */
 export default defineConfig({
   plugins: integrationPlugins,

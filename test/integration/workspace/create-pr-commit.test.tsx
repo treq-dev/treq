@@ -17,6 +17,7 @@ import {
   createTestRepo,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   setOriginUrl,
   writeWorkspaceFile,
 } from "../../utils";
@@ -27,6 +28,8 @@ import {
   openWorkspace as openWorkspaceAs,
   setupPushedWorkspaceWithGitHub as setupPushedWorkspace,
 } from "./create-pr-helpers";
+
+runSerially();
 vi.mock("../../../src/lib/api", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("../../../src/lib/api")>();

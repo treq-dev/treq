@@ -5,6 +5,7 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -16,6 +17,8 @@ import {
 import { render, screen, waitFor } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import userEvent from "@testing-library/user-event";
+
+runSerially();
 
 const REVIEW_FILE = "commit-reload.txt";
 

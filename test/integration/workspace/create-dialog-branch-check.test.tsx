@@ -14,7 +14,10 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveRevsetCommitIds,
+  runSerially,
 } from "../../utils";
+
+runSerially();
 
 describe("create dialog branch check", () => {
   let repoPath: string;

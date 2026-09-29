@@ -13,7 +13,10 @@ import {
   createTestRepo,
   findSidebarBranchElement,
   openRepo,
+  runSerially,
 } from "../../utils";
+
+runSerially();
 
 describe("ShowWorkspace - stack panel", () => {
   let repoPath: string;

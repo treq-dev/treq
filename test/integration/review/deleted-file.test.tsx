@@ -8,6 +8,7 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -17,6 +18,8 @@ import {
 } from "../../../src/lib/api";
 import { render, screen, waitFor } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
+
+runSerially();
 
 describe("Review - deleted file collapsible", () => {
   let user: ReturnType<typeof userEvent.setup>;

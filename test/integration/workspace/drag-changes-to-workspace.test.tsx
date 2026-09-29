@@ -11,8 +11,11 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
+
+runSerially();
 
 async function createTwoWorkspacesWithDirtySource() {
   const { repoPath } = createTestRepo(false);

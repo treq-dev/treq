@@ -18,8 +18,11 @@ import {
   createTestRepo,
   findSidebarBranchElement,
   openRepo,
+  runSerially,
   setOriginUrl,
 } from "../../utils";
+
+runSerially();
 
 vi.mock("../../../src/lib/api", async (importOriginal) => {
   const original =

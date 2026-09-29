@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { commitWorkspaceFile, createTestRepo, openRepo } from "../../utils";
+import {
+  commitWorkspaceFile,
+  createTestRepo,
+  openRepo,
+  runSerially,
+} from "../../utils";
 import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
 import {
   fireEvent,
@@ -15,6 +20,8 @@ import {
   setupWorkspaceWithDiff,
   waitForFileAndLines,
 } from "./comments-helpers";
+
+runSerially();
 
 describe("Multi-line selection in diff viewer", () => {
   let user: ReturnType<typeof userEvent.setup>;

@@ -13,8 +13,11 @@ import {
   openRepo,
   resolveRevsetCommitIds,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
+
+runSerially();
 
 describe("ShowWorkspace - header", () => {
   let repoPath: string;

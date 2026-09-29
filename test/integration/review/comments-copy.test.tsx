@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { findReviewCopyButton, setupReviewMode } from "./comments-helpers";
+import { runSerially } from "../../utils";
+
+runSerially();
 
 describe("Copy button in Finish Review popover", () => {
   let user: ReturnType<typeof userEvent.setup>;

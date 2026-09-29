@@ -9,10 +9,13 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import * as api from "../../../src/lib/api";
 import { Dashboard } from "../../../src/components/Dashboard";
+
+runSerially();
 
 type WorkspaceRef = { id: number; path: string };
 

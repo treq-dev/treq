@@ -9,6 +9,9 @@ import {
   setupWorkspaceWithDiff,
   startEditingComment,
 } from "./comments-helpers";
+import { runSerially } from "../../utils";
+
+runSerially();
 
 describe("Inline comments display", () => {
   let user: ReturnType<typeof userEvent.setup>;

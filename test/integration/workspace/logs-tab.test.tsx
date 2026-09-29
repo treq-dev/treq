@@ -15,8 +15,11 @@ import {
   createTestRepo,
   findSidebarBranchElement,
   openRepo,
+  runSerially,
   writeRepoFile,
 } from "../../utils";
+
+runSerially();
 
 const LOGGING_WORKFLOW = `
 name: Logging CI

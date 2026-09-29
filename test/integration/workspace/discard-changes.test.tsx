@@ -5,12 +5,15 @@ import {
   createTestRepo,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import * as api from "../../../src/lib/api";
 import { openReviewTab, waitForChangedFile } from "../review/comments-helpers";
 import fs from "node:fs";
 import path from "node:path";
+
+runSerially();
 
 async function createDirtyWorkspace(branchName: string, fileName: string) {
   const { repoPath } = createTestRepo(false);

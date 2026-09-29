@@ -3,6 +3,7 @@ import {
   createTestRepo,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -22,6 +23,8 @@ import {
   clickChangedFile,
   openReviewTab,
 } from "./comments-helpers";
+
+runSerially();
 
 const PENDING_FILE = "pending-test.txt";
 

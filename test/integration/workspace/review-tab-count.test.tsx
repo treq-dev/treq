@@ -6,6 +6,7 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import {
@@ -15,6 +16,8 @@ import {
 } from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
+
+runSerially();
 
 async function setupWorkspaceWithCommittedAndUncommitted(branchName: string) {
   const { repoPath } = createTestRepo(false);

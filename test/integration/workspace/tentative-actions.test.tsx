@@ -7,12 +7,15 @@ import {
   findSidebarBranchElement,
   openRepo,
   resolveWorkspacePath,
+  runSerially,
   writeWorkspaceFile,
 } from "../../utils";
 import * as api from "../../../src/lib/api";
 import { Dashboard } from "../../../src/components/Dashboard";
 import fs from "node:fs";
 import path from "node:path";
+
+runSerially();
 
 async function createDirtyWorkspace(branchName: string) {
   const { repoPath } = createTestRepo(false);
