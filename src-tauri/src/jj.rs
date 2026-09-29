@@ -1973,6 +1973,72 @@ pub fn jj_snapshot_resolve_workspace(workspace_path: &str) -> Result<(), JjError
   Ok(())
 }
 
+/// Applies a unified diff that changes only `file_path` to that file in the
+/// workspace working copy, in-process (no `git apply`), then snapshots the
+/// working copy so jj records the edit.
+pub fn jj_apply_file_patch(
+  workspace_path: &str,
+  file_path: &str,
+  patch: &str,
+) -> Result<(), JjError> {
+  let invalid = |message: String| JjError::IoError(format!("Invalid patch: {message}"));
+  let repo_path = RepoPathBuf::from_relative_path(file_path)
+    .map_err(|e| invalid(format!("path '{file_path}': {e}")))?;
+  if repo_path.is_root()
+    || matches!(
+      repo_path.components().next().map(|c| c.as_internal_str()),
+      Some(".jj" | ".git")
+    )
+  {
+    return Err(invalid(format!("'{file_path}' is not a workspace file")));
+  }
+  let patches = crate::unified_patch::parse(patch).map_err(invalid)?;
+  let [file_patch] = patches.as_slice() else {
+    return Err(invalid(format!(
+      "it changes {} files; expected only '{file_path}'",
+      patches.len()
+    )));
+  };
+  let touches_only_target = [&file_patch.old_path, &file_patch.new_path]
+    .into_iter()
+    .flatten()
+    .all(|path| path == repo_path.as_internal_file_string());
+  if !touches_only_target {
+    return Err(invalid(format!(
+      "it changes '{}', not '{file_path}'",
+      file_patch.target_path().unwrap_or_default()
+    )));
+  }
+  let fs_path = repo_path
+    .to_fs_path(Path::new(workspace_path))
+    .map_err(|e| invalid(format!("path '{file_path}': {e}")))?;
+
+  let original = match fs::read_to_string(&fs_path) {
+    Ok(content) => Some(content),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+    Err(e) => {
+      return Err(JjError::IoError(format!(
+        "Failed to read '{file_path}': {e}"
+      )))
+    }
+  };
+  match crate::unified_patch::apply(original.as_deref(), file_patch).map_err(invalid)? {
+    Some(content) => {
+      if let Some(parent) = fs_path.parent() {
+        fs::create_dir_all(parent)
+          .map_err(|e| JjError::IoError(format!("Failed to create '{}': {e}", parent.display())))?;
+      }
+      fs::write(&fs_path, content)
+        .map_err(|e| JjError::IoError(format!("Failed to write '{file_path}': {e}")))?;
+    }
+    None => fs::remove_file(&fs_path)
+      .map_err(|e| JjError::IoError(format!("Failed to delete '{file_path}': {e}")))?,
+  }
+
+  let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
+  snapshot_loaded_working_copy(&mut loaded, workspace_path)
+}
+
 /// Move a resolve workspace `@` to a new empty child of the current tip so
 /// forgetting the workspace cannot hide the resolved change.
 pub fn jj_detach_resolve_workspace_wc(workspace_path: &str) -> Result<(), JjError> {
