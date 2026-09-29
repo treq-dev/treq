@@ -6,7 +6,7 @@ sidebar_position: 6
 
 _Reference for Treq's command-line interface._
 
-The `treq` command lets you create and inspect [workspaces](/docs/concepts/workspaces) from a terminal. Run commands from inside a Git repository so Treq can detect the repository context.
+The `treq` command lets you create and inspect [workspaces](/docs/concepts/workspaces) from a terminal. Run commands from inside a Git or Jujutsu repository, a Git worktree, or a Treq workspace, so Treq can detect the repository context.
 
 ## Commands
 

@@ -1181,3 +1181,47 @@ mod implicit_stdin {
     unsafe { libc::close(read) };
   }
 }
+
+mod repo_root_detection {
+  use super::super::find_repo_root;
+  use std::fs;
+
+  #[test]
+  fn a_git_worktree_with_a_dot_git_file_is_a_repo_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let worktree = dir.path().join("wt");
+    fs::create_dir_all(worktree.join("src")).unwrap();
+    fs::write(
+      worktree.join(".git"),
+      "gitdir: /elsewhere/.git/worktrees/wt\n",
+    )
+    .unwrap();
+    assert_eq!(find_repo_root(&worktree.join("src")), Some(worktree));
+  }
+
+  #[test]
+  fn a_jj_only_repo_is_a_repo_root() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join(".jj")).unwrap();
+    assert_eq!(find_repo_root(dir.path()), Some(dir.path().to_path_buf()));
+  }
+
+  #[test]
+  fn a_treq_workspace_resolves_to_its_home_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    let workspace = dir.path().join(".treq/workspaces/feat-a");
+    fs::create_dir_all(workspace.join(".jj")).unwrap();
+    fs::create_dir_all(workspace.join("src")).unwrap();
+    assert_eq!(
+      find_repo_root(&workspace.join("src")),
+      Some(dir.path().to_path_buf())
+    );
+  }
+
+  #[test]
+  fn no_repo_markers_means_no_root() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(find_repo_root(dir.path()), None);
+  }
+}

@@ -17,22 +17,33 @@ pub(super) fn normalize_repo_path(path: &Path) -> String {
     .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
-/// Walk up from CWD to find a directory containing `.git`.
+/// Walk up from CWD to the repository root. See [`find_repo_root`].
 pub fn detect_repo_path() -> Result<String, String> {
   let cwd = std::env::current_dir().map_err(|e| format!("Failed to get CWD: {}", e))?;
+  find_repo_root(&cwd)
+    .map(|root| normalize_repo_path(&root))
+    .ok_or_else(|| "Not inside a repository (no .git or .jj found)".to_string())
+}
 
-  let mut dir = cwd.as_path();
-  loop {
-    if dir.join(".git").is_dir() {
-      return Ok(normalize_repo_path(dir));
-    }
-    match dir.parent() {
-      Some(parent) => dir = parent,
-      None => break,
-    }
-  }
+/// The nearest ancestor of `start` (inclusive) that is a repository root: it
+/// has `.git` (a directory, or the file a git worktree uses) or `.jj`. Treq's
+/// own workspace directories (`.treq/workspaces/<name>`, which hold a `.jj`)
+/// are skipped so they resolve to their home repository.
+pub(super) fn find_repo_root(start: &Path) -> Option<std::path::PathBuf> {
+  start
+    .ancestors()
+    .find(|dir| {
+      !is_treq_workspace_dir(dir) && (dir.join(".git").exists() || dir.join(".jj").is_dir())
+    })
+    .map(Path::to_path_buf)
+}
 
-  Err("Not inside a git repository (no .git directory found)".to_string())
+fn is_treq_workspace_dir(dir: &Path) -> bool {
+  let Some(parent) = dir.parent() else {
+    return false;
+  };
+  parent.file_name() == Some(std::ffi::OsStr::new("workspaces"))
+    && parent.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new(".treq"))
 }
 
 /// Directory name under `.treq/workspaces/` when `cwd` is inside a workspace.
