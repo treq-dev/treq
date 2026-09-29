@@ -4013,6 +4013,19 @@ pub fn jj_get_file_lines(
   start_line: usize,
   end_line: usize,
 ) -> Result<JjFileLines, JjError> {
+  // CLI and remote callers pass these paths: keep reads inside the workspace.
+  let relative = Path::new(file_path);
+  if !relative.components().all(|c| {
+    matches!(
+      c,
+      std::path::Component::Normal(_) | std::path::Component::CurDir
+    )
+  }) {
+    return Err(JjError::IoError(format!(
+      "Path '{}' is outside the workspace",
+      file_path
+    )));
+  }
   let content = if from_parent {
     let repo = gix::open(workspace_path).map_err(|e| JjError::IoError(e.to_string()))?;
     let head_commit = repo
@@ -4040,7 +4053,7 @@ pub fn jj_get_file_lines(
 
   let all_lines: Vec<&str> = content.lines().collect();
   let start_idx = start_line.saturating_sub(1).min(all_lines.len());
-  let end_idx = end_line.min(all_lines.len());
+  let end_idx = end_line.min(all_lines.len()).max(start_idx);
 
   let lines: Vec<String> = all_lines[start_idx..end_idx]
     .iter()
@@ -9773,6 +9786,37 @@ mod tests {
     assert_eq!(lines.lines, vec!["two".to_string(), "three".to_string()]);
     assert_eq!(lines.start_line, 2);
     assert_eq!(lines.end_line, 3);
+  }
+
+  #[test]
+  fn jj_get_file_lines_rejects_paths_outside_the_workspace() {
+    let root = TempDir::new().expect("tempdir");
+    let workspace = root.path().join("ws");
+    fs::create_dir(&workspace).expect("mkdir");
+    fs::write(root.path().join("secret.txt"), "secret\n").expect("write secret");
+    let workspace = workspace.to_str().expect("utf8 path");
+    let absolute = root.path().join("secret.txt");
+
+    for path in [
+      "../secret.txt",
+      "a/../../secret.txt",
+      absolute.to_str().unwrap(),
+    ] {
+      let err = jj_get_file_lines(workspace, path, false, 1, 10).unwrap_err();
+      assert!(
+        err.to_string().contains("outside the workspace"),
+        "{path}: {err}"
+      );
+    }
+  }
+
+  #[test]
+  fn jj_get_file_lines_returns_empty_for_a_reversed_range() {
+    let temp = TempDir::new().expect("tempdir");
+    fs::write(temp.path().join("f.txt"), "1\n2\n3\n4\n5\n6\n").expect("write");
+    let lines =
+      jj_get_file_lines(temp.path().to_str().unwrap(), "f.txt", false, 5, 2).expect("read");
+    assert!(lines.lines.is_empty());
   }
 
   #[test]
