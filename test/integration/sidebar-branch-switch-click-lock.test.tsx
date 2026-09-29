@@ -1,3 +1,4 @@
+// @include-parallel
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "../test-utils";
 import { waitFor, within } from "@testing-library/react";

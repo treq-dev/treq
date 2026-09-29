@@ -1,6 +1,7 @@
 import { GitMerge, Loader2 } from "lucide-react";
 
 import useSWR from "swr";
+import { useRepositoryCacheKey } from "../../lib/active-repository-context";
 import type { MutationResult } from "../../hooks/useMutation";
 import {
   getRepoDefaultBranch,
@@ -48,9 +49,10 @@ function MergeQueueList({
   historyLimit,
   onHistoryLimitChange,
 }: MergeQueueListProps) {
+  const repoCacheKey = useRepositoryCacheKey(repoPath);
   const { data: workspaceStatuses } = useSWR(
-    repoPath && queueEntries.length > 0
-      ? ["workspace-statuses", repoPath]
+    repoCacheKey && queueEntries.length > 0
+      ? ["workspace-statuses", repoCacheKey]
       : null,
     () => listWorkspaceStatuses(repoPath),
   );
