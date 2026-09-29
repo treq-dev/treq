@@ -1,3 +1,4 @@
+import type { AgentKind } from "./agents";
 import { resolveCommit } from "./api";
 import { shellQuote } from "./shellQuote";
 
@@ -9,8 +10,6 @@ interface AgentPathContext {
   workspacePath: string | null;
   repoPath: string;
 }
-
-export type AgentKind = "claude" | "codex" | "cursor" | "copilot";
 
 export interface AgentCliFiles {
   promptPath: string;

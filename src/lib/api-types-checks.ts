@@ -1,3 +1,5 @@
+import type { AgentKind } from "./agents";
+
 export interface WorkflowStepInfo {
   name: string;
 }
@@ -80,7 +82,7 @@ export interface AgentChat {
   session_id: number;
   pty_session_id: string;
   name: string;
-  agent: "claude" | "codex" | "cursor" | "copilot";
+  agent: AgentKind;
   workspace_id: number | null;
   created_at: string;
   screen_before_last_user_message: string;
