@@ -1,6 +1,6 @@
 use super::{
-  dispatch_agent_request, handle_cli_command, handle_cli_global_args, is_supported_cli_command,
-  normalize_repo_path, parse_agent_mode, parse_agent_mode_or_default, parse_remote_command_request,
+  dispatch_agent_request, handle_cli_command, is_supported_cli_command, normalize_repo_path,
+  parse_agent_mode, parse_agent_mode_or_default, parse_remote_command_request,
   workspace_dir_name_from_cwd,
 };
 use crate::agent_dispatch;
@@ -213,33 +213,6 @@ fn asset_protocol_allows_files_below_hidden_workspace_directories() {
     Some(false),
     "workspace paths pass through the hidden .treq directory"
   );
-}
-
-#[test]
-fn top_level_help_arg_is_handled_by_global_dispatch() {
-  let mut matches = Matches::default();
-  let mut help_arg = tauri_plugin_cli::ArgData::default();
-  help_arg.value = Value::String("generated help text".to_string());
-  help_arg.occurrences = 0;
-  matches.args.insert("help".to_string(), help_arg);
-
-  assert!(handle_cli_global_args(&matches));
-}
-
-#[test]
-fn no_global_args_are_not_handled() {
-  let matches = Matches::default();
-  assert!(!handle_cli_global_args(&matches));
-}
-
-#[test]
-fn top_level_version_arg_is_handled_by_global_dispatch() {
-  let mut matches = Matches::default();
-  matches
-    .args
-    .insert("version".to_string(), tauri_plugin_cli::ArgData::default());
-
-  assert!(handle_cli_global_args(&matches));
 }
 
 #[test]
@@ -1142,5 +1115,88 @@ fn every_typed_remote_request_round_trips_through_cli_args() {
       "{} did not round-trip",
       request.kind_name()
     );
+  }
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_report_separates_created_links_from_missing_sources() {
+  let dir = tempfile::tempdir().unwrap();
+  std::os::unix::fs::symlink(dir.path(), dir.path().join("node_modules")).unwrap();
+  let (linked, missing) = super::workspace_handlers::split_symlinks(
+    dir.path(),
+    &["node_modules".to_string(), "target".to_string()],
+  );
+  assert_eq!(linked, vec!["node_modules".to_string()]);
+  assert_eq!(missing, vec!["target".to_string()]);
+}
+
+#[cfg(feature = "tauri-test")]
+mod commit_outcomes {
+  use super::super::workspace_handlers::commit_workspace_for_cli;
+  use crate::e2e_test_helpers::TestRepo;
+
+  #[test]
+  fn refuses_when_there_is_nothing_to_commit() {
+    let repo = TestRepo::new().unwrap();
+    let ws = repo.create_workspace_simple("feat/empty").unwrap();
+    let err = commit_workspace_for_cli(&repo.repo_path, &ws, "msg", false).unwrap_err();
+    assert!(err.contains("nothing to commit"), "{err}");
+  }
+
+  #[test]
+  fn a_failed_push_says_the_commit_landed() {
+    let repo = TestRepo::new().unwrap();
+    let ws = repo.create_workspace_simple("feat/push").unwrap();
+    TestRepo::write_workspace_file(&repo.workspace_full_path(&ws), "a.txt", "a\n").unwrap();
+    let err = commit_workspace_for_cli(&repo.repo_path, &ws, "msg", true).unwrap_err();
+    assert!(
+      err.contains("committed to 'feat/push'") && err.contains("push failed"),
+      "{err}"
+    );
+  }
+}
+
+mod repo_root_detection {
+  use super::super::find_repo_root;
+  use std::fs;
+
+  #[test]
+  fn a_git_worktree_with_a_dot_git_file_is_a_repo_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let worktree = dir.path().join("wt");
+    fs::create_dir_all(worktree.join("src")).unwrap();
+    fs::write(
+      worktree.join(".git"),
+      "gitdir: /elsewhere/.git/worktrees/wt\n",
+    )
+    .unwrap();
+    assert_eq!(find_repo_root(&worktree.join("src")), Some(worktree));
+  }
+
+  #[test]
+  fn a_jj_only_repo_is_a_repo_root() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join(".jj")).unwrap();
+    assert_eq!(find_repo_root(dir.path()), Some(dir.path().to_path_buf()));
+  }
+
+  #[test]
+  fn a_treq_workspace_resolves_to_its_home_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    let workspace = dir.path().join(".treq/workspaces/feat-a");
+    fs::create_dir_all(workspace.join(".jj")).unwrap();
+    fs::create_dir_all(workspace.join("src")).unwrap();
+    assert_eq!(
+      find_repo_root(&workspace.join("src")),
+      Some(dir.path().to_path_buf())
+    );
+  }
+
+  #[test]
+  fn no_repo_markers_means_no_root() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(find_repo_root(dir.path()), None);
   }
 }

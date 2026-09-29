@@ -6,7 +6,15 @@ sidebar_position: 6
 
 _Reference for Treq's command-line interface._
 
-The `treq` command lets you create and inspect [workspaces](/docs/concepts/workspaces) from a terminal. Run commands from inside a Git repository so Treq can detect the repository context.
+The `treq` command lets you create and inspect [workspaces](/docs/concepts/workspaces) from a terminal. Run commands from inside a Git or Jujutsu repository, a Git worktree, or a Treq workspace, so Treq can detect the repository context.
+
+## Exit status
+
+- `0`: the command succeeded, or printed `--help` / `--version`.
+- `1`: the command ran and failed. The error is on stderr (or in the JSON body with `--format json`).
+- `2`: the invocation was malformed, for example an unknown command or a missing required argument.
+
+The CLI does not need a display, so it works over SSH and in headless agent sandboxes.
 
 ## Commands
 

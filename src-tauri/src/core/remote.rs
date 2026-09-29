@@ -1844,11 +1844,17 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
   };
   match request {
     TreqCommandRequest::InspectRepository { repo } => json(inspect_repository_path(&repo)),
+    // These return defaults for a non-repository path, so fail first instead.
     TreqCommandRequest::RepositoryStatus { repo } => {
+      require_existing_repo(&repo)?;
       json(crate::core::workspaces::workspace_status(&repo, None))
     }
-    TreqCommandRequest::ListBranches { repo } => json(crate::core::repo::list_repo_branches(&repo)),
+    TreqCommandRequest::ListBranches { repo } => {
+      require_existing_repo(&repo)?;
+      json(crate::core::repo::list_repo_branches(&repo))
+    }
     TreqCommandRequest::ListWorkspaces { repo } => {
+      require_existing_repo(&repo)?;
       json(crate::core::workspaces::list_workspaces(&repo))
     }
     TreqCommandRequest::MachineUsage { root } => json(machine_usage(&root)),
@@ -2675,11 +2681,15 @@ fn clone_repo_local(repo_url: &str, destination: &str) -> Result<RepositoryInspe
   inspect_repository_path(destination)
 }
 
+fn require_existing_repo(repo: &str) -> Result<(), String> {
+  inspect_repository_path(repo).map(|_| ())
+}
+
 /// Applies a base64-encoded unified diff to `path` inside the given
 /// workspace (or the repo root) using `git apply`. Base64 keeps the exec
 /// argument vector a plain string even though the payload contains newlines.
-/// Applies a base64 unified diff to `path`. The patch goes on stdin, since
-/// `git apply <path>` would read `path` itself as the patch.
+/// The patch goes on stdin, since `git apply <path>` would read `path` itself
+/// as the patch.
 fn apply_remote_patch(
   repo: &str,
   workspace: Option<i64>,
@@ -4270,6 +4280,25 @@ mod tests {
       assert!(!request.requires_idempotency_key(), "{request:?}");
       assert!(TreqCommandRequest::KIND_NAMES.contains(&request.kind_name()));
       request.cli_args().unwrap();
+    }
+  }
+
+  #[test]
+  fn listing_requests_fail_for_a_missing_repository() {
+    let missing = "/nonexistent/treq-missing-repo";
+    for request in [
+      TreqCommandRequest::RepositoryStatus {
+        repo: missing.into(),
+      },
+      TreqCommandRequest::ListWorkspaces {
+        repo: missing.into(),
+      },
+      TreqCommandRequest::ListBranches {
+        repo: missing.into(),
+      },
+    ] {
+      let err = execute_local_request(request).unwrap_err();
+      assert!(err.starts_with("repository_not_found:"), "{err}");
     }
   }
 
