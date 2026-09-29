@@ -1,6 +1,5 @@
 use crate::linear::{
-  LinearClientSource, LinearComment, LinearDocument, LinearIssue, LinearProject, LinearTeam,
-  LinearUser,
+  LinearComment, LinearDocument, LinearIssue, LinearProject, LinearTeam, LinearUser,
 };
 use crate::lock_ext::LockExt;
 use crate::AppState;
@@ -28,12 +27,7 @@ pub async fn linear_list_teams(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => crate::linear::linear_list_teams_impl(&api_key).await,
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  crate::linear::linear_list_teams_impl(&client_source).await
 }
 
 #[tauri::command]
@@ -51,14 +45,7 @@ pub async fn linear_list_issues(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => {
-      crate::linear::linear_list_issues_impl(&api_key, team_filter.as_deref()).await
-    }
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  crate::linear::linear_list_issues_impl(&client_source, team_filter.as_deref()).await
 }
 
 #[tauri::command]
@@ -76,15 +63,8 @@ pub async fn linear_open_or_create_workspace_from_issue(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => {
-      let issue = crate::linear::linear_get_issue_impl(&api_key, &issue_id).await?;
-      open_or_create_workspace_from_linear_issue(&repo_path, &issue).await
-    }
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  let issue = crate::linear::linear_get_issue_impl(&client_source, &issue_id).await?;
+  open_or_create_workspace_from_linear_issue(&repo_path, &issue).await
 }
 
 /// Opens or creates the workspace for one Linear issue. The core never
@@ -163,12 +143,7 @@ pub async fn linear_get_viewer(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => crate::linear::linear_get_viewer_impl(&api_key).await,
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  crate::linear::linear_get_viewer_impl(&client_source).await
 }
 
 #[tauri::command]
@@ -185,12 +160,7 @@ pub async fn linear_list_projects(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => crate::linear::linear_list_projects_impl(&api_key).await,
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  crate::linear::linear_list_projects_impl(&client_source).await
 }
 
 #[tauri::command]
@@ -208,14 +178,7 @@ pub async fn linear_list_project_documents(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => {
-      crate::linear::linear_list_project_documents_impl(&api_key, &project_id).await
-    }
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  crate::linear::linear_list_project_documents_impl(&client_source, &project_id).await
 }
 
 #[tauri::command]
@@ -233,14 +196,7 @@ pub async fn linear_list_issue_comments(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => {
-      crate::linear::linear_list_issue_comments_impl(&api_key, &issue_id).await
-    }
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  crate::linear::linear_list_issue_comments_impl(&client_source, &issue_id).await
 }
 
 #[tauri::command]
@@ -258,14 +214,7 @@ pub async fn linear_list_project_comments(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => {
-      crate::linear::linear_list_project_comments_impl(&api_key, &project_id).await
-    }
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  crate::linear::linear_list_project_comments_impl(&client_source, &project_id).await
 }
 
 #[tauri::command]
@@ -283,14 +232,15 @@ pub async fn linear_list_document_comments(
     crate::linear::resolve_linear_client(&repo_path, &db)?
   };
 
-  match client_source {
-    LinearClientSource::ApiKey(api_key) => {
-      crate::linear::linear_list_document_comments_impl(&api_key, &document_id).await
-    }
-    LinearClientSource::ProxyToken => {
-      Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
-    }
-  }
+  crate::linear::linear_list_document_comments_impl(&client_source, &document_id).await
+}
+
+/// Gives the Linear client the Supabase session it sends to the
+/// `linear-proxy` Edge Function for OAuth-connected users. `None` clears it
+/// on sign-out. Used by `src/lib/linear-proxy-auth.ts`.
+#[tauri::command]
+pub fn linear_set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
+  crate::linear::set_proxy_session(supabase_url, access_token);
 }
 
 #[tauri::command]
