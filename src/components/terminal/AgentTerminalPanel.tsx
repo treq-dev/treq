@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Loader2, RotateCw, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import React, {
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
@@ -95,7 +95,6 @@ export const AgentTerminalPanel = ({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isResetting, setIsResetting] = useState(false);
   const [isChangingModel, setIsChangingModel] = useState(false);
   const [terminalInstanceKey, setTerminalInstanceKey] = useState(0);
   const {
@@ -104,7 +103,7 @@ export const AgentTerminalPanel = ({
     isModelLoaded,
     autoCommand,
     prepareError,
-  } = useAgentAutoCommand(sessionData);
+  } = useAgentAutoCommand(sessionData, terminalInstanceKey > 0);
 
   const terminalId = `claude-${sessionData.sessionId}`;
   const isHidden = collapsed;
@@ -256,33 +255,6 @@ export const AgentTerminalPanel = ({
     }
   };
 
-  // Reset handler - silent option used when reset is triggered by model change
-  const handleReset = async (options?: { silent?: boolean }) => {
-    setIsResetting(true);
-    try {
-      clearQueuedMessages();
-      processOutputTailRef.current = createTerminalOutputTail();
-      markBusy();
-      await ptyClose(sessionData.ptySessionId).catch(console.error);
-      setTerminalInstanceKey((prev) => prev + 1);
-      if (!options?.silent) {
-        addToast({
-          title: "Terminal Reset",
-          description: `Starting new ${sessionData.agent === "codex" ? "Codex" : sessionData.agent === "cursor" ? "Cursor" : sessionData.agent === "copilot" ? "Copilot" : "Claude"} session`,
-          type: "info",
-        });
-      }
-    } catch (error) {
-      addToast({
-        title: "Reset Failed",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
   // Model change handler
   const handleModelChange = async (newModel: string) => {
     setIsChangingModel(true);
@@ -293,8 +265,14 @@ export const AgentTerminalPanel = ({
         sessionData.sessionId,
         modelToSave,
       );
+      // Relaunch the agent with the new model. The old PTY is closed before
+      // the model state changes so the terminal remounts once, into a new PTY.
+      clearQueuedMessages();
+      processOutputTailRef.current = createTerminalOutputTail();
+      markBusy();
+      await ptyClose(sessionData.ptySessionId).catch(console.error);
       setSessionModelState(modelToSave);
-      await handleReset({ silent: true });
+      setTerminalInstanceKey((prev) => prev + 1);
       addToast({
         title: "Terminal Restarting",
         description: `Using model: ${modelToSave || "default"}`,
@@ -314,6 +292,7 @@ export const AgentTerminalPanel = ({
   return (
     <div
       data-terminal-id={terminalId}
+      data-active={isActive ? "true" : "false"}
       className={cn(
         "flex flex-col min-h-0 overflow-hidden flex-shrink-0",
         width == null && "flex-1",
@@ -363,51 +342,9 @@ export const AgentTerminalPanel = ({
               <ModelSelector
                 currentModel={sessionModel}
                 onModelChange={handleModelChange}
-                disabled={isChangingModel || isResetting}
+                disabled={isChangingModel}
               />
             )}
-          {/* Scroll to bottom */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  onClick={() =>
-                    terminalRefs.current.get(terminalId)?.scrollToBottom()
-                  }
-                  variant="ghost"
-                  size="xs"
-                  className="bg-transparent text-gray-200 hover:bg-muted/20 hover:text-gray-200"
-                  aria-label="Scroll to bottom"
-                >
-                  <ArrowDownToLine className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Scroll to bottom</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          {/* Reset button */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={() => handleReset()}
-                  disabled={isResetting}
-                  variant="ghost"
-                  size="xs"
-                  className="bg-transparent text-gray-200 hover:bg-muted/20 hover:text-gray-200"
-                  aria-label="Reset terminal"
-                >
-                  {isResetting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <RotateCw className="w-4 h-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Reset</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
           {/* Search button */}
           <TooltipProvider>
             <Tooltip>

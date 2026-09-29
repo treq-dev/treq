@@ -127,7 +127,13 @@ export const WorkspaceTerminalPaneView: React.FC<
           data-testid="terminal-pane-controls"
           className={cn(
             "z-50 flex items-center gap-px rounded-md border border-border/80 bg-background/90 p-0.5 shadow-sm backdrop-blur-sm",
-            collapsed ? "contents" : "absolute -top-7 right-1.5",
+            // The controls sit above the pane's top edge; a maximized pane
+            // has no room above it, so they move into its bottom corner.
+            collapsed
+              ? "contents"
+              : maximized
+                ? "absolute bottom-1.5 right-1.5"
+                : "absolute -top-7 right-1.5",
           )}
         >
           {collapsed && (
@@ -145,7 +151,7 @@ export const WorkspaceTerminalPaneView: React.FC<
             <PaneControlButton
               ariaLabel="Restore terminal"
               tooltip="Restore"
-              shortcut="⌘ + ^ + J"
+              shortcut="⌘ + Ctrl + J"
               onClick={() => setMaximized(false)}
             >
               <Minimize2 className="w-3 h-3" />
@@ -155,7 +161,7 @@ export const WorkspaceTerminalPaneView: React.FC<
             <PaneControlButton
               ariaLabel="Maximize terminal"
               tooltip="Maximize"
-              shortcut="⌘ + Ctrl+ J"
+              shortcut="⌘ + Ctrl + J"
               onClick={() => setMaximized(true)}
             >
               <Maximize2 className="w-3 h-3" />
