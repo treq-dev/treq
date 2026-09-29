@@ -310,7 +310,6 @@ export const ShowWorkspace = ({
     setChangedFiles(new Map());
   }, [workspace?.id]);
 
-
   // After a child refresh (e.g. post-commit), re-check if workspace now has commits
   const handleRefreshingChange = (r: boolean) => {
     setRefreshingFiles(r);
