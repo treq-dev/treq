@@ -1,3 +1,4 @@
+// @include-serial
 import { beforeEach, describe, expect, it } from "vitest";
 import { commitWorkspaceFile, createTestRepo, openRepo } from "../../utils";
 import { createWorkspace, getWorkspaces } from "../../../src/lib/api";

@@ -2,8 +2,8 @@ import { defineConfig } from "vitest/config";
 import {
   integrationBaseTest,
   integrationPlugins,
-  serialIntegrationFiles,
 } from "./vitest.integration.base";
+import { serialIntegrationFiles } from "./vitest.integration.serial";
 import {
   VITEST_PROJECT_SEQUENCE,
   VITEST_PROJECT_WORKERS,
@@ -12,7 +12,9 @@ import {
 /**
  * Integration tests that don't touch the jj "Changes" file list under
  * contention (settings, sidebar, command palette, GitHub panel, browser
- * webviews, file picker, ...). These are safe to fan out across a small
+ * webviews, file picker, ...): files with a `// @include-parallel`
+ * directive (see vitest.integration.serial.ts). These are safe to fan out
+ * across a small
  * worker pool -- see vitest.integration-serial.config.ts for the files
  * that stay serial because of spawn_blocking contention.
  *

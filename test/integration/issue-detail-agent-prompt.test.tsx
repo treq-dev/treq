@@ -1,3 +1,4 @@
+// @include-parallel
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IssueDetailPanel } from "../../src/components/github-panel/IssueDetail";

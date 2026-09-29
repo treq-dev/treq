@@ -158,6 +158,22 @@ const WorkspaceTerminalPaneInner = ({
     onCreateNewSession?.(activeWorkspaceDir);
   };
 
+  const ptyIdOf = (terminalId: string) =>
+    terminalId.startsWith("claude-")
+      ? (claudeSessions.find((s) => `claude-${s.sessionId}` === terminalId)
+          ?.ptySessionId ?? null)
+      : terminalId;
+
+  // When the focused terminal closes, focus moves to the terminal that takes
+  // its place, or to the one before it if it was the last, as closing a tab
+  // does. Cmd+W can then keep closing terminals.
+  const focusNeighbourOf = (terminalId: string) => {
+    const index = terminalOrder.indexOf(terminalId);
+    const remaining = terminalOrder.filter((id) => id !== terminalId);
+    const neighbour = remaining[Math.min(index, remaining.length - 1)];
+    setActivePtySessionId(neighbour ? ptyIdOf(neighbour) : null);
+  };
+
   // Close shell terminal
   const handleCloseShell = (terminalId: string) => {
     console.info(
@@ -191,11 +207,7 @@ const WorkspaceTerminalPaneInner = ({
     setShellTerminals((prev) => prev.filter((t) => t.id !== terminalId));
     setTerminalOrder((prev) => prev.filter((id) => id !== terminalId));
     if (activePtySessionId === terminalId) {
-      console.info(
-        "[WorkspaceTerminalPane] clearing active shell session",
-        JSON.stringify({ terminalId }),
-      );
-      setActivePtySessionId(null);
+      focusNeighbourOf(terminalId);
     }
   };
 
@@ -234,12 +246,8 @@ const WorkspaceTerminalPaneInner = ({
       "[WorkspaceTerminalPane] onCloseSession callback fired",
       JSON.stringify({ sessionId }),
     );
-    if (activePtySessionId === claudeTerminalId) {
-      console.info(
-        "[WorkspaceTerminalPane] clearing active agent session",
-        JSON.stringify({ sessionId, claudeTerminalId }),
-      );
-      setActivePtySessionId(null);
+    if (activePtySessionId === sessionData?.ptySessionId) {
+      focusNeighbourOf(claudeTerminalId);
     }
   };
 

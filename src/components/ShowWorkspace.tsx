@@ -25,7 +25,7 @@ import {
   Upload,
   Database,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useGitRemoteInfo, usePrCiStatus } from "../hooks/useMergeQueueStatus";
 import { useTerminalSettingsStore } from "../stores/terminalSettingsStore";
 import { useTreqSendStore } from "../stores/treqSendStore";
@@ -83,10 +83,7 @@ import { cn, getFullWorkspacePath, resolveReadmeImageSrc } from "../lib/utils";
 import { sumWorkspaceLocFromLog } from "../lib/workspace-stack";
 import type { AgentReviewComment } from "../lib/api-types-review";
 import type { SessionCreationInfo } from "../types/sessions";
-import {
-  ChangesDiffViewer,
-  type ChangesDiffViewerHandle,
-} from "./ChangesDiffViewer";
+import { ChangesDiffViewer } from "./ChangesDiffViewer";
 import { BrowserPanel } from "./browser-panel/BrowserPanel";
 import { useReviewSubView } from "./browser-panel/useReviewSubView";
 import { LogsTab } from "./LogsTab";
@@ -144,7 +141,6 @@ interface ShowWorkspaceProps {
   onSendToIdleAgent?: (sessionId: number, prompt: string) => void;
   /** Called when the user clicks "View full prompt" on the workspace's starting prompt */
   onViewFullPrompt?: (promptId: number) => void;
-  taskInputFocusRequest?: number;
   onOpenMergePreview?: () => void;
   onOpenBranchSwitcher?: () => void;
   onCreateStackedWorkspace?: () => void;
@@ -212,7 +208,6 @@ export const ShowWorkspace = ({
   idleAgentSession,
   onSendToIdleAgent,
   onViewFullPrompt,
-  taskInputFocusRequest,
   onOpenMergePreview,
   onOpenBranchSwitcher,
   onCreateStackedWorkspace,
@@ -257,10 +252,9 @@ export const ShowWorkspace = ({
     null,
   );
 
-  const changesDiffViewerRef = useRef<ChangesDiffViewerHandle>(null);
-  const [actionPending, _setActionPending] = useState<
-    "push" | "merge" | "sync" | null
-  >(null);
+  const [actionPending, _setActionPending] = useState<"push" | "sync" | null>(
+    null,
+  );
 
   // Sync status state (ahead/behind counts)
   const [syncStatus, setSyncStatus] = useState<{
@@ -323,10 +317,6 @@ export const ShowWorkspace = ({
     setConflictModalOpen(false);
     setChangedFiles(new Map());
   }, [workspace?.id]);
-
-  useEffect(() => {
-    if (taskInputFocusRequest) setActiveTab("overview");
-  }, [taskInputFocusRequest]);
 
   // Load workspace commit count to control Committed toggle availability
   const loadWorkspaceCommitCount = async () => {
@@ -486,7 +476,6 @@ export const ShowWorkspace = ({
   })();
 
   const commitsTabLabel = (() => {
-    const isHomeRepo = !workspace;
     const commitCount =
       workspaceStatusData?.commits_ahead_of_target?.length ?? 0;
     const hasConflict =
@@ -575,12 +564,6 @@ export const ShowWorkspace = ({
     return false;
   };
 
-  // Files list expansion state
-  // 		setTargetBranch(value);
-  // 	}
-  // }, [workspace?.target_branch, defaultBranch]);
-
-  // Invalidate sidebar query when conflicts change
   const submoduleSync = useMutation({
     mutationFn: ({ path, enabled }: { path: string; enabled: boolean }) =>
       setGitSubmoduleSynced(effectiveRepoPath, path, enabled),
@@ -1276,8 +1259,6 @@ export const ShowWorkspace = ({
     mode: "plan" | "acceptEdits",
   ) => createAgentWithReview(reviewMarkdown, mode, "Page Review");
 
-  const displayedEntries = rootEntries;
-
   const executionPanel = workingDirectory ? (
     <div className="flex flex-col h-full">
       <div
@@ -1429,7 +1410,6 @@ export const ShowWorkspace = ({
                     repoPath={effectiveRepoPath}
                     workspaceId={workspace?.id ?? null}
                     workingDirectory={workingDirectory}
-                    focusRequest={taskInputFocusRequest}
                     onSessionCreated={onSessionCreated}
                   />
                   {/* Stack — shown for any workspace in a multi-workspace
@@ -1464,7 +1444,7 @@ export const ShowWorkspace = ({
 
                   {/* File Listing */}
                   <div className="border rounded-lg divide-y divide-border">
-                    {displayedEntries.map((entry) => {
+                    {rootEntries.map((entry) => {
                       const submodulePin = entry.submodule_pin;
                       const isSubmodule = Boolean(submodulePin);
                       const shortPin = submodulePin
@@ -1586,7 +1566,6 @@ export const ShowWorkspace = ({
             workspaceId={workspace?.id ?? null}
             scrollToCommitId={scrollToCommitId}
             onScrollComplete={() => setScrollToCommitId(null)}
-            onCommitAbandoned={() => {}}
             onCommitStashed={onCommitStashed}
             onCreateAgentWithComment={handleCreateAgentWithComment}
             onSessionCreated={onSessionCreated}
@@ -1619,7 +1598,6 @@ export const ShowWorkspace = ({
         ) : (
           <ChangesDiffViewer
             key={`changes-${workingDirectory}`}
-            ref={changesDiffViewerRef}
             workspacePath={workingDirectory}
             workspaceId={workspace?.id}
             isHomeRepo={!workspace}

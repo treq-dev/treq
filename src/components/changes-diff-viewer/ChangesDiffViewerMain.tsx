@@ -1,6 +1,6 @@
 /* eslint-disable max-lines */
 
-import React, { useImperativeHandle, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { type ParsedFileChange } from "../../lib/git-utils";
 import { useDiffSettingsStore } from "../../stores/diffSettingsStore";
 import { useDiffSearch } from "./hooks/useDiffSearch";
@@ -53,7 +53,6 @@ export const ChangesDiffViewer = ({
   onMoveFilesToNewWorkspace,
   workspace,
   baseBranch,
-  ref,
 }: ChangesDiffViewerProps) => {
   const { addToast } = useToast();
   const { fontSize: diffFontSize } = useDiffSettingsStore();
@@ -368,19 +367,6 @@ export const ChangesDiffViewer = ({
     }
   };
   applyChangedFilesRef.current = applyChangedFiles;
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      focusCommitInput: () => {
-        commitInputRef.current?.focus();
-      },
-      refresh: () => {
-        loadChangedFiles();
-      },
-    }),
-    [loadChangedFiles],
-  );
 
   const {
     fileActionTarget,

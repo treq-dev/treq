@@ -1,3 +1,4 @@
+// @include-parallel
 import { describe, expect, it, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
