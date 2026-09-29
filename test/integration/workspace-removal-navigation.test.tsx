@@ -1,3 +1,4 @@
+// @include-parallel
 import * as React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import userEvent from "@testing-library/user-event";

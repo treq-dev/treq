@@ -1,3 +1,4 @@
+// @include-parallel
 import { describe, expect, it } from "vitest";
 import {
   createTestRepo,

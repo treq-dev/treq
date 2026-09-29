@@ -1,3 +1,4 @@
+// @include-parallel
 import * as React from "react";
 import fs from "node:fs";
 import path from "node:path";

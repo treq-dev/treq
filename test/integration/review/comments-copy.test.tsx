@@ -1,3 +1,4 @@
+// @include-serial
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "../../test-utils";
 import userEvent from "@testing-library/user-event";

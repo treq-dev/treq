@@ -5,6 +5,7 @@ import {
 } from "../lib/api";
 import { getFullWorkspacePath } from "../lib/utils";
 import { invalidateQueries } from "../lib/swr-cache";
+import { useRepositoryCacheKey } from "../lib/active-repository-context";
 import { useCreateStackedWorkspace } from "./useCreateStackedWorkspace";
 
 interface UseWorkspaceHierarchyOptions {
@@ -19,9 +20,11 @@ export function useWorkspaceHierarchy({
 }: UseWorkspaceHierarchyOptions) {
   const { createStackedWorkspace } = useCreateStackedWorkspace();
 
+  const repoCacheKey = useRepositoryCacheKey(repoPath);
+
   const invalidate = () => {
-    void invalidateQueries(["workspaces", repoPath]);
-    void invalidateQueries(["workspace-statuses", repoPath]);
+    void invalidateQueries(["workspaces", repoCacheKey]);
+    void invalidateQueries(["workspace-statuses", repoCacheKey]);
   };
 
   // Add a new workspace after (as a child of) the given workspace.

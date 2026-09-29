@@ -1,3 +1,4 @@
+// @include-parallel
 import * as React from "react";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
