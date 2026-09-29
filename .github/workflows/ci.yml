@@ -125,29 +125,6 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      # Exact-key cache of the compiled addon. Frontend-only PRs restore the
-      # binary built on main when Rust inputs are unchanged. Node is omitted
-      # from the key: N-API (napi8) binaries are ABI-stable across Node majors
-      # we care about; including `lts/*` patch versions busted the cache.
-      - name: Restore NAPI addon cache
-        id: napi-cache
-        if: matrix.task == 'test:integration'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            target/debug/libtreq_lib.so
-            src-tauri/target/index.js
-          key: napi-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'src-tauri/Cargo.toml', 'src-tauri/build.rs', 'src-tauri/src/**', 'src-tauri/tests/**', 'src-tauri/package.json', 'crates/tauri-test-macros/**') }}
-
-      - name: Install Rust stable
-        # Unit JS tests never need Rust. Integration skips the toolchain when
-        # the prebuilt .node addon was restored from cache.
-        if: matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@v1
-        with:
-          components: rustfmt, clippy
-          toolchain: stable
-
       # Cold apt install of WebKit/GTK is ~30–60s per job; restore from Actions
       # cache on subsequent runs. execute_install_scripts is required so dpkg
       # postinst (ldconfig, alternatives) still runs on restore.
@@ -260,29 +237,10 @@ jobs:
           restore-keys: |
             vitest-fsmc-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
 
-      - uses: Swatinem/rust-cache@v2
-        if: matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true'
-        with:
-          cache-on-failure: true
-          workspaces: |
-            ./src-tauri -> target
-
-      - name: Build NAPI addon
-        if: matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true'
-        run: |
-          npm run build:napi
-          test -f target/debug/libtreq_lib.so
-          test -f src-tauri/target/index.js
-
-      - name: Save NAPI addon cache
-        if: matrix.task == 'test:integration' && steps.napi-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            target/debug/libtreq_lib.so
-            src-tauri/target/index.js
-          key: ${{ steps.napi-cache.outputs.cache-primary-key }}
+      # Restores the addon built on main (napi-cache.yml) or builds it.
+      - name: NAPI addon
+        if: matrix.task == 'test:integration'
+        uses: ./.github/actions/napi-addon
 
       - name: Run JS task
         run: |
@@ -336,7 +294,7 @@ jobs:
         with:
           cache-on-failure: true
           workspaces: |
-            ./src-tauri -> target
+            . -> target
 
       - name: Run Rust task
         working-directory: src-tauri
@@ -483,7 +441,7 @@ jobs:
         with:
           cache-on-failure: true
           workspaces: |
-            ./src-tauri -> target
+            . -> target
 
       - name: Run Rust task
         working-directory: src-tauri
@@ -605,7 +563,7 @@ jobs:
         with:
           cache-on-failure: true
           workspaces: |
-            ./src-tauri -> target
+            . -> target
 
       - name: Run Rust task
         working-directory: src-tauri
