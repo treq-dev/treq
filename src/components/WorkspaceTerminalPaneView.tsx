@@ -225,10 +225,7 @@ export const WorkspaceTerminalPaneView: React.FC<
                     <RemoteTerminalPanel
                       target={terminal.data.remote}
                       onClose={() => handleCloseShell(terminalId)}
-                      onOutput={(output) =>
-                        onTerminalOutput?.(terminalId, output, true)
-                      }
-                      onInput={() => onTerminalInput?.(terminalId)}
+                      onOutput={() => onTerminalOutput?.(terminalId, true)}
                     />
                   </div>
                   {!isLast && nextId && (

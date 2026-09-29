@@ -84,8 +84,6 @@ interface RemoteTerminalPanelProps {
   renderToolbar?: (send: (data: string) => void) => ReactNode;
   /** Called with each output chunk, for activity tracking in the terminal pane. */
   onOutput?: (data: string) => void;
-  /** Called when the user types into the terminal. */
-  onInput?: () => void;
 }
 
 const makeSessionId = (target: RemoteTerminalTarget) =>
@@ -96,7 +94,6 @@ export const RemoteTerminalPanel = ({
   onClose,
   renderToolbar,
   onOutput,
-  onInput,
 }: RemoteTerminalPanelProps) => {
   const { endpoint, repositoryId, workspaceId, remoteWorkingDirectory, label } =
     target;
@@ -112,7 +109,6 @@ export const RemoteTerminalPanel = ({
   const stoppingRef = useRef(false);
   const lastAutoReattachRef = useRef<number | null>(null);
   const onOutputRef = useRef(onOutput);
-  const onInputRef = useRef(onInput);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [endState, setEndState] = useState<EndState | null>(null);
@@ -129,7 +125,6 @@ export const RemoteTerminalPanel = ({
 
   useEffect(() => {
     onOutputRef.current = onOutput;
-    onInputRef.current = onInput;
     reattachRef.current = reattach;
   });
 
@@ -161,7 +156,6 @@ export const RemoteTerminalPanel = ({
 
     const dataSub = xterm.onData((data) => {
       if (!isReadyRef.current) return;
-      onInputRef.current?.();
       remotePtyWrite(sessionId, data).catch(handleError);
     });
 
