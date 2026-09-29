@@ -94,6 +94,7 @@ use jj_lib::rewrite::{
   RewriteRefsOptions,
 };
 use jj_lib::settings::UserSettings;
+use jj_lib::str_util::StringExpression;
 use jj_lib::tree_merge::MergeOptions;
 use jj_lib::working_copy::{SnapshotOptions, WorkingCopyFreshness};
 use jj_lib::workspace::{default_working_copy_factories, default_working_copy_factory, Workspace};
@@ -103,20 +104,11 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 
 use crate::binary_paths;
 use crate::conflict_markers::{self, ConflictRegionView, ConflictStyle};
 use crate::local_db;
-
-/// Helper function to create Command for a binary using cached path
-fn binary_command(binary: &str) -> Command {
-  let path = binary_paths::get_binary_path(binary).unwrap_or_else(|| binary.to_string());
-  Command::new(path)
-}
-
-// NOTE: `git checkout` subprocess calls are retained for colocated git-head sync flows.
 
 fn chain_ignore_file(base: &Arc<GitIgnoreFile>, prefix: &str, path: PathBuf) -> Arc<GitIgnoreFile> {
   base
@@ -6323,8 +6315,7 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
 
   let loaded = load_workspace_repo(workspace_path)?;
   let mut tx = loaded.repo.start_transaction();
-  let git_settings = git::GitSettings::from_settings(&loaded.settings)
-    .map_err(|e| JjError::IoError(format!("Failed to load git settings: {}", e)))?;
+  let subprocess_options = git_subprocess_options(&loaded.settings)?;
   let local_target = tx
     .repo()
     .view()
@@ -6363,7 +6354,7 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
     let mut callback = SilentGitCallback;
     let _ = git::push_refs(
       tx.repo_mut(),
-      git_settings.to_subprocess_options(),
+      subprocess_options,
       RemoteName::new("origin"),
       &targets,
       &mut callback,
@@ -6598,24 +6589,51 @@ pub fn jj_git_fetch(repo_path: &str) -> Result<String, JjError> {
   if !get_git_remotes(repo_path).contains("origin") {
     return Ok(String::new());
   }
-  let output = binary_command("git")
-    .current_dir(repo_path)
-    .args(["fetch", "origin"])
-    .output()
-    .map_err(|e| JjError::IoError(format!("Fetch failed: {}", e)))?;
-  if !output.status.success() {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    return Err(JjError::IoError(format!(
-      "Fetch failed: {}{}",
-      stdout, stderr
-    )));
-  }
-
   let mut loaded = load_workspace_repo(repo_path)?;
+  let subprocess_options = git_subprocess_options(&loaded.settings)?;
+  let import_options = git::GitImportOptions {
+    auto_local_bookmark: false,
+    abandon_unreachable_commits: true,
+    remote_auto_track_bookmarks: HashMap::new(),
+  };
+  let remote = RemoteName::new("origin");
+  let refspecs = git::expand_fetch_refspecs(
+    remote,
+    git::GitFetchRefExpression {
+      bookmark: StringExpression::all(),
+      tag: StringExpression::none(),
+    },
+  )
+  .map_err(|e| JjError::IoError(format!("Fetch failed: {}", e)))?;
+  let mut tx = loaded.repo.start_transaction();
+  let mut fetch = git::GitFetch::new(tx.repo_mut(), subprocess_options, &import_options)
+    .map_err(|e| JjError::IoError(format!("Fetch failed: {}", e)))?;
+  fetch
+    .fetch(remote, refspecs, &mut SilentGitCallback, None, None)
+    .map_err(|e| JjError::IoError(format!("Fetch failed: {}", e)))?;
+  block_on(fetch.import_refs())
+    .map_err(|e| JjError::IoError(format!("Fetch failed to import refs: {}", e)))?;
+  if tx.repo().has_changes() {
+    block_on(tx.repo_mut().rebase_descendants())
+      .map_err(|e| JjError::IoError(format!("Failed to rebase after fetch: {}", e)))?;
+    loaded.repo = block_on(tx.commit("fetch from git remote"))
+      .map_err(|e| JjError::IoError(format!("Failed to commit fetch: {}", e)))?;
+  }
   import_colocated_git_state(&mut loaded, repo_path)?;
 
-  Ok(String::from_utf8_lossy(&output.stdout).to_string())
+  Ok(String::new())
+}
+
+/// Git subprocess options for jj-lib fetch/push, using the resolved `git`
+/// binary so GUI launches with a minimal PATH still find it.
+fn git_subprocess_options(settings: &UserSettings) -> Result<git::GitSubprocessOptions, JjError> {
+  let mut options = git::GitSettings::from_settings(settings)
+    .map_err(|e| JjError::IoError(format!("Failed to load git settings: {}", e)))?
+    .to_subprocess_options();
+  if let Some(path) = binary_paths::get_binary_path("git") {
+    options.executable_path = PathBuf::from(path);
+  }
+  Ok(options)
 }
 
 /// Branch status indicating whether a branch exists locally and/or remotely
