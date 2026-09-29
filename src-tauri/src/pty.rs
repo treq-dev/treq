@@ -90,6 +90,89 @@ pub fn line_matches_auto_command(stripped_line: &str, auto_command: &str) -> boo
   false
 }
 
+/// Hides the shell's echo of a command typed into a PTY, and nothing else.
+///
+/// Output before the echo (the shell prompt, blank lines) is hidden. The
+/// first line that overlaps the command starts the echo; the shell then
+/// echoes each remaining line of the command once, in order (a quoted prompt
+/// can span several lines). After the last one, the filter is done and all
+/// output passes through untouched, so an agent that repeats the prompt or
+/// prints blank lines at startup keeps that output.
+pub struct EchoFilter {
+  command: String,
+  lines: Vec<String>,
+  state: EchoState,
+}
+
+enum EchoState {
+  BeforeEcho,
+  Echoing { next_line: usize },
+  Done,
+}
+
+impl EchoFilter {
+  pub fn new(command: &str) -> Self {
+    let command = command.trim_end_matches(['\r', '\n']).to_string();
+    let lines = command
+      .split('\n')
+      .map(|line| line.trim_end_matches('\r').trim_end().to_string())
+      .collect();
+    Self {
+      command,
+      lines,
+      state: EchoState::BeforeEcho,
+    }
+  }
+
+  /// Whether this filter was built for `command`.
+  pub fn is_for(&self, command: &str) -> bool {
+    self.command == command.trim_end_matches(['\r', '\n'])
+  }
+
+  pub fn seen_echo(&self) -> bool {
+    !matches!(self.state, EchoState::BeforeEcho)
+  }
+
+  pub fn is_done(&self) -> bool {
+    matches!(self.state, EchoState::Done)
+  }
+
+  /// Returns true when `stripped_line` (ANSI codes removed) should be shown.
+  pub fn show(&mut self, stripped_line: &str) -> bool {
+    let text = stripped_line.trim_end();
+    match self.state {
+      EchoState::BeforeEcho => {
+        if line_matches_auto_command(text, &self.command) {
+          self.advance(1);
+        }
+        false
+      }
+      EchoState::Echoing { next_line } => {
+        // The echo of a continuation line may carry a PS2 prompt ("> ",
+        // "quote> ") in front of the command text.
+        if text.ends_with(self.lines[next_line].as_str())
+          || line_matches_auto_command(text, &self.command)
+        {
+          self.advance(next_line + 1);
+          false
+        } else {
+          self.state = EchoState::Done;
+          true
+        }
+      }
+      EchoState::Done => true,
+    }
+  }
+
+  fn advance(&mut self, next_line: usize) {
+    self.state = if next_line >= self.lines.len() {
+      EchoState::Done
+    } else {
+      EchoState::Echoing { next_line }
+    };
+  }
+}
+
 /// Returns every live process's (pid, ppid) pair, read from `ps` rather
 /// than `/proc` so this works on both Linux and macOS.
 #[cfg(unix)]
@@ -431,10 +514,7 @@ impl PtyManager {
       let mut utf8_decoder = Utf8StreamDecoder::new();
       let mut line_buffer = String::new();
       let mut suppressed_tail = String::new();
-      let mut non_matching_lines_emitted: usize = 0;
-      let mut seen_command_echo = false;
-      // Once we've emitted enough non-matching lines, stop filtering
-      const FILTER_STOP_THRESHOLD: usize = 5;
+      let mut echo_filter: Option<EchoFilter> = None;
       const MAX_FILTER_BUFFER: usize = 32 * 1024;
 
       loop {
@@ -490,10 +570,14 @@ impl PtyManager {
             }
 
             let filter_cmd = filter_cmd.unwrap();
+            let filter = match echo_filter.as_mut() {
+              Some(filter) if filter.is_for(&filter_cmd) => filter,
+              _ => echo_filter.insert(EchoFilter::new(&filter_cmd)),
+            };
 
             // Filtering is active: buffer and process line by line
             line_buffer.push_str(&data);
-            if !seen_command_echo {
+            if !filter.seen_echo() {
               suppressed_tail.push_str(&data);
               if suppressed_tail.len() > MAX_FILTER_BUFFER {
                 let start = suppressed_tail.len() - MAX_FILTER_BUFFER;
@@ -502,6 +586,7 @@ impl PtyManager {
                 suppressed_tail.clear();
                 line_buffer.clear();
                 *auto_command_reader.lock_or_recover() = None;
+                echo_filter = None;
                 continue;
               }
             }
@@ -510,41 +595,23 @@ impl PtyManager {
               let line = line_buffer[..=newline_pos].to_string();
               line_buffer = line_buffer[newline_pos + 1..].to_string();
 
-              let stripped = strip_ansi_codes(&line);
-
-              // Discard lines matching the auto_command
-              if line_matches_auto_command(&stripped, &filter_cmd) {
-                seen_command_echo = true;
+              if filter.show(&strip_ansi_codes(&line)) {
+                callback(line);
+              }
+              if filter.seen_echo() {
                 suppressed_tail.clear();
-                continue;
               }
 
-              // Phase 1: before command echo, suppress all output (prompt, blanks, etc.)
-              if !seen_command_echo {
-                continue;
-              }
-
-              // Phase 2: After command echo, discard empty/whitespace lines
-              if stripped.trim().is_empty() {
-                continue;
-              }
-
-              // Phase 3: Emit non-matching, non-empty lines
-              callback(line);
-              non_matching_lines_emitted += 1;
-
-              if non_matching_lines_emitted >= FILTER_STOP_THRESHOLD {
-                {
-                  // Stop filtering by clearing the auto_command
-                  let mut guard = auto_command_reader.lock_or_recover();
-                  *guard = None;
-                }
+              if filter.is_done() {
+                *auto_command_reader.lock_or_recover() = None;
                 if !line_buffer.is_empty() {
-                  let remaining = std::mem::take(&mut line_buffer);
-                  callback(remaining);
+                  callback(std::mem::take(&mut line_buffer));
                 }
                 break;
               }
+            }
+            if echo_filter.as_ref().is_some_and(EchoFilter::is_done) {
+              echo_filter = None;
             }
           }
           Err(_) => break,
@@ -707,6 +774,70 @@ mod tests {
     } else {
       Some("/bin/sh".to_string())
     }
+  }
+
+  fn shown(filter: &mut EchoFilter, lines: &[&str]) -> Vec<String> {
+    lines
+      .iter()
+      .filter(|line| filter.show(line))
+      .map(|line| line.to_string())
+      .collect()
+  }
+
+  #[test]
+  fn echo_filter_hides_the_prompt_and_echo_then_shows_everything() {
+    let mut filter = EchoFilter::new("claude --permission-mode plan -- 'Rework the ranking'\r");
+    let shown = shown(
+      &mut filter,
+      &[
+        "$ ",
+        "",
+        "$ claude --permission-mode plan -- 'Rework the ranking'",
+        "> Rework the ranking",
+        "",
+        "claude --permission-mode plan -- 'Rework the ranking'",
+      ],
+    );
+    assert_eq!(
+      shown,
+      [
+        "> Rework the ranking",
+        "",
+        "claude --permission-mode plan -- 'Rework the ranking'"
+      ]
+    );
+    assert!(filter.is_done());
+  }
+
+  #[test]
+  fn echo_filter_hides_each_continuation_line_of_a_multiline_command() {
+    let mut filter =
+      EchoFilter::new("claude --model=opus -- 'Rework it\n\nLinear issue ENG-101'\r");
+    let shown = shown(
+      &mut filter,
+      &[
+        "% claude --model=opus -- 'Rework it",
+        "quote> ",
+        "quote> Linear issue ENG-101'",
+        "Welcome",
+      ],
+    );
+    assert_eq!(shown, ["Welcome"]);
+  }
+
+  #[test]
+  fn echo_filter_ends_when_the_echo_stops_matching() {
+    let mut filter = EchoFilter::new("claude --model=opus -- 'first line\nsecond line'");
+    assert!(!filter.show("$ claude --model=opus -- 'first line"));
+    assert!(filter.show("error: unterminated quote"));
+    assert!(filter.is_done());
+  }
+
+  #[test]
+  fn echo_filter_knows_which_command_it_was_built_for() {
+    let filter = EchoFilter::new("claude --model=opus\r");
+    assert!(filter.is_for("claude --model=opus"));
+    assert!(!filter.is_for("codex"));
   }
 
   #[test]

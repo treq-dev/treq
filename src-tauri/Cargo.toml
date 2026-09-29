@@ -29,6 +29,8 @@ libc = "0.2"
 # builds leave it out entirely (see `#[cfg(desktop)]` on `mod cli` in lib.rs).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-cli = "2.4.1"
+# Parses CLI args before Tauri starts (see `cli::args`); same version the plugin uses.
+clap = "4"
 
 [dependencies]
 tauri = { version = "2.10.3", features = ["protocol-asset", "unstable"] }
