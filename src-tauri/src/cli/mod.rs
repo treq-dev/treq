@@ -116,7 +116,7 @@ pub(super) fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
   Ok(())
 }
 
-pub(super) fn print_json_error(code: &str, message: &str) {
+fn write_json_error(out: &mut dyn std::io::Write, code: &str, message: &str) {
   let body = CliErrorBody {
     error: CliErrorDetail {
       code: code.to_string(),
@@ -124,8 +124,43 @@ pub(super) fn print_json_error(code: &str, message: &str) {
     },
   };
   if let Ok(json) = serde_json::to_string(&body) {
-    println!("{json}");
+    let _ = writeln!(out, "{json}");
   }
+}
+
+/// Runs a command that supports `--format` and reports any error exactly
+/// once: a JSON error body on `out` for `--format json`, `Error: ...` on `err`
+/// otherwise. Handlers return their errors instead of printing them, so
+/// argument errors are never swallowed.
+pub(super) fn run_structured_command(
+  matches: &Matches,
+  out: &mut dyn std::io::Write,
+  err: &mut dyn std::io::Write,
+  run: impl FnOnce(OutputFormat) -> Result<(), String>,
+) -> bool {
+  let format = match OutputFormat::parse(get_arg_value(matches, "format").as_deref()) {
+    Ok(format) => format,
+    Err(error) => {
+      let _ = writeln!(err, "Error: {error}");
+      return false;
+    }
+  };
+  match run(format) {
+    Ok(()) => true,
+    Err(error) => {
+      match format {
+        OutputFormat::Json => write_json_error(out, classify_cli_error(&error), &error),
+        OutputFormat::Human => {
+          let _ = writeln!(err, "Error: {error}");
+        }
+      }
+      false
+    }
+  }
+}
+
+fn run_structured(matches: &Matches, run: impl FnOnce(OutputFormat) -> Result<(), String>) -> bool {
+  run_structured_command(matches, &mut std::io::stdout(), &mut std::io::stderr(), run)
 }
 
 pub(super) fn get_arg_value(matches: &Matches, name: &str) -> Option<String> {
@@ -180,15 +215,15 @@ pub(super) fn classify_cli_error(message: &str) -> &'static str {
   }
 }
 
-fn handle_repo_command(matches: &Matches) -> Result<(), String> {
-  let format = OutputFormat::parse(get_arg_value(matches, "format").as_deref())?;
+fn handle_repo_command(matches: &Matches, format: OutputFormat) -> Result<(), String> {
   let action =
     get_arg_value(matches, "action").ok_or_else(|| "repo action is required".to_string())?;
   let repo_path = get_arg_value(matches, "repo").ok_or_else(|| "--repo is required".to_string())?;
 
   match action.as_str() {
-    "inspect" => match crate::core::remote::inspect_repository_path(&repo_path) {
-      Ok(inspection) => match format {
+    "inspect" => {
+      let inspection = crate::core::remote::inspect_repository_path(&repo_path)?;
+      match format {
         OutputFormat::Json => print_json(&inspection),
         OutputFormat::Human => {
           println!("Repository: {}", inspection.root);
@@ -203,28 +238,12 @@ fn handle_repo_command(matches: &Matches) -> Result<(), String> {
           println!("Current commit: {}", inspection.current_commit_id);
           Ok(())
         }
-      },
-      Err(error) => {
-        if format == OutputFormat::Json {
-          print_json_error(classify_cli_error(&error), &error);
-        } else {
-          eprintln!("Error: {error}");
-        }
-        Err(error)
       }
-    },
+    }
     "status" | "branches" | "probe" | "init" | "clone" | "usage" => {
-      handle_remote_review_command("repo", matches)
+      handle_remote_review_command("repo", matches, format)
     }
-    other => {
-      let message = format!("unknown repo action '{other}'");
-      if format == OutputFormat::Json {
-        print_json_error("invalid_arguments", &message);
-      } else {
-        eprintln!("Error: {message}");
-      }
-      Err(message)
-    }
+    other => Err(format!("unknown repo action '{other}'")),
   }
 }
 
@@ -524,24 +543,18 @@ pub(crate) fn parse_remote_command_request(
   }
 }
 
-fn handle_remote_review_command(command: &str, matches: &Matches) -> Result<(), String> {
-  let format = OutputFormat::parse(get_arg_value(matches, "format").as_deref())?;
+fn handle_remote_review_command(
+  command: &str,
+  matches: &Matches,
+  format: OutputFormat,
+) -> Result<(), String> {
   let request = parse_remote_command_request(command, matches)?;
-  match crate::core::remote::execute_local_request(request) {
-    Ok(value) => match format {
-      OutputFormat::Json => print_json(&value),
-      OutputFormat::Human => {
-        println!("{value:#}");
-        Ok(())
-      }
-    },
-    Err(error) => {
-      if format == OutputFormat::Json {
-        print_json_error(classify_cli_error(&error), &error);
-      } else {
-        eprintln!("Error: {error}");
-      }
-      Err(error)
+  let value = crate::core::remote::execute_local_request(request)?;
+  match format {
+    OutputFormat::Json => print_json(&value),
+    OutputFormat::Human => {
+      println!("{value:#}");
+      Ok(())
     }
   }
 }
@@ -559,12 +572,16 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
     "commit" => workspace_handlers::handle_workspace_commit(&subcommand.matches),
     "resolve" => workspace_handlers::handle_resolve(&subcommand.matches),
     "send" => workspace_handlers::handle_send(&subcommand.matches),
-    "repo" => handle_repo_command(&subcommand.matches).is_ok(),
-    "agent-review" => {
-      agent_review_handlers::handle_agent_review_command(&subcommand.matches).is_ok()
-    }
+    "repo" => run_structured(&subcommand.matches, |format| {
+      handle_repo_command(&subcommand.matches, format)
+    }),
+    "agent-review" => run_structured(&subcommand.matches, |format| {
+      agent_review_handlers::handle_agent_review_command(&subcommand.matches, format)
+    }),
     "workspace" | "changes" | "file" | "commits" | "conflicts" | "git" | "agent-remote"
-    | "pty-remote" => handle_remote_review_command(&subcommand.name, &subcommand.matches).is_ok(),
+    | "pty-remote" => run_structured(&subcommand.matches, |format| {
+      handle_remote_review_command(&subcommand.name, &subcommand.matches, format)
+    }),
     "help" => {
       print_cli_help();
       true

@@ -124,6 +124,7 @@ import {
   WorkspaceTrackerBadges,
 } from "./workspace-header/WorkspaceTrackerBadges";
 import type { TerminalSessionSummary } from "./terminal/types";
+import { toAgentKind, type AgentKind } from "../lib/agents";
 
 interface ShowWorkspaceProps {
   repositoryPath?: string;
@@ -1045,7 +1046,7 @@ export const ShowWorkspace = ({
 
       // Resolve the default agent from repo-level then app-level settings,
       // so "send review to terminal" honours the configured default agent.
-      let resolvedAgent: "claude" | "codex" | "cursor" | "copilot" | undefined;
+      let resolvedAgent: AgentKind | undefined;
       const repoPathForSettings = effectiveRepoPath || workingDirectory;
       try {
         let repoDefault: string | null = null;
@@ -1063,15 +1064,7 @@ export const ShowWorkspace = ({
         } catch {
           // ignore
         }
-        const defaultAgent = agentOverride || repoDefault || appDefault;
-        if (
-          defaultAgent === "codex" ||
-          defaultAgent === "cursor" ||
-          defaultAgent === "copilot" ||
-          defaultAgent === "claude"
-        ) {
-          resolvedAgent = defaultAgent;
-        }
+        resolvedAgent = toAgentKind(agentOverride || repoDefault || appDefault);
       } catch {
         // fall back to undefined (Dashboard will default to claude)
       }
