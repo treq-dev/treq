@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import useSWR from "swr";
 import { render, screen, waitFor } from "../../test/test-utils";
 import type { Workspace, WorkspaceStatus } from "../lib/api";
 import * as api from "../lib/api";
@@ -18,8 +19,21 @@ vi.mock("./ChangesDiffViewer", () => ({
   ChangesDiffViewer: () => <div data-testid="changes-viewer" />,
 }));
 
+// Reads commits through the same query key as the real viewer, so a refresh
+// that invalidates it shows up as another listCommits call.
 vi.mock("./CommitDiffViewer", () => ({
-  CommitDiffViewer: () => <div data-testid="commit-diff-viewer" />,
+  CommitDiffViewer: ({
+    repoPath,
+    workspaceId,
+  }: {
+    repoPath: string;
+    workspaceId: number | null;
+  }) => {
+    useSWR(["commit-diff-viewer-commits", repoPath, workspaceId], () =>
+      api.listCommits(repoPath, workspaceId),
+    );
+    return <div data-testid="commit-diff-viewer" />;
+  },
 }));
 
 vi.mock("./TargetBranchSelector", () => ({
