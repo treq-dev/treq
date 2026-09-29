@@ -1,66 +1,103 @@
 import { githubOpenOrCreateWorkspaceFromIssue } from "./api";
-import {
-  type LinearKickoffFailure,
-  type LinearKickoffResult,
-  linearOpenOrCreateWorkspaceFromIssue,
-} from "./api-linear";
+import { linearOpenOrCreateWorkspaceFromIssue } from "./api-linear";
 import { trackerOpenOrCreateWorkspaceFromItem } from "./api-tracker";
 import type { IssueAttachment } from "./promptAttachments";
 
+export type SubItemResult = {
+  id: string;
+  workspaceId: number;
+  created: boolean;
+};
+export type SubItemFailure = { id: string; error: string };
+
 export type IssueWorkspace = {
   workspaceId: number;
-  // Linear sub-issue workspaces kicked off alongside the parent.
-  subissueResults?: LinearKickoffResult[];
-  subissueFailures?: LinearKickoffFailure[];
+  /** Sub-item workspaces opened after the parent's. */
+  subItemResults: SubItemResult[];
+  subItemFailures: SubItemFailure[];
 };
 
-/**
- * Opens the workspace an attached issue's session runs in, creating it when
- * needed. Each tracker has its own backend command; the caller sees one step
- * and gets the workspace id back, plus any Linear sub-issue outcomes.
- */
-export async function openOrCreateIssueWorkspace(
+type OpenedWorkspace = { workspaceId: number; created: boolean };
+
+// The backend opens or creates exactly one workspace per call. Kickoffs go
+// through this chain, so only one runs at a time: a second kickoff waits
+// until the first has opened its issue and every sub-item.
+let queue: Promise<unknown> = Promise.resolve();
+
+function oneAtATime<T>(task: () => Promise<T>): Promise<T> {
+  const run = queue.then(task, task);
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+type OneIssue = Pick<IssueAttachment, "source" | "id" | "title" | "url">;
+
+async function openOne(
   repoPath: string,
-  issue: IssueAttachment,
-): Promise<IssueWorkspace> {
-  switch (issue.source) {
+  { source, id, title, url }: OneIssue,
+): Promise<OpenedWorkspace> {
+  switch (source) {
     case "github": {
       const result = await githubOpenOrCreateWorkspaceFromIssue(
         repoPath,
-        Number(issue.id),
-        issue.title,
-        issue.url,
+        Number(id),
+        title,
+        url,
       );
-      return { workspaceId: result.workspace_id };
+      return { workspaceId: result.workspace_id, created: result.created };
     }
     case "linear": {
-      const { results, failures } = await linearOpenOrCreateWorkspaceFromIssue(
-        repoPath,
-        issue.id,
-        issue.includeSubItems,
-      );
-      const result =
-        results.find((item) => item.issue_id === issue.id) ?? results[0];
-      if (!result)
-        throw new Error(`Failed to create workspace for ${issue.key}`);
-      return {
-        workspaceId: result.workspace_id,
-        subissueResults: results.filter((item) => item !== result),
-        subissueFailures: failures,
-      };
+      const result = await linearOpenOrCreateWorkspaceFromIssue(repoPath, id);
+      return { workspaceId: result.workspace_id, created: result.created };
     }
     default: {
       // Trello and Jira share the tracker_* commands.
-      const results = await trackerOpenOrCreateWorkspaceFromItem(repoPath, {
-        provider: issue.source,
-        id: issue.id,
-        includeSubItems: issue.includeSubItems,
+      const result = await trackerOpenOrCreateWorkspaceFromItem(repoPath, {
+        provider: source,
+        id,
       });
-      const result =
-        results.find((item) => item.item_id === issue.id) ?? results[0];
-      if (!result)
-        throw new Error(`Failed to create workspace for ${issue.key}`);
-      return { workspaceId: result.workspace_id };
+      return { workspaceId: result.workspace_id, created: result.created };
     }
   }
+}
+
+/**
+ * Opens the workspace an attached issue's session runs in, creating it when
+ * needed, then does the same for each sub-item in turn when asked. A failed
+ * sub-item is reported and skipped; a failed parent throws.
+ */
+export function openOrCreateIssueWorkspace(
+  repoPath: string,
+  issue: IssueAttachment,
+): Promise<IssueWorkspace> {
+  return oneAtATime(() => kickoff(repoPath, issue));
+}
+
+async function kickoff(
+  repoPath: string,
+  issue: IssueAttachment,
+): Promise<IssueWorkspace> {
+  const parent = await openOne(repoPath, issue);
+  const subItemResults: SubItemResult[] = [];
+  const subItemFailures: SubItemFailure[] = [];
+  if (issue.includeSubItems) {
+    for (const id of issue.subItemIds) {
+      try {
+        // eslint-disable-next-line no-await-in-loop -- one workspace at a time
+        const opened = await openOne(repoPath, {
+          source: issue.source,
+          id,
+          title: "",
+          url: "",
+        });
+        subItemResults.push({ id, ...opened });
+      } catch (error) {
+        subItemFailures.push({
+          id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+  return { workspaceId: parent.workspaceId, subItemResults, subItemFailures };
 }

@@ -5,7 +5,6 @@ use crate::linear::{
 use crate::lock_ext::LockExt;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tauri::State;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -13,21 +12,6 @@ pub struct LinearKickoffResult {
   pub issue_id: String,
   pub workspace_id: i64,
   pub created: bool,
-}
-
-/// A sub-issue whose workspace could not be opened or created. `identifier`
-/// is missing when the issue itself could not be fetched.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct LinearKickoffFailure {
-  pub issue_id: String,
-  pub identifier: Option<String>,
-  pub error: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct LinearKickoffOutcome {
-  pub results: Vec<LinearKickoffResult>,
-  pub failures: Vec<LinearKickoffFailure>,
 }
 
 #[tauri::command]
@@ -82,8 +66,7 @@ pub async fn linear_open_or_create_workspace_from_issue(
   state: State<'_, AppState>,
   repo_path: String,
   issue_id: String,
-  include_subissues: bool,
-) -> Result<LinearKickoffOutcome, String> {
+) -> Result<LinearKickoffResult, String> {
   crate::commands::feature_preview::require(
     &state,
     crate::core::feature_preview::PreviewFeature::LinearIntegration,
@@ -96,51 +79,7 @@ pub async fn linear_open_or_create_workspace_from_issue(
   match client_source {
     LinearClientSource::ApiKey(api_key) => {
       let issue = crate::linear::linear_get_issue_impl(&api_key, &issue_id).await?;
-      let mut outcome = LinearKickoffOutcome::default();
-      outcome
-        .results
-        .push(open_or_create_workspace_from_linear_issue(&repo_path, &issue).await?);
-
-      if include_subissues {
-        for sub_id in &issue.sub_issue_ids {
-          match crate::linear::linear_get_issue_impl(&api_key, sub_id).await {
-            Ok(sub_issue) => {
-              match open_or_create_workspace_from_linear_issue(&repo_path, &sub_issue).await {
-                Ok(result) => {
-                  if result.created {
-                    let db = state.db.lock_or_recover();
-                    record_linear_workspace_parent(
-                      &db,
-                      &repo_path,
-                      result.workspace_id,
-                      &issue_id,
-                    )?;
-                  }
-                  outcome.results.push(result);
-                }
-                Err(e) => {
-                  log::warn!("Failed to kickoff sub-issue {sub_id}: {e}");
-                  outcome.failures.push(LinearKickoffFailure {
-                    issue_id: sub_id.clone(),
-                    identifier: Some(sub_issue.identifier.clone()),
-                    error: e,
-                  });
-                }
-              }
-            }
-            Err(e) => {
-              log::warn!("Failed to fetch sub-issue {sub_id}: {e}");
-              outcome.failures.push(LinearKickoffFailure {
-                issue_id: sub_id.clone(),
-                identifier: None,
-                error: e,
-              });
-            }
-          }
-        }
-      }
-
-      Ok(outcome)
+      open_or_create_workspace_from_linear_issue(&repo_path, &issue).await
     }
     LinearClientSource::ProxyToken => {
       Err("Linear integration not yet configured (OAuth proxy not ready)".to_string())
@@ -148,28 +87,9 @@ pub async fn linear_open_or_create_workspace_from_issue(
   }
 }
 
-// Holding a mutex guard across an .await would poison the tauri command's
-// Send bound, so workspace creation stays lock-free; callers lock briefly
-// afterward, only for this synchronous bookkeeping write.
-pub fn record_linear_workspace_parent(
-  db: &crate::db::Database,
-  repo_path: &str,
-  workspace_id: i64,
-  parent_issue_id: &str,
-) -> Result<(), String> {
-  let mut current: HashMap<String, String> = db
-    .get_repo_setting(repo_path, "linear_workspace_parents")
-    .ok()
-    .flatten()
-    .and_then(|s| serde_json::from_str(&s).ok())
-    .unwrap_or_default();
-  current.insert(workspace_id.to_string(), parent_issue_id.to_string());
-  let json = serde_json::to_string(&current)
-    .map_err(|e| format!("Failed to serialize workspace parents: {e}"))?;
-  db.set_repo_setting(repo_path, "linear_workspace_parents", &json)
-    .map_err(|e| format!("Failed to save workspace parents: {e}"))
-}
-
+/// Opens or creates the workspace for one Linear issue. The core never
+/// creates more than one workspace per call; the UI opens sub-issues one
+/// call at a time.
 pub async fn open_or_create_workspace_from_linear_issue(
   repo_path: &str,
   issue: &LinearIssue,
@@ -410,29 +330,5 @@ mod tests {
     assert_eq!(result.issue_id, "ENG-2");
     assert_eq!(result.workspace_id, 99);
     assert!(!result.created);
-  }
-
-  #[test]
-  fn kickoff_outcome_serializes_results_and_failures() {
-    let outcome = LinearKickoffOutcome {
-      results: vec![LinearKickoffResult {
-        issue_id: "parent-id".to_string(),
-        workspace_id: 7,
-        created: true,
-      }],
-      failures: vec![LinearKickoffFailure {
-        issue_id: "child-id".to_string(),
-        identifier: Some("ENG-3".to_string()),
-        error: "boom".to_string(),
-      }],
-    };
-    let json = serde_json::to_value(&outcome).unwrap();
-    assert_eq!(
-      json,
-      serde_json::json!({
-        "results": [{ "issue_id": "parent-id", "workspace_id": 7, "created": true }],
-        "failures": [{ "issue_id": "child-id", "identifier": "ENG-3", "error": "boom" }],
-      })
-    );
   }
 }

@@ -143,6 +143,7 @@ export const TrackerPanel: React.FC<TrackerPanelProps> = ({
       url: item.url,
       title: item.title,
       includeSubItems: item.sub_item_ids.length > 0,
+      subItemIds: item.sub_item_ids,
     });
 
   return (

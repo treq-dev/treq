@@ -101,6 +101,7 @@ describe("TrackerPanel", () => {
       url: "https://trello.com/c/AbC123xy",
       title: "Add Trello integration",
       includeSubItems: true,
+      subItemIds: ["card-9"],
     });
     expect(api.trackerOpenOrCreateWorkspaceFromItem).not.toHaveBeenCalled();
   });

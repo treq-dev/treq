@@ -70,12 +70,7 @@ describe("Linear issue kickoff", () => {
     linearApi.linearOpenOrCreateWorkspaceFromIssue.mockImplementation(
       async (path: string) => {
         const workspaceId = await createWorkspace(path, issue.branch_name);
-        return {
-          results: [
-            { issue_id: issue.id, workspace_id: workspaceId, created: true },
-          ],
-          failures: [],
-        };
+        return { issue_id: issue.id, workspace_id: workspaceId, created: true };
       },
     );
     render(<Dashboard />);
@@ -95,7 +90,6 @@ describe("Linear issue kickoff", () => {
     expect(linearApi.linearOpenOrCreateWorkspaceFromIssue).toHaveBeenCalledWith(
       repoPath,
       issue.id,
-      false,
     );
     expect(await findSidebarBranchElement(issue.branch_name)).toBeTruthy();
   }, 60000);

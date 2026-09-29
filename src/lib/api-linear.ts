@@ -72,17 +72,6 @@ export type LinearKickoffResult = {
   created: boolean;
 };
 
-export type LinearKickoffFailure = {
-  issue_id: string;
-  identifier: string | null;
-  error: string;
-};
-
-export type LinearKickoffOutcome = {
-  results: LinearKickoffResult[];
-  failures: LinearKickoffFailure[];
-};
-
 export const linearListTeams = (repoPath: string): Promise<LinearTeam[]> =>
   invoke("linear_list_teams", { repoPath });
 
@@ -92,16 +81,12 @@ export const linearListIssues = (
 ): Promise<LinearIssue[]> =>
   invoke("linear_list_issues", { repoPath, teamFilter });
 
+/** Opens or creates the workspace for one issue. Sub-issues are separate calls. */
 export const linearOpenOrCreateWorkspaceFromIssue = (
   repoPath: string,
   issueId: string,
-  includeSubissues: boolean,
-): Promise<LinearKickoffOutcome> =>
-  invoke("linear_open_or_create_workspace_from_issue", {
-    repoPath,
-    issueId,
-    includeSubissues,
-  });
+): Promise<LinearKickoffResult> =>
+  invoke("linear_open_or_create_workspace_from_issue", { repoPath, issueId });
 
 export const getLinearApiKey = (repoPath: string): Promise<string | null> =>
   getRepoSetting(repoPath, "linear_api_key");

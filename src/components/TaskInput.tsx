@@ -22,7 +22,9 @@ import {
 } from "../lib/api";
 import {
   formatPromptWithIssue,
+  ISSUE_SOURCES,
   type IssueAttachment,
+  type IssueSource,
 } from "../lib/promptAttachments";
 import {
   type IssueWorkspace,
@@ -284,17 +286,19 @@ export const TaskInput: React.FC<TaskInputProps> = ({
     }
   };
 
-  // The backend kicks off sub-issues in the same call, but only the parent
-  // workspace opens, so tell the user what happened to the rest.
-  const reportSubissueWorkspaces = ({
-    subissueResults = [],
-    subissueFailures = [],
-  }: IssueWorkspace) => {
-    if (subissueResults.length > 0) {
-      const created = subissueResults.filter((r) => r.created).length;
-      const opened = subissueResults.length - created;
+  // Sub-items open one workspace at a time after the parent, but only the
+  // parent's workspace opens here, so tell the user what happened to the rest.
+  const reportSubItemWorkspaces = (
+    source: IssueSource,
+    { subItemResults, subItemFailures }: IssueWorkspace,
+  ) => {
+    const noun = ISSUE_SOURCES[source].subItemNoun.replace(/s$/, "");
+    const label = noun.charAt(0).toUpperCase() + noun.slice(1);
+    if (subItemResults.length > 0) {
+      const created = subItemResults.filter((r) => r.created).length;
+      const opened = subItemResults.length - created;
       addToast({
-        title: "Sub-issue workspaces ready",
+        title: `${label} workspaces ready`,
         description:
           opened > 0
             ? `Created ${created} and opened ${opened} existing.`
@@ -302,13 +306,11 @@ export const TaskInput: React.FC<TaskInputProps> = ({
         type: "success",
       });
     }
-    if (subissueFailures.length > 0) {
-      const count = subissueFailures.length;
+    if (subItemFailures.length > 0) {
+      const count = subItemFailures.length;
       addToast({
-        title: `${count} sub-issue workspace${count === 1 ? "" : "s"} failed`,
-        description: subissueFailures
-          .map((f) => f.identifier ?? f.issue_id)
-          .join(", "),
+        title: `${count} ${noun} workspace${count === 1 ? "" : "s"} failed`,
+        description: subItemFailures.map((f) => f.error).join("; "),
         type: "warning",
       });
     }
@@ -340,7 +342,8 @@ export const TaskInput: React.FC<TaskInputProps> = ({
         const targetWorkspaceId = issueWorkspace
           ? issueWorkspace.workspaceId
           : workspaceId;
-        if (issueWorkspace) reportSubissueWorkspaces(issueWorkspace);
+        if (issue && issueWorkspace)
+          reportSubItemWorkspaces(issue.source, issueWorkspace);
 
         const dbSessionId = await createSession(
           repoPath,

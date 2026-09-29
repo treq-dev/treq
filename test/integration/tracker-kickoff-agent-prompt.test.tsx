@@ -69,9 +69,7 @@ describe("Jira issue kickoff", () => {
     trackerApi.trackerOpenOrCreateWorkspaceFromItem.mockImplementation(
       async (path: string) => {
         const workspaceId = await createWorkspace(path, issue.branch_name);
-        return [
-          { item_id: issue.id, workspace_id: workspaceId, created: true },
-        ];
+        return { item_id: issue.id, workspace_id: workspaceId, created: true };
       },
     );
     render(<Dashboard />);
@@ -88,7 +86,6 @@ describe("Jira issue kickoff", () => {
     ).toHaveBeenCalledWith(repoPath, {
       provider: "jira",
       id: issue.id,
-      includeSubItems: false,
     });
     expect(await findSidebarBranchElement(issue.branch_name)).toBeTruthy();
   }, 60000);
