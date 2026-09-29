@@ -1,3 +1,4 @@
+// @include-serial
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {

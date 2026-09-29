@@ -1,3 +1,4 @@
+// @include-parallel
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "../test-utils";
 import { createTestRepo, findSidebarBranchElement, openRepo } from "../utils";

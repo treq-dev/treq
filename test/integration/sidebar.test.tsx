@@ -1,3 +1,4 @@
+// @include-parallel
 import * as React from "react";
 import { execSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
