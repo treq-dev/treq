@@ -143,7 +143,7 @@ pub(super) fn handle_agent_review_command(
     }
     "resolve" => {
       let comment_id = require_value(matches, "comment-id")?;
-      local_db::resolve_agent_review_comment(&repo_path, &comment_id)?;
+      resolve_comment(&repo_path, &comment_id)?;
       match format {
         OutputFormat::Json => print_json(&serde_json::json!({ "resolved": comment_id })),
         OutputFormat::Human => {
@@ -154,7 +154,7 @@ pub(super) fn handle_agent_review_command(
     }
     "delete" => {
       let comment_id = require_value(matches, "comment-id")?;
-      local_db::delete_agent_review_comment(&repo_path, &comment_id)?;
+      delete_comment(&repo_path, &comment_id)?;
       match format {
         OutputFormat::Json => print_json(&serde_json::json!({ "deleted": comment_id })),
         OutputFormat::Human => {
@@ -167,6 +167,25 @@ pub(super) fn handle_agent_review_command(
   }
 }
 
+fn require_comment(repo_path: &str, comment_id: &str) -> Result<(), String> {
+  match local_db::get_agent_review_comment(repo_path, comment_id)? {
+    Some(_) => Ok(()),
+    None => Err(format!("review comment '{comment_id}' not found")),
+  }
+}
+
+/// The local_db writes are no-ops for an unknown id; the CLI must not report
+/// success for a comment that does not exist.
+fn resolve_comment(repo_path: &str, comment_id: &str) -> Result<(), String> {
+  require_comment(repo_path, comment_id)?;
+  local_db::resolve_agent_review_comment(repo_path, comment_id)
+}
+
+fn delete_comment(repo_path: &str, comment_id: &str) -> Result<(), String> {
+  require_comment(repo_path, comment_id)?;
+  local_db::delete_agent_review_comment(repo_path, comment_id)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -177,6 +196,36 @@ mod tests {
       strip_suggestion_fence("```suggestion\nlet x = 1;\nlet y = 2;\n```"),
       "let x = 1;\nlet y = 2;"
     );
+  }
+
+  #[test]
+  fn resolving_or_deleting_a_missing_comment_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().to_str().unwrap();
+    assert!(resolve_comment(repo, "nope")
+      .unwrap_err()
+      .contains("not found"));
+    assert!(delete_comment(repo, "nope")
+      .unwrap_err()
+      .contains("not found"));
+
+    let comment = local_db::create_agent_review_comment(
+      repo,
+      DEFAULT_TARGET_TYPE,
+      "feat/x",
+      "a.rs",
+      None,
+      1,
+      1,
+      None,
+      "body",
+      None,
+      LOCAL_AGENT_SOURCE,
+    )
+    .unwrap();
+    resolve_comment(repo, &comment.id).unwrap();
+    delete_comment(repo, &comment.id).unwrap();
+    assert!(delete_comment(repo, &comment.id).is_err());
   }
 
   #[test]
