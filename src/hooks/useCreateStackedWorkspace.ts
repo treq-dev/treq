@@ -53,6 +53,16 @@ export function useCreateStackedWorkspace() {
 
       // Step 2: Get existing workspaces to ensure unique branch name
       const existingWorkspaces = await getWorkspaces(repoPath);
+      // The parent may have been removed while the dialog was open; don't
+      // create an orphan that targets a branch that no longer exists.
+      const currentParent = parentWorkspace
+        ? existingWorkspaces.find((w) => w.id === parentWorkspace.id)
+        : null;
+      if (parentWorkspace && !currentParent) {
+        throw new Error(
+          `Workspace ${parentWorkspace.branch_name} no longer exists`,
+        );
+      }
       const existingBranches = new Set(
         existingWorkspaces.map((w) => w.branch_name),
       );
@@ -82,8 +92,8 @@ export function useCreateStackedWorkspace() {
       // "before": new workspace targets parent's parent (default branch if unset); original parent reparents onto it.
       const defaultBranch = await getRepoDefaultBranch(repoPath);
       const effectiveParentBranch =
-        position === "before" && parentWorkspace
-          ? parentWorkspace.target_branch || defaultBranch
+        position === "before" && currentParent
+          ? currentParent.target_branch || defaultBranch
           : parentBranch;
 
       // Step 5: Create workspace. No source for the default branch: naming it bases the workspace on the home working copy.
@@ -114,12 +124,12 @@ export function useCreateStackedWorkspace() {
       }
 
       // Step 7: If "before", reparent the original workspace onto the new one
-      if (position === "before" && parentWorkspace) {
-        const originalFullPath = getFullWorkspacePath(parentWorkspace);
+      if (position === "before" && currentParent) {
+        const originalFullPath = getFullWorkspacePath(currentParent);
         await setWorkspaceTargetBranch(
           repoPath,
           originalFullPath,
-          parentWorkspace.id,
+          currentParent.id,
           branchName,
         );
       }
