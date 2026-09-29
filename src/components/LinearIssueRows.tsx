@@ -170,9 +170,7 @@ export const LinearKanbanView: React.FC<{
   return (
     <div className="flex gap-3 overflow-x-auto p-4 h-full">
       {states.map((stateName) => {
-        const stateIssues = issuesByState[stateName]!.filter(
-          (i) => !i.parent_id,
-        );
+        const stateIssues = issuesByState[stateName]!;
         return (
           <div
             key={stateName}

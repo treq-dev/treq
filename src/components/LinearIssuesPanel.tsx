@@ -96,6 +96,34 @@ function applyIssueFilters(
   });
 }
 
+// A sub-issue nests under its parent only when the parent is also shown.
+// Otherwise it is listed as a root so filters never hide it.
+function splitRootIssues(issues: LinearIssue[]) {
+  const shownIds = new Set(issues.map((i) => i.id));
+  const rootIssues: LinearIssue[] = [];
+  const subissuesMap = new Map<string, LinearIssue[]>();
+
+  issues.forEach((issue) => {
+    if (issue.parent_id && shownIds.has(issue.parent_id)) {
+      const siblings = subissuesMap.get(issue.parent_id) ?? [];
+      siblings.push(issue);
+      subissuesMap.set(issue.parent_id, siblings);
+    } else {
+      rootIssues.push(issue);
+    }
+  });
+
+  return { rootIssues, subissuesMap };
+}
+
+function groupByState(issues: LinearIssue[]): Record<string, LinearIssue[]> {
+  const grouped: Record<string, LinearIssue[]> = {};
+  issues.forEach((issue) => {
+    (grouped[issue.state.name] ??= []).push(issue);
+  });
+  return grouped;
+}
+
 export const LinearIssuesSection: React.FC<{
   repoPath: string;
   selectedTeam: string | undefined;
@@ -143,32 +171,8 @@ export const LinearIssuesSection: React.FC<{
     [viewFilteredIssues, filters],
   );
 
-  const issuesByState = useMemo(() => {
-    const grouped: Record<string, LinearIssue[]> = {};
-    const parentMap = new Map<string, LinearIssue[]>();
-
-    filteredIssues.forEach((issue) => {
-      if (!grouped[issue.state.name]) {
-        grouped[issue.state.name] = [];
-      }
-
-      if (issue.parent_id) {
-        if (!parentMap.has(issue.parent_id)) {
-          parentMap.set(issue.parent_id, []);
-        }
-        parentMap.get(issue.parent_id)!.push(issue);
-      } else {
-        grouped[issue.state.name].push(issue);
-      }
-    });
-
-    return { byState: grouped, subissues: parentMap };
-  }, [filteredIssues]);
-
-  const rootIssues = useMemo(
-    () => filteredIssues.filter((i) => !i.parent_id),
-    [filteredIssues],
-  );
+  const { rootIssues, subissuesMap } = splitRootIssues(filteredIssues);
+  const issuesByState = groupByState(rootIssues);
 
   return (
     <>
@@ -296,7 +300,7 @@ export const LinearIssuesSection: React.FC<{
             <LinearIssuesList
               repoPath={repoPath}
               issues={rootIssues}
-              subissuesMap={issuesByState.subissues}
+              subissuesMap={subissuesMap}
               onKickoff={handleKickoff}
             />
           )}
@@ -307,8 +311,8 @@ export const LinearIssuesSection: React.FC<{
           viewMode === "kanban" && (
             <LinearKanbanView
               issues={rootIssues}
-              subissuesMap={issuesByState.subissues}
-              issuesByState={issuesByState.byState}
+              subissuesMap={subissuesMap}
+              issuesByState={issuesByState}
               onKickoff={handleKickoff}
             />
           )}
