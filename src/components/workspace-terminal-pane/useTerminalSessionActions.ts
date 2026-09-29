@@ -1,15 +1,10 @@
-import {
-  isTerminalSessionIdle,
-  type ClaudeSessionData,
-  type TerminalSessionSummary,
-} from "../terminal/types";
+import { type ClaudeSessionData } from "../terminal/types";
 import { type ShellTerminalData } from "./types";
 
 interface UseTerminalSessionActionsOptions {
   claudeSessions: ClaudeSessionData[];
   shellTerminals: ShellTerminalData[];
   workspaceBranchByPath?: Map<string, string>;
-  terminalSummariesRef: React.MutableRefObject<TerminalSessionSummary[]>;
   setCollapsed: (collapsed: boolean) => void;
   setMountedClaudeSessions: React.Dispatch<React.SetStateAction<Set<number>>>;
   setTerminalOrder: React.Dispatch<React.SetStateAction<string[]>>;
@@ -22,14 +17,13 @@ interface UseTerminalSessionActionsOptions {
 }
 
 /**
- * Focus/close actions driven by the sidebar's terminal sessions list, keyed
- * by the same composite ids used in `terminalOrder` ("shell-..." / "claude-<id>").
+ * Focus and close actions keyed by the composite ids used in `terminalOrder`
+ * ("shell-..." / "claude-<id>").
  */
 export function useTerminalSessionActions({
   claudeSessions,
   shellTerminals,
   workspaceBranchByPath,
-  terminalSummariesRef,
   setCollapsed,
   setMountedClaudeSessions,
   setTerminalOrder,
@@ -64,29 +58,6 @@ export function useTerminalSessionActions({
     scrollToTerminal(id);
   };
 
-  const handleCloseTerminalById = (id: string) => {
-    if (id.startsWith("claude-")) {
-      handleCloseClaudeSession(Number(id.slice("claude-".length)));
-    } else {
-      handleCloseShell(id);
-    }
-  };
-
-  const handleCloseIdleTerminals = () => {
-    const now = Date.now();
-    for (const summary of terminalSummariesRef.current) {
-      if (isTerminalSessionIdle(summary, now)) {
-        handleCloseTerminalById(summary.id);
-      }
-    }
-  };
-
-  const handleCloseAllTerminals = () => {
-    for (const summary of terminalSummariesRef.current) {
-      handleCloseTerminalById(summary.id);
-    }
-  };
-
   // Close every terminal (shell + agent) belonging to a workspace, killing their
   // PTY processes. Used when the owning workspace itself is being deleted, so
   // terminals don't linger as orphaned processes.
@@ -102,9 +73,6 @@ export function useTerminalSessionActions({
 
   return {
     handleFocusTerminalById,
-    handleCloseTerminalById,
-    handleCloseIdleTerminals,
-    handleCloseAllTerminals,
     closeTerminalsForWorkspace,
   };
 }

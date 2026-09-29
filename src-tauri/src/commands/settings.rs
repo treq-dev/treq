@@ -89,12 +89,3 @@ pub fn set_window_repo_path(
   map.insert(window_map_label(window_label), repo_path);
   Ok(())
 }
-
-#[tauri::command]
-pub fn get_window_repo_path(
-  state: State<AppState>,
-  window_label: Option<String>,
-) -> Result<Option<String>, String> {
-  let map = state.window_repo_paths.lock_or_recover();
-  Ok(map.get(&window_map_label(window_label)).cloned())
-}

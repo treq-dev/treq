@@ -15,7 +15,6 @@ import { useLocation } from "wouter";
 import { useAutoUpdate } from "../hooks/useAutoUpdate";
 import { useKeyboardShortcut } from "../hooks/useKeyboard";
 import { useMutation } from "../hooks/useMutation";
-import { useTwoFingerSwipe } from "../hooks/useTwoFingerSwipe";
 import { useWorkspaceHierarchy } from "../hooks/useWorkspaceHierarchy";
 import {
   type AgentDeepLinkRequest,
@@ -194,7 +193,6 @@ import { SettingsPage } from "./SettingsPage";
 import { ShowWorkspace } from "./ShowWorkspace";
 import { StashModal } from "./StashModal";
 import type { BranchListItem } from "./TargetBranchSelector";
-import { TerminalMissionControl } from "./TerminalMissionControl";
 import type {
   ClaudeSessionData,
   TerminalSessionSummary,
@@ -298,8 +296,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   );
   const [mergeWorkspace, setMergeWorkspace] = useState<Workspace | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
-  const [showTerminalMissionControl, setShowTerminalMissionControl] =
-    useState(false);
   const [showAgentPromptDialog, setShowAgentPromptDialog] = useState(false);
   const [showPromptHistory, setShowPromptHistory] = useState(false);
   const [promptHistoryFocusId, setPromptHistoryFocusId] = useState<
@@ -1422,22 +1418,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     "Escape",
     false,
     () => {
-      if (showTerminalMissionControl) {
-        setShowTerminalMissionControl(false);
-        return;
-      }
       // UnifiedWorkspaceDialog handles its own Escape (it stays open mid-create).
       if (showCommandPalette) setShowCommandPalette(false);
       if (showFilePicker) setShowFilePicker(false);
       setShowKeyboardShortcuts(false);
     },
-    [showTerminalMissionControl, showCommandPalette, showFilePicker],
+    [showCommandPalette, showFilePicker],
   );
-
-  useTwoFingerSwipe({
-    onSwipeUp: () => setShowTerminalMissionControl(true),
-    onSwipeDown: () => setShowTerminalMissionControl(false),
-  });
 
   useSWR(
     repoPath && !isRemoteActive ? ["init-repo", repoPath] : null,
@@ -1996,7 +1983,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const getOrCreateSession = async (
     workspaceId: number | null,
     options?: {
-      workspaceBranchName?: string;
       forceNew?: boolean;
       name?: string;
       agent?: "claude" | "codex" | "cursor" | "copilot";
@@ -2169,8 +2155,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         ? configuredAgent
         : "claude";
     const sessionId = await getOrCreateSession(selectedWorkspace?.id ?? null, {
-      workspaceBranchName:
-        selectedWorkspace?.branch_name ?? effectiveDefaultBranch,
       forceNew: true,
       agent,
     });
@@ -2407,10 +2391,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
     return map;
   })();
-
-  const handleFocusTerminalSession = (id: string) => {
-    terminalPaneRef.current?.focusTerminal(id);
-  };
 
   /**
    * Opens an observable agent terminal on a workspace, seeded with a prompt.
@@ -3187,16 +3167,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     setActiveSessionId(null);
                   }
                 }}
-                onCreateNewSession={(activeWorkspacePath, agent) => {
+                onCreateNewSession={(activeWorkspacePath) => {
                   if (activeWorkspacePath) {
                     const ws = workspaces.find(
                       (w) => getFullWorkspacePath(w) === activeWorkspacePath,
                     );
-                    handleCreateSessionFromSidebar(ws?.id ?? null, agent);
+                    handleCreateSessionFromSidebar(ws?.id ?? null);
                   } else {
                     handleCreateSessionFromSidebar(
                       selectedWorkspace?.id ?? null,
-                      agent,
                     );
                   }
                 }}
@@ -3412,15 +3391,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 handleOpenSession(newWorkspace);
               }
             }}
-          />
-
-          <TerminalMissionControl
-            open={showTerminalMissionControl}
-            sessions={terminalSessionSummaries}
-            repoPath={dataRepoPath}
-            workspaces={workspaces}
-            onClose={() => setShowTerminalMissionControl(false)}
-            onFocus={handleFocusTerminalSession}
           />
 
           <CommandPalette

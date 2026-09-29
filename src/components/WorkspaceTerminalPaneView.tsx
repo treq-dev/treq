@@ -44,12 +44,7 @@ interface WorkspaceTerminalPaneViewProps {
   ) => void;
   handleCloseClaudeSession: (sessionId: number) => void | Promise<void>;
   onTerminalDoubleClick: (terminalId: string) => void;
-  onTerminalOutput?: (
-    terminalId: string,
-    output: string,
-    fromProcess?: boolean,
-  ) => void;
-  onTerminalInput?: (terminalId: string) => void;
+  onTerminalOutput?: (terminalId: string, fromProcess?: boolean) => void;
   onTerminalIdle?: (terminalId: string) => void;
 }
 
@@ -81,7 +76,6 @@ export const WorkspaceTerminalPaneView: React.FC<
   handleCloseClaudeSession,
   onTerminalDoubleClick,
   onTerminalOutput,
-  onTerminalInput,
   onTerminalIdle,
 }) => (
   <div
@@ -213,10 +207,9 @@ export const WorkspaceTerminalPaneView: React.FC<
                     onClose={() => handleCloseShell(terminalId)}
                     canClose={true}
                     onSessionError={onSessionError}
-                    onTerminalOutput={(output, fromProcess) =>
-                      onTerminalOutput?.(terminalId, output, fromProcess)
+                    onTerminalOutput={(_output, fromProcess) =>
+                      onTerminalOutput?.(terminalId, fromProcess)
                     }
-                    onTerminalInput={() => onTerminalInput?.(terminalId)}
                     onTerminalIdle={() => onTerminalIdle?.(terminalId)}
                     terminalRefs={
                       terminalRefs as React.MutableRefObject<
@@ -254,10 +247,9 @@ export const WorkspaceTerminalPaneView: React.FC<
                     handleCloseClaudeSession(terminal.data.sessionId)
                   }
                   onSessionError={onSessionError}
-                  onTerminalOutput={(output, fromProcess) =>
-                    onTerminalOutput?.(terminalId, output, fromProcess)
+                  onTerminalOutput={(_output, fromProcess) =>
+                    onTerminalOutput?.(terminalId, fromProcess)
                   }
-                  onTerminalInput={() => onTerminalInput?.(terminalId)}
                   onTerminalIdle={() => onTerminalIdle?.(terminalId)}
                   terminalRefs={
                     terminalRefs as React.MutableRefObject<

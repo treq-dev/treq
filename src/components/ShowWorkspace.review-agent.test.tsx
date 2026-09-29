@@ -260,10 +260,7 @@ describe("Send review to terminal respects default agent setting", () => {
       name: "Claude 1",
       branchName: "feature-one",
       isMainRepo: false,
-      lastActivityAt: Date.now() - 120_000,
-      lastUserInputAt: Date.now() - 120_000,
       isStreaming: false,
-      previewOutput: "",
     };
     renderWorkspace(onSessionCreated, {
       idleAgentSession,

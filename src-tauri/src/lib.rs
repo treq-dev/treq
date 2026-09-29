@@ -877,7 +877,6 @@ pub fn run() {
       commands::remote_set_relay_access_token,
       commands::remote_cutoff_reason,
       commands::set_window_repo_path,
-      commands::get_window_repo_path,
       commands::rebase_home_repo_branch,
       commands::dry_run_home_repo_rebase,
       commands::get_git_remote_url,

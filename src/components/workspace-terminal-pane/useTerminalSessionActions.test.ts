@@ -21,7 +21,6 @@ describe("useTerminalSessionActions close paths", () => {
           },
         ],
         shellTerminals: [],
-        terminalSummariesRef: { current: [] },
         setCollapsed: vi.fn(),
         setMountedClaudeSessions: vi.fn(),
         setTerminalOrder: vi.fn(),

@@ -154,10 +154,8 @@ const WorkspaceTerminalPaneInner = ({
   };
 
   // Create Agent session in the active terminal's workspace, or sidebar-selected workspace
-  const handleCreateAgentSession = (
-    agent?: "claude" | "codex" | "cursor" | "copilot",
-  ) => {
-    onCreateNewSession?.(activeWorkspaceDir, agent);
+  const handleCreateAgentSession = () => {
+    onCreateNewSession?.(activeWorkspaceDir);
   };
 
   // Close shell terminal
@@ -364,41 +362,30 @@ const WorkspaceTerminalPaneInner = ({
     }
   }, [allTerminals.length]);
 
-  // Track last-activity timestamp + streaming state per terminal id, for
-  // the sidebar's terminal sessions list (ordering, idle icon, spinner).
-  const {
-    handleTerminalOutput,
-    handleTerminalInput,
-    handleTerminalIdlePulse,
-    terminalSummariesRef,
-  } = useTerminalSessionSummaries({
-    allTerminals,
-    workspaceBranchByPath,
-    currentBranch,
-    onTerminalsChange,
-  });
+  // Track which terminals are streaming, for the sidebar spinner.
+  const { handleTerminalOutput, handleTerminalIdlePulse } =
+    useTerminalSessionSummaries({
+      allTerminals,
+      workspaceBranchByPath,
+      currentBranch,
+      onTerminalsChange,
+    });
 
-  const {
-    handleFocusTerminalById,
-    handleCloseTerminalById,
-    handleCloseIdleTerminals,
-    handleCloseAllTerminals,
-    closeTerminalsForWorkspace,
-  } = useTerminalSessionActions({
-    claudeSessions,
-    shellTerminals,
-    workspaceBranchByPath,
-    terminalSummariesRef,
-    setCollapsed,
-    setMountedClaudeSessions,
-    setTerminalOrder,
-    setActivePtySessionId,
-    onActiveSessionChange,
-    onNavigateToWorkspace,
-    scrollToTerminal,
-    handleCloseClaudeSession,
-    handleCloseShell,
-  });
+  const { handleFocusTerminalById, closeTerminalsForWorkspace } =
+    useTerminalSessionActions({
+      claudeSessions,
+      shellTerminals,
+      workspaceBranchByPath,
+      setCollapsed,
+      setMountedClaudeSessions,
+      setTerminalOrder,
+      setActivePtySessionId,
+      onActiveSessionChange,
+      onNavigateToWorkspace,
+      scrollToTerminal,
+      handleCloseClaudeSession,
+      handleCloseShell,
+    });
 
   // Expose methods via ref for command palette + sidebar terminal list
   useImperativeHandle(
@@ -413,10 +400,8 @@ const WorkspaceTerminalPaneInner = ({
           setMaximized(true);
         }
       },
-      createAgentSession: handleCreateAgentSession,
       createShellSession: handleAddShell,
       closeTerminalsForWorkspace,
-      focusTerminal: handleFocusTerminalById,
       sendToTerminal: (id: string, text: string) => {
         const session = claudeSessions.find(
           (item) => `claude-${item.sessionId}` === id,
@@ -425,20 +410,13 @@ const WorkspaceTerminalPaneInner = ({
         void ptyWrite(session.ptySessionId, `${text}\n`);
         handleFocusTerminalById(id);
       },
-      closeTerminal: handleCloseTerminalById,
-      closeIdleTerminals: handleCloseIdleTerminals,
-      closeAllTerminals: handleCloseAllTerminals,
     }),
     [
       maximized,
-      handleCreateAgentSession,
       handleAddShell,
       claudeSessions,
       closeTerminalsForWorkspace,
       handleFocusTerminalById,
-      handleCloseTerminalById,
-      handleCloseIdleTerminals,
-      handleCloseAllTerminals,
     ],
   );
 
@@ -513,7 +491,6 @@ const WorkspaceTerminalPaneInner = ({
       handleCloseClaudeSession={handleCloseClaudeSession}
       onTerminalDoubleClick={handleTerminalDoubleClick}
       onTerminalOutput={handleTerminalOutput}
-      onTerminalInput={handleTerminalInput}
       onTerminalIdle={handleTerminalIdlePulse}
     />
   );

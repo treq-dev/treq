@@ -4,7 +4,6 @@ import {
   createTerminalOutputTail,
   terminalQuestionWindow,
 } from "./terminalOutputTail";
-import { formatTerminalPreview } from "../terminal-mission-control/formatTerminalPreview";
 
 describe("terminal output tail", () => {
   it("retains at most 32 KiB from a multi-megabyte stream", () => {
@@ -14,13 +13,6 @@ describe("terminal output tail", () => {
     }
     expect(tail.raw.length).toBeLessThanOrEqual(32 * 1024);
     expect(tail.raw).toContain("2047:");
-  });
-
-  it("preserves split ANSI and carriage-return sequences for previewing", () => {
-    let tail = createTerminalOutputTail();
-    tail = appendTerminalOutput(tail, "old progress\rnew \u001b[");
-    tail = appendTerminalOutput(tail, "32mdone\u001b[0m\nnext");
-    expect(formatTerminalPreview(tail.raw)).toBe("new done\nnext");
   });
 
   it("uses only the newest fifteen meaningful lines for questions", () => {

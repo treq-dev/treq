@@ -24,22 +24,9 @@ export interface ShellTerminalData {
 
 export type TerminalRefsMap = Map<string, ConsolidatedTerminalHandle | null>;
 
-/** No *process* output for this long marks a terminal session as idle. */
-export const TERMINAL_IDLE_THRESHOLD_MS = 60_000;
-
-export function isTerminalSessionIdle(
-  session: { isStreaming: boolean; lastActivityAt: number },
-  now: number,
-): boolean {
-  return (
-    !session.isStreaming &&
-    now - session.lastActivityAt >= TERMINAL_IDLE_THRESHOLD_MS
-  );
-}
-
 /**
- * Unified summary of a single terminal (agent or shell) surfaced in the
- * workspace sidebar's terminal sessions list.
+ * Summary of a single terminal (agent or shell), read by the workspace
+ * sidebar's spinner and the idle-agent lookup.
  */
 export interface TerminalSessionSummary {
   /** Matches the id used in WorkspaceTerminalPane's terminalOrder ("shell-..." or "claude-<sessionId>"). */
@@ -50,12 +37,6 @@ export interface TerminalSessionSummary {
   branchName: string | null;
   isMainRepo: boolean;
   agent?: "claude" | "codex" | "cursor" | "copilot";
-  /** Epoch ms of the last output/creation event. */
-  lastActivityAt: number;
-  /** Epoch ms of the last user input sent to this terminal, or 0 if none. */
-  lastUserInputAt: number;
   /** True while output is actively streaming (shows a spinner). */
   isStreaming: boolean;
-  /** Newest printable terminal output for Mission Control card previews. */
-  previewOutput: string;
 }

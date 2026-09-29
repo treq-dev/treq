@@ -33,15 +33,6 @@ Press `?` anywhere outside an input or the terminal to open the in-app keyboard 
 | `Cmd+C`      | Copy selection (or interrupt) |
 | `Cmd+V`      | Paste                         |
 
-## Gestures
-
-| Gesture               | Action                         |
-| --------------------- | ------------------------------ |
-| Two-finger swipe up   | Open Terminal Mission Control  |
-| Two-finger swipe down | Close Terminal Mission Control |
-
-Mission Control shows every open terminal as a card, grouped by workspace and sorted by recent activity, in a two-column grid. Select a card to focus that terminal. `Escape` also closes Mission Control.
-
 ## Files & Diff
 
 | Shortcut | Action                   |
