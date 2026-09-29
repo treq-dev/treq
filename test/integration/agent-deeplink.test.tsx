@@ -1,3 +1,4 @@
+// @include-parallel
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";

@@ -6,7 +6,15 @@ sidebar_position: 6
 
 _Reference for Treq's command-line interface._
 
-The `treq` command lets you create and inspect [workspaces](/docs/concepts/workspaces) from a terminal. Run commands from inside a Git repository so Treq can detect the repository context.
+The `treq` command lets you create and inspect [workspaces](/docs/concepts/workspaces) from a terminal. Run commands from inside a Git or Jujutsu repository, a Git worktree, or a Treq workspace, so Treq can detect the repository context.
+
+## Exit status
+
+- `0`: the command succeeded, or printed `--help` / `--version`.
+- `1`: the command ran and failed. The error is on stderr (or in the JSON body with `--format json`).
+- `2`: the invocation was malformed, for example an unknown command or a missing required argument.
+
+The CLI does not need a display, so it works over SSH and in headless agent sandboxes.
 
 ## Commands
 
@@ -117,7 +125,7 @@ echo '{"path/to/file": "replacement\n"}' | treq resolve <commit_id>
 
 - `commit_id`: change id or commit id of the conflicted revision. Required.
 - `sides`: optional conflict sides to take. Use `1`, `2`, `base`, or `both`.
-- Non-TTY stdin: JSON object of path to full file content replacements.
+- Piped stdin: JSON object of path to full file content replacements. Treq reads stdin only if it delivers data or closes within one second, so a harness that leaves stdin open does not hang the command.
 
 When the change is clean, Treq rewrites that commit in place and deletes its resolve directory. See [Resolve commit conflicts inplace](/docs/concepts/commit-management#resolve-commit-conflicts-inplace).
 
@@ -135,6 +143,7 @@ echo "notes" | treq send
 - Image types: `png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `svg`.
 - Everything else is treated as text.
 - Piped stdin is staged under `.treq/send/` in the repo (already gitignored).
+- With no path, Treq reads stdin only if it delivers data or closes within one second. Use `-` to wait for stdin however long it takes.
 - When run inside a Treq terminal, previews attach to that pane via `TREQ_PTY_SESSION_ID`.
 
 Treq must already have this repository open.

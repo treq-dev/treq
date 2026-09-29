@@ -468,8 +468,8 @@ fn test_set_auto_command_nonexistent_session() {
 // Consolidates what used to be 3 separate tests (suppress_echo_filters_command,
 // normal_output_not_filtered_without_filter, empty_lines_filtered_during_suppression)
 // onto one spawned shell, run sequentially. Each stage resolves the filter it sets
-// (the reader thread clears auto_command once it has emitted enough non-matching
-// lines) before the next stage runs, so state doesn't leak across stages; see
+// (the reader thread clears auto_command once the command's echo has passed)
+// before the next stage runs, so state doesn't leak across stages; see
 // test_suppress_echo_at_creation_filters_initial_prompt (kept separate, needs a
 // session with no prior commands) for the filter-suppresses-the-shell-prompt case.
 #[test]
@@ -606,4 +606,76 @@ fn test_suppress_echo_at_creation_filters_initial_prompt() {
   );
 
   let _ = manager.close_session("test-creation-filter");
+}
+
+/// Starts a session whose echo filter is set for `command`, types the command
+/// the way ptyWriteSuppressEcho does, and returns the visible output lines.
+#[cfg(unix)]
+fn run_filtered_command(session_id: &str, command: &str, until: &str) -> Vec<String> {
+  let repo = TestRepo::new_without_init().expect("Failed to create test repo");
+  let (manager, output) = setup();
+  manager
+    .create_session(
+      session_id.to_string(),
+      None,
+      Some(repo.repo_path.clone()),
+      Some("/bin/sh".to_string()),
+      Vec::new(),
+      None,
+      Some(command.to_string()),
+      make_callback(&output),
+    )
+    .expect("create_session should succeed");
+  thread::sleep(Duration::from_millis(300));
+  manager
+    .write_to_session(session_id, &format!("{command}\r"))
+    .expect("write filtered command");
+  assert!(
+    wait_for_output(&output, until, 5000),
+    "Expected {until:?} in output, got: {}",
+    output.lock().unwrap()
+  );
+  let _ = manager.close_session(session_id);
+  let text = strip_ansi_codes(&output.lock().unwrap());
+  text
+    .split('\n')
+    .map(|l| l.trim_end_matches('\r').to_string())
+    .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn test_echo_suppression_keeps_agent_lines_that_quote_the_prompt() {
+  let command = "printf '%s\\n' '> Rework the ranking pipeline for search' '' 'status 1' 'END_OF_AGENT_OUTPUT' # Rework the ranking pipeline for search";
+  let lines = run_filtered_command("quote-prompt", command, "END_OF_AGENT_OUTPUT");
+
+  assert!(
+    !lines.iter().any(|l| l.contains("printf")),
+    "The command echo should be hidden, got: {lines:?}"
+  );
+  let first = lines
+    .iter()
+    .position(|l| l == "> Rework the ranking pipeline for search")
+    .unwrap_or_else(|| panic!("Agent line quoting the prompt was dropped: {lines:?}"));
+  assert_eq!(
+    lines[first + 1..first + 3],
+    ["".to_string(), "status 1".to_string()],
+    "Blank agent output lines should be kept, got: {lines:?}"
+  );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_echo_suppression_hides_every_line_of_a_multiline_command() {
+  let command = "printf 'OUT:%s\\n' 'first line of a multi-line prompt here\n\nfinal prompt line'";
+  let lines = run_filtered_command("multiline-echo", command, "OUT:first line");
+
+  assert!(
+    !lines.iter().any(|l| l.contains("final prompt line'")),
+    "The echo of the command's last line should be hidden, got: {lines:?}"
+  );
+  assert!(
+    lines.iter().any(|l| l == "final prompt line"),
+    "The command's own output should be shown, got: {lines:?}"
+  );
 }

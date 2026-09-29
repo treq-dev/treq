@@ -1,3 +1,4 @@
+// @include-parallel
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../src/lib/api";
 import {

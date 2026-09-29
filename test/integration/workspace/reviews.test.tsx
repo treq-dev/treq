@@ -1,3 +1,4 @@
+// @include-serial
 import * as api from "../../../src/lib/api";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {

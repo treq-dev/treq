@@ -65,6 +65,7 @@ export const ShellTerminalPanel = ({
   return (
     <div
       data-terminal-id={terminalData.id}
+      data-active={isActive ? "true" : "false"}
       className={cn(
         "flex flex-col min-h-0 overflow-hidden flex-shrink-0",
         width == null && "flex-1",

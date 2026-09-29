@@ -1,3 +1,4 @@
+// @include-parallel
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { render, screen, waitFor } from "../test-utils";

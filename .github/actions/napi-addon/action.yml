@@ -1,0 +1,56 @@
+name: NAPI addon
+description: >
+  Restore the compiled tauri-test NAPI addon from cache, or build it and save
+  it. Shared by ci.yml (PRs, consumers) and napi-cache.yml (main, producer)
+  so both compute the same cache keys. Expects the WebKit/GTK apt packages
+  and `npm ci` to have run first.
+
+runs:
+  using: composite
+  steps:
+    # Exact-key cache of the compiled addon. Frontend-only PRs restore the
+    # binary built on main when Rust inputs are unchanged. Node is omitted
+    # from the key: N-API (napi8) binaries are ABI-stable across Node majors
+    # we care about; including `lts/*` patch versions busted the cache.
+    - name: Restore NAPI addon cache
+      id: napi-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          target/debug/libtreq_lib.so
+          src-tauri/target/index.js
+        key: napi-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'src-tauri/Cargo.toml', 'src-tauri/build.rs', 'src-tauri/src/**', 'src-tauri/tests/**', 'src-tauri/package.json', 'crates/tauri-test-macros/**') }}
+
+    - name: Install Rust stable
+      if: steps.napi-cache.outputs.cache-hit != 'true'
+      uses: dtolnay/rust-toolchain@v1
+      with:
+        toolchain: stable
+
+    # shared-key: without it the key includes the job id, so the cache main
+    # saves from napi-cache.yml would never match the PR job in ci.yml.
+    - uses: Swatinem/rust-cache@v2
+      if: steps.napi-cache.outputs.cache-hit != 'true'
+      with:
+        shared-key: napi-addon
+        cache-on-failure: true
+        workspaces: |
+          . -> target
+
+    - name: Build NAPI addon
+      if: steps.napi-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        npm run build:napi
+        test -f target/debug/libtreq_lib.so
+        test -f src-tauri/target/index.js
+
+    - name: Save NAPI addon cache
+      if: steps.napi-cache.outputs.cache-hit != 'true'
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          target/debug/libtreq_lib.so
+          src-tauri/target/index.js
+        key: ${{ steps.napi-cache.outputs.cache-primary-key }}

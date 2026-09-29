@@ -1,3 +1,4 @@
+// @include-parallel
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "../../src/components/Dashboard";
@@ -91,7 +92,7 @@ describe("session started feedback", () => {
     const pane = screen.getByTestId("workspace-terminal-pane");
     expect(
       await within(pane).findByText(
-        "prompt: Rework it",
+        /prompt: Rework it$/,
         {},
         { timeout: 15000 },
       ),
