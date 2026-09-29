@@ -1,6 +1,6 @@
 use super::{
-  dispatch_agent_request, handle_cli_command, handle_cli_global_args, is_supported_cli_command,
-  normalize_repo_path, parse_agent_mode, parse_agent_mode_or_default, parse_remote_command_request,
+  dispatch_agent_request, handle_cli_command, is_supported_cli_command, normalize_repo_path,
+  parse_agent_mode, parse_agent_mode_or_default, parse_remote_command_request,
   workspace_dir_name_from_cwd,
 };
 use crate::agent_dispatch;
@@ -213,33 +213,6 @@ fn asset_protocol_allows_files_below_hidden_workspace_directories() {
     Some(false),
     "workspace paths pass through the hidden .treq directory"
   );
-}
-
-#[test]
-fn top_level_help_arg_is_handled_by_global_dispatch() {
-  let mut matches = Matches::default();
-  let mut help_arg = tauri_plugin_cli::ArgData::default();
-  help_arg.value = Value::String("generated help text".to_string());
-  help_arg.occurrences = 0;
-  matches.args.insert("help".to_string(), help_arg);
-
-  assert!(handle_cli_global_args(&matches));
-}
-
-#[test]
-fn no_global_args_are_not_handled() {
-  let matches = Matches::default();
-  assert!(!handle_cli_global_args(&matches));
-}
-
-#[test]
-fn top_level_version_arg_is_handled_by_global_dispatch() {
-  let mut matches = Matches::default();
-  matches
-    .args
-    .insert("version".to_string(), tauri_plugin_cli::ArgData::default());
-
-  assert!(handle_cli_global_args(&matches));
 }
 
 #[test]
