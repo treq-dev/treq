@@ -5,7 +5,13 @@ import { prepareAgentAutoCommand } from "../../lib/prepareAgentAutoCommand";
 import { useToast } from "../ui/toast";
 import type { ClaudeSessionData } from "./types";
 
-export const useAgentAutoCommand = (sessionData: ClaudeSessionData) => {
+// `restarted` is set once the agent has been relaunched in place (after a
+// model change). The relaunch starts a fresh agent without the session's
+// original task, which the first launch already ran.
+export const useAgentAutoCommand = (
+  sessionData: ClaudeSessionData,
+  restarted = false,
+) => {
   const { addToast } = useToast();
   const [sessionModelOverride, setSessionModelState] = useState<
     string | null | undefined
@@ -27,6 +33,7 @@ export const useAgentAutoCommand = (sessionData: ClaudeSessionData) => {
   const isModelLoaded = !modelLoading;
   const treqBinDirReady = !binLoading;
 
+  const pendingPrompt = restarted ? undefined : sessionData.pendingPrompt;
   const { data: prepared, error: prepareErr } = useSWR(
     isModelLoaded && treqBinDirReady
       ? [
@@ -36,7 +43,7 @@ export const useAgentAutoCommand = (sessionData: ClaudeSessionData) => {
           sessionData.repoPath,
           sessionModel,
           treqBinDir,
-          sessionData.pendingPrompt,
+          pendingPrompt,
           sessionData.permissionMode,
         ]
       : null,
@@ -47,7 +54,7 @@ export const useAgentAutoCommand = (sessionData: ClaudeSessionData) => {
         repoPath: sessionData.repoPath,
         sessionModel,
         permissionMode: sessionData.permissionMode,
-        pendingPrompt: sessionData.pendingPrompt,
+        pendingPrompt,
         treqBinDir,
       }),
   );

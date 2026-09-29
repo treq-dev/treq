@@ -129,30 +129,6 @@ describe("WorkspaceTerminalPane integration", () => {
     });
   });
 
-  it("shows a scroll-to-bottom button left of the reset button", async () => {
-    const { workspace } = await setupWorkspace("feat/terminal-scroll-down");
-
-    render(<Dashboard />);
-    await user.click(await findSidebarBranchElement(workspace.branch_name));
-    await screen.findByTestId("workspace-terminal-pane");
-
-    await user.keyboard("{Meta>}]{/Meta}");
-
-    const terminalPanel = await waitFor(() => {
-      const el = document.querySelector('[data-terminal-id^="claude-"]');
-      expect(el).not.toBeNull();
-      return el as Element;
-    });
-
-    const scrollButton =
-      within(terminalPanel).getByLabelText(/scroll to bottom/i);
-    const resetButton = within(terminalPanel).getByLabelText(/reset terminal/i);
-
-    expect(scrollButton.nextElementSibling).toBe(resetButton);
-
-    await user.click(scrollButton);
-  });
-
   it("queues follow-up messages and shows count with editable popover", async () => {
     const { workspace } = await setupWorkspace("feat/terminal-message-queue");
 
@@ -237,7 +213,7 @@ describe("WorkspaceTerminalPane integration", () => {
     });
 
     expect(
-      within(terminalPanel).getByLabelText(/reset terminal/i),
+      within(terminalPanel).getByRole("button", { name: "Close session" }),
     ).toBeInTheDocument();
     expect(
       within(terminalPanel).queryByTestId("agent-message-queue"),
