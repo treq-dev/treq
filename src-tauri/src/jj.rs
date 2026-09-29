@@ -1352,6 +1352,18 @@ pub fn jj_git_init_bare(repo_path: &str) -> Result<(), JjError> {
   Ok(())
 }
 
+/// Initialize a fresh colocated repo (`.jj` next to a new `.git`), equivalent
+/// to `jj git init --colocate` on an empty directory, without running `jj`.
+pub fn jj_git_init_colocated(repo_path: &str) -> Result<(), JjError> {
+  let settings = create_user_settings(repo_path)?;
+  block_on(Workspace::init_colocated_git(
+    &settings,
+    Path::new(repo_path),
+  ))
+  .map_err(|e| JjError::InitFailed(e.to_string()))?;
+  Ok(())
+}
+
 /// Ensure jj is initialized for a repository
 /// This is idempotent - safe to call multiple times
 /// Returns true on success, false only if initialization failed
@@ -9908,6 +9920,21 @@ mod tests {
     let lines =
       jj_get_file_lines(temp.path().to_str().unwrap(), "f.txt", false, 5, 2).expect("read");
     assert!(lines.lines.is_empty());
+  }
+
+  #[test]
+  fn jj_git_init_colocated_creates_jj_and_git_dirs() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    jj_git_init_colocated(repo_path).expect("colocated init should succeed");
+
+    assert!(temp.path().join(".jj").is_dir(), ".jj should exist");
+    assert!(temp.path().join(".git").is_dir(), ".git should exist");
+    assert!(
+      jj_snapshot_working_copy(repo_path).is_ok(),
+      "the resulting repo should be usable"
+    );
   }
 
   #[test]
