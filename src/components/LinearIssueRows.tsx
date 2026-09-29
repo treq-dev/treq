@@ -7,7 +7,7 @@ import { LinearComments } from "./LinearComments";
 import { MarkdownContent } from "./MarkdownContent";
 import { cn } from "../lib/utils";
 
-type KickoffHandler = (issueId: string, hasSubissues: boolean) => void;
+type KickoffHandler = (issueId: string) => void;
 
 export const LinearIssuesList: React.FC<{
   repoPath: string;
@@ -24,7 +24,6 @@ export const LinearIssuesList: React.FC<{
             repoPath={repoPath}
             issue={issue}
             indent={false}
-            hasSubissues={subissues.length > 0}
             onKickoff={onKickoff}
           />
           {subissues.map((subissue) => (
@@ -33,7 +32,6 @@ export const LinearIssuesList: React.FC<{
               repoPath={repoPath}
               issue={subissue}
               indent
-              hasSubissues={false}
               onKickoff={onKickoff}
             />
           ))}
@@ -47,9 +45,8 @@ const LinearIssueRow: React.FC<{
   repoPath: string;
   issue: LinearIssue;
   indent: boolean;
-  hasSubissues: boolean;
   onKickoff: KickoffHandler;
-}> = ({ repoPath, issue, indent, hasSubissues, onKickoff }) => {
+}> = ({ repoPath, issue, indent, onKickoff }) => {
   const [expanded, setExpanded] = useState(false);
 
   const {
@@ -131,7 +128,7 @@ const LinearIssueRow: React.FC<{
           size="sm"
           variant="outline"
           className="mt-3 h-7 shrink-0 text-xs"
-          onClick={() => onKickoff(issue.id, hasSubissues)}
+          onClick={() => onKickoff(issue.id)}
         >
           Kick off
         </Button>
@@ -168,10 +165,9 @@ export type KanbanColumn = {
 // Each issue, sub-issues included, sits in the column of its own state.
 export const LinearKanbanView: React.FC<{
   columns: KanbanColumn[];
-  subissuesMap: Map<string, LinearIssue[]>;
   identifiersById: Map<string, string>;
   onKickoff: KickoffHandler;
-}> = ({ columns, subissuesMap, identifiersById, onKickoff }) => (
+}> = ({ columns, identifiersById, onKickoff }) => (
   <div className="flex gap-3 overflow-x-auto p-4 h-full">
     {columns.map((column) => (
       <section
@@ -192,7 +188,6 @@ export const LinearKanbanView: React.FC<{
                   ? identifiersById.get(issue.parent_id)
                   : undefined
               }
-              hasSubissues={(subissuesMap.get(issue.id)?.length ?? 0) > 0}
               onKickoff={onKickoff}
             />
           ))}
@@ -205,9 +200,8 @@ export const LinearKanbanView: React.FC<{
 const LinearKanbanCard: React.FC<{
   issue: LinearIssue;
   parentIdentifier: string | undefined;
-  hasSubissues: boolean;
   onKickoff: KickoffHandler;
-}> = ({ issue, parentIdentifier, hasSubissues, onKickoff }) => (
+}> = ({ issue, parentIdentifier, onKickoff }) => (
   <div className="bg-background border border-border rounded-md p-2.5 text-sm">
     <a
       href={issue.url}
@@ -244,7 +238,7 @@ const LinearKanbanCard: React.FC<{
       size="sm"
       variant="outline"
       className="w-full mt-2 text-xs h-7"
-      onClick={() => onKickoff(issue.id, hasSubissues)}
+      onClick={() => onKickoff(issue.id)}
     >
       Kick off
     </Button>
