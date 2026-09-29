@@ -4,7 +4,7 @@ import type { ConsolidatedTerminalHandle } from "../ConsolidatedTerminal";
 // Minimum width for each terminal panel (used when multiple terminals)
 export const MIN_TERMINAL_WIDTH = 300;
 
-export interface ClaudeSessionData {
+export interface AgentSessionData {
   sessionId: number;
   sessionName: string;
   ptySessionId: string;
@@ -30,7 +30,7 @@ export type TerminalRefsMap = Map<string, ConsolidatedTerminalHandle | null>;
  * sidebar's spinner and the idle-agent lookup.
  */
 export interface TerminalSessionSummary {
-  /** Matches the id used in WorkspaceTerminalPane's terminalOrder ("shell-..." or "claude-<sessionId>"). */
+  /** Matches the id used in WorkspaceTerminalPane's terminalOrder ("shell-..." or "agent-<sessionId>"). */
   id: string;
   kind: "agent" | "shell";
   name: string;

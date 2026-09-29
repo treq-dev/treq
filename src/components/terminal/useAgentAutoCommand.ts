@@ -3,13 +3,13 @@ import useSWR from "swr";
 import { getSessionModel, getTreqBinDir } from "../../lib/api";
 import { prepareAgentAutoCommand } from "../../lib/prepareAgentAutoCommand";
 import { useToast } from "../ui/toast";
-import type { ClaudeSessionData } from "./types";
+import type { AgentSessionData } from "./types";
 
 // `restarted` is set once the agent has been relaunched in place (after a
 // model change). The relaunch starts a fresh agent without the session's
 // original task, which the first launch already ran.
 export const useAgentAutoCommand = (
-  sessionData: ClaudeSessionData,
+  sessionData: AgentSessionData,
   restarted = false,
 ) => {
   const { addToast } = useToast();

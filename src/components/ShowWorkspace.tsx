@@ -128,6 +128,7 @@ import {
 } from "./workspace-header/WorkspaceTrackerBadges";
 import type { TerminalSessionSummary } from "./terminal/types";
 import { toAgentKind, type AgentKind } from "../lib/agents";
+import { agentSessionIdOf } from "./terminal/agentTerminalId";
 
 interface ShowWorkspaceProps {
   repositoryPath?: string;
@@ -1100,7 +1101,7 @@ export const ShowWorkspace = ({
       const formattedComment = `Please address this review comment.\n\n${lineRef}\n> ${comment.comment_text}\n${suggestion}`;
       if (idleAgentSession && onSendToIdleAgent) {
         onSendToIdleAgent(
-          Number(idleAgentSession.id.replace("claude-", "")),
+          agentSessionIdOf(idleAgentSession.id)!,
           formattedComment,
         );
         addToast({
@@ -1152,7 +1153,7 @@ export const ShowWorkspace = ({
     try {
       if (idleAgentSession && onSendToIdleAgent) {
         onSendToIdleAgent(
-          Number(idleAgentSession.id.replace("claude-", "")),
+          agentSessionIdOf(idleAgentSession.id)!,
           reviewMarkdown,
         );
         addToast({

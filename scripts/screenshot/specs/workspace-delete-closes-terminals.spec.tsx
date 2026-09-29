@@ -43,7 +43,7 @@ it("deleting a workspace closes its shell and agent terminals", async () => {
 	);
 	await waitFor(() => {
 		expect(
-			document.querySelector('[data-terminal-id^="claude-"]'),
+			document.querySelector('[data-terminal-id^="agent-"]'),
 		).not.toBeNull();
 	});
 
@@ -58,7 +58,7 @@ it("deleting a workspace closes its shell and agent terminals", async () => {
 
 	await waitFor(() => {
 		expect(
-			document.querySelector('[data-terminal-id^="claude-"]'),
+			document.querySelector('[data-terminal-id^="agent-"]'),
 		).not.toBeNull();
 		expect(
 			document.querySelector('[data-terminal-id^="shell-"]'),
@@ -87,7 +87,7 @@ it("deleting a workspace closes its shell and agent terminals", async () => {
 
 	await waitFor(() => {
 		expect(
-			document.querySelector('[data-terminal-id^="claude-"]'),
+			document.querySelector('[data-terminal-id^="agent-"]'),
 		).toBeNull();
 		expect(document.querySelector('[data-terminal-id^="shell-"]')).toBeNull();
 	});

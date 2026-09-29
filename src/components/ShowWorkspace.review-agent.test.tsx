@@ -255,7 +255,7 @@ describe("Send review to terminal respects default agent setting", () => {
     const onSessionCreated = vi.fn();
     const onSendToIdleAgent = vi.fn();
     const idleAgentSession: TerminalSessionSummary = {
-      id: "claude-84",
+      id: "agent-84",
       kind: "agent",
       name: "Claude 1",
       branchName: "feature-one",

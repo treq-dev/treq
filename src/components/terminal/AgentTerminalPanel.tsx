@@ -49,12 +49,13 @@ import {
   createTerminalOutputTail,
   terminalQuestionWindow,
 } from "./terminalOutputTail";
-import type { ClaudeSessionData } from "./types";
+import type { AgentSessionData } from "./types";
 import { useAgentAutoCommand } from "./useAgentAutoCommand";
 import { agentInfo, DEFAULT_AGENT } from "../../lib/agents";
+import { agentTerminalId } from "./agentTerminalId";
 
 export interface AgentTerminalPanelProps {
-  sessionData: ClaudeSessionData;
+  sessionData: AgentSessionData;
   remoteHost?: string;
   collapsed: boolean;
   isActive?: boolean;
@@ -106,7 +107,7 @@ export const AgentTerminalPanel = ({
     prepareError,
   } = useAgentAutoCommand(sessionData, terminalInstanceKey > 0);
 
-  const terminalId = `claude-${sessionData.sessionId}`;
+  const terminalId = agentTerminalId(sessionData.sessionId);
   const isHidden = collapsed;
 
   const [queuePopoverOpen, setQueuePopoverOpen] = useState(false);

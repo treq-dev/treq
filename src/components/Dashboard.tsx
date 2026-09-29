@@ -193,7 +193,7 @@ import { ShowWorkspace } from "./ShowWorkspace";
 import { StashModal } from "./StashModal";
 import type { BranchListItem } from "./TargetBranchSelector";
 import type {
-  ClaudeSessionData,
+  AgentSessionData,
   TerminalSessionSummary,
 } from "./terminal/types";
 import {
@@ -233,6 +233,7 @@ import {
   toAgentKind,
   type AgentKind,
 } from "../lib/agents";
+import { agentTerminalId } from "./terminal/agentTerminalId";
 
 function generationFromEndpoint(
   endpoint: SshEndpoint,
@@ -2710,8 +2711,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     width: showSidebar ? `calc(100vw - ${sidebarWidth}px)` : "100%",
   };
 
-  // Build Claude sessions data for the terminal pane
-  const claudeSessionsForPane = ((): ClaudeSessionData[] => {
+  // Build agent session data for the terminal pane
+  const agentSessionsForPane = ((): AgentSessionData[] => {
     const workspaceMap = new Map(workspaces.map((ws) => [ws.id, ws]));
 
     return sessions.map((session) => {
@@ -3101,7 +3102,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       )}
                       onSendToIdleAgent={(sessionId, prompt) => {
                         terminalPaneRef.current?.sendToTerminal(
-                          `claude-${sessionId}`,
+                          agentTerminalId(sessionId),
                           prompt,
                         );
                       }}
@@ -3120,8 +3121,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     : dataRepoPath
                 }
                 currentBranch={effectiveDefaultBranch}
-                claudeSessions={claudeSessionsForPane}
-                activeClaudeSessionId={isSessionView ? activeSessionId : null}
+                agentSessions={agentSessionsForPane}
+                activeAgentSessionId={isSessionView ? activeSessionId : null}
                 workspaceBranchByPath={workspaceBranchByPath}
                 onTerminalsChange={setTerminalSessionSummaries}
                 onActiveSessionChange={(sessionId) => {

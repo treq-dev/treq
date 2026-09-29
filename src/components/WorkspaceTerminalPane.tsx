@@ -2,7 +2,7 @@ import { useEffect, useImperativeHandle, useRef, useState } from "react";
 import { type ConsolidatedTerminalHandle } from "./ConsolidatedTerminal";
 import { ptyClose } from "../lib/api";
 import { ptyWrite } from "../lib/api-extra";
-import { type ClaudeSessionData } from "./terminal/types";
+import { type AgentSessionData } from "./terminal/types";
 import { WorkspaceTerminalPaneView } from "./WorkspaceTerminalPaneView";
 import { resolveTerminalWorkspace } from "./workspace-terminal-pane/resolveTerminalWorkspace";
 import { useScrollContainerWidth } from "./workspace-terminal-pane/useScrollContainerWidth";
@@ -16,6 +16,7 @@ import {
   type WorkspaceTerminalPaneHandle,
   type WorkspaceTerminalPaneProps,
 } from "./workspace-terminal-pane/types";
+import { agentSessionIdOf, agentTerminalId } from "./terminal/agentTerminalId";
 
 export type { WorkspaceTerminalPaneHandle };
 
@@ -24,8 +25,8 @@ const WorkspaceTerminalPaneInner = ({
   remoteHost,
   onSessionError,
   currentBranch,
-  claudeSessions = [],
-  activeClaudeSessionId = null,
+  agentSessions = [],
+  activeAgentSessionId = null,
   onActiveSessionChange,
   onCreateNewSession,
   onCloseSession,
@@ -73,10 +74,10 @@ const WorkspaceTerminalPaneInner = ({
   // Shell terminals - start empty (agent sessions are opened by default instead)
   const [shellTerminals, setShellTerminals] = useState<ShellTerminalData[]>([]);
 
-  // Track mounted Claude sessions to keep them alive
-  const [mountedClaudeSessions, setMountedClaudeSessions] = useState<
-    Set<number>
-  >(new Set());
+  // Track mounted agent sessions to keep them alive
+  const [mountedAgentSessions, setMountedAgentSessions] = useState<Set<number>>(
+    new Set(),
+  );
 
   // Track order of all terminals (shell and claude) by their IDs
   const [terminalOrder, setTerminalOrder] = useState<string[]>([]);
@@ -93,27 +94,27 @@ const WorkspaceTerminalPaneInner = ({
 
   // Auto-mount active session when it changes (after creation or selection)
   useEffect(() => {
-    if (activeClaudeSessionId === null) return;
+    if (activeAgentSessionId === null) return;
 
-    const claudeTerminalId = `claude-${activeClaudeSessionId}`;
+    const agentColumnId = agentTerminalId(activeAgentSessionId);
 
-    setMountedClaudeSessions((prev) => {
-      if (prev.has(activeClaudeSessionId)) return prev;
+    setMountedAgentSessions((prev) => {
+      if (prev.has(activeAgentSessionId)) return prev;
       const next = new Set(prev);
-      next.add(activeClaudeSessionId);
+      next.add(activeAgentSessionId);
       return next;
     });
 
     setTerminalOrder((prev) => {
-      if (prev.includes(claudeTerminalId)) return prev;
-      return [...prev, claudeTerminalId];
+      if (prev.includes(agentColumnId)) return prev;
+      return [...prev, agentColumnId];
     });
 
     setCollapsed(false);
 
     // Scroll to the new terminal after it's rendered
-    scrollToTerminalRef.current(claudeTerminalId);
-  }, [activeClaudeSessionId]);
+    scrollToTerminalRef.current(agentColumnId);
+  }, [activeAgentSessionId]);
 
   // Derive the working directory for new terminals based on the active terminal's workspace.
   // Falls back to the sidebar-selected workspace (workingDirectory prop).
@@ -121,7 +122,7 @@ const WorkspaceTerminalPaneInner = ({
     if (!activePtySessionId) return null;
 
     // Check claude sessions
-    const activeClaude = claudeSessions.find(
+    const activeClaude = agentSessions.find(
       (s) => s.ptySessionId === activePtySessionId,
     );
     if (activeClaude) {
@@ -158,11 +159,13 @@ const WorkspaceTerminalPaneInner = ({
     onCreateNewSession?.(activeWorkspaceDir);
   };
 
-  const ptyIdOf = (terminalId: string) =>
-    terminalId.startsWith("claude-")
-      ? (claudeSessions.find((s) => `claude-${s.sessionId}` === terminalId)
-          ?.ptySessionId ?? null)
-      : terminalId;
+  const ptyIdOf = (terminalId: string) => {
+    const sessionId = agentSessionIdOf(terminalId);
+    if (sessionId === null) return terminalId;
+    return (
+      agentSessions.find((s) => s.sessionId === sessionId)?.ptySessionId ?? null
+    );
+  };
 
   // When the focused terminal closes, focus moves to the terminal that takes
   // its place, or to the one before it if it was the last, as closing a tab
@@ -211,43 +214,43 @@ const WorkspaceTerminalPaneInner = ({
     }
   };
 
-  // Close Claude session
-  const handleCloseClaudeSession = (sessionId: number) => {
-    const claudeTerminalId = `claude-${sessionId}`;
+  // Close agent session
+  const handleCloseAgentSession = (sessionId: number) => {
+    const agentColumnId = agentTerminalId(sessionId);
     console.info(
       "[WorkspaceTerminalPane] agent session close requested",
       JSON.stringify({
         sessionId,
-        claudeTerminalId,
+        agentColumnId,
         activePtySessionId,
       }),
     );
-    const sessionData = claudeSessions.find((s) => s.sessionId === sessionId);
+    const sessionData = agentSessions.find((s) => s.sessionId === sessionId);
     if (sessionData) {
       ptyClose(sessionData.ptySessionId).catch(console.error);
-      terminalRefs.current.delete(claudeTerminalId);
+      terminalRefs.current.delete(agentColumnId);
       console.info(
         "[WorkspaceTerminalPane] agent terminal ref deleted",
         JSON.stringify({
           sessionId,
-          claudeTerminalId,
+          agentColumnId,
           ptySessionId: sessionData.ptySessionId,
         }),
       );
     }
-    setMountedClaudeSessions((prev) => {
+    setMountedAgentSessions((prev) => {
       const next = new Set(prev);
       next.delete(sessionId);
       return next;
     });
-    setTerminalOrder((prev) => prev.filter((id) => id !== claudeTerminalId));
+    setTerminalOrder((prev) => prev.filter((id) => id !== agentColumnId));
     onCloseSession?.(sessionId);
     console.info(
       "[WorkspaceTerminalPane] onCloseSession callback fired",
       JSON.stringify({ sessionId }),
     );
     if (activePtySessionId === sessionData?.ptySessionId) {
-      focusNeighbourOf(claudeTerminalId);
+      focusNeighbourOf(agentColumnId);
     }
   };
 
@@ -310,10 +313,10 @@ const WorkspaceTerminalPaneInner = ({
     });
   };
 
-  // Show ALL mounted Claude sessions (no workspace filtering)
-  const claudeSessionsToRender = claudeSessions.filter((s) => {
-    const isActiveSession = activeClaudeSessionId === s.sessionId;
-    return isActiveSession || mountedClaudeSessions.has(s.sessionId);
+  // Show ALL mounted agent sessions (no workspace filtering)
+  const agentSessionsToRender = agentSessions.filter((s) => {
+    const isActiveSession = activeAgentSessionId === s.sessionId;
+    return isActiveSession || mountedAgentSessions.has(s.sessionId);
   });
 
   useTerminalPaneKeyboardShortcuts({
@@ -323,20 +326,20 @@ const WorkspaceTerminalPaneInner = ({
     handleCreateAgentSession,
     handleAddShell,
     activePtySessionId,
-    claudeSessions,
+    agentSessions,
     handleCloseShell,
-    handleCloseClaudeSession,
+    handleCloseAgentSession,
   });
 
   // Build ordered list of all terminals for rendering based on terminalOrder
   const shellTerminalMap = new Map(shellTerminals.map((t) => [t.id, t]));
-  const claudeSessionMap = new Map(
-    claudeSessionsToRender.map((s) => [`claude-${s.sessionId}`, s]),
+  const agentSessionMap = new Map(
+    agentSessionsToRender.map((s) => [agentTerminalId(s.sessionId), s]),
   );
 
   const orderedTerminals: Array<
     | { type: "shell"; data: ShellTerminalData }
-    | { type: "claude"; data: ClaudeSessionData }
+    | { type: "agent"; data: AgentSessionData }
   > = terminalOrder
     .map((id) => {
       if (id.startsWith("shell-")) {
@@ -344,23 +347,25 @@ const WorkspaceTerminalPaneInner = ({
         if (shellData) {
           return { type: "shell" as const, data: shellData };
         }
-      } else if (id.startsWith("claude-")) {
-        const claudeData = claudeSessionMap.get(id);
-        if (claudeData) {
-          return { type: "claude" as const, data: claudeData };
+      } else if (agentSessionIdOf(id) !== null) {
+        const agentData = agentSessionMap.get(id);
+        if (agentData) {
+          return { type: "agent" as const, data: agentData };
         }
       }
       return null;
     })
     .filter((t): t is NonNullable<typeof t> => t !== null);
 
-  // Ensure newly created Claude sessions render immediately even before their IDs
+  // Ensure newly created agent sessions render immediately even before their IDs
   // are added to terminalOrder (e.g., pending agent sessions).
-  const missingClaudeTerminals = claudeSessionsToRender
-    .filter((session) => !terminalOrder.includes(`claude-${session.sessionId}`))
-    .map((session) => ({ type: "claude" as const, data: session }));
+  const missingAgentTerminals = agentSessionsToRender
+    .filter(
+      (session) => !terminalOrder.includes(agentTerminalId(session.sessionId)),
+    )
+    .map((session) => ({ type: "agent" as const, data: session }));
 
-  const allTerminals = [...orderedTerminals, ...missingClaudeTerminals];
+  const allTerminals = [...orderedTerminals, ...missingAgentTerminals];
 
   // Auto-collapse when all terminals are closed
   useEffect(() => {
@@ -381,17 +386,17 @@ const WorkspaceTerminalPaneInner = ({
 
   const { handleFocusTerminalById, closeTerminalsForWorkspace } =
     useTerminalSessionActions({
-      claudeSessions,
+      agentSessions,
       shellTerminals,
       workspaceBranchByPath,
       setCollapsed,
-      setMountedClaudeSessions,
+      setMountedAgentSessions,
       setTerminalOrder,
       setActivePtySessionId,
       onActiveSessionChange,
       onNavigateToWorkspace,
       scrollToTerminal,
-      handleCloseClaudeSession,
+      handleCloseAgentSession,
       handleCloseShell,
     });
 
@@ -411,8 +416,8 @@ const WorkspaceTerminalPaneInner = ({
       createShellSession: handleAddShell,
       closeTerminalsForWorkspace,
       sendToTerminal: (id: string, text: string) => {
-        const session = claudeSessions.find(
-          (item) => `claude-${item.sessionId}` === id,
+        const session = agentSessions.find(
+          (item) => agentTerminalId(item.sessionId) === id,
         );
         if (!session) return;
         void ptyWrite(session.ptySessionId, `${text}\n`);
@@ -422,7 +427,7 @@ const WorkspaceTerminalPaneInner = ({
     [
       maximized,
       handleAddShell,
-      claudeSessions,
+      agentSessions,
       closeTerminalsForWorkspace,
       handleFocusTerminalById,
     ],
@@ -431,7 +436,7 @@ const WorkspaceTerminalPaneInner = ({
   const terminals = allTerminals.map((terminal) => ({
     terminal,
     workspace: resolveTerminalWorkspace(terminal, {
-      claudeSessions,
+      agentSessions,
       workspaceBranchByPath,
       currentBranch,
     }),
@@ -448,7 +453,7 @@ const WorkspaceTerminalPaneInner = ({
     const terminalId =
       matching.terminal.type === "shell"
         ? matching.terminal.data.id
-        : `claude-${matching.terminal.data.sessionId}`;
+        : agentTerminalId(matching.terminal.data.sessionId);
 
     requestAnimationFrame(() => {
       const el = scrollContainerRef.current?.querySelector(
@@ -496,7 +501,7 @@ const WorkspaceTerminalPaneInner = ({
       terminalRefs={terminalRefs}
       terminalWidths={terminalWidths}
       handleTerminalResize={handleTerminalResize}
-      handleCloseClaudeSession={handleCloseClaudeSession}
+      handleCloseAgentSession={handleCloseAgentSession}
       onTerminalDoubleClick={handleTerminalDoubleClick}
       onTerminalOutput={handleTerminalOutput}
       onTerminalIdle={handleTerminalIdlePulse}
