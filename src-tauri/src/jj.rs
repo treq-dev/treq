@@ -2856,6 +2856,7 @@ fn move_paths_between_workspaces(
 pub fn jj_abandon(workspace_path: &str, change_id: &str) -> Result<String, JjError> {
   let loaded = load_workspace_repo(workspace_path)?;
   let commit = resolve_commit_by_revision(&loaded, change_id)?;
+  reject_root_commit(&loaded, &commit)?;
   let mut tx = loaded.repo.start_transaction();
   tx.repo_mut().record_abandoned_commit(&commit);
   block_on(tx.repo_mut().rebase_descendants())
@@ -3065,6 +3066,7 @@ pub fn jj_describe(
   validate_commit_message(message)?;
   let loaded = load_workspace_repo(workspace_path)?;
   let commit = resolve_commit_by_revision(&loaded, change_id)?;
+  reject_root_commit(&loaded, &commit)?;
   let mut tx = loaded.repo.start_transaction();
 
   let mut builder = tx.repo_mut().rewrite_commit(&commit).detach();
@@ -3082,6 +3084,48 @@ pub fn jj_describe(
   let _ = reconcile_all_workspaces_after_rewrite(&repo_path, None);
 
   Ok(String::new())
+}
+
+fn reject_root_commit(loaded: &LoadedWorkspaceRepo, commit: &Commit) -> Result<(), JjError> {
+  if commit.id() == loaded.repo.store().root_commit_id() {
+    return Err(JjError::IoError(
+      "Cannot rewrite the root commit".to_string(),
+    ));
+  }
+  Ok(())
+}
+
+/// Checks that `revision` names one commit this workspace may rewrite: not the
+/// root commit, an ancestor of (or) the workspace's working copy, and not on
+/// `protected_branch`. Revisions arrive as revset strings from the CLI, so
+/// without this `main` or another workspace's commit could be rewritten.
+pub fn ensure_commit_rewritable(
+  workspace_path: &str,
+  revision: &str,
+  protected_branch: Option<&str>,
+) -> Result<(), JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let commit = resolve_commit_by_revision(&loaded, revision)?;
+  reject_root_commit(&loaded, &commit)?;
+
+  let lineage = evaluate_revset(&loaded, "::@")?;
+  if !lineage.containing_fn()(commit.id()).unwrap_or(false) {
+    return Err(JjError::IoError(format!(
+      "Revision '{revision}' is not in this workspace's history"
+    )));
+  }
+
+  if let Some(branch) = protected_branch {
+    if let Ok(symbol) = resolve_target_branch_symbol(&loaded, workspace_path, branch) {
+      let protected = evaluate_revset(&loaded, &format!("::{}", format_revset_symbol(&symbol)))?;
+      if protected.containing_fn()(commit.id()).unwrap_or(false) {
+        return Err(JjError::IoError(format!(
+          "Revision '{revision}' is on the default branch '{branch}' and cannot be rewritten"
+        )));
+      }
+    }
+  }
+  Ok(())
 }
 
 /// Rewrite author timestamps for a mutable commit and descendants on the
