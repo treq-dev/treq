@@ -12,7 +12,7 @@ import {
 	resolveWorkspacePath,
 	writeWorkspaceFile,
 } from "../../../test/utils";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { act, render, screen, waitFor } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import {
 	createCommit,
@@ -20,6 +20,7 @@ import {
 	getWorkspaces,
 	pushWorkspaceToRemote,
 } from "../../../src/lib/api";
+import { invalidateQueries } from "../../../src/lib/swr-cache";
 import { captureDocument } from "../capture";
 
 const BRANCH_NAME = "feat/sync-remote-conflict";
@@ -119,8 +120,14 @@ it("captures Sync completing while remote conflicts remain for local resolve", a
 
 	// Opening the workspace fetches/auto-rebases divergent remote tips, which
 	// materializes same-file conflicts onto the bookmark for local resolve.
+	// The status queries pick that up on their next poll, which tests turn
+	// off, so revalidate them while waiting.
 	await waitFor(
-		() => {
+		async () => {
+			await act(async () => {
+				await invalidateQueries(["workspace-status"]);
+				await invalidateQueries(["workspace-statuses"]);
+			});
 			expect(screen.getByRole("alert")).toHaveTextContent(
 				/1 conflict detected/i,
 			);
@@ -128,7 +135,7 @@ it("captures Sync completing while remote conflicts remain for local resolve", a
 				screen.getByTestId(`workspace-conflict-indicator-${workspaceId}`),
 			).toBeInTheDocument();
 		},
-		{ timeout: 20000 },
+		{ timeout: 20000, interval: 1000 },
 	);
 
 	// Sync control remains available (ahead of remote after bookmark advance).

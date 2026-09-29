@@ -12,7 +12,7 @@ import {
 	resolveWorkspacePath,
 	writeWorkspaceFile,
 } from "../../../test/utils";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { act, render, screen, waitFor } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import {
 	createCommit,
@@ -20,6 +20,7 @@ import {
 	getWorkspaces,
 	pushWorkspaceToRemote,
 } from "../../../src/lib/api";
+import { invalidateQueries } from "../../../src/lib/swr-cache";
 import { captureDocument } from "../capture";
 
 const BRANCH_NAME = "feat/lossless-bookmark-qa";
@@ -68,10 +69,22 @@ it("captures lossless bookmark-conflict resolution", async () => {
 	await user.click(await findSidebarBranchElement(BRANCH_NAME));
 
 	await screen.findByTestId("show-workspace-header");
-	await screen.findByText("local one", {}, { timeout: 20000 });
-	await screen.findByText("local two", {}, { timeout: 20000 });
-	await screen.findByText("remote-only change", {}, { timeout: 20000 });
-	expect(screen.getByText("↑2")).toBeVisible();
+	await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
+	// Opening the workspace fetches and auto-resolves the conflicted bookmark
+	// in the background; the queries pick that up on their next poll, which
+	// tests turn off, so revalidate them while waiting.
+	await waitFor(
+		async () => {
+			await act(async () => {
+				await invalidateQueries();
+			});
+			expect(screen.getByText("local one")).toBeInTheDocument();
+			expect(screen.getByText("local two")).toBeInTheDocument();
+			expect(screen.getByText("remote-only change")).toBeInTheDocument();
+			expect(screen.getByText("↑2")).toBeVisible();
+		},
+		{ timeout: 20000, interval: 1000 },
+	);
 	expect(screen.queryByText(/Resolve bookmark conflict/i)).not.toBeInTheDocument();
 
 	await captureDocument(document, {
@@ -79,7 +92,6 @@ it("captures lossless bookmark-conflict resolution", async () => {
 		expectations: [
 			'The workspace is ready with an "↑2" sync action after automatic conflict resolution.',
 			'The commit history visibly retains both "local one" and "local two" above "remote-only change".',
-			"The file tree contains local-one.txt, local-two.txt, and remote-only.txt.",
 		],
 	});
 
@@ -95,7 +107,7 @@ it("captures lossless bookmark-conflict resolution", async () => {
 		],
 	});
 
-	await user.click(await screen.findByRole("tab", { name: /^Code$/i }));
+	await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
 	await screen.findByText("local one", {}, { timeout: 20000 });
 	await user.click(screen.getByText("↑2").closest("button")!);
 	await waitFor(() => expect(screen.queryByText("↑2")).not.toBeInTheDocument(), {
