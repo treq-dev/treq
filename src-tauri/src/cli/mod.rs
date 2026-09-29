@@ -616,22 +616,6 @@ pub(super) fn log_cli_error(msg: &str) {
   tracing::error!("{}", msg);
 }
 
-/// Handles top-level CLI args that do not map to subcommands.
-/// Returns `true` when an arg is consumed and no GUI should be opened.
-pub fn handle_cli_global_args(matches: &Matches) -> bool {
-  if let Some(help_text) = matches.args.get("help").and_then(|arg| arg.value.as_str()) {
-    println!("{}", help_text);
-    return true;
-  }
-
-  if matches.args.contains_key("version") {
-    println!("treq {}", env!("CARGO_PKG_VERSION"));
-    return true;
-  }
-
-  false
-}
-
 #[cfg(test)]
 pub(super) fn is_supported_cli_command(name: &str) -> bool {
   matches!(
@@ -849,6 +833,7 @@ fn send_json_dispatch_request<T: serde::Serialize>(
     .map_err(|e| format!("invalid dispatch response payload: {}", e))
 }
 
+pub mod args;
 mod workspace_handlers;
 
 mod agent_review_handlers;

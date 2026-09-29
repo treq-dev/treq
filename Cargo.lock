@@ -7994,6 +7994,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "clap",
  "criterion",
  "futures",
  "getrandom 0.4.3",
