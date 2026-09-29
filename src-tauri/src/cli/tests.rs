@@ -1200,3 +1200,40 @@ mod repo_root_detection {
     assert_eq!(find_repo_root(dir.path()), None);
   }
 }
+
+#[cfg(unix)]
+mod implicit_stdin {
+  use super::super::fd_has_input;
+  use std::time::{Duration, Instant};
+
+  fn pipe() -> (i32, i32) {
+    let mut fds = [0; 2];
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+    (fds[0], fds[1])
+  }
+
+  #[test]
+  fn an_idle_open_pipe_is_not_input() {
+    let (read, write) = pipe();
+    let started = Instant::now();
+    assert!(!fd_has_input(read, Duration::from_millis(50)));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    unsafe {
+      libc::close(read);
+      libc::close(write);
+    }
+  }
+
+  #[test]
+  fn a_pipe_with_data_or_eof_is_input() {
+    let (read, write) = pipe();
+    assert_eq!(unsafe { libc::write(write, b"{}".as_ptr().cast(), 2) }, 2);
+    assert!(fd_has_input(read, Duration::from_millis(50)));
+    unsafe { libc::close(read) };
+
+    let (read, write) = pipe();
+    unsafe { libc::close(write) };
+    assert!(fd_has_input(read, Duration::from_millis(50)));
+    unsafe { libc::close(read) };
+  }
+}

@@ -574,6 +574,42 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
   Some(if success { 0 } else { 1 })
 }
 
+/// How long a command waits for piped stdin it did not explicitly ask for.
+const IMPLICIT_STDIN_WAIT: Duration = Duration::from_secs(1);
+
+/// `true` when `fd` has data or EOF within `timeout`. Agent harnesses often
+/// run commands with stdin as a pipe nobody writes to or closes; reading it to
+/// EOF would hang forever.
+#[cfg(unix)]
+pub(super) fn fd_has_input(fd: std::os::unix::io::RawFd, timeout: Duration) -> bool {
+  let mut poll_fd = libc::pollfd {
+    fd,
+    events: libc::POLLIN,
+    revents: 0,
+  };
+  let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+  let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+  ready > 0 && poll_fd.revents & (libc::POLLIN | libc::POLLHUP) != 0
+}
+
+/// Whether to read stdin a command did not explicitly ask for (no `-`
+/// argument): it must be redirected and deliver data or EOF promptly.
+pub(super) fn implicit_stdin_available() -> bool {
+  use std::io::IsTerminal;
+  if std::io::stdin().is_terminal() {
+    return false;
+  }
+  #[cfg(unix)]
+  {
+    use std::os::unix::io::AsRawFd;
+    fd_has_input(std::io::stdin().as_raw_fd(), IMPLICIT_STDIN_WAIT)
+  }
+  #[cfg(not(unix))]
+  {
+    true
+  }
+}
+
 /// Prints an error to stderr and records it in the app's log file.
 pub(super) fn log_cli_error(msg: &str) {
   eprintln!("{}", msg);
