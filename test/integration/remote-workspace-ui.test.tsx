@@ -86,7 +86,9 @@ describe("remote workspace UI", () => {
       ).findByRole("button", { name: defaultBranch }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
-    expect(screen.queryByTestId("remote-capability-notice")).toBeNull();
+    const notice = screen.getByTestId("remote-capability-notice");
+    expect(notice).toHaveTextContent("Merging a remote workspace");
+    expect(notice).not.toHaveTextContent("native SSH PTY");
   });
 
   it("selects a remote workspace from the sidebar", async () => {
@@ -125,7 +127,9 @@ describe("remote workspace UI", () => {
     await user.click(await screen.findByTitle("remote-change.txt"));
     expect(await screen.findByText(/hello remote/)).toBeTruthy();
     await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
-    expect(screen.queryByTestId("remote-capability-notice")).toBeNull();
+    const notice = screen.getByTestId("remote-capability-notice");
+    expect(notice).toHaveTextContent("Merging a remote workspace");
+    expect(notice).not.toHaveTextContent("native SSH PTY");
   });
 
   it("shows remote conflicts in the workspace review UI", async () => {
@@ -178,7 +182,9 @@ describe("remote workspace UI", () => {
     expect(shell).not.toHaveAttribute("title");
     const agent = within(row).getByRole("button", { name: "Start agent" });
     expect(agent).toBeEnabled();
-    expect(screen.queryByTestId("remote-capability-notice")).toBeNull();
+    const notice = screen.getByTestId("remote-capability-notice");
+    expect(notice).toHaveTextContent("Merging a remote workspace");
+    expect(notice).not.toHaveTextContent("native SSH PTY");
   });
 
   it("blocks interaction behind a credential cutoff banner", async () => {
