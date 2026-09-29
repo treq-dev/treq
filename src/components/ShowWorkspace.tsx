@@ -31,7 +31,6 @@ import { useTerminalSettingsStore } from "../stores/terminalSettingsStore";
 import { useTreqSendStore } from "../stores/treqSendStore";
 import { listen } from "@tauri-apps/api/event";
 import {
-  checkAndRebaseWorkspaces,
   createSession,
   type DirectoryEntry,
   jjRestoreAll,
@@ -51,12 +50,9 @@ import {
   pullWorkspaceFromRemote,
   pushWorkspaceToRemote,
   rebaseHomeRepoBranch,
-  resolveBookmarkConflict,
   setGitSubmoduleSynced,
-  type SingleRebaseResult,
   updateWorkspace,
   type Workspace,
-  type WorkspaceBookmarkConflict,
 } from "../lib/api";
 import { usePreviewFeature } from "../stores/featurePreviewStore";
 import { getStatusBgColor } from "../lib/git-status-colors";
@@ -86,13 +82,13 @@ import type { SessionCreationInfo } from "../types/sessions";
 import { ChangesDiffViewer } from "./ChangesDiffViewer";
 import { BrowserPanel } from "./browser-panel/BrowserPanel";
 import { useReviewSubView } from "./browser-panel/useReviewSubView";
+import { LocDiffMarker } from "./LocDiffMarker";
 import { LogsTab } from "./LogsTab";
 import { CiStatusIndicator } from "./CiStatusIndicator";
 import { CommitDiffViewer } from "./CommitDiffViewer";
 import { CreatePrButtonGroup } from "./CreatePrButtonGroup";
 import { FileBrowser } from "./FileBrowser";
 import { LinearCommitHistory } from "./LinearCommitHistory";
-import { LocDiffMarker } from "./LocDiffMarker";
 import { MarkdownContent } from "./MarkdownContent";
 import {
   type BranchListItem,
@@ -104,7 +100,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -118,7 +113,6 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 import { ViewPrButton } from "./ViewPrButton";
-import { WorkspaceBookmarkConflictModal } from "./WorkspaceBookmarkConflictModal";
 import { WorkspaceStackPanel } from "./WorkspaceStackPanel";
 import { MergeQueueButton } from "./workspace-header/MergeQueueButton";
 import { useWorkspaceScheduling } from "./workspace-header/useWorkspaceScheduling";
@@ -257,12 +251,6 @@ export const ShowWorkspace = ({
     null,
   );
 
-  // Sync status state (ahead/behind counts)
-  const [syncStatus, setSyncStatus] = useState<{
-    ahead: number;
-    behind: number;
-  } | null>(null);
-
   // Target branch and conflicts state
   const [targetBranch, setTargetBranch] = useState<string | null>(null);
   const defaultBranch = "main";
@@ -270,20 +258,13 @@ export const ShowWorkspace = ({
 
   // Committed changes toggle state
   const [showCommittedChanges, setShowCommittedChanges] = useState(true);
-  // Whether the workspace has any of its own commits (not target-only, not working-copy)
-  const [hasWorkspaceCommits, setHasWorkspaceCommits] = useState(false);
 
   // Home-repo branch divergence: counts of target-ahead commits and conflict dry-run result
   const [homeRepoTargetAheadCount, setHomeRepoTargetAheadCount] = useState(0);
   const [homeRebasing, setHomeRebasing] = useState(false);
 
   const [rebasing, setRebasing] = useState(false);
-  const [bookmarkConflict, setBookmarkConflict] =
-    useState<WorkspaceBookmarkConflict | null>(null);
-  const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [resolvingBookmarkConflict, setResolvingBookmarkConflict] =
-    useState(false);
   const [refreshingFiles, setRefreshingFiles] = useState(false);
 
   // Show overview tab by default for main repo, changes tab for workspaces
@@ -314,37 +295,15 @@ export const ShowWorkspace = ({
 
   useEffect(() => {
     setActiveTab("overview");
-    setBookmarkConflict(null);
-    setConflictModalOpen(false);
     setChangedFiles(new Map());
   }, [workspace?.id]);
-
-  // Load workspace commit count to control Committed toggle availability
-  const loadWorkspaceCommitCount = async () => {
-    if (!effectiveRepoPath || workspace?.id === undefined) {
-      setHasWorkspaceCommits(false);
-      return;
-    }
-    try {
-      const result = await listCommits(effectiveRepoPath, workspace.id);
-      setHasWorkspaceCommits(
-        (result.commits ?? []).some(
-          (c) => !c.on_target_only && !c.is_working_copy,
-        ),
-      );
-    } catch {
-      setHasWorkspaceCommits(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadWorkspaceCommitCount();
-  }, [effectiveRepoPath, workspace?.id]);
 
   // After a child refresh (e.g. post-commit), re-check if workspace now has commits
   const handleRefreshingChange = (r: boolean) => {
     setRefreshingFiles(r);
-    if (!r) loadWorkspaceCommitCount();
+    if (!r && workspace?.id !== undefined) {
+      void invalidateQueries(["workspace-commits", repoCacheKey, workspace.id]);
+    }
   };
 
   // When commits are loaded from LinearCommitHistory, capture divergence counts
@@ -412,6 +371,18 @@ export const ShowWorkspace = ({
   })();
   const conflictCount = normalizedConflictedFiles.length;
 
+  // Ahead/behind counts against the remote.
+  const syncStatus = (() => {
+    const sync = workspaceStatusData?.remote_sync;
+    if (!sync) return null;
+    if (sync.type === "Ahead") return { ahead: sync.data.count, behind: 0 };
+    if (sync.type === "Behind") return { ahead: 0, behind: sync.data.count };
+    if (sync.type === "Diverged") {
+      return { ahead: sync.data.ahead, behind: sync.data.behind };
+    }
+    return { ahead: 0, behind: 0 };
+  })();
+
   // Review badge: unique working-copy + committed files, independent of
   // whether the Changes tab (ChangesDiffViewer) is mounted. Mounting Review
   // must not change this number.
@@ -458,6 +429,11 @@ export const ShowWorkspace = ({
   const workspaceLocStats = workspaceCommitsLog
     ? sumWorkspaceLocFromLog(workspaceCommitsLog)
     : undefined;
+  // Whether the workspace has any of its own commits (not target-only, not
+  // working-copy). Controls the Committed toggle and Create PR availability.
+  const hasWorkspaceCommits = (workspaceCommitsLog?.commits ?? []).some(
+    (c) => !c.on_target_only && !c.is_working_copy,
+  );
 
   const reviewTabPill = (() => {
     if (visibleReviewChangeCount <= 0) return null;
@@ -507,7 +483,8 @@ export const ShowWorkspace = ({
   );
 
   const { data: startingPromptEntry } = useSWR(
-    effectiveRepoPath && workspace?.id !== undefined
+    // Only needed in the Details popover; fetch when it opens.
+    detailsOpen && effectiveRepoPath && workspace?.id !== undefined
       ? ["workspace-starting-prompt", repoCacheKey, workspace?.id ?? null]
       : null,
     () => getWorkspaceStartingPrompt(effectiveRepoPath, workspace!.id),
@@ -536,34 +513,6 @@ export const ShowWorkspace = ({
   const readmeBaseDir = workspace
     ? getFullWorkspacePath(workspace)
     : effectiveRepoPath;
-
-  const handleBookmarkConflictsFromResult = (
-    result?: SingleRebaseResult | null,
-  ) => {
-    if (!workspace) {
-      setBookmarkConflict(null);
-      setConflictModalOpen(false);
-      return false;
-    }
-
-    const conflicts = result?.bookmark_conflicts ?? [];
-    const conflictForWorkspace = conflicts.find(
-      (conflict) => conflict.workspace_id === workspace.id,
-    );
-
-    if (conflictForWorkspace) {
-      setBookmarkConflict(conflictForWorkspace);
-      setConflictModalOpen(true);
-      return true;
-    }
-
-    if (bookmarkConflict) {
-      setBookmarkConflict(null);
-      setConflictModalOpen(false);
-    }
-
-    return false;
-  };
 
   const submoduleSync = useMutation({
     mutationFn: ({ path, enabled }: { path: string; enabled: boolean }) =>
@@ -640,20 +589,6 @@ export const ShowWorkspace = ({
       window.removeEventListener(REFRESH_WORKSPACE_CHANGES_EVENT, handler);
     };
   }, [activeTab, showFileBrowserInCode, workspace?.id, effectiveRepoPath]);
-
-  useEffect(() => {
-    if (!workspaceStatusData) return;
-    const sync = workspaceStatusData.remote_sync;
-    if (sync.type === "Ahead") {
-      setSyncStatus({ ahead: sync.data.count, behind: 0 });
-    } else if (sync.type === "Behind") {
-      setSyncStatus({ ahead: 0, behind: sync.data.count });
-    } else if (sync.type === "Diverged") {
-      setSyncStatus({ ahead: sync.data.ahead, behind: sync.data.behind });
-    } else {
-      setSyncStatus({ ahead: 0, behind: 0 });
-    }
-  }, [workspaceStatusData]);
 
   // Handle file selection from Cmd+P (or other external sources)
   useEffect(() => {
@@ -818,6 +753,26 @@ export const ShowWorkspace = ({
   const handleDeleteTentativeChanges = async () => {
     if (!workspace?.workspace_path || !effectiveRepoPath) return;
 
+    const refreshAfterRestore = () =>
+      Promise.all([
+        refetchWorkspaceStatus(),
+        invalidateQueries([
+          "commit-diff-viewer-commits",
+          effectiveRepoPath,
+          workspace.id,
+        ]),
+        invalidateQueries([
+          "workspace-status",
+          effectiveRepoPath,
+          workspace.id,
+        ]),
+        invalidateQueries([
+          "workspace-overview",
+          effectiveRepoPath,
+          workspace.id,
+        ]),
+      ]);
+
     try {
       const snapshotId = await jjSnapshotWorkingCopy(workingDirectory);
       await jjRestoreAll(workingDirectory);
@@ -831,24 +786,7 @@ export const ShowWorkspace = ({
             void (async () => {
               try {
                 await jjRestoreSnapshot(workingDirectory, snapshotId);
-                await Promise.all([
-                  refetchWorkspaceStatus(),
-                  void invalidateQueries([
-                    "commit-diff-viewer-commits",
-                    effectiveRepoPath,
-                    workspace.id,
-                  ]),
-                  void invalidateQueries([
-                    "workspace-status",
-                    effectiveRepoPath,
-                    workspace.id,
-                  ]),
-                  void invalidateQueries([
-                    "workspace-overview",
-                    effectiveRepoPath,
-                    workspace.id,
-                  ]),
-                ]);
+                await refreshAfterRestore();
                 addToast({
                   title: "Restored",
                   description: "Working copy changes were restored",
@@ -868,24 +806,7 @@ export const ShowWorkspace = ({
           },
         },
       });
-      await Promise.all([
-        refetchWorkspaceStatus(),
-        void invalidateQueries([
-          "commit-diff-viewer-commits",
-          effectiveRepoPath,
-          workspace.id,
-        ]),
-        void invalidateQueries([
-          "workspace-status",
-          effectiveRepoPath,
-          workspace.id,
-        ]),
-        void invalidateQueries([
-          "workspace-overview",
-          effectiveRepoPath,
-          workspace.id,
-        ]),
-      ]);
+      await refreshAfterRestore();
     } catch (error) {
       addToast({
         title: "Failed to discard changes",
@@ -931,95 +852,53 @@ export const ShowWorkspace = ({
     }
   };
 
-  const handleForceRebaseWorkspace = async () => {
-    if (!workspace || !effectiveRepoPath) return;
+  const toRelativePath = (filePath: string) =>
+    filePath.startsWith(`${workingDirectory}/`)
+      ? filePath.slice(workingDirectory.length + 1)
+      : filePath;
 
-    setRebasing(true);
-    try {
-      const result = await checkAndRebaseWorkspaces(
-        effectiveRepoPath,
-        workspace.id,
-        targetBranch ?? defaultTargetBranch,
-        true,
-      );
-
-      handleBookmarkConflictsFromResult(result);
-
-      if (result.success) {
-        addToast({
-          title: "Force rebase complete",
-          description:
-            "Rebased workspace subtree from current workspace scope.",
-          type: "success",
-        });
-      } else {
-        addToast({
-          title: "Force rebase completed with errors",
-          description: result.message || "Some workspaces failed to rebase.",
-          type: "warning",
-        });
-      }
-
-      void invalidateQueries(["workspaces", repoCacheKey]);
-      void invalidateQueries(["workspace-statuses", repoCacheKey]);
-    } catch (error) {
-      addToast({
-        title: "Force rebase failed",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setRebasing(false);
-    }
+  /** Sends to the idle agent in this workspace, if any. Returns false when none. */
+  const sendToIdleAgent = (prompt: string) => {
+    if (!idleAgentSession || !onSendToIdleAgent) return false;
+    const sessionId = agentSessionIdOf(idleAgentSession.id);
+    if (sessionId === null) return false;
+    onSendToIdleAgent(sessionId, prompt);
+    return true;
   };
 
-  const handleResolveBookmarkConflict = async () => {
-    if (
-      !workspace ||
-      !effectiveRepoPath ||
-      !bookmarkConflict ||
-      !targetBranch
-    ) {
-      return;
-    }
-
-    setResolvingBookmarkConflict(true);
-    try {
-      const resolution = await resolveBookmarkConflict(
-        effectiveRepoPath,
-        workspace.id,
-        workingDirectory,
-        bookmarkConflict.branch_name,
-      );
-
-      addToast({
-        title: "Bookmark updated",
-        description: `Preserved ${resolution.preserved_change_ids.length} local commit(s) on ${bookmarkConflict.branch_name}`,
-        type: "success",
-      });
-
-      setBookmarkConflict(null);
-      setConflictModalOpen(false);
-
-      const result = await checkAndRebaseWorkspaces(
-        effectiveRepoPath,
-        workspace.id,
-        targetBranch,
-        true,
-      );
-      if (result) {
-        handleBookmarkConflictsFromResult(result);
-      }
-    } catch (error) {
-      addToast({
-        title: "Failed to resolve conflict",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setResolvingBookmarkConflict(false);
-    }
+  /**
+   * Creates a session record and hands it to the parent, which opens the agent
+   * terminal and sends `pendingPrompt` once the agent initializes.
+   */
+  const startAgentSession = async (
+    sessionName: string,
+    pendingPrompt: string,
+    permissionMode?: "plan" | "acceptEdits",
+    agent?: SessionCreationInfo["agent"],
+  ) => {
+    const dbSessionId = await createSession(
+      effectiveRepoPath,
+      workspace?.id ?? null,
+      sessionName,
+    );
+    onSessionCreated?.({
+      sessionId: dbSessionId,
+      sessionName,
+      workspaceId: workspace?.id ?? null,
+      workspacePath: null,
+      repoPath: effectiveRepoPath || workingDirectory,
+      pendingPrompt,
+      permissionMode,
+      ...(agent ? { agent } : {}),
+    });
   };
+
+  const toastError = (title: string, error: unknown) =>
+    addToast({
+      title,
+      description: error instanceof Error ? error.message : String(error),
+      type: "error",
+    });
 
   const handleCreateAgentWithComment = async (
     filePath: string,
@@ -1030,80 +909,42 @@ export const ShowWorkspace = ({
     commitShortId?: string,
     mode?: "plan" | "acceptEdits",
   ) => {
+    const lineRef = `${toRelativePath(filePath)}:${startLine}${
+      startLine !== endLine ? `-${endLine}` : ""
+    }${commitShortId ? ` (commit ${commitShortId})` : ""}`;
+    const formattedComment = `${lineRef}\n\`\`\`\n${lineContent.join(
+      "\n",
+    )}\n\`\`\`\n> ${commentText}\n`;
     try {
-      // Format comment as markdown
-      const relativePath = filePath.startsWith(`${workingDirectory}/`)
-        ? filePath.slice(workingDirectory.length + 1)
-        : filePath;
-
-      const lineRef = `${relativePath}:${startLine}${
-        startLine !== endLine ? `-${endLine}` : ""
-      }${commitShortId ? ` (commit ${commitShortId})` : ""}`;
-      const formattedComment = `${lineRef}\n\`\`\`\n${lineContent.join(
-        "\n",
-      )}\n\`\`\`\n> ${commentText}\n`;
-      const sessionName = "Code Comment";
-
-      // Create new database session
-      const dbSessionId = await createSession(
-        effectiveRepoPath,
-        workspace?.id ?? null,
-        sessionName,
-      );
-      const sessionRepoPath = effectiveRepoPath || workingDirectory;
-
-      // Notify parent with pending prompt to be sent after Claude initializes
-      // (ConsolidatedTerminal will create the PTY session when it mounts)
-      onSessionCreated?.({
-        sessionId: dbSessionId,
-        sessionName,
-        workspaceId: workspace?.id ?? null,
-        workspacePath: null,
-        repoPath: sessionRepoPath,
-        pendingPrompt: formattedComment,
-        permissionMode: mode,
-      });
-
+      await startAgentSession("Code Comment", formattedComment, mode);
       addToast({
         title: "Comment sent to agent",
         description: `Created new agent session and sent comment`,
         type: "success",
       });
     } catch (error) {
-      addToast({
-        title: "Failed to create agent",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      toastError("Failed to create agent", error);
     }
   };
 
   /**
-   * Send one local review comment to a fresh agent terminal, formatted the same
-   * way {@link handleCreateAgentWithComment} formats a human comment, plus the
-   * agent's suggested replacement when it left one.
+   * Send one local review comment to the idle agent, or a fresh agent terminal,
+   * formatted like {@link handleCreateAgentWithComment} plus the agent's
+   * suggested replacement when it left one.
    */
   const handleSendAgentReviewCommentToAgent = async (
     comment: AgentReviewComment,
   ) => {
+    const lineRef = `${toRelativePath(comment.file_path)}:${comment.start_line}${
+      comment.start_line !== comment.end_line ? `-${comment.end_line}` : ""
+    }`;
+    const suggestion =
+      comment.suggested_replacement != null
+        ? `\nSuggested change:\n\`\`\`\n${comment.suggested_replacement}\n\`\`\`\n`
+        : "";
+    const formattedComment = `Please address this review comment.\n\n${lineRef}\n> ${comment.comment_text}\n${suggestion}`;
     try {
-      const relativePath = comment.file_path.startsWith(`${workingDirectory}/`)
-        ? comment.file_path.slice(workingDirectory.length + 1)
-        : comment.file_path;
-
-      const lineRef = `${relativePath}:${comment.start_line}${
-        comment.start_line !== comment.end_line ? `-${comment.end_line}` : ""
-      }`;
-      const suggestion =
-        comment.suggested_replacement != null
-          ? `\nSuggested change:\n\`\`\`\n${comment.suggested_replacement}\n\`\`\`\n`
-          : "";
-      const formattedComment = `Please address this review comment.\n\n${lineRef}\n> ${comment.comment_text}\n${suggestion}`;
-      if (idleAgentSession && onSendToIdleAgent) {
-        onSendToIdleAgent(
-          agentSessionIdOf(idleAgentSession.id)!,
-          formattedComment,
-        );
+      if (sendToIdleAgent(formattedComment)) {
         addToast({
           title: "Comment sent to agent",
           description: "Sent review comment to the idle agent",
@@ -1111,37 +952,33 @@ export const ShowWorkspace = ({
         });
         return;
       }
-      const sessionName = "Review Comment";
-
-      const dbSessionId = await createSession(
-        effectiveRepoPath,
-        workspace?.id ?? null,
-        sessionName,
+      await startAgentSession(
+        "Review Comment",
+        formattedComment,
+        "acceptEdits",
       );
-      const sessionRepoPath = effectiveRepoPath || workingDirectory;
-
-      onSessionCreated?.({
-        sessionId: dbSessionId,
-        sessionName,
-        workspaceId: workspace?.id ?? null,
-        workspacePath: null,
-        repoPath: sessionRepoPath,
-        pendingPrompt: formattedComment,
-        permissionMode: "acceptEdits",
-      });
-
       addToast({
         title: "Comment sent to agent",
         description: "Created new agent session and sent review comment",
         type: "success",
       });
     } catch (error) {
-      addToast({
-        title: "Failed to create agent",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      toastError("Failed to create agent", error);
     }
+  };
+
+  /** Resolves the default agent from repo-level, then app-level settings. */
+  const resolveDefaultAgent = async (
+    agentOverride?: string,
+  ): Promise<AgentKind | undefined> => {
+    const repoPathForSettings = effectiveRepoPath || workingDirectory;
+    const repoDefault = await getRepoSetting(
+      repoPathForSettings,
+      "default_agent",
+    ).catch(() => null); // repo may not be initialized yet
+    const appDefault = await getSetting("default_agent").catch(() => null);
+    // undefined falls back to Dashboard's default (claude)
+    return toAgentKind(agentOverride || repoDefault || appDefault);
   };
 
   const createAgentWithReview = async (
@@ -1151,11 +988,7 @@ export const ShowWorkspace = ({
     agentOverride?: string,
   ) => {
     try {
-      if (idleAgentSession && onSendToIdleAgent) {
-        onSendToIdleAgent(
-          agentSessionIdOf(idleAgentSession.id)!,
-          reviewMarkdown,
-        );
+      if (sendToIdleAgent(reviewMarkdown)) {
         addToast({
           title: "Review sent to agent",
           description: "Sent review to the idle agent",
@@ -1163,58 +996,14 @@ export const ShowWorkspace = ({
         });
         return;
       }
-
-      // Resolve the default agent from repo-level then app-level settings,
-      // so "send review to terminal" honours the configured default agent.
-      let resolvedAgent: AgentKind | undefined;
-      const repoPathForSettings = effectiveRepoPath || workingDirectory;
-      try {
-        let repoDefault: string | null = null;
-        let appDefault: string | null = null;
-        try {
-          repoDefault = await getRepoSetting(
-            repoPathForSettings,
-            "default_agent",
-          );
-        } catch {
-          // repo may not be initialized yet
-        }
-        try {
-          appDefault = await getSetting("default_agent");
-        } catch {
-          // ignore
-        }
-        resolvedAgent = toAgentKind(agentOverride || repoDefault || appDefault);
-      } catch {
-        // fall back to undefined (Dashboard will default to claude)
-      }
-
-      // Create new database session
-      const dbSessionId = await createSession(
-        effectiveRepoPath,
-        workspace?.id ?? null,
+      await startAgentSession(
         sessionName,
+        reviewMarkdown,
+        mode,
+        await resolveDefaultAgent(agentOverride),
       );
-      const sessionRepoPath = effectiveRepoPath || workingDirectory;
-
-      // Notify parent with pending prompt to be sent after agent initializes
-      // (ConsolidatedTerminal will create the PTY session when it mounts)
-      onSessionCreated?.({
-        sessionId: dbSessionId,
-        sessionName,
-        workspaceId: workspace?.id ?? null,
-        workspacePath: null,
-        repoPath: sessionRepoPath,
-        pendingPrompt: reviewMarkdown,
-        permissionMode: mode,
-        agent: resolvedAgent,
-      });
     } catch (error) {
-      addToast({
-        title: "Failed to create agent",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      toastError("Failed to create agent", error);
       throw error;
     }
   };
@@ -1222,27 +1011,9 @@ export const ShowWorkspace = ({
   /** Opens a fresh agent session seeded with the selected log content. */
   const handleSendLogsToAgent = async (prompt: string) => {
     try {
-      const sessionName = "Logs";
-      const dbSessionId = await createSession(
-        effectiveRepoPath,
-        workspace?.id ?? null,
-        sessionName,
-      );
-      onSessionCreated?.({
-        sessionId: dbSessionId,
-        sessionName,
-        workspaceId: workspace?.id ?? null,
-        workspacePath: null,
-        repoPath: effectiveRepoPath || workingDirectory,
-        pendingPrompt: prompt,
-        permissionMode: "plan",
-      });
+      await startAgentSession("Logs", prompt, "plan");
     } catch (error) {
-      addToast({
-        title: "Failed to send logs to agent",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      toastError("Failed to send logs to agent", error);
     }
   };
 
@@ -1898,51 +1669,45 @@ export const ShowWorkspace = ({
               )}
 
               {/* Sync control - status + icon in one clickable button */}
-              {(!workspace || !workspace.not_on_remote) &&
-                syncStatus &&
-                (isHomeRepo || hasSyncChanges) && (
-                  <TooltipProvider delay={200}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant={syncStatus.ahead > 0 ? "outline" : "ghost"}
-                          size="sm"
-                          className="relative h-6 gap-1 px-2 text-xs text-muted-foreground"
-                          onClick={handleSync}
-                          disabled={!!actionPending || !hasSyncChanges}
-                        >
-                          {hasSyncChanges && (
-                            <span
-                              className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-600 opacity-50 animate-pulse"
-                              aria-hidden="true"
-                            />
+              {(!workspace || !workspace.not_on_remote) && hasSyncChanges && (
+                <TooltipProvider delay={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={syncStatus.ahead > 0 ? "outline" : "ghost"}
+                        size="sm"
+                        className="relative h-6 gap-1 px-2 text-xs text-muted-foreground"
+                        onClick={handleSync}
+                        disabled={!!actionPending}
+                      >
+                        <span
+                          className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-600 opacity-50 animate-pulse"
+                          aria-hidden="true"
+                        />
+                        {syncStatus.behind > 0 && (
+                          <span className="flex items-center">
+                            ↓{syncStatus.behind}
+                          </span>
+                        )}
+                        {syncStatus.ahead > 0 && (
+                          <span className="flex items-center">
+                            ↑{syncStatus.ahead}
+                          </span>
+                        )}
+                        <RefreshCw
+                          className={cn(
+                            "w-4 h-4",
+                            actionPending === "sync" && "animate-spin",
                           )}
-                          {(isHomeRepo || syncStatus.behind > 0) && (
-                            <span className="flex items-center">
-                              ↓{syncStatus.behind}
-                            </span>
-                          )}
-                          {(isHomeRepo || syncStatus.ahead > 0) && (
-                            <span className="flex items-center">
-                              ↑{syncStatus.ahead}
-                            </span>
-                          )}
-                          <RefreshCw
-                            className={cn(
-                              "w-4 h-4",
-                              actionPending === "sync" && "animate-spin",
-                            )}
-                          />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {hasSyncChanges
-                          ? "Sync with remote (fetch and push)"
-                          : "No commits to sync"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
+                        />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Sync with remote (fetch and push)
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
               {/* Merge queue button (build flag + repo opt-in) */}
               {workspace &&
                 workspace.branch_name !== defaultBranch &&
@@ -2081,53 +1846,30 @@ export const ShowWorkspace = ({
                   </PopoverContent>
                 </Popover>
               )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="px-1"
-                    disabled={!!actionPending}
-                    aria-label="More workspace actions"
-                  >
-                    <MoreVertical className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={4}>
-                  <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      handlePushToRemote();
-                    }}
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    Push to remote
-                  </DropdownMenuItem>
-                  {workspace && (
-                    <DropdownMenuItem
-                      onSelect={(e) => {
-                        e.preventDefault();
-                        handleForceRebaseWorkspace();
-                      }}
+              {workspace && onDeleteWorkspace && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="px-1"
+                      disabled={!!actionPending}
+                      aria-label="More workspace actions"
                     >
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Force Rebase Workspace
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={4}>
+                    <DropdownMenuItem
+                      onSelect={() => onDeleteWorkspace(workspace)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Workspace
                     </DropdownMenuItem>
-                  )}
-                  {workspace && onDeleteWorkspace && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onSelect={() => onDeleteWorkspace(workspace)}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete Workspace
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
           {/* Row 2: Title (if workspace title exists) */}
@@ -2167,13 +1909,6 @@ export const ShowWorkspace = ({
           </div>
         </div>
       </div>
-      <WorkspaceBookmarkConflictModal
-        conflict={bookmarkConflict}
-        open={conflictModalOpen && !!bookmarkConflict}
-        onClose={() => setConflictModalOpen(false)}
-        onResolve={handleResolveBookmarkConflict}
-        resolving={resolvingBookmarkConflict}
-      />
       {scheduling.dialog}
     </>
   );

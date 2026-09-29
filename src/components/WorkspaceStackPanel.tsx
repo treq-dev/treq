@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { CalendarClock, CircleHelp, ExternalLink, Layers2 } from "lucide-react";
 
 import useSWR from "swr";
+import { useRepositoryCacheKey } from "../lib/active-repository-context";
 import { listCommits, listWorkspaceStatuses, type Workspace } from "../lib/api";
 import { WEB_URL } from "../lib/supabase";
 import { cn, formatFullTimestamp, formatRelativeTime } from "../lib/utils";
@@ -49,8 +50,10 @@ export const WorkspaceStackPanel = ({
   onSelectWorkspace,
   onScheduleStack,
 }: WorkspaceStackPanelProps) => {
+  // Shared with Dashboard, which keys by repository identity (not the path) for remote repos.
+  const repoCacheKey = useRepositoryCacheKey(repoPath);
   const { data: workspaceStatuses } = useSWR(
-    repoPath ? ["workspace-statuses", repoPath] : null,
+    repoCacheKey ? ["workspace-statuses", repoCacheKey] : null,
     () => listWorkspaceStatuses(repoPath),
   );
 

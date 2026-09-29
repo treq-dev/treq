@@ -1352,6 +1352,18 @@ pub fn jj_git_init_bare(repo_path: &str) -> Result<(), JjError> {
   Ok(())
 }
 
+/// Initialize a fresh colocated repo (`.jj` next to a new `.git`), equivalent
+/// to `jj git init --colocate` on an empty directory, without running `jj`.
+pub fn jj_git_init_colocated(repo_path: &str) -> Result<(), JjError> {
+  let settings = create_user_settings(repo_path)?;
+  block_on(Workspace::init_colocated_git(
+    &settings,
+    Path::new(repo_path),
+  ))
+  .map_err(|e| JjError::InitFailed(e.to_string()))?;
+  Ok(())
+}
+
 /// Ensure jj is initialized for a repository
 /// This is idempotent - safe to call multiple times
 /// Returns true on success, false only if initialization failed
@@ -1667,7 +1679,10 @@ pub fn create_workspace(
         let wc_override = parent_repo
           .view()
           .wc_commit_ids()
-          .values()
+          .iter()
+          // The home repo's working copy holds the user's uncommitted changes; never base a new workspace on it.
+          .filter(|(name, _)| name.as_str() != "default")
+          .map(|(_, wc_id)| wc_id)
           .find(|wc_id| {
             if *wc_id == &bookmark_id {
               return false;
@@ -4874,17 +4889,10 @@ pub fn jj_edit_bookmark(repo_path: &str, bookmark_name: &str) -> Result<String, 
     CheckoutMode::Immediate,
   )?;
 
-  // For colocated repos, best-effort sync git HEAD and branch tip.
-  let _ = binary_command("git")
-    .current_dir(repo_path)
-    .args([
-      "checkout",
-      "-f",
-      "-B",
-      bookmark_name,
-      &destination.id().hex(),
-    ])
-    .output();
+  // Home repo only: a workspace dir has no .git of its own.
+  if derive_repo_path_from_workspace(repo_path).is_none() {
+    attach_git_head_to_branch(repo_path, bookmark_name);
+  }
 
   Ok(format!("Switched to {}", bookmark_name))
 }
@@ -5193,6 +5201,32 @@ fn read_origin_head_default_branch(repo_path: &str) -> Option<String> {
   Some(trimmed.strip_prefix(prefix)?.to_string())
 }
 
+/// Points git HEAD at `refs/heads/<branch>` and resets the index to it, so a
+/// colocated home repo stays on the branch jj just moved to. Best effort.
+fn attach_git_head_to_branch(repo_path: &str, branch: &str) {
+  if let Err(e) = set_git_head_branch_with_gix(repo_path, branch) {
+    tracing::warn!(
+      "Warning: Failed to set git HEAD to branch '{}': {}",
+      branch,
+      e
+    );
+    return;
+  }
+  if let Err(e) = reset_git_index_to_head_with_gix(repo_path) {
+    tracing::warn!("Warning: Failed to reset git index to HEAD: {}", e);
+  }
+}
+
+fn export_git_refs(workspace_path: &str) -> Result<(), JjError> {
+  let loaded = load_workspace_repo(workspace_path)?;
+  let mut tx = loaded.repo.start_transaction();
+  git::export_refs(tx.repo_mut())
+    .map_err(|e| JjError::IoError(format!("Failed to export refs: {}", e)))?;
+  block_on(tx.commit("export git refs"))
+    .map_err(|e| JjError::IoError(format!("Failed to commit ref export: {}", e)))?;
+  Ok(())
+}
+
 fn set_git_head_branch_with_gix(repo_path: &str, branch: &str) -> Result<(), String> {
   let repo = gix::open(repo_path).map_err(|e| format!("Failed to open git repo with gix: {e}"))?;
   let target: gix::refs::FullName = format!("refs/heads/{branch}")
@@ -5441,15 +5475,12 @@ pub fn jj_split(
   jj_set_bookmark(workspace_path, &branch, "@-")
     .map_err(|e| JjError::IoError(format!("Failed to advance bookmark '{}': {}", branch, e)))?;
 
-  // Only checkout branch in git for main repo
+  // Home repo only: move the git branch to the new commit and keep HEAD on it.
   if repo_path.is_none() {
-    let checkout = binary_command("git")
-      .current_dir(workspace_path)
-      .args(["checkout", &branch])
-      .output();
-    if let Err(e) = checkout {
-      tracing::warn!("Warning: Failed to checkout git branch '{}': {}", branch, e);
+    if let Err(e) = export_git_refs(workspace_path) {
+      tracing::warn!("Warning: Failed to export refs to git: {}", e);
     }
+    attach_git_head_to_branch(workspace_path, &branch);
   }
 
   Ok(format!("Committed successfully to branch '{}'", branch))
@@ -9144,6 +9175,33 @@ mod tests {
   }
 
   #[test]
+  fn create_workspace_from_home_branch_skips_home_uncommitted_changes() {
+    let temp = init_colocated_repo_with_two_branches();
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    // Home sits on branch-a with an uncommitted edit; snapshot it into the home wc commit.
+    fs::write(temp.path().join("home-dirty.txt"), "wip\n").expect("write dirty file");
+    jj_get_changed_files(repo_path).expect("snapshot home");
+
+    let child_name = create_workspace(
+      repo_path,
+      "child",
+      "child",
+      true,
+      Some("branch-a"),
+      Some("branch-a"),
+      None,
+    )
+    .expect("create child workspace");
+
+    let child_dir = temp.path().join(".treq/workspaces").join(child_name);
+    assert!(child_dir.join("base.txt").exists());
+    assert!(
+      !child_dir.join("home-dirty.txt").exists(),
+      "new workspace must not inherit the home repo's uncommitted changes"
+    );
+  }
+
+  #[test]
   fn reconcile_home_does_not_reparent_child_workspace() {
     let temp = init_colocated_repo_with_two_branches();
     let repo_path = temp.path().to_str().expect("utf8 path");
@@ -9861,6 +9919,21 @@ mod tests {
     let lines =
       jj_get_file_lines(temp.path().to_str().unwrap(), "f.txt", false, 5, 2).expect("read");
     assert!(lines.lines.is_empty());
+  }
+
+  #[test]
+  fn jj_git_init_colocated_creates_jj_and_git_dirs() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+
+    jj_git_init_colocated(repo_path).expect("colocated init should succeed");
+
+    assert!(temp.path().join(".jj").is_dir(), ".jj should exist");
+    assert!(temp.path().join(".git").is_dir(), ".git should exist");
+    assert!(
+      jj_snapshot_working_copy(repo_path).is_ok(),
+      "the resulting repo should be usable"
+    );
   }
 
   #[test]

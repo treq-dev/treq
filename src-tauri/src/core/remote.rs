@@ -2647,17 +2647,8 @@ fn init_repo_path(repo_path: &str) -> Result<RepositoryInspection, String> {
   fs::create_dir_all(path)
     .map_err(|e| format!("filesystem_error: Failed to create {trimmed}: {e}"))?;
   if !path.join(".jj").is_dir() && !path.join(".git").exists() {
-    let output = Command::new("jj")
-      .current_dir(path)
-      .args(["git", "init", "--colocate", "."])
-      .output()
-      .map_err(|e| format!("dependency_error: Failed to run jj: {e}"))?;
-    if !output.status.success() {
-      return Err(format!(
-        "jj_command_failed: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
-      ));
-    }
+    jj::jj_git_init_colocated(trimmed)
+      .map_err(|e| format!("jj_command_failed: Failed to initialize repository: {e}"))?;
   }
   inspect_repository_path(trimmed)
 }
@@ -3526,6 +3517,21 @@ mod tests {
         "--format",
         "json"
       ]
+    );
+  }
+
+  #[test]
+  fn init_repo_creates_a_colocated_repository() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo_path = repo_dir.path().join("new-repo");
+    let inspection = execute_local_request(TreqCommandRequest::InitRepo {
+      repo: repo_path.to_str().unwrap().to_string(),
+      idempotency_key: "init-colocated".into(),
+    })
+    .unwrap();
+    assert_eq!(
+      inspection["repository_type"], "jj_colocated",
+      "{inspection}"
     );
   }
 

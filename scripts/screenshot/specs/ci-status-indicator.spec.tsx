@@ -1,7 +1,8 @@
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { Dashboard } from "../../../src/components/Dashboard";
-import { getWorkspaces } from "../../../src/lib/api";
+import { getWorkspaces, pushWorkspaceToRemote } from "../../../src/lib/api";
+import { invalidateQueries } from "../../../src/lib/swr-cache";
 import type { PrCiStatus } from "../../../src/lib/api-types";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import {
@@ -135,15 +136,8 @@ async function setupPushedWorkspace(user: ReturnType<typeof userEvent.setup>) {
     "Workspace commit for CI status demo",
   );
 
-  await user.click(
-    await screen.findByRole("button", { name: /more workspace actions/i }),
-  );
-  await user.click(
-    await screen.findByRole("menuitem", { name: /push to remote/i }),
-  );
-  // The item calls preventDefault() in onSelect so the menu stays open;
-  // close it so the rest of the header isn't left aria-hidden behind it.
-  await user.keyboard("{Escape}");
+  await pushWorkspaceToRemote(repoPath, workspace.id);
+  await invalidateQueries();
   await waitFor(async () => {
     const pushed = (await getWorkspaces(repoPath)).find(
       (candidate) => candidate.branch_name === BRANCH_NAME,
