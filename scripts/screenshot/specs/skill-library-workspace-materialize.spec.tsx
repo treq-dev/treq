@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import {
   createTestRepo,
   findSidebarBranchElement,
+  findSidebarWorkspaceRow,
   openRepo,
   resolveWorkspacePath,
 } from "../../../test/utils";
@@ -136,7 +137,7 @@ it("materializes installed library skills into a new workspace", async () => {
   });
 
   await user.click(
-    await screen.findByRole("button", { name: "New agent terminal" }),
+    within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", { name: "Start agent" }),
   );
   await waitFor(() => {
     expect(

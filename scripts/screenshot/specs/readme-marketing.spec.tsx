@@ -28,6 +28,7 @@ import {
   createTestRepo,
   commitWorkspaceFile,
   findSidebarBranchElement,
+  notifyWorkspaceChanged,
   openRepo,
   resolveWorkspacePath,
   writeWorkspaceFile,
@@ -58,14 +59,20 @@ import {
   openMarketingAgentTerminals,
 } from "../readme-terminals";
 
-vi.mock("../../../src/lib/features", () => ({
-  FEATURES: {
-    pro: true,
-    stripePayments: false,
-    emailSignup: false,
-    mergeQueue: false,
-  },
-}));
+vi.mock("../../../src/lib/features", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../src/lib/features")>();
+  return {
+    ...actual,
+    FEATURES: {
+      ...actual.FEATURES,
+      pro: true,
+      stripePayments: false,
+      emailSignup: false,
+      mergeQueue: false,
+    },
+  };
+});
 
 const {
   mockListCachedPrStatuses,
@@ -184,7 +191,7 @@ async function prepareMarketingView() {
   await screen.findByTestId("show-workspace-header");
   await screen.findByRole("tab", { name: /^Code/, selected: true });
 
-  await openMarketingAgentTerminals(user, repoPath);
+  await openMarketingAgentTerminals(user, repoPath, MARKETING_BRANCH);
   expandMarketingTerminalPane();
   injectMarketingTuiOverlays();
 
@@ -489,6 +496,7 @@ export function miss(): string {
 
   await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
   await screen.findByRole("tab", { name: /^Changes/, selected: true });
+  notifyWorkspaceChanged(cache.id);
   const viewer = screen.getByTestId("changes-diff-viewer");
   await user.click(
     await within(viewer).findByTitle(/cache\.ts/, {}, { timeout: 10000 }),
@@ -738,7 +746,7 @@ it("captures GitHub pull requests for landing GitHub copy", async () => {
   const user = userEvent.setup();
   render(<Dashboard />);
 
-  await user.click(await screen.findByRole("button", { name: "GitHub" }));
+  await user.click(await screen.findByRole("button", { name: "Github" }));
   await user.click(await screen.findByRole("tab", { name: /pull requests/i }));
   await screen.findByText("feat: handle empty event messages");
   document.documentElement.classList.add("dark");
@@ -762,7 +770,7 @@ it("captures GitHub issues for landing GitHub copy", async () => {
   const user = userEvent.setup();
   render(<Dashboard />);
 
-  await user.click(await screen.findByRole("button", { name: "GitHub" }));
+  await user.click(await screen.findByRole("button", { name: "Github" }));
   await user.click(await screen.findByRole("tab", { name: /issues/i }));
   await screen.findByText("Empty event payloads drop the Discord body");
   document.documentElement.classList.add("dark");

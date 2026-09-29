@@ -7,6 +7,7 @@ import { render, screen, waitFor, within } from "../../../test/test-utils";
 import {
 	commitWorkspaceFile,
 	createTestRepo,
+	findSidebarWorkspaceRow,
 	openRepo,
 	resolveWorkspacePath,
 	writeWorkspaceFile,
@@ -17,7 +18,7 @@ const PARENT_BRANCH = "feat/stack-parent";
 const CHILD_BRANCH = "feat/stack-child";
 
 // Scenario: the user creates a workspace from the home repo, then stacks a
-// second workspace on top of it via the workspace header's own "Stack"
+// second workspace on top of it via the parent's sidebar "Stack a workspace"
 // button (not createWorkspace()+setWorkspaceTargetBranch -- workspace
 // creation and stacking are the behavior under test, so both go through the
 // real dialogs). Captures the child workspace's Code tab (showing the new
@@ -45,9 +46,13 @@ it("captures the stack panel and navigation to a sibling workspace", async () =>
 	let header = await screen.findByTestId("show-workspace-header");
 	await within(header).findByText(PARENT_BRANCH);
 
-	// From the parent workspace's own header, stack a child workspace on top
-	// of it -- the same "Stack" button, now scoped to this workspace.
-	await user.click(await screen.findByRole("button", { name: "Stack" }));
+	// From the parent workspace's sidebar row, stack a child workspace on top
+	// of it.
+	await user.click(
+		within(await findSidebarWorkspaceRow(PARENT_BRANCH)).getByRole("button", {
+			name: "Stack a workspace",
+		}),
+	);
 
 	dialog = await screen.findByTestId("modal");
 	await user.type(within(dialog).getByLabelText("Branch Name"), CHILD_BRANCH);
@@ -110,7 +115,10 @@ it("captures the stack panel and navigation to a sibling workspace", async () =>
 	// nothing re-fetches it just by re-selecting the same workspace. Navigate
 	// to the home repo and back to fully remount the panel so it picks up the
 	// commit made above.
+	// SWR drops a refetch that lands within 2s of the last one for the same
+	// key, so wait that out before remounting the panel.
 	await user.click(await screen.findByTestId("home-repo-row"));
+	await new Promise((resolve) => setTimeout(resolve, 2100));
 	await user.click(await screen.findByText(CHILD_BRANCH));
 
 	const panel = await screen.findByTestId("workspace-stack-panel");

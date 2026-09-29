@@ -8,6 +8,7 @@ import { getWorkspaces } from "../../../src/lib/api";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import {
 	createTestRepo,
+	notifyWorkspaceChanged,
 	openRepo,
 	resolveWorkspacePath,
 	writeWorkspaceFile,
@@ -75,6 +76,7 @@ it("captures Create PR dropdown open for docs", async () => {
 		"feature content\n",
 	);
 	await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
+	notifyWorkspaceChanged(workspace.id);
 	await screen.findByRole("tab", { name: /^Changes/, selected: true });
 	await user.type(await screen.findByPlaceholderText("Message"), "Add feature");
 	await user.click(await screen.findByRole("button", { name: /^commit\b/i }));

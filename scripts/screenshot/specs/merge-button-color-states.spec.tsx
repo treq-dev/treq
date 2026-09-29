@@ -18,14 +18,20 @@ const BRANCH_NAME = "feat/merge-button-demo";
 // Merge queue is irrelevant to this flow and would otherwise need Supabase
 // stubbed too -- turn it off so the header only shows the Merge... button
 // (and its CI-driven color) this spec cares about.
-vi.mock("../../../src/lib/features", () => ({
-	FEATURES: {
-		pro: true,
-		stripePayments: false,
-		emailSignup: false,
-		mergeQueue: false,
-	},
-}));
+vi.mock("../../../src/lib/features", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../../src/lib/features")>();
+	return {
+		...actual,
+		FEATURES: {
+			...actual.FEATURES,
+			pro: true,
+			stripePayments: false,
+			emailSignup: false,
+			mergeQueue: false,
+		},
+	};
+});
 
 const { mockGetCachedPrInfo, mockGetCachedPrCiStatus, mockGetGitRemoteUrl } =
 	vi.hoisted(() => ({

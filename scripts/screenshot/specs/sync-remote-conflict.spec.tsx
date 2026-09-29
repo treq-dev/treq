@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
 	createTestRepo,
+	getOriginUrl,
 	findSidebarBranchElement,
 	openRepo,
 	resolveWorkspacePath,
@@ -25,13 +26,14 @@ const BRANCH_NAME = "feat/sync-remote-conflict";
 
 /** Commit on a branch in the bare remote without touching the local repo. */
 function remoteCommitOnBranch(
+	repoPath: string,
 	tempDirPath: string,
 	branchName: string,
 	relativePath: string,
 	content: string,
 	message: string,
 ) {
-	const remotePath = path.join(tempDirPath, "remote.git");
+	const remotePath = getOriginUrl(repoPath);
 	const clonePath = path.join(tempDirPath, "remote_clone_branch");
 	if (fs.existsSync(clonePath)) {
 		fs.rmSync(clonePath, { recursive: true, force: true });
@@ -101,6 +103,7 @@ it("captures Sync completing while remote conflicts remain for local resolve", a
 	await createCommit(repoPath, workspaceId, "local edit");
 
 	remoteCommitOnBranch(
+		repoPath,
 		tempDirPath,
 		BRANCH_NAME,
 		"shared.txt",

@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
 	createTestRepo,
+	getOriginUrl,
 	findSidebarBranchElement,
 	openRepo,
 	resolveWorkspacePath,
@@ -23,8 +24,8 @@ import { captureDocument } from "../capture";
 
 const BRANCH_NAME = "feat/lossless-bookmark-qa";
 
-function commitDirectlyToRemote(tempDirPath: string) {
-	const remotePath = path.join(tempDirPath, "remote.git");
+function commitDirectlyToRemote(repoPath: string, tempDirPath: string) {
+	const remotePath = getOriginUrl(repoPath);
 	const clonePath = path.join(tempDirPath, "bookmark_conflict_remote_clone");
 	fs.rmSync(clonePath, { recursive: true, force: true });
 	execFileSync("git", ["clone", remotePath, clonePath]);
@@ -60,7 +61,7 @@ it("captures lossless bookmark-conflict resolution", async () => {
 	await createCommit(repoPath, workspaceId, "local one");
 	writeWorkspaceFile(workspacePath, "local-two.txt", "two\n");
 	await createCommit(repoPath, workspaceId, "local two");
-	commitDirectlyToRemote(tempDirPath);
+	commitDirectlyToRemote(repoPath, tempDirPath);
 
 	const user = userEvent.setup();
 	render(<Dashboard />);

@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import {
   createTestRepo,
   findSidebarBranchElement,
+  findSidebarWorkspaceRow,
   openRepo,
 } from "../../../test/utils";
 import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
@@ -34,7 +35,9 @@ it("shows workspace name as a label on each terminal header", async () => {
   await screen.findByTestId("workspace-terminal-pane");
 
   await user.click(
-    await screen.findByRole("button", { name: "New agent terminal" }),
+    within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", {
+      name: "Start agent",
+    }),
   );
   const agentPanel = await waitFor(() => {
     const el = document.querySelector('[data-terminal-id^="agent-"]');
@@ -43,7 +46,9 @@ it("shows workspace name as a label on each terminal header", async () => {
   });
 
   await user.click(
-    await screen.findByRole("button", { name: "New shell terminal" }),
+    within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", {
+      name: "Open shell",
+    }),
   );
   const shellPanel = await waitFor(() => {
     const el = document.querySelector('[data-terminal-id^="shell-"]');
