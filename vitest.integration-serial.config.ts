@@ -1,5 +1,9 @@
 import { defineConfig } from "vitest/config";
-import { integrationBaseTest, integrationPlugins } from "./vitest.integration.base";
+import {
+  integrationBaseTest,
+  integrationPlugins,
+  serialIntegrationFiles,
+} from "./vitest.integration.base";
 import { VITEST_PROJECT_SEQUENCE } from "./vitest.projects";
 
 /**
@@ -17,10 +21,7 @@ export default defineConfig({
     sequence: {
       groupOrder: VITEST_PROJECT_SEQUENCE.integrationSerial,
     },
-    include: [
-      "test/integration/review/**/*.test.{ts,tsx}",
-      "test/integration/workspace/**/*.test.{ts,tsx}",
-    ],
+    include: serialIntegrationFiles,
     fileParallelism: false,
     maxWorkers: 1,
   },
