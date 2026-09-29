@@ -654,7 +654,7 @@ pub(super) fn commit_workspace_for_cli(
 
 pub(super) fn handle_resolve(matches: &Matches) -> bool {
   use std::collections::HashMap;
-  use std::io::{IsTerminal, Read};
+  use std::io::Read;
 
   let commit_id = match get_arg_value(matches, "commit_id") {
     Some(value) => value,
@@ -688,7 +688,7 @@ pub(super) fn handle_resolve(matches: &Matches) -> bool {
   }
 
   let mut replacements: Option<HashMap<String, String>> = None;
-  if !std::io::stdin().is_terminal() {
+  if super::implicit_stdin_available() {
     let mut stdin_body = String::new();
     if std::io::stdin().read_to_string(&mut stdin_body).is_ok() {
       let trimmed = stdin_body.trim();
@@ -722,8 +722,6 @@ pub(super) fn handle_resolve(matches: &Matches) -> bool {
 }
 
 pub(super) fn handle_send(matches: &Matches) -> bool {
-  use std::io::IsTerminal;
-
   let path_arg = get_arg_value(matches, "path");
   let browser_mode = get_arg_flag(matches, "browser");
 
@@ -759,7 +757,8 @@ pub(super) fn handle_send(matches: &Matches) -> bool {
       }
     }
   } else {
-    let is_stdin_tty = std::io::stdin().is_terminal();
+    // With no path, read stdin only if it has input; `-` always reads it.
+    let is_stdin_tty = path_arg.is_none() && !super::implicit_stdin_available();
     let mut stdin = std::io::stdin();
     match crate::send_dispatch::resolve_send_path(
       &repo_path,
