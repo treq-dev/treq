@@ -148,6 +148,7 @@ import {
   type RenewalController,
 } from "../lib/managed-ssh-connection";
 import { startManagedCertificateRenewal } from "../lib/remote-cert-lifecycle";
+import { ensureRelayAccessTokenSync } from "../lib/remote-relay-auth";
 import { resolveRemoteTerminalTarget } from "../lib/remote-terminal-target";
 import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 import { remoteForceCutoff } from "../lib/api-extra";
@@ -576,6 +577,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }),
     startRenewal: (lease, onRenewed) =>
       startManagedCertificateRenewal(lease, onRenewed),
+    prepareRelay: () => ensureRelayAccessTokenSync(),
     clearCutoff: (endpointId) => clearRemoteCutoff(endpointId),
   });
 

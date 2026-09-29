@@ -29,6 +29,8 @@ libc = "0.2"
 # builds leave it out entirely (see `#[cfg(desktop)]` on `mod cli` in lib.rs).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-cli = "2.4.1"
+# Parses CLI args before Tauri starts (see `cli::args`); same version the plugin uses.
+clap = "4"
 
 [dependencies]
 tauri = { version = "2.10.3", features = ["protocol-asset", "unstable"] }
@@ -68,6 +70,11 @@ async-trait = "0.1.92"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "io-util", "net", "sync"] }
 russh = "0.63.1"
+# WebSocket transport for managed SSH through the `remote-ssh-relay` Edge
+# Function. TLS uses the same rustls + ring stack reqwest already pulls in.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
 bytes = "1"
 getrandom = "0.4"
 tauri-plugin-keystore = "2.1.0-alpha.1"

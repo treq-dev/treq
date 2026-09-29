@@ -965,3 +965,50 @@ fn returns_error_when_commit_not_in_source_history() {
 
   assert!(err.contains("not found in source workspace history"));
 }
+
+#[test]
+fn move_files_rejects_files_with_no_changes_in_the_source() {
+  let repo = TestRepo::new().expect("create test repo");
+  let (parent, child) = setup_parent_child_graph(&repo);
+
+  let err = treq_lib::core::move_workspace_changes(
+    &repo.repo_path,
+    &parent.branch_name,
+    &child.branch_name,
+    WorkspaceMoveRequest {
+      files: vec!["does-not-exist.txt".to_string(), "README.md".to_string()],
+      ..WorkspaceMoveRequest::default()
+    },
+  )
+  .expect_err("moving unchanged files must not report success");
+  assert!(err.contains("no changes"), "{err}");
+}
+
+#[test]
+fn move_files_counts_only_changed_files_and_warns_about_the_rest() {
+  let repo = TestRepo::new().expect("create test repo");
+  let (parent, child) = setup_parent_child_graph(&repo);
+  make_file_fixture(&repo, &parent, "changed.txt", "changed\n");
+
+  let result = treq_lib::core::move_workspace_changes(
+    &repo.repo_path,
+    &parent.branch_name,
+    &child.branch_name,
+    WorkspaceMoveRequest {
+      files: vec!["changed.txt".to_string(), "does-not-exist.txt".to_string()],
+      ..WorkspaceMoveRequest::default()
+    },
+  )
+  .expect("move should succeed for the changed file");
+
+  assert_eq!(result.files_moved, 1);
+  assert!(
+    result
+      .warnings
+      .iter()
+      .any(|w| w.contains("does-not-exist.txt")),
+    "{:?}",
+    result.warnings
+  );
+  assert!(read_workspace_file(&repo, &child, "changed.txt").contains("changed"));
+}

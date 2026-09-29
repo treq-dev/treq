@@ -355,6 +355,7 @@ async fn native_certificate_auth_two_repos_mutations_pty_reconnect_and_reprovisi
       key_reference: key_path.clone(),
       certificate: Some(cert_line.to_string()),
     },
+    transport: Default::default(),
   };
 
   let pool = SshConnectionPool::new();

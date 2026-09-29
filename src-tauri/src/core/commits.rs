@@ -243,6 +243,8 @@ pub fn abandon_commit(
     .to_str()
     .ok_or("Failed to convert workspace path to string")?;
 
+  ensure_rewritable(repo_path, workspace_dir_str, commit_change_id)?;
+
   let op_id = jj::jj_abandon(workspace_dir_str, commit_change_id)
     .map_err(|e| format!("Failed to abandon commit: {}", e))?;
 
@@ -250,6 +252,12 @@ pub fn abandon_commit(
     .map_err(|e| format!("Failed to update workspace working copy: {}", e))?;
 
   Ok(op_id)
+}
+
+fn ensure_rewritable(repo_path: &str, workspace_dir: &str, revision: &str) -> Result<(), String> {
+  let default_branch = jj::get_default_branch(repo_path).ok();
+  jj::ensure_commit_rewritable(workspace_dir, revision, default_branch.as_deref())
+    .map_err(|e| e.to_string())
 }
 
 /// Undo a repository operation identified by `operation_id` (hex).
@@ -418,6 +426,8 @@ pub fn describe_commit(
   let workspace_dir_str = workspace_dir
     .to_str()
     .ok_or("Failed to convert workspace path to string")?;
+
+  ensure_rewritable(repo_path, workspace_dir_str, commit_change_id)?;
 
   jj::jj_describe(workspace_dir_str, commit_change_id, description)
     .map_err(|e| format!("Failed to describe commit: {}", e))?;
