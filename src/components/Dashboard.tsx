@@ -91,7 +91,6 @@ import {
 } from "../lib/githubRoutes";
 import {
   autoReviewSummary,
-  normalizeReviewAgent,
   prepareWorkspaceReview,
   type AutoReviewEvent,
 } from "../lib/agent-review-launch";
@@ -228,6 +227,12 @@ import {
   WorkspaceTerminalPane,
   type WorkspaceTerminalPaneHandle,
 } from "./WorkspaceTerminalPane";
+import {
+  agentInfo,
+  DEFAULT_AGENT,
+  toAgentKind,
+  type AgentKind,
+} from "../lib/agents";
 
 function generationFromEndpoint(
   endpoint: SshEndpoint,
@@ -319,7 +324,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {
         pendingPrompt?: string;
         permissionMode?: "plan" | "acceptEdits";
-        agent?: "claude" | "codex" | "cursor" | "copilot";
+        agent?: AgentKind;
         workspacePath?: string | null;
       }
     >
@@ -1985,7 +1990,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     options?: {
       forceNew?: boolean;
       name?: string;
-      agent?: "claude" | "codex" | "cursor" | "copilot";
+      agent?: AgentKind;
     },
   ): Promise<number> => {
     const sessions = await getSessions(repoPath);
@@ -2003,15 +2008,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const index = scopedSessions.length + 1;
     let name = options?.name;
     if (!name) {
-      const agentLabel =
-        options?.agent === "codex"
-          ? "Codex"
-          : options?.agent === "cursor"
-            ? "Cursor"
-            : options?.agent === "copilot"
-              ? "Copilot"
-              : "Claude";
-      name = `${agentLabel} ${index}`;
+      name = `${agentInfo(options?.agent ?? DEFAULT_AGENT).label} ${index}`;
     }
 
     const sessionId = await createSession(repoPath, workspaceId, name);
@@ -2061,7 +2058,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     workspacePath?: string | null;
     pendingPrompt?: string;
     permissionMode?: "plan" | "acceptEdits";
-    agent?: "claude" | "codex" | "cursor" | "copilot";
+    agent?: AgentKind;
   }) => {
     void invalidateQueries(["sessions"]);
     // The session may have created its own workspace (a Linear kickoff does),
@@ -2148,12 +2145,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const configuredAgent =
       (await getRepoSetting(repoPath, "default_agent")) ||
       (await getSetting("default_agent"));
-    const agent =
-      configuredAgent === "codex" ||
-      configuredAgent === "cursor" ||
-      configuredAgent === "copilot"
-        ? configuredAgent
-        : "claude";
+    const agent = toAgentKind(configuredAgent) ?? DEFAULT_AGENT;
     const sessionId = await getOrCreateSession(selectedWorkspace?.id ?? null, {
       forceNew: true,
       agent,
@@ -2264,7 +2256,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleCreateSessionFromSidebar = async (
     workspaceId: number | null,
-    agent?: "claude" | "codex" | "cursor" | "copilot",
+    agent?: AgentKind,
   ) => {
     if (!remoteCaps.agentPty.supported) {
       addToast({
@@ -2280,9 +2272,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
     // When no agent is specified explicitly, resolve from settings (repo-level
     // overrides app-level, both fall back to "claude").
-    const resolvedAgent = await (async (): Promise<
-      "claude" | "codex" | "cursor" | "copilot" | undefined
-    > => {
+    const resolvedAgent = await (async (): Promise<AgentKind | undefined> => {
       if (agent) return agent;
       let repoDefault: string | null = null;
       let appDefault: string | null = null;
@@ -2296,15 +2286,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       } catch {
         // ignore
       }
-      const defaultAgent = repoDefault || appDefault;
-      if (
-        defaultAgent === "codex" ||
-        defaultAgent === "cursor" ||
-        defaultAgent === "copilot"
-      ) {
-        return defaultAgent;
-      }
-      return undefined;
+      return toAgentKind(repoDefault || appDefault);
     })();
 
     const sessionId = await getOrCreateSession(workspaceId, {
@@ -2407,7 +2389,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     workspace: Workspace;
     prompt?: string;
     mode?: "plan" | "acceptEdits";
-    agent?: "claude" | "codex" | "cursor" | "copilot";
+    agent?: AgentKind;
     sessionName?: string;
   }): Promise<number> => {
     const sessionId = await getOrCreateSession(workspace.id, {
@@ -2494,7 +2476,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         workspace,
         prompt,
         mode: "acceptEdits",
-        agent: normalizeReviewAgent(agent),
+        agent: toAgentKind(agent),
         sessionName: "AI Review",
       });
     } catch (error) {

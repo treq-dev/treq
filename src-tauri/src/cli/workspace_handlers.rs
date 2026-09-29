@@ -129,13 +129,19 @@ pub(super) fn handle_workspace_add(matches: &Matches) -> bool {
       if let Some(ref description) = workspace.description {
         println!("  Description: {}", description);
       }
-      if let Some(ref dirs) = symlinked_dirs {
-        println!("  Symlinked: {}", dirs.join(", "));
-      }
       let full_path = Path::new(&repo_path)
         .join(".treq")
         .join("workspaces")
         .join(&workspace.workspace_path);
+      if let Some(ref dirs) = symlinked_dirs {
+        let (linked, missing) = split_symlinks(&full_path, dirs);
+        if !linked.is_empty() {
+          println!("  Symlinked: {}", linked.join(", "));
+        }
+        for dir in missing {
+          eprintln!("Warning: '{dir}' was not symlinked; it does not exist in the home repo");
+        }
+      }
       println!("  Path: {}", full_path.display());
       run_setup_script_for_cli(&repo_path, workspace.id, &full_path.to_string_lossy())
     }
@@ -144,6 +150,20 @@ pub(super) fn handle_workspace_add(matches: &Matches) -> bool {
       false
     }
   }
+}
+
+/// Splits the requested `-k` paths into those now symlinked in the workspace
+/// and those that were not (their source does not exist in the home repo).
+pub(super) fn split_symlinks(
+  workspace_path: &Path,
+  requested: &[String],
+) -> (Vec<String>, Vec<String>) {
+  requested.iter().cloned().partition(|dir| {
+    workspace_path
+      .join(dir)
+      .symlink_metadata()
+      .is_ok_and(|meta| meta.file_type().is_symlink())
+  })
 }
 
 /// Runs the repo's setup script in the foreground. The app runs it in the
@@ -589,30 +609,52 @@ pub(super) fn handle_workspace_commit(matches: &Matches) -> bool {
     }
   };
 
-  match core::commit_workspace(&repo_path, workspace.id, &message) {
-    Ok(result) => println!("{}", result),
-    Err(error) => {
-      super::log_cli_error(&format!("Error creating commit: {}", error));
-      return false;
-    }
-  }
-
-  if push {
-    match core::push_workspace_to_remote(&repo_path, Some(workspace.id)) {
-      Ok(result) => println!("{}", result),
-      Err(error) => {
-        super::log_cli_error(&format!("Error pushing to remote: {}", error));
-        return false;
+  match commit_workspace_for_cli(&repo_path, &workspace, &message, push) {
+    Ok(lines) => {
+      for line in lines {
+        println!("{line}");
       }
+      true
+    }
+    Err(error) => {
+      super::log_cli_error(&format!("Error: {}", error));
+      false
     }
   }
+}
 
-  true
+/// `treq commit` with its outcome spelled out: no empty commits, and a failed
+/// `--push` says the commit itself landed.
+pub(super) fn commit_workspace_for_cli(
+  repo_path: &str,
+  workspace: &local_db::Workspace,
+  message: &str,
+  push: bool,
+) -> Result<Vec<String>, String> {
+  let changed = core::list_changed_files(repo_path, Some(workspace.id))?;
+  if changed.is_empty() {
+    return Err(format!(
+      "nothing to commit in workspace '{}'",
+      workspace.branch_name
+    ));
+  }
+  let mut lines = vec![core::commit_workspace(repo_path, workspace.id, message)
+    .map_err(|e| format!("failed to create commit: {e}"))?];
+  if push {
+    let pushed = core::push_workspace_to_remote(repo_path, Some(workspace.id)).map_err(|e| {
+      format!(
+        "committed to '{}', but push failed: {e}",
+        workspace.branch_name
+      )
+    })?;
+    lines.push(pushed);
+  }
+  Ok(lines)
 }
 
 pub(super) fn handle_resolve(matches: &Matches) -> bool {
   use std::collections::HashMap;
-  use std::io::{IsTerminal, Read};
+  use std::io::Read;
 
   let commit_id = match get_arg_value(matches, "commit_id") {
     Some(value) => value,
@@ -646,7 +688,7 @@ pub(super) fn handle_resolve(matches: &Matches) -> bool {
   }
 
   let mut replacements: Option<HashMap<String, String>> = None;
-  if !std::io::stdin().is_terminal() {
+  if super::implicit_stdin_available() {
     let mut stdin_body = String::new();
     if std::io::stdin().read_to_string(&mut stdin_body).is_ok() {
       let trimmed = stdin_body.trim();
@@ -680,8 +722,6 @@ pub(super) fn handle_resolve(matches: &Matches) -> bool {
 }
 
 pub(super) fn handle_send(matches: &Matches) -> bool {
-  use std::io::IsTerminal;
-
   let path_arg = get_arg_value(matches, "path");
   let browser_mode = get_arg_flag(matches, "browser");
 
@@ -717,7 +757,8 @@ pub(super) fn handle_send(matches: &Matches) -> bool {
       }
     }
   } else {
-    let is_stdin_tty = std::io::stdin().is_terminal();
+    // With no path, read stdin only if it has input; `-` always reads it.
+    let is_stdin_tty = path_arg.is_none() && !super::implicit_stdin_available();
     let mut stdin = std::io::stdin();
     match crate::send_dispatch::resolve_send_path(
       &repo_path,
