@@ -1,15 +1,10 @@
 ---
 name: docs-writing
 description: >-
-  Write or revise Treq technical documentation under web/docs/, plus product
-  pages that document shipped app behavior (roadmap, security, settings copy).
-  Activate whenever an agent drafts, updates, or reviews technical docs for
-  Treq: concept pages, how-tos, tutorials, reference, security, roadmap
-  feature status, or related sidebar/index links. Owns accuracy against the
-  current code and product state (shipped vs WIP), prerequisite honesty,
-  cross-page consistency, and the doc revision checklist. Voice and banlists
-  live in explain-to-me; Learn-site article structure and interlinking live in
-  writing. Use this skill first for web/docs/** work.
+  Write or revise Treq technical docs under web/docs/ and shipped-behavior
+  pages (roadmap, security, settings copy). Owns accuracy against current
+  code, shipped vs WIP, and cross-page consistency. Use first for web/docs/**
+  work.
 ---
 
 # docs-writing (technical docs for Treq)

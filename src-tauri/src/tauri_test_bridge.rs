@@ -94,6 +94,22 @@ fn snapshot_working_copy(workspace_path: &str) {
   let _ = crate::jj::jj_get_changed_files(workspace_path);
 }
 
+#[napi(object)]
+pub struct TestEvent {
+  pub event: String,
+  pub payload: String,
+}
+
+/// Takes the events the backend queued for the JS `listen()` mock (PTY
+/// output while `TREQ_TEST_PTY=1`).
+#[napi]
+pub fn drain_test_events() -> Vec<TestEvent> {
+  crate::test_pty_events::drain()
+    .into_iter()
+    .map(|(event, payload)| TestEvent { event, payload })
+    .collect()
+}
+
 #[napi]
 pub fn create_test_repo(with_remote: bool) -> napi::Result<TestRepoInfo> {
   create_test_repo_impl(with_remote).map_err(napi::Error::from_reason)

@@ -851,6 +851,15 @@ export const remoteClearCutoff = (endpointId: string): Promise<void> =>
   invoke("remote_clear_cutoff", { endpointId });
 
 /**
+ * Gives the native SSH pool the Supabase access token it sends to the
+ * `remote-ssh-relay` Edge Function; `null` clears it on sign-out. Used by
+ * `src/lib/remote-relay-auth.ts`.
+ */
+export const remoteSetRelayAccessToken = (
+  token: string | null,
+): Promise<void> => invoke("remote_set_relay_access_token", { token });
+
+/**
  * Returns the current cutoff reason for `endpointId`, if any - the
  * synchronous counterpart to the `remote://cutoff` event, for a component
  * that wants to check state on mount.

@@ -5,6 +5,7 @@ import {
   applyStash,
   createWorkspace,
   getRepoCurrentBranch,
+  getRepoDefaultBranch,
   getWorkspaces,
   moveWorkspaceChanges,
   setWorkspaceTargetBranch,
@@ -29,6 +30,8 @@ export interface UseWorkspaceDialogSubmitParams {
   targetBranch: string | null;
   allWorkspaces: Workspace[];
   branchStatusData: BranchStatus | null;
+  /** Branch name `branchStatusData` was checked for. */
+  branchStatusName: string | null;
   activeRightTab: "commits" | "changes";
   selectedCommits: Set<string>;
   selectedHunks: Set<string>;
@@ -61,6 +64,7 @@ export function useWorkspaceDialogSubmit(
     targetBranch,
     allWorkspaces,
     branchStatusData,
+    branchStatusName,
     activeRightTab,
     selectedCommits,
     selectedHunks,
@@ -82,20 +86,33 @@ export function useWorkspaceDialogSubmit(
     setLoading(true);
     setError("");
 
+    // Once the requested workspace exists, a later failure (stash apply, move,
+    // retarget) must not leave the dialog open: a retry would fail on the
+    // name that is now taken, and the workspace would stay unlisted.
+    let createdWorkspaceId: number | null = null;
+    const createRequestedWorkspace = async (
+      ...args: Parameters<typeof createWorkspace>
+    ) => {
+      const id = await createWorkspace(...args);
+      createdWorkspaceId = id;
+      return id;
+    };
+
     try {
       // Apply immutable stash onto a newly created workspace (copy, not move).
       if (applyStashId != null) {
         const stackOnBranch =
           sourceWorkspace != null
             ? position === "before"
-              ? (sourceWorkspace.target_branch ?? "main")
+              ? (sourceWorkspace.target_branch ??
+                (await getRepoDefaultBranch(repoPath)))
               : sourceWorkspace.branch_name
             : (targetBranch ?? undefined);
         const metadata = JSON.stringify({
           title: title.trim() || undefined,
           description: description.trim() || undefined,
         });
-        const newWorkspaceId = await createWorkspace(
+        const newWorkspaceId = await createRequestedWorkspace(
           repoPath,
           branchName,
           stackOnBranch,
@@ -187,13 +204,14 @@ export function useWorkspaceDialogSubmit(
       ) {
         const stackOnBranch =
           position === "before"
-            ? (sourceWorkspace.target_branch ?? "main")
+            ? (sourceWorkspace.target_branch ??
+              (await getRepoDefaultBranch(repoPath)))
             : sourceWorkspace.branch_name;
         const metadata = JSON.stringify({
           title: title.trim() || undefined,
           description: description.trim() || undefined,
         });
-        const newWorkspaceId = await createWorkspace(
+        const newWorkspaceId = await createRequestedWorkspace(
           repoPath,
           branchName,
           stackOnBranch,
@@ -242,13 +260,14 @@ export function useWorkspaceDialogSubmit(
       ) {
         const stackOnBranch =
           position === "before"
-            ? (sourceWorkspace.target_branch ?? "main")
+            ? (sourceWorkspace.target_branch ??
+              (await getRepoDefaultBranch(repoPath)))
             : sourceWorkspace.branch_name;
         const metadata = JSON.stringify({
           title: title.trim() || undefined,
           description: description.trim() || undefined,
         });
-        const newWorkspaceId = await createWorkspace(
+        const newWorkspaceId = await createRequestedWorkspace(
           repoPath,
           branchName,
           stackOnBranch,
@@ -299,7 +318,7 @@ export function useWorkspaceDialogSubmit(
           sparsePaths,
           symlinkedDirs,
         });
-        const workspaceId = await createWorkspace(
+        const workspaceId = await createRequestedWorkspace(
           repoPath,
           branchName,
           undefined,
@@ -323,6 +342,11 @@ export function useWorkspaceDialogSubmit(
           branchName,
           description: description.trim() || undefined,
           position,
+          onCreated: (id) => {
+            createdWorkspaceId = id;
+          },
+          // The dialog reports failures itself, inline and in one toast.
+          reportErrors: false,
         });
         onSuccess(workspaceId);
         onOpenChange(false);
@@ -370,11 +394,15 @@ export function useWorkspaceDialogSubmit(
         });
 
         let effectiveSourceBranch: string | undefined;
-        if (branchStatusData?.remote_exists && branchStatusData.remote_ref) {
+        if (
+          branchStatusName === branchName &&
+          branchStatusData?.remote_exists &&
+          branchStatusData.remote_ref
+        ) {
           effectiveSourceBranch = branchStatusData.remote_ref;
         }
 
-        const workspaceId = await createWorkspace(
+        const workspaceId = await createRequestedWorkspace(
           repoPath,
           branchName,
           effectiveSourceBranch,
@@ -407,6 +435,16 @@ export function useWorkspaceDialogSubmit(
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      if (createdWorkspaceId !== null) {
+        addToast({
+          title: "Workspace created with errors",
+          description: `${branchName} was created, but a follow-up step failed: ${errorMsg}`,
+          type: "error",
+        });
+        onSuccess(createdWorkspaceId);
+        onOpenChange(false);
+        return;
+      }
       setError(errorMsg);
       addToast({
         title: "Failed to create workspace",

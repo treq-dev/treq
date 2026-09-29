@@ -68,6 +68,12 @@ export interface ManagedConnectionDeps {
     lease: CertificateLease,
     onRenewed?: (lease: CertificateLease) => void,
   ) => RenewalController;
+  /**
+   * Makes sure the native pool can authenticate to the SSH relay before a
+   * relayed endpoint is activated (see `remote-relay-auth.ts`). Called only
+   * for endpoints whose transport is `relay`.
+   */
+  prepareRelay?: () => Promise<void>;
   /** Clears a previously forced hard cutoff after reauthentication succeeds. */
   clearCutoff: (endpointId: string) => Promise<void>;
   /** Asks the control plane to wake a suspended instance. Only `wakeManagedInstance` needs it. */
@@ -216,6 +222,7 @@ async function issueAndActivate(
     keyReference,
     response.certificate,
   );
+  if (endpoint.transport?.type === "relay") await deps.prepareRelay?.();
   deps.activateEndpoint(endpoint);
 
   const now = deps.now ?? Date.now;

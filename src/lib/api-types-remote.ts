@@ -263,7 +263,16 @@ export interface SshEndpoint {
   username: string;
   host_keys: TrustedHostKey[];
   authentication: SshAuthentication;
+  /** Absent means direct TCP (mirrors `SshTransport` in Rust). */
+  transport?: SshTransport;
 }
+
+/**
+ * How the client reaches sshd. Managed Sprites have no raw TCP ingress, so
+ * their endpoints use `relay`: a WebSocket to the `remote-ssh-relay` Edge
+ * Function. SSH stays end to end either way.
+ */
+export type SshTransport = { type: "direct" } | { type: "relay"; url: string };
 
 /**
  * Allow-listed remote agent identifiers (mirrors `RemoteAgentId` in

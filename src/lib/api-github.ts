@@ -8,18 +8,34 @@ import { invoke } from "@tauri-apps/api/core";
 
 export const GH_LIST_PAGE_SIZE = 30;
 
+/** One page of issues, newest first. Pass the previous page's `endCursor`
+ * as `after` to get the next page. */
 export const ghListIssues = (
   repoFullName: string,
   state: string,
   limit = GH_LIST_PAGE_SIZE,
-  page = 1,
+  after?: string | null,
 ): Promise<GhListPage<GhIssue>> =>
-  invoke("gh_list_issues", { repoFullName, state, limit, page });
+  invoke("gh_list_issues", { repoFullName, state, limit, after });
 
 export const ghViewIssue = (
   repoFullName: string,
   issueNumber: number,
 ): Promise<GhIssue> => invoke("gh_view_issue", { repoFullName, issueNumber });
+
+/** Opens (or creates) the `github-<number>-<slug>` workspace for an issue. */
+export const githubOpenOrCreateWorkspaceFromIssue = (
+  repoPath: string,
+  number: number,
+  title: string,
+  url: string,
+): Promise<{ workspace_id: number; created: boolean }> =>
+  invoke("github_open_or_create_workspace_from_issue", {
+    repoPath,
+    number,
+    title,
+    url,
+  });
 
 export const ghCreateIssue = (
   repoFullName: string,
@@ -34,15 +50,34 @@ export const ghCreateIssueComment = (
 ): Promise<void> =>
   invoke("gh_create_issue_comment", { repoFullName, issueNumber, body });
 
+/** Reasons `gh issue close --reason` accepts. */
+export type IssueCloseReason = "completed" | "not planned";
+
 export const ghCloseIssue = (
   repoFullName: string,
   issueNumber: number,
-): Promise<void> => invoke("gh_close_issue", { repoFullName, issueNumber });
+  reason?: IssueCloseReason,
+): Promise<void> =>
+  invoke("gh_close_issue", { repoFullName, issueNumber, reason });
 
 export const ghReopenIssue = (
   repoFullName: string,
   issueNumber: number,
 ): Promise<void> => invoke("gh_reopen_issue", { repoFullName, issueNumber });
+
+export const ghEditIssue = (
+  repoFullName: string,
+  issueNumber: number,
+  title: string,
+  body: string,
+): Promise<void> =>
+  invoke("gh_edit_issue", { repoFullName, issueNumber, title, body });
+
+/** Permanently deletes the issue. Callers must confirm with the user first. */
+export const ghDeleteIssue = (
+  repoFullName: string,
+  issueNumber: number,
+): Promise<void> => invoke("gh_delete_issue", { repoFullName, issueNumber });
 
 export const ghListPrs = (
   repoFullName: string,

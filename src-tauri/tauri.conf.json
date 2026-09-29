@@ -727,6 +727,14 @@
       }
     },
     "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["treq"],
+          "host": "auth",
+          "pathPrefix": ["/callback"],
+          "appLink": false
+        }
+      ],
       "desktop": {
         "schemes": ["treq"]
       }

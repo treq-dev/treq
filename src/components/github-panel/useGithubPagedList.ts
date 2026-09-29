@@ -4,14 +4,32 @@ import type { GhIssue, GhListPage, GhPullRequest } from "../../lib/api-types";
 import type { GitHubStateFilter, GitHubTab } from "../../lib/githubRoutes";
 import { useInfiniteQueryInvalidation } from "../../lib/swr-cache";
 
-function useGithubPagedList<T>(opts: {
+/** Issues page by `after` cursor; pull requests still page by number. */
+interface PageRequest {
+  fullName: string;
+  filter: GitHubStateFilter;
+  page: number;
+  after: string | null;
+}
+
+/**
+ * Pages are fetched at different times, so an item can shift from one page
+ * into the next (for example, when an item is created or reopened between
+ * requests) and come back twice. Keep the first copy.
+ */
+function uniqueByNumber<T extends { number: number }>(items: T[]): T[] {
+  const seen = new Set<number>();
+  return items.filter((item) => {
+    if (seen.has(item.number)) return false;
+    seen.add(item.number);
+    return true;
+  });
+}
+
+function useGithubPagedList<T extends { number: number }>(opts: {
   enabled: boolean;
   keyPrefix: string;
-  fetcher: (
-    fullName: string,
-    filter: GitHubStateFilter,
-    page: number,
-  ) => Promise<GhListPage<T>>;
+  fetcher: (request: PageRequest) => Promise<GhListPage<T>>;
   repoFullName: string;
   currentFilter: GitHubStateFilter;
 }) {
@@ -21,16 +39,23 @@ function useGithubPagedList<T>(opts: {
       (pageIndex, previousPageData: GhListPage<T> | null) => {
         if (!enabled || !repoFullName) return null;
         if (previousPageData && !previousPageData.hasMore) return null;
-        return [keyPrefix, repoFullName, currentFilter, pageIndex + 1] as const;
+        return [
+          keyPrefix,
+          repoFullName,
+          currentFilter,
+          pageIndex + 1,
+          previousPageData?.endCursor ?? null,
+        ] as const;
       },
-      ([, fullName, filter, page]) => fetcher(fullName, filter, page),
+      ([, fullName, filter, page, after]) =>
+        fetcher({ fullName, filter, page, after }),
       { revalidateFirstPage: false },
     );
   useInfiniteQueryInvalidation([keyPrefix, repoFullName, currentFilter], () =>
     mutate(),
   );
   return {
-    items: data?.flatMap((page) => page.items) ?? [],
+    items: uniqueByNumber(data?.flatMap((page) => page.items) ?? []),
     error: error as unknown,
     isLoading,
     fetchingNext: isValidating && size > 1,
@@ -40,13 +65,10 @@ function useGithubPagedList<T>(opts: {
   };
 }
 
-const listIssues = (
-  fullName: string,
-  filter: GitHubStateFilter,
-  page: number,
-) => ghListIssues(fullName, filter, GH_LIST_PAGE_SIZE, page);
+const listIssues = ({ fullName, filter, after }: PageRequest) =>
+  ghListIssues(fullName, filter, GH_LIST_PAGE_SIZE, after);
 
-const listPrs = (fullName: string, filter: GitHubStateFilter, page: number) =>
+const listPrs = ({ fullName, filter, page }: PageRequest) =>
   ghListPrs(fullName, filter, GH_LIST_PAGE_SIZE, page);
 
 export function useGithubIssuePages(

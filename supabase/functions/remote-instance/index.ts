@@ -59,12 +59,18 @@ import {
   updateInstance,
   type InstanceRow,
 } from "../_shared/remote/instance-store.ts";
-import { KeyscanError, scanHostKey } from "../_shared/remote/ssh-keyscan.ts";
+import {
+  provisionManagedSshd,
+  readManagedHostKeys,
+} from "../_shared/remote/managed-sshd.ts";
 import {
   caKeyMaterialFromEnv,
   caPublicKeyLine,
 } from "../_shared/remote/ssh-cert.ts";
-import { installCaTrustCommand } from "../_shared/remote/ssh-vm-config.ts";
+import {
+  MANAGED_SSHD_HOST,
+  MANAGED_SSHD_PORT,
+} from "../_shared/remote/ssh-vm-config.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,7 +78,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const MANAGED_SSH_PORT = 22;
 const MANAGED_SSH_USERNAME = "treq";
 
 function json(body: unknown, status = 200, correlationId?: string): Response {
@@ -256,15 +261,14 @@ async function handleStatus(
   );
 }
 
-// Closes the Phase 2 "host key fingerprint not yet available" gap with a
-// real scan, and installs CA trust on the freshly (re)provisioned VM (PRD
-// "Configure the managed VM to trust the Treq SSH CA"). Both steps are best
-// effort at this point in provisioning: a fresh machine's sshd may not be
-// reachable for a few seconds after the provider reports it started, so a
-// failure here is recorded as an auditable readiness-stage failure rather
-// than failing the whole provision/reprovision operation - the caller (or a
-// later explicit `keyscan_endpoint` / retry) can complete it once the VM is
-// actually reachable.
+// Brings up the loopback sshd on the freshly (re)provisioned Sprite, trusts
+// the Treq SSH CA (PRD "Configure the managed VM to trust the Treq SSH
+// CA"), and records the real host key read over the provider's exec API.
+// A Sprite has no raw TCP ingress, so there is nothing to keyscan from here:
+// clients reach this sshd only through the `remote-ssh-relay` Edge Function.
+// A failure is recorded as an auditable readiness-stage failure rather than
+// failing the whole provision/reprovision operation, so a later repair or
+// explicit `keyscan_endpoint` can complete it.
 async function establishSshTrust(
   supabase: SupabaseClient,
   provider: ManagedComputeProvider,
@@ -273,17 +277,15 @@ async function establishSshTrust(
     instanceId: string;
     endpointId: string;
     providerResourceId: string;
-    hostname: string;
-    port: number;
     generation: number;
     correlationId: string;
   },
 ): Promise<void> {
   if (isSpritesStubEnabled()) {
-    // The stub adapter's address (`stub-xxx.stub.internal`) is not a real
-    // reachable host: there is nothing to scan or exec against in local/
-    // service-qa mode. Record a clearly-labeled stub fingerprint so
-    // downstream code paths that expect a host key row still have one.
+    // The stub adapter has no real machine: there is nothing to exec
+    // against in local/service-qa mode. Record a clearly-labeled stub
+    // fingerprint so downstream code paths that expect a host key row still
+    // have one.
     await recordEndpointHostKey(supabase, {
       ownerUserId: params.ownerUserId,
       endpointId: params.endpointId,
@@ -297,7 +299,7 @@ async function establishSshTrust(
       endpointId: params.endpointId,
       eventType: "host_key_registered",
       detail: {
-        note: "REMOTE_SPRITES_STUB active: recorded a placeholder fingerprint, not a real scan",
+        note: "REMOTE_SPRITES_STUB active: recorded a placeholder fingerprint, not a real host key",
         generation: params.generation,
       },
       correlationId: params.correlationId,
@@ -306,48 +308,11 @@ async function establishSshTrust(
   }
 
   try {
-    const scanned = await scanHostKey(params.hostname, params.port);
-    await recordEndpointHostKey(supabase, {
-      ownerUserId: params.ownerUserId,
-      endpointId: params.endpointId,
-      algorithm: scanned.algorithm,
-      fingerprintSha256: scanned.fingerprintSha256,
-      generation: params.generation,
-    });
-    await recordAuditEvent(supabase, {
-      ownerUserId: params.ownerUserId,
-      instanceId: params.instanceId,
-      endpointId: params.endpointId,
-      eventType: "host_key_registered",
-      detail: {
-        algorithm: scanned.algorithm,
-        fingerprint: scanned.fingerprintSha256,
-        generation: params.generation,
-      },
-      correlationId: params.correlationId,
-    });
-  } catch (err) {
-    const kind = err instanceof KeyscanError ? err.kind : "other";
-    await recordAuditEvent(supabase, {
-      ownerUserId: params.ownerUserId,
-      instanceId: params.instanceId,
-      endpointId: params.endpointId,
-      eventType: "readiness_stage_failed",
-      detail: { stage: "host_keyscan", reason: (err as Error).message, kind },
-      correlationId: params.correlationId,
-    });
-  }
-
-  try {
-    const ca = caKeyMaterialFromEnv();
-    const result = await provider.execOnMachine(
+    await provisionManagedSshd(
+      provider,
       params.providerResourceId,
-      installCaTrustCommand(caPublicKeyLine(ca)),
+      caPublicKeyLine(caKeyMaterialFromEnv()),
     );
-    if (result.exitCode !== 0)
-      throw new Error(
-        `ca trust install exited ${result.exitCode}: ${result.stderr || result.stdout}`,
-      );
     await recordAuditEvent(supabase, {
       ownerUserId: params.ownerUserId,
       instanceId: params.instanceId,
@@ -363,6 +328,47 @@ async function establishSshTrust(
       endpointId: params.endpointId,
       eventType: "ca_trust_install_failed",
       detail: { error: (err as Error).message },
+      correlationId: params.correlationId,
+    });
+    return;
+  }
+
+  try {
+    const hostKeys = await readManagedHostKeys(
+      provider,
+      params.providerResourceId,
+    );
+    if (hostKeys.length === 0) {
+      throw new Error("sshd host key file held no ed25519 key");
+    }
+    for (const hostKey of hostKeys) {
+      await recordEndpointHostKey(supabase, {
+        ownerUserId: params.ownerUserId,
+        endpointId: params.endpointId,
+        algorithm: hostKey.algorithm,
+        fingerprintSha256: hostKey.fingerprintSha256,
+        generation: params.generation,
+      });
+      await recordAuditEvent(supabase, {
+        ownerUserId: params.ownerUserId,
+        instanceId: params.instanceId,
+        endpointId: params.endpointId,
+        eventType: "host_key_registered",
+        detail: {
+          algorithm: hostKey.algorithm,
+          fingerprint: hostKey.fingerprintSha256,
+          generation: params.generation,
+        },
+        correlationId: params.correlationId,
+      });
+    }
+  } catch (err) {
+    await recordAuditEvent(supabase, {
+      ownerUserId: params.ownerUserId,
+      instanceId: params.instanceId,
+      endpointId: params.endpointId,
+      eventType: "readiness_stage_failed",
+      detail: { stage: "host_key_read", reason: (err as Error).message },
       correlationId: params.correlationId,
     });
   }
@@ -514,38 +520,26 @@ async function handleEnsure(
       ready_at: status === "ready" ? new Date().toISOString() : null,
     });
 
-    if (providerInstance.address) {
-      const endpointId = await recordManagedEndpoint(supabase, {
-        ownerUserId,
-        instanceId: instance.id,
-        hostname: providerInstance.address,
-        port: MANAGED_SSH_PORT,
-        username: MANAGED_SSH_USERNAME,
-        existingEndpointId: null,
-      });
-      await updateInstance(supabase, instance.id, { endpoint_id: endpointId });
-      await establishSshTrust(supabase, provider, {
-        ownerUserId,
-        instanceId: instance.id,
-        endpointId,
-        providerResourceId: providerInstance.providerResourceId,
-        hostname: providerInstance.address,
-        port: MANAGED_SSH_PORT,
-        generation: 0,
-        correlationId,
-      });
-    } else {
-      await recordAuditEvent(supabase, {
-        ownerUserId,
-        instanceId: instance.id,
-        eventType: "readiness_stage_failed",
-        detail: {
-          stage: "endpoint_address",
-          reason: "provider did not return an address yet",
-        },
-        correlationId,
-      });
-    }
+    // The endpoint row names sshd as the relay sees it from inside the
+    // Sprite (loopback). Clients never dial this address: they connect
+    // through the relay transport that `issue_certificate` returns.
+    const endpointId = await recordManagedEndpoint(supabase, {
+      ownerUserId,
+      instanceId: instance.id,
+      hostname: MANAGED_SSHD_HOST,
+      port: MANAGED_SSHD_PORT,
+      username: MANAGED_SSH_USERNAME,
+      existingEndpointId: null,
+    });
+    await updateInstance(supabase, instance.id, { endpoint_id: endpointId });
+    await establishSshTrust(supabase, provider, {
+      ownerUserId,
+      instanceId: instance.id,
+      endpointId,
+      providerResourceId: providerInstance.providerResourceId,
+      generation: 0,
+      correlationId,
+    });
 
     await completeOperation(supabase, op.id, {
       status: "succeeded",
@@ -792,56 +786,52 @@ async function handleReprovision(
       ready_at: status === "ready" ? new Date().toISOString() : null,
     });
 
-    if (providerInstance.address) {
-      const endpointId = await recordManagedEndpoint(supabase, {
-        ownerUserId,
-        instanceId: instance.id,
-        hostname: providerInstance.address,
-        port: MANAGED_SSH_PORT,
-        username: MANAGED_SSH_USERNAME,
-        existingEndpointId: instance.endpoint_id,
+    const endpointId = await recordManagedEndpoint(supabase, {
+      ownerUserId,
+      instanceId: instance.id,
+      hostname: MANAGED_SSHD_HOST,
+      port: MANAGED_SSHD_PORT,
+      username: MANAGED_SSH_USERNAME,
+      existingEndpointId: instance.endpoint_id,
+    });
+    if (!instance.endpoint_id)
+      await updateInstance(supabase, instance.id, {
+        endpoint_id: endpointId,
       });
-      if (!instance.endpoint_id)
-        await updateInstance(supabase, instance.id, {
-          endpoint_id: endpointId,
-        });
 
-      const previousFingerprint = instance.endpoint_id
-        ? await previousHostKeyFingerprint(supabase, instance.endpoint_id)
-        : null;
+    const previousFingerprint = instance.endpoint_id
+      ? await previousHostKeyFingerprint(supabase, instance.endpoint_id)
+      : null;
 
-      // Real keyscan against the (possibly replaced) VM, recorded at the new
-      // generation, plus CA trust re-install (a replacement VM starts from
-      // the base image and does not inherit the previous machine's sshd
-      // config). This is the explicit host-key rotation record the PRD's
-      // "Reprovisioning may rotate the host key" paragraph calls for: old
-      // fingerprint, new fingerprint, generation, timestamp, and provider
-      // resource id are all captured here (initiating principal is
-      // `ownerUserId`, the only principal that can call reprovision).
-      await establishSshTrust(supabase, provider, {
-        ownerUserId,
-        instanceId: instance.id,
-        endpointId,
-        providerResourceId: providerInstance.providerResourceId,
-        hostname: providerInstance.address,
-        port: MANAGED_SSH_PORT,
+    // Real host key read from the (possibly replaced) VM, recorded at the new
+    // generation, plus CA trust re-install (a replacement VM starts from
+    // the base image and does not inherit the previous machine's sshd
+    // config). This is the explicit host-key rotation record the PRD's
+    // "Reprovisioning may rotate the host key" paragraph calls for: old
+    // fingerprint, new fingerprint, generation, timestamp, and provider
+    // resource id are all captured here (initiating principal is
+    // `ownerUserId`, the only principal that can call reprovision).
+    await establishSshTrust(supabase, provider, {
+      ownerUserId,
+      instanceId: instance.id,
+      endpointId,
+      providerResourceId: providerInstance.providerResourceId,
+      generation: nextGeneration,
+      correlationId,
+    });
+    await recordAuditEvent(supabase, {
+      ownerUserId,
+      instanceId: instance.id,
+      endpointId,
+      eventType: "host_key_rotated",
+      detail: {
+        previous_fingerprint: previousFingerprint,
         generation: nextGeneration,
-        correlationId,
-      });
-      await recordAuditEvent(supabase, {
-        ownerUserId,
-        instanceId: instance.id,
-        endpointId,
-        eventType: "host_key_rotated",
-        detail: {
-          previous_fingerprint: previousFingerprint,
-          generation: nextGeneration,
-          provider_resource_id: providerInstance.providerResourceId,
-          initiating_principal: ownerUserId,
-        },
-        correlationId,
-      });
-    }
+        provider_resource_id: providerInstance.providerResourceId,
+        initiating_principal: ownerUserId,
+      },
+      correlationId,
+    });
 
     await completeOperation(supabase, op.id, {
       status: "succeeded",
