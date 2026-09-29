@@ -1,14 +1,10 @@
 ---
 name: explain-to-me
 description: >-
-  Explain concepts clearly in the treq voice: direct, declarative prose for a
-  peer engineer, grounded in Orwell's rules for plain English and ASD-STE100
-  (Simplified Technical English), with house banlists for buzzwords, marketing
-  language, and AI writing tells (em dashes, "not just X but Y", rule-of-three
-  padding, "it's important to note"). Use when the user asks to explain or
-  clarify something, when writing or revising inline code comments, when
-  drafting explanatory documentation, or whenever prose must teach a reader.
-  The writing skill depends on this skill for voice and banlists.
+  The treq voice for explanatory prose: plain, declarative, for a peer
+  engineer, with banlists for buzzwords and AI writing tells. Use when
+  explaining a concept, writing code comments or explanatory docs, or whenever
+  prose must teach a reader.
 ---
 
 # Explain to me

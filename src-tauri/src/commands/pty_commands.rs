@@ -53,13 +53,29 @@ pub async fn pty_create_session(
         initial_command.is_some(),
         suppress_echo_for.is_some()
     );
-  let Some(app) = state.watcher_manager.cloned_app_handle() else {
-    // Integration tests have no Tauri AppHandle; skip PTY spawn.
-    return Ok(());
-  };
   let pty_manager = state.pty_manager.clone();
   let sid = session_id.clone();
   let event_name = format!("pty-data-{}", sid);
+  let emit_output: Box<dyn Fn(String) + Send + 'static> =
+    match state.watcher_manager.cloned_app_handle() {
+      Some(app) => Box::new(move |data| {
+        if let Err(error) = app.emit(&event_name, data) {
+          log::warn!(
+            "pty emit failed: session_id={}, event={}, error={}",
+            sid,
+            event_name,
+            error
+          );
+        }
+      }),
+      // Integration tests have no Tauri AppHandle. They skip the PTY spawn
+      // unless a test opts in, and then read output from the test sink.
+      #[cfg(feature = "tauri-test")]
+      None if crate::test_pty_events::pty_enabled() => {
+        Box::new(move |data| crate::test_pty_events::push(&event_name, data))
+      }
+      None => return Ok(()),
+    };
 
   let (shell, shell_args, working_dir, initial_command) = if let Some(host) = remote_host {
     let (program, args) = crate::core::remote::build_ssh_shell_command(
@@ -86,16 +102,7 @@ pub async fn pty_create_session(
       shell_args,
       initial_command,
       suppress_echo_for,
-      Box::new(move |data| {
-        if let Err(error) = app.emit(&event_name, data) {
-          log::warn!(
-            "pty emit failed: session_id={}, event={}, error={}",
-            sid,
-            event_name,
-            error
-          );
-        }
-      }),
+      emit_output,
     )
   })
   .await

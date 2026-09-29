@@ -1,16 +1,10 @@
 ---
 name: ui-story
 description: >-
-  Create or update Storybook stories that mount a treq React component as a
-  presentational component, driven purely by props/args (no live jj repo, no
-  Tauri IPC, no NAPI). Use when the user runs /ui-story, asks to "add a
-  story", "storybook this component", "preview this component in
-  storybook", or asks for a component to get a Cloudflare Pages preview link
-  on its PR. Scope is app components today (src/components/**,
-  src/components/ui/**) — the long-term goal is a components package shared
-  between the app (src/) and the marketing/docs site (web/), so prefer
-  patterns that don't hard-code app-only assumptions when a component is
-  genuinely presentational.
+  Create or update Storybook stories that mount a treq component purely from
+  props (no jj repo, Tauri IPC, or NAPI). Use on /ui-story, when asked to add
+  a story or storybook a component, or to give a component a Cloudflare Pages
+  preview.
 ---
 
 # ui-story (Storybook stories for treq components)

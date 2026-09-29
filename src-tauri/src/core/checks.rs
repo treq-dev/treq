@@ -600,6 +600,12 @@ fn ensure_setup_script_complete(repo_path: &str, workspace_id: i64) -> Result<()
   }
 }
 
+/// The repo's `.treq/config.yaml` `setup_script`, when one is set and non-blank.
+pub fn configured_setup_script(repo_path: &str) -> Result<Option<String>, String> {
+  let config = crate::repo_config::parse_config(repo_path)?;
+  Ok(config.setup_script.filter(|s| !s.trim().is_empty()))
+}
+
 /// Runs the repo's configured setup script for a freshly created workspace.
 /// Stored as a one-job run under `SETUP_SCRIPT_FILENAME` so it shows up in the
 /// same run-history / log-viewer machinery as regular workflow checks.

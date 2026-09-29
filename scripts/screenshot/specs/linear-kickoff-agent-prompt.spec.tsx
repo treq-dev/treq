@@ -57,14 +57,14 @@ it("opens the agent prompt dialog with a Linear issue chip from Kick off", async
 		await screen.findByRole("heading", { name: "Start a new agent session" })
 	).closest('[data-testid="modal"]') as HTMLElement;
 	expect(dialog).toBeTruthy();
-	const chip = await within(dialog).findByTestId("linear-issue-chip");
+	const chip = await within(dialog).findByTestId("issue-chip");
 	expect(chip).toHaveTextContent("TREQ-281");
 
 	await captureDocument(document, {
 		name: "linear-kickoff-agent-prompt-02-dialog-chip",
 		expectations: [
 			"The 'Start a new agent session' dialog is open over the Linear panel.",
-			"A chip labeled 'TREQ-281' with a violet issue icon sits above the 'Describe a task...' textarea.",
+			"A chip labeled 'Linear TREQ-281' with a violet issue icon sits above the 'Describe a task...' textarea.",
 			"The Plan and Edit buttons are enabled (not dimmed) even though the textarea is empty.",
 		],
 	});

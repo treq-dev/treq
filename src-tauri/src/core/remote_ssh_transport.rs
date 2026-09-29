@@ -35,7 +35,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Notify;
 
-use crate::core::remote_control_plane::{SshAuthentication, SshEndpoint, TrustedHostKey};
+use crate::core::remote_control_plane::{
+  SshAuthentication, SshEndpoint, SshTransport, TrustedHostKey,
+};
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -684,6 +686,8 @@ pub struct PoolKey {
   port: u16,
   username: String,
   host_key_fingerprints: Vec<String>,
+  /// Relay URL for relayed endpoints; `None` for direct TCP.
+  relay_url: Option<String>,
 }
 
 impl PoolKey {
@@ -707,6 +711,10 @@ impl PoolKey {
       port: endpoint.port,
       username: endpoint.username.clone(),
       host_key_fingerprints,
+      relay_url: match &endpoint.transport {
+        SshTransport::Direct => None,
+        SshTransport::Relay { url } => Some(url.clone()),
+      },
     }
   }
 }
@@ -733,6 +741,12 @@ pub struct SshConnectionPool {
   /// Resolves [`DEVICE_KEYSTORE_KEY_REFERENCE`]. Set only by the mobile app
   /// (see `lib.rs`); `None` on desktop, where that reference is an error.
   device_key_provider: Option<DeviceKeyProvider>,
+  /// The signed-in user's Supabase access token, sent to the
+  /// `remote-ssh-relay` Edge Function when a relayed connection opens. The
+  /// frontend pushes it on sign-in and every token refresh. It is read per
+  /// connection, so a refreshed token needs no reconnect, and it is never
+  /// logged or included in an error.
+  relay_access_token: std::sync::RwLock<Option<String>>,
 }
 
 impl Default for SshConnectionPool {
@@ -750,6 +764,24 @@ impl SshConnectionPool {
       metrics: Arc::new(SshTransportMetrics::default()),
       cutoffs: AsyncMutex::new(HashMap::new()),
       device_key_provider: None,
+      relay_access_token: std::sync::RwLock::new(None),
+    }
+  }
+
+  /// Sets (or clears, on sign-out) the token used to open relayed
+  /// connections. See the field doc on `relay_access_token`.
+  pub fn set_relay_access_token(&self, token: Option<String>) {
+    let token = token.filter(|token| !token.is_empty());
+    match self.relay_access_token.write() {
+      Ok(mut guard) => *guard = token,
+      Err(poisoned) => *poisoned.into_inner() = token,
+    }
+  }
+
+  fn relay_access_token(&self) -> Option<String> {
+    match self.relay_access_token.read() {
+      Ok(guard) => guard.clone(),
+      Err(poisoned) => poisoned.into_inner().clone(),
     }
   }
 
@@ -887,13 +919,28 @@ impl SshConnectionPool {
     };
     let config = Arc::new(config);
 
-    let address = (endpoint.hostname.as_str(), endpoint.port);
-    tracing::debug!(endpoint_id = %endpoint.id, hostname = %endpoint.hostname, port = endpoint.port, "opening ssh connection");
-
     let dial_started = Instant::now();
-    let mut handle = russh::client::connect(config, address, handler)
-      .await
-      .map_err(|error| SshTransportError::ConnectionFailed(error.to_string()))?;
+    let mut handle = match &endpoint.transport {
+      SshTransport::Direct => {
+        let address = (endpoint.hostname.as_str(), endpoint.port);
+        tracing::debug!(endpoint_id = %endpoint.id, hostname = %endpoint.hostname, port = endpoint.port, "opening ssh connection");
+        russh::client::connect(config, address, handler).await
+      }
+      SshTransport::Relay { url } => {
+        // The URL holds only ids, so it is safe to log; the token is not.
+        tracing::debug!(endpoint_id = %endpoint.id, relay_url = %url, "opening relayed ssh connection");
+        let token = self.relay_access_token().ok_or_else(|| {
+          SshTransportError::ConnectionFailed(
+            "sign in to Treq to reach the managed VM".to_string(),
+          )
+        })?;
+        let stream = crate::core::remote_ssh_ws_stream::connect_relay(url, &token)
+          .await
+          .map_err(SshTransportError::ConnectionFailed)?;
+        russh::client::connect_stream(config, stream, handler).await
+      }
+    }
+    .map_err(|error| SshTransportError::ConnectionFailed(error.to_string()))?;
     // "DNS and TCP connection duration": the interval up to a successfully
     // opened (pre-auth) transport, since `russh::client::connect` does DNS
     // resolution and the TCP dial internally and does not expose a
@@ -1437,6 +1484,7 @@ mod tests {
       authentication: SshAuthentication::PublicKey {
         key_reference: "id_ed25519".to_string(),
       },
+      transport: Default::default(),
     }
   }
 
@@ -1743,6 +1791,7 @@ mod tests {
         comment: None,
       }],
       authentication: SshAuthentication::PublicKey { key_reference },
+      transport: Default::default(),
     }
   }
 

@@ -510,6 +510,7 @@ mod tests {
       username: std::env::var("USER").unwrap_or_else(|_| "user".to_string()),
       host_keys: vec![trusted_host_key(host_key)],
       authentication: SshAuthentication::PublicKey { key_reference },
+      transport: Default::default(),
     }
   }
 

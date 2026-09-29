@@ -16,9 +16,6 @@ import type {
   LinearTeam,
   LinearUser,
 } from "../../../src/lib/api-linear";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   createWorkspace,
   getSessions,
@@ -30,6 +27,7 @@ import {
   findSidebarBranchElement,
   openRepo,
 } from "../../../test/utils";
+import { installFakeAgents } from "../../../test/fake-agent";
 import { captureDocument } from "../capture";
 
 const {
@@ -153,14 +151,14 @@ it("kicks off an agent prompt from a Linear issue in Kanban view", async () => {
     .closest("div") as HTMLElement;
   await user.click(within(card).getByRole("button", { name: "Kick off" }));
   await screen.findByText("Start a new agent session");
-  const chip = await screen.findByTestId("linear-issue-chip");
+  const chip = await screen.findByTestId("issue-chip");
   expect(chip.textContent).toContain("ENG-101");
 
   await captureDocument(document, {
     name: "linear-kickoff-03-prompt-dialog",
     expectations: [
       'The "Start a new agent session" dialog is open over the Linear panel.',
-      "An ENG-101 chip with a violet issue icon and a remove (x) button sits above the prompt textarea.",
+      "A 'Linear ENG-101' chip with a violet issue icon and a remove (x) button sits above the prompt textarea.",
       'In place of the branch picker, a muted line reads "Opens a workspace for ENG-101 and its sub-issues".',
     ],
   });
@@ -179,18 +177,6 @@ it("kicks off an agent prompt from a Linear issue in Kanban view", async () => {
   });
 }, 60000);
 
-function withFakeClaude() {
-  const dir = mkdtempSync(join(tmpdir(), "treq-linear-kickoff-"));
-  const bin = join(dir, "claude");
-  writeFileSync(bin, "#!/bin/sh\nprintf 'agent started\\n'\nsleep 5\n");
-  chmodSync(bin, 0o755);
-  const originalPath = process.env.PATH;
-  process.env.PATH = `${dir}:${originalPath ?? ""}`;
-  return () => {
-    process.env.PATH = originalPath;
-  };
-}
-
 async function openKickoffDialog(
   user: ReturnType<typeof userEvent.setup>,
   issueTitle: string,
@@ -207,7 +193,7 @@ async function openKickoffDialog(
 }
 
 it("starts an agent session in the Linear issue's workspace on submit", async () => {
-  const restorePath = withFakeClaude();
+  const restoreAgents = installFakeAgents();
   try {
     const { repoPath } = createTestRepo(false);
     openRepo(repoPath);
@@ -261,7 +247,7 @@ it("starts an agent session in the Linear issue's workspace on submit", async ()
       ],
     });
   } finally {
-    restorePath();
+    restoreAgents();
   }
 }, 120000);
 
@@ -296,7 +282,7 @@ it("keeps the dialog open and shows an error toast when the Linear workspace can
   expect(
     screen.getByRole("heading", { name: "Start a new agent session" }),
   ).toBeInTheDocument();
-  expect(within(dialog).getByTestId("linear-issue-chip")).toHaveTextContent(
+  expect(within(dialog).getByTestId("issue-chip")).toHaveTextContent(
     "ENG-103",
   );
   expect(await getSessions(repoPath)).toHaveLength(0);

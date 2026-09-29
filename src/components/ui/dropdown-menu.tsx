@@ -85,11 +85,14 @@ const DropdownMenuContent = ({
   sideOffset?: number;
 }) => (
   <DropdownMenuPrimitive.Portal>
+    {/* The positioner's transform makes it the stacking context, so it needs
+        the z-index for the menu to open above dialogs. */}
     <DropdownMenuPrimitive.Positioner
       align={align}
       alignOffset={alignOffset}
       side={side}
       sideOffset={sideOffset}
+      className="z-50"
     >
       <DropdownMenuPrimitive.Popup
         ref={ref}

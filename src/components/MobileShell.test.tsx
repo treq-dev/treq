@@ -1,8 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { User } from "@supabase/supabase-js";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "../../test/test-utils";
 import { MobileShell } from "./MobileShell";
 import * as api from "../lib/api";
+import { defaultAuthState, useAuthStore } from "../stores/authStore";
 import {
   createMockWorkspace,
   createMockWorkspaceStatus,
@@ -35,9 +38,51 @@ vi.mock("../lib/api", async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useAuthStore.setState({ ...defaultAuthState, loading: false });
 });
 
-describe("MobileShell", () => {
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("MobileShell on a mobile build", () => {
+  it("starts with sign-in and the remote flow, without local repository views", async () => {
+    const user = userEvent.setup();
+    vi.stubEnv("TAURI_ENV_PLATFORM", "android");
+    vi.mocked(api.getSetting).mockResolvedValue("/repo");
+
+    render(<MobileShell />);
+
+    expect(
+      screen.getByRole("button", { name: "Connect to managed instance" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByText("Local repository (dev preview)"),
+    ).not.toBeInTheDocument();
+    expect(api.getWorkspaces).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(openUrl).toHaveBeenCalledWith(
+      expect.stringContaining("/sign-in?source=desktop"),
+    );
+  });
+
+  it("shows the account once signed in", async () => {
+    vi.stubEnv("TAURI_ENV_PLATFORM", "ios");
+    useAuthStore.setState({
+      user: { id: "u1", email: "me@example.com" } as User,
+    });
+
+    render(<MobileShell />);
+
+    expect(screen.getByText("me@example.com")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Connect to managed instance" }),
+    ).toBeEnabled();
+  });
+});
+
+describe("MobileShell dev preview on desktop", () => {
   it("lists workspaces and drills into a workspace's changes tab", async () => {
     const user = userEvent.setup();
     const workspace = createMockWorkspace({

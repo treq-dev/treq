@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Textarea } from "../ui/textarea";
+import { ghErrorText } from "./shared";
 
 // Mirrors GitHub's split button: the menu picks the PR type and the main
 // button then creates that type.
@@ -160,9 +161,7 @@ export function CreatePrForm({
       </div>
       {create.isError && (
         <p className="text-base text-destructive">
-          {create.error instanceof Error
-            ? create.error.message
-            : String(create.error)}
+          {ghErrorText(create.error)}
         </p>
       )}
     </div>

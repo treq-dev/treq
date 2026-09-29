@@ -1,10 +1,15 @@
 import * as React from "react";
-import { expect, it } from "vitest";
+import { expect, it, onTestFinished } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { createTestRepo, openRepo } from "../../../test/utils";
+import {
+	createTestRepo,
+	findSidebarBranchElement,
+	openRepo,
+} from "../../../test/utils";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import { createWorkspace } from "../../../src/lib/api";
+import { installFakeAgents } from "../../../test/fake-agent";
 import { captureDocument } from "../capture";
 
 const BRANCH_A = "feat/prompt-history-demo";
@@ -22,19 +27,17 @@ async function submitPrompt(user: ReturnType<typeof userEvent.setup>, text: stri
 
 // Once a workspace's terminal has been visited, its branch name shows up
 // both in the sidebar row and in the terminal tab bar -- scope clicks to the
-// sidebar's drag-and-drop container so `findByText(branchName)` stays
-// unambiguous across repeated navigation.
+// workspace sidebar so the branch name stays unambiguous.
 async function clickSidebarWorkspace(
 	user: ReturnType<typeof userEvent.setup>,
 	branchName: string,
 ) {
-	const sidebar = (await screen.findByText("Workspaces")).closest(
-		'[data-rfd-droppable-id="sidebar-root"]',
-	) as HTMLElement;
-	await user.click(await within(sidebar).findByText(branchName));
+	await user.click(await findSidebarBranchElement(branchName));
 }
 
 it("captures the workspace details starting prompt and the dual-pane prompt history modal", async () => {
+	// Submitted prompts start agent terminals; give them an agent to run.
+	onTestFinished(installFakeAgents());
 	const { repoPath } = createTestRepo(false);
 	openRepo(repoPath);
 	await createWorkspace(repoPath, BRANCH_A);

@@ -24,6 +24,14 @@ case "$file_path" in
 	;;
 esac
 
+marker="${TMPDIR:-/tmp}/treq-service-qa-reminder-$(printf '%s' "$input" | jq -r '.session_id // "none"')"
+# Remind once per session: repeating the same reminder after every edit
+# spends context without adding information.
+if [ -e "$marker" ]; then
+	exit 0
+fi
+touch "$marker"
+
 rel_path="$file_path"
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
 	rel_path="${file_path#"$CLAUDE_PROJECT_DIR"/}"
