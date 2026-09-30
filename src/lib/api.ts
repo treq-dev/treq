@@ -327,13 +327,20 @@ export const jjSnapshotWorkingCopy = (workspacePath: string): Promise<string> =>
     () => invoke("jj_snapshot_working_copy", { workspacePath }),
   );
 
-export const jjRestoreSnapshot = async (
+export const jjRestoreSnapshot = (
   workspacePath: string,
   snapshotId: string,
-): Promise<string> => {
-  assertLocalOperation(workspacePath, "Restoring a working-copy snapshot");
-  return invoke("jj_restore_snapshot", { workspacePath, snapshotId });
-};
+): Promise<string> =>
+  transportWorkingCopyMutation(
+    workspacePath,
+    (repo, workspace) => ({
+      kind: "RestoreSnapshot",
+      repo,
+      workspace,
+      snapshot_id: snapshotId,
+    }),
+    () => invoke("jj_restore_snapshot", { workspacePath, snapshotId }),
+  );
 
 export const createCommit = (
   repoPath: string,

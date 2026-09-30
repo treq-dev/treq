@@ -270,7 +270,7 @@ pub enum TreqCommandRequest {
     idempotency_key: String,
   },
   /// Records the working copy so a later discard can be undone. Returns the
-  /// snapshot id the local `jj_restore_snapshot` command takes.
+  /// snapshot id `RestoreSnapshot` takes.
   SnapshotWorkingCopy {
     repo: String,
     workspace: Option<String>,
@@ -278,6 +278,12 @@ pub enum TreqCommandRequest {
   RestoreAll {
     repo: String,
     workspace: Option<String>,
+  },
+  /// Undoes a discard by restoring the working copy to a snapshot.
+  RestoreSnapshot {
+    repo: String,
+    workspace: Option<String>,
+    snapshot_id: String,
   },
   // -- Phase 5: commit mutations ------------------------------------------------
   CreateCommit {
@@ -475,6 +481,7 @@ impl TreqCommandRequest {
       | Self::PatchFile { .. }
       | Self::SnapshotWorkingCopy { .. }
       | Self::RestoreAll { .. }
+      | Self::RestoreSnapshot { .. }
       | Self::CreateCommit { .. }
       | Self::DescribeCommit { .. }
       | Self::SplitCommit { .. }
@@ -536,6 +543,7 @@ impl TreqCommandRequest {
       | Self::RestoreFile { .. }
       | Self::SnapshotWorkingCopy { .. }
       | Self::RestoreAll { .. }
+      | Self::RestoreSnapshot { .. }
       | Self::DescribeCommit { .. }
       | Self::GitFetch { .. }
       | Self::GitBookmarkTrack { .. }
@@ -579,6 +587,7 @@ impl TreqCommandRequest {
       Self::PatchFile { .. } => "PatchFile",
       Self::SnapshotWorkingCopy { .. } => "SnapshotWorkingCopy",
       Self::RestoreAll { .. } => "RestoreAll",
+      Self::RestoreSnapshot { .. } => "RestoreSnapshot",
       Self::CreateCommit { .. } => "CreateCommit",
       Self::DescribeCommit { .. } => "DescribeCommit",
       Self::SplitCommit { .. } => "SplitCommit",
@@ -628,6 +637,7 @@ impl TreqCommandRequest {
     "PatchFile",
     "SnapshotWorkingCopy",
     "RestoreAll",
+    "RestoreSnapshot",
     "CreateCommit",
     "DescribeCommit",
     "SplitCommit",
@@ -1440,6 +1450,15 @@ impl TreqCommandRequest {
         fields.workspace = workspace.as_deref();
         ("workspace", "restore-all", repo)
       }
+      Self::RestoreSnapshot {
+        repo,
+        workspace,
+        snapshot_id,
+      } => {
+        fields.workspace = workspace.as_deref();
+        fields.target = Some(snapshot_id);
+        ("workspace", "restore-snapshot", repo)
+      }
       Self::ListCommits { repo, workspace } => {
         fields.workspace = workspace.as_deref();
         ("commits", "list", repo)
@@ -2165,6 +2184,14 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
     }
     TreqCommandRequest::RestoreAll { repo, workspace } => json(crate::core::discard_all_changes(
       &resolve_workspace_path(&repo, workspace_id(workspace.as_ref())?)?,
+    )),
+    TreqCommandRequest::RestoreSnapshot {
+      repo,
+      workspace,
+      snapshot_id,
+    } => json(crate::core::restore_working_copy_snapshot(
+      &resolve_workspace_path(&repo, workspace_id(workspace.as_ref())?)?,
+      &snapshot_id,
     )),
     TreqCommandRequest::PatchFile {
       repo,
@@ -4158,7 +4185,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 47);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 48);
   }
 
   #[test]

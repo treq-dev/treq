@@ -58,6 +58,7 @@ export const TREQ_COMMAND_KINDS = [
   "PatchFile",
   "SnapshotWorkingCopy",
   "RestoreAll",
+  "RestoreSnapshot",
   "CreateCommit",
   "DescribeCommit",
   "SplitCommit",
@@ -200,6 +201,12 @@ export type TreqCommandRequest =
     }
   | { kind: "SnapshotWorkingCopy"; repo: string; workspace?: string | null }
   | { kind: "RestoreAll"; repo: string; workspace?: string | null }
+  | {
+      kind: "RestoreSnapshot";
+      repo: string;
+      workspace?: string | null;
+      snapshot_id: string;
+    }
   | {
       kind: "CreateCommit";
       repo: string;

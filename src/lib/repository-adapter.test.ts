@@ -10,6 +10,7 @@ import {
   jjGetCommitsAhead,
   jjRestoreAll,
   jjRestoreFile,
+  jjRestoreSnapshot,
   jjSnapshotWorkingCopy,
   jjSplit,
   loadFileBrowserReview,
@@ -264,12 +265,19 @@ describe("remote repository mutations", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("snapshots and discards a remote working copy", async () => {
+  it("snapshots, discards, and restores a remote working copy", async () => {
     await jjSnapshotWorkingCopy(WORKSPACE_DIR);
     await jjRestoreAll(ROOT);
+    await jjRestoreSnapshot(WORKSPACE_DIR, "0a1b");
     expect(sentMutations()).toEqual([
       { kind: "SnapshotWorkingCopy", repo: ROOT, workspace: "7" },
       { kind: "RestoreAll", repo: ROOT, workspace: null },
+      {
+        kind: "RestoreSnapshot",
+        repo: ROOT,
+        workspace: "7",
+        snapshot_id: "0a1b",
+      },
     ]);
     expect(invoke).not.toHaveBeenCalled();
   });

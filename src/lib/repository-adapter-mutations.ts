@@ -235,8 +235,8 @@ export async function transportRestoreFile(
 }
 
 /**
- * Runs a whole-working-copy mutation (snapshot, discard all) addressed by a
- * workspace path in the active remote repository.
+ * Runs a whole-working-copy mutation (snapshot, discard all, restore a
+ * snapshot) addressed by a workspace path in the active remote repository.
  */
 export async function transportWorkingCopyMutation(
   workspacePath: string,

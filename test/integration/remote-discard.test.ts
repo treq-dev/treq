@@ -2,11 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  createWorkspace,
-  getWorkspaces,
-  jjRestoreSnapshot,
-} from "../../src/lib/api";
+import { createWorkspace, getWorkspaces } from "../../src/lib/api";
 import { dispatchLocal } from "../../src/lib/remote-dispatch";
 import {
   createTestRepo,
@@ -15,7 +11,7 @@ import {
 } from "../utils";
 
 describe("remote discard commands", () => {
-  it("snapshots a workspace, then discards all of its changes", async () => {
+  it("snapshots a workspace, discards all of its changes, then restores them", async () => {
     const { repoPath } = createTestRepo(false);
     const id = await createWorkspace(repoPath, "feat/discard");
     const ws = (await getWorkspaces(repoPath)).find((w) => w.id === id);
@@ -35,7 +31,11 @@ describe("remote discard commands", () => {
     expect(fs.existsSync(path.join(wsPath, "draft.txt"))).toBe(false);
     expect(await dispatchLocal({ kind: "ListChanges", ...target })).toEqual([]);
 
-    await jjRestoreSnapshot(wsPath, snapshotId);
+    await dispatchLocal({
+      kind: "RestoreSnapshot",
+      ...target,
+      snapshot_id: snapshotId,
+    });
     expect(fs.readFileSync(path.join(wsPath, "draft.txt"), "utf8")).toBe(
       "keep me\n",
     );

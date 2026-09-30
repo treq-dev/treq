@@ -33,6 +33,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "PatchFile",
       "SnapshotWorkingCopy",
       "RestoreAll",
+      "RestoreSnapshot",
       "CreateCommit",
       "DescribeCommit",
       "SplitCommit",
@@ -56,7 +57,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "CommitFileDiff",
       "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(47);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(48);
   });
 
   it("is exhaustive over the request union", () => {
@@ -126,6 +127,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       },
       { kind: "SnapshotWorkingCopy", repo: "/r" },
       { kind: "RestoreAll", repo: "/r", workspace: "1" },
+      { kind: "RestoreSnapshot", repo: "/r", snapshot_id: "0a1b" },
       {
         kind: "CreateCommit",
         repo: "/r",

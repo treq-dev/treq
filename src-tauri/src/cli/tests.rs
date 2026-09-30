@@ -930,6 +930,11 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       repo: repo(),
       workspace: None,
     },
+    R::RestoreSnapshot {
+      repo: repo(),
+      workspace: Some("1".into()),
+      snapshot_id: "0a1b".into(),
+    },
     R::PatchFile {
       repo: repo(),
       workspace: Some("1".into()),

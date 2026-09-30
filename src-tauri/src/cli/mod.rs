@@ -376,6 +376,11 @@ pub(crate) fn parse_remote_command_request(
     }),
     ("workspace", "snapshot") => Ok(TreqCommandRequest::SnapshotWorkingCopy { repo, workspace }),
     ("workspace", "restore-all") => Ok(TreqCommandRequest::RestoreAll { repo, workspace }),
+    ("workspace", "restore-snapshot") => Ok(TreqCommandRequest::RestoreSnapshot {
+      repo,
+      workspace,
+      snapshot_id: require_target("snapshot id")?,
+    }),
     ("changes", "list") => Ok(TreqCommandRequest::ListChanges { repo, workspace }),
     ("changes", "workspace-diff") => Ok(TreqCommandRequest::WorkspaceDiff {
       repo,
