@@ -78,14 +78,32 @@ pub fn resolve_app_db_path(repo_path: &str) -> PathBuf {
     }
   }
 
-  if let Ok(app_data_dir) = std::env::var("TREQ_APP_DATA_DIR") {
-    let trimmed = app_data_dir.trim();
-    if !trimmed.is_empty() {
-      return Path::new(trimmed).join("treq.db");
-    }
+  if let Some(app_data_dir) = app_data_dir() {
+    return app_data_dir.join("treq.db");
   }
 
   Path::new(repo_path).join(".treq").join("treq.db")
+}
+
+#[cfg(test)]
+thread_local! {
+  /// Per-thread app data dir for tests. Setting `TREQ_APP_DATA_DIR` would leak
+  /// into every test running in parallel.
+  pub(crate) static TEST_APP_DATA_DIR: std::cell::RefCell<Option<PathBuf>> =
+    const { std::cell::RefCell::new(None) };
+}
+
+/// The app data dir from `TREQ_APP_DATA_DIR`, or a test's per-thread override.
+pub(crate) fn app_data_dir() -> Option<PathBuf> {
+  #[cfg(test)]
+  if let Some(dir) = TEST_APP_DATA_DIR.with(|dir| dir.borrow().clone()) {
+    return Some(dir);
+  }
+  std::env::var("TREQ_APP_DATA_DIR")
+    .ok()
+    .map(|dir| dir.trim().to_string())
+    .filter(|dir| !dir.is_empty())
+    .map(PathBuf::from)
 }
 
 #[cfg(test)]
