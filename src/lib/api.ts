@@ -124,16 +124,18 @@ export const archiveWorkspace = async (
   });
 };
 
-export const ensureWorkspaceIndexed = (
+export const ensureWorkspaceIndexed = async (
   repoPath: string,
   workspaceId: number | null,
   workspacePath: string,
-): Promise<boolean> =>
-  invoke("ensure_workspace_indexed", {
+): Promise<boolean> => {
+  assertLocalOperation(repoPath, "Indexing workspace files");
+  return invoke("ensure_workspace_indexed", {
     repoPath,
     workspaceId,
     workspacePath,
   });
+};
 
 export const getSetting = (key: string): Promise<string | null> =>
   invoke("get_setting", { key });
@@ -247,11 +249,13 @@ export const listGitignoredPathSuggestions = (
 ): Promise<string[]> =>
   invoke("list_gitignored_path_suggestions", { repoPath });
 
-export const getWorkspaceReadme = (
+export const getWorkspaceReadme = async (
   repoPath: string,
   workspaceId: number | null,
-): Promise<string | null> =>
-  invoke("get_workspace_readme", { repoPath, workspaceId });
+): Promise<string | null> => {
+  assertLocalOperation(repoPath, "Reading the workspace README");
+  return invoke("get_workspace_readme", { repoPath, workspaceId });
+};
 
 export const getWorkspaceFileHunks = (
   repoPath: string,

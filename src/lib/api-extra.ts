@@ -284,11 +284,21 @@ export const writeAgentCliFiles = (
 export const cleanupAgentCliFiles = (paths: string[]): Promise<void> =>
   invoke("cleanup_agent_cli_files", { paths });
 
-export const getFileModifiedAt = (path: string): Promise<string | null> =>
-  invoke("get_file_modified_at", { path });
+const FILE_TREE = "Browsing the file tree";
 
-export const listDirectory = (path: string): Promise<DirectoryEntry[]> =>
-  invoke("list_directory", { path });
+export const getFileModifiedAt = async (
+  path: string,
+): Promise<string | null> => {
+  assertLocalOperation(path, FILE_TREE);
+  return invoke("get_file_modified_at", { path });
+};
+
+export const listDirectory = async (
+  path: string,
+): Promise<DirectoryEntry[]> => {
+  assertLocalOperation(path, FILE_TREE);
+  return invoke("list_directory", { path });
+};
 
 export interface DirectoryBatchResult {
   path: string;
@@ -296,25 +306,31 @@ export interface DirectoryBatchResult {
   error?: string;
 }
 
-export const listDirectoriesBatch = (
+export const listDirectoriesBatch = async (
   paths: string[],
-): Promise<DirectoryBatchResult[]> =>
-  invoke("list_directories_batch", { paths });
+): Promise<DirectoryBatchResult[]> => {
+  for (const path of paths) assertLocalOperation(path, FILE_TREE);
+  return invoke("list_directories_batch", { paths });
+};
 
-export const lsWorkspaceWithStatus = (
+export const lsWorkspaceWithStatus = async (
   repoPath: string,
   workspaceId: number | null,
-): Promise<DirectoryEntry[]> =>
-  invoke("ls_workspace_with_status", { repoPath, workspaceId });
+): Promise<DirectoryEntry[]> => {
+  assertLocalOperation(repoPath, FILE_TREE);
+  return invoke("ls_workspace_with_status", { repoPath, workspaceId });
+};
 
 // Kept as the typed frontend counterpart of the registered Tauri command.
 // eslint-disable-next-line local/no-unused-exported-ts-functions, local/require-tauri-api-exports-used
-export const listDirectoryCached = (
+export const listDirectoryCached = async (
   repoPath: string,
   workspaceId: number | null,
   parentPath: string,
-): Promise<CachedDirectoryEntry[]> =>
-  invoke("list_directory_cached", { repoPath, workspaceId, parentPath });
+): Promise<CachedDirectoryEntry[]> => {
+  assertLocalOperation(repoPath, FILE_TREE);
+  return invoke("list_directory_cached", { repoPath, workspaceId, parentPath });
+};
 
 export interface SendArtifactRecord {
   id: string;
