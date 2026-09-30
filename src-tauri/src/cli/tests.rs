@@ -24,12 +24,6 @@ fn make_subcommand(name: &str) -> SubcommandMatches {
 }
 
 #[test]
-fn help_is_handled_by_cli_dispatch() {
-  let subcommand = make_subcommand("help");
-  assert!(handle_cli_command(&subcommand).is_some());
-}
-
-#[test]
 fn unknown_subcommand_is_not_handled_by_cli_dispatch() {
   let subcommand = make_subcommand("open");
   assert!(handle_cli_command(&subcommand).is_none());
@@ -48,7 +42,6 @@ fn supports_new_top_level_commands() {
   assert!(is_supported_cli_command("file"));
   assert!(is_supported_cli_command("commits"));
   assert!(is_supported_cli_command("conflicts"));
-  assert!(is_supported_cli_command("help"));
   assert!(!is_supported_cli_command("open"));
 }
 
@@ -1284,5 +1277,67 @@ mod structured_errors {
     let (ok, out, err) = run(&[("format", "json")], Ok(()));
     assert!(ok);
     assert!(out.is_empty() && err.is_empty());
+  }
+}
+
+mod help_text {
+  use super::*;
+  use crate::cli::args::subcommand_help;
+
+  fn cli_commands() -> serde_json::Map<String, Value> {
+    let config =
+      fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json")).unwrap();
+    let json: Value = serde_json::from_str(&config).unwrap();
+    json["plugins"]["cli"]["subcommands"]
+      .as_object()
+      .unwrap()
+      .clone()
+  }
+
+  #[test]
+  fn every_command_and_arg_is_described() {
+    for (name, command) in cli_commands() {
+      assert!(
+        command["description"].is_string(),
+        "{name} has no description"
+      );
+      for arg in command["args"].as_array().into_iter().flatten() {
+        assert!(
+          arg["description"].is_string(),
+          "{name} {} has no description",
+          arg["name"]
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn structured_command_help_lists_every_action_and_an_example() {
+    let mut actions: Vec<(String, String)> = every_typed_remote_request()
+      .iter()
+      .map(|request| {
+        let args = request.cli_args().unwrap();
+        (args[0].clone(), args[1].clone())
+      })
+      .collect();
+    for action in ["add", "list", "resolve", "delete"] {
+      actions.push(("agent-review".into(), action.into()));
+    }
+    for (command, action) in actions {
+      let help = subcommand_help(&command);
+      assert!(
+        help.contains(action.as_str()),
+        "`treq {command} --help` omits {action}"
+      );
+      assert!(
+        help.contains("Example"),
+        "`treq {command} --help` has no example"
+      );
+    }
+  }
+
+  #[test]
+  fn diff_help_says_it_shows_conflicts_not_a_diff() {
+    assert!(subcommand_help("diff").contains("changes workspace-diff"));
   }
 }

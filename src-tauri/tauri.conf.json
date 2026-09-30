@@ -113,7 +113,7 @@
           ]
         },
         "diff": {
-          "description": "Show workspace conflicts and conflict hunks",
+          "description": "Show a workspace's conflicted files, conflicted commits and conflict hunks (for the full diff, use `treq changes workspace-diff`)",
           "args": [
             {
               "name": "workspace_name",
@@ -246,14 +246,15 @@
           ]
         },
         "repo": {
-          "description": "Repository inspection and status commands",
+          "description": "Inspect, check, create or clone a repository",
+          "afterHelp": "Examples:\n  treq repo inspect --repo . --format json\n  treq repo clone --repo ~/src/app --value git@github.com:org/app.git --idempotency-key k1",
           "args": [
             {
               "name": "action",
               "index": 1,
               "takesValue": true,
               "required": true,
-              "description": "Repository action, for example inspect"
+              "description": "Action: inspect, status, branches, probe, init, clone, usage"
             },
             {
               "name": "repo",
@@ -274,19 +275,20 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "workspace": {
-          "description": "List and inspect workspaces",
+          "description": "List, inspect, create and change workspaces",
+          "afterHelp": "Examples:\n  treq workspace list --repo . --format json\n  treq workspace create --repo . --value feat/x --idempotency-key k1",
           "args": [
             {
               "name": "action",
               "index": 1,
               "takesValue": true,
               "required": true,
-              "description": "Command action"
+              "description": "Action: list, inspect, create, rename, update, delete, move, rebase, marker"
             },
             {
               "name": "repo",
@@ -297,7 +299,7 @@
             {
               "name": "workspace",
               "takesValue": true,
-              "description": "Workspace numeric ID"
+              "description": "Workspace id, a positive integer (see `treq workspace list`)"
             },
             {
               "name": "target",
@@ -337,19 +339,20 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "changes": {
-          "description": "List changed files and file diffs",
+          "description": "List changed files and show file or workspace diffs",
+          "afterHelp": "Example:\n  treq changes diff --repo . --workspace 1 --path src/main.rs",
           "args": [
             {
               "name": "action",
               "index": 1,
               "takesValue": true,
               "required": true,
-              "description": "Command action"
+              "description": "Action: list, workspace-diff, diff"
             },
             {
               "name": "repo",
@@ -360,7 +363,7 @@
             {
               "name": "workspace",
               "takesValue": true,
-              "description": "Workspace numeric ID"
+              "description": "Workspace id, a positive integer (see `treq workspace list`)"
             },
             {
               "name": "path",
@@ -370,19 +373,20 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "file": {
-          "description": "Read repository files",
+          "description": "Search, read, restore and patch files",
+          "afterHelp": "Example:\n  treq file read --repo . --workspace 1 --path src/main.rs --start-line 1 --end-line 40",
           "args": [
             {
               "name": "action",
               "index": 1,
               "takesValue": true,
               "required": true,
-              "description": "Command action"
+              "description": "Action: search, read, restore, patch"
             },
             {
               "name": "repo",
@@ -393,7 +397,7 @@
             {
               "name": "workspace",
               "takesValue": true,
-              "description": "Workspace numeric ID"
+              "description": "Workspace id, a positive integer (see `treq workspace list`)"
             },
             {
               "name": "path",
@@ -404,20 +408,22 @@
             {
               "name": "revision",
               "takesValue": true,
-              "description": "working-copy or parent"
+              "description": "working-copy or parent (default: working-copy)"
             },
             {
               "name": "start-line",
-              "takesValue": true
+              "takesValue": true,
+              "description": "First line to read, 1-based (default: 1)"
             },
             {
               "name": "end-line",
-              "takesValue": true
+              "takesValue": true,
+              "description": "Last line to read, inclusive (default: 300)"
             },
             {
               "name": "value",
               "takesValue": true,
-              "description": "Free-form payload: base64-encoded patch content for the patch action"
+              "description": "Search query for search, or base64-encoded patch content for patch"
             },
             {
               "name": "idempotency-key",
@@ -427,24 +433,25 @@
             {
               "name": "limit",
               "takesValue": true,
-              "description": "Maximum number of search results"
+              "description": "Maximum number of search results, a positive integer (default: 50)"
             },
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "commits": {
-          "description": "List commits",
+          "description": "List, diff, create, describe, split, move and abandon commits",
+          "afterHelp": "Example:\n  treq commits create --repo . --workspace 1 --value \"fix: typo\" --idempotency-key k1",
           "args": [
             {
               "name": "action",
               "index": 1,
               "takesValue": true,
               "required": true,
-              "description": "Command action"
+              "description": "Action: list, diff, file-diff, create, describe, split, move, abandon"
             },
             {
               "name": "repo",
@@ -455,7 +462,7 @@
             {
               "name": "workspace",
               "takesValue": true,
-              "description": "Workspace numeric ID"
+              "description": "Workspace id, a positive integer (see `treq workspace list`)"
             },
             {
               "name": "target",
@@ -485,19 +492,20 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "conflicts": {
-          "description": "List conflicted files",
+          "description": "List and resolve conflicts",
+          "afterHelp": "Example:\n  treq conflicts resolve --repo . --target <revision> --value 1 --idempotency-key k1",
           "args": [
             {
               "name": "action",
               "index": 1,
               "takesValue": true,
               "required": true,
-              "description": "Command action"
+              "description": "Action: list, resolve"
             },
             {
               "name": "repo",
@@ -508,7 +516,7 @@
             {
               "name": "workspace",
               "takesValue": true,
-              "description": "Workspace numeric ID"
+              "description": "Workspace id, a positive integer (see `treq workspace list`)"
             },
             {
               "name": "target",
@@ -528,12 +536,13 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "git": {
           "description": "Git fetch, bookmark tracking, and push",
+          "afterHelp": "Example:\n  treq git push --repo . --workspace 1 --idempotency-key k1",
           "args": [
             {
               "name": "action",
@@ -551,7 +560,7 @@
             {
               "name": "workspace",
               "takesValue": true,
-              "description": "Workspace numeric ID"
+              "description": "Workspace id, a positive integer (see `treq workspace list`)"
             },
             {
               "name": "target",
@@ -571,12 +580,13 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "agent-remote": {
           "description": "Coding-agent lifecycle backed by the VM-local supervisor",
+          "afterHelp": "Example:\n  treq agent-remote start --repo . --workspace 1 --target claude --value \"fix the tests\" --idempotency-key k1",
           "args": [
             {
               "name": "action",
@@ -595,7 +605,7 @@
               "name": "workspace",
               "takesValue": true,
               "required": true,
-              "description": "Workspace numeric ID"
+              "description": "Workspace id, a positive integer (see `treq workspace list`)"
             },
             {
               "name": "target",
@@ -615,12 +625,13 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "agent-review": {
           "description": "Local-only review comments left on a diff or file",
+          "afterHelp": "Example:\n  treq agent-review add --target-id 1 --file src/main.rs --start-line 3 --side new --comment \"unchecked unwrap\"",
           "args": [
             {
               "name": "action",
@@ -677,12 +688,13 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         },
         "pty-remote": {
           "description": "VM-local persistent PTY sessions (tmux/screen-backed) for full terminal streaming and reattach",
+          "afterHelp": "Example:\n  treq pty-remote list --repo . --workspace 1",
           "args": [
             {
               "name": "action",
@@ -700,7 +712,7 @@
             {
               "name": "workspace",
               "takesValue": true,
-              "description": "Workspace numeric ID"
+              "description": "Workspace id, a positive integer (see `treq workspace list`)"
             },
             {
               "name": "target",
@@ -720,7 +732,7 @@
             {
               "name": "format",
               "takesValue": true,
-              "description": "Output format: human or json"
+              "description": "Output format: human or json (default: human)"
             }
           ]
         }

@@ -582,10 +582,6 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
     | "pty-remote" => run_structured(&subcommand.matches, |format| {
       handle_remote_review_command(&subcommand.name, &subcommand.matches, format)
     }),
-    "help" => {
-      print_cli_help();
-      true
-    }
     _ => return None,
   };
   Some(if success { 0 } else { 1 })
@@ -656,34 +652,7 @@ pub(super) fn is_supported_cli_command(name: &str) -> bool {
       | "agent-remote"
       | "agent-review"
       | "pty-remote"
-      | "help"
   )
-}
-
-fn print_cli_help() {
-  println!("Treq - Stacking ADE");
-  println!();
-  println!("Usage:");
-  println!("  treq add <branch_name> [-d description] [-l title] [-s source_branch] [-p sparse]... [-k symlink]...");
-  println!("  treq set <workspace_name> [-d description] [-l title] [-t target_branch]");
-  println!("  treq st [workspace_name]");
-  println!("  treq diff [workspace_name]");
-  println!(
-        "  treq mv <source> <destination> -f [FILES...] -r [RANGES...] -c [COMMITS...]  (use '.' for the home repo)"
-    );
-  println!("  treq agent <branch> <prompt> [-m <edit|plan>]");
-  println!("  treq commit <workspace_name> -m <message> [--push]");
-  println!("  treq resolve <commit_id> [sides...]");
-  println!("  treq send [path|-]");
-  println!("  treq send --browser <path-or-url>");
-  println!("  treq repo inspect --repo <path> [--format human|json]");
-  println!("  treq repo usage --repo <root> [--format human|json]");
-  println!(
-        "  treq agent-review add --target-type <type> --target-id <id> --file <path> --start-line <n> [--end-line <n>] [--side old|new] --comment <text> [--suggestion <text>]"
-    );
-  println!("  treq agent-review list --target-type <type> --target-id <id>");
-  println!("  treq agent-review resolve|delete --comment-id <id>");
-  println!("  treq help");
 }
 
 pub(super) fn parse_agent_mode(mode: &str) -> Result<&'static str, String> {
