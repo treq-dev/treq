@@ -31,6 +31,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "RebaseWorkspace",
       "RestoreFile",
       "PatchFile",
+      "StashWorkspaceChanges",
       "CreateCommit",
       "DescribeCommit",
       "SplitCommit",
@@ -54,7 +55,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "CommitFileDiff",
       "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(45);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(46);
   });
 
   it("is exhaustive over the request union", () => {
@@ -122,6 +123,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
         patch_base64: "YQ==",
         idempotency_key: "k",
       },
+      { kind: "StashWorkspaceChanges", repo: "/r", idempotency_key: "k" },
       {
         kind: "CreateCommit",
         repo: "/r",

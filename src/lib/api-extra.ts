@@ -31,6 +31,7 @@ import {
   transportGetCommitDescription,
   transportMoveCommit,
   transportResolveCommit,
+  transportStashWorkspaceChanges,
 } from "./repository-adapter-mutations";
 import { currentWindowLabel } from "./window-label";
 
@@ -422,7 +423,9 @@ export const stashWorkspaceChanges = (
   repoPath: string,
   workspaceId: number | null,
 ): Promise<StashEntry> =>
-  invoke("stash_workspace_changes", { repoPath, workspaceId });
+  transportStashWorkspaceChanges(repoPath, workspaceId, () =>
+    invoke("stash_workspace_changes", { repoPath, workspaceId }),
+  );
 
 export const stashCommit = (
   repoPath: string,

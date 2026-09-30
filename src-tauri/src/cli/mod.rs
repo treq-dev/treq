@@ -429,6 +429,11 @@ pub(crate) fn parse_remote_command_request(
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
     ("commits", "list") => Ok(TreqCommandRequest::ListCommits { repo, workspace }),
+    ("workspace", "stash") => Ok(TreqCommandRequest::StashWorkspaceChanges {
+      repo,
+      workspace,
+      idempotency_key: require_idempotency_key(idempotency_key)?,
+    }),
     ("commits", "create") => Ok(TreqCommandRequest::CreateCommit {
       repo,
       workspace,

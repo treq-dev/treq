@@ -56,6 +56,7 @@ export const TREQ_COMMAND_KINDS = [
   "RebaseWorkspace",
   "RestoreFile",
   "PatchFile",
+  "StashWorkspaceChanges",
   "CreateCommit",
   "DescribeCommit",
   "SplitCommit",
@@ -194,6 +195,12 @@ export type TreqCommandRequest =
       workspace?: string | null;
       path: string;
       patch_base64: string;
+      idempotency_key: string;
+    }
+  | {
+      kind: "StashWorkspaceChanges";
+      repo: string;
+      workspace?: string | null;
       idempotency_key: string;
     }
   | {

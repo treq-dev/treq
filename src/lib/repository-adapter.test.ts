@@ -17,6 +17,7 @@ import {
   saveFileBrowserReview,
   searchWorkspaceFiles,
   setWorkspaceTargetBranch,
+  stashWorkspaceChanges,
 } from "./api";
 import {
   localActiveRepository,
@@ -271,6 +272,20 @@ describe("remote repository mutations", () => {
     );
     expect(invoke).not.toHaveBeenCalled();
     expect(dispatchMutationOverSsh).not.toHaveBeenCalled();
+  });
+});
+
+describe("remote stash", () => {
+  it("stashes the working copy with an idempotency key", async () => {
+    await stashWorkspaceChanges(ROOT, 7);
+    const [stash] = sentMutations();
+    expect(stash).toMatchObject({
+      kind: "StashWorkspaceChanges",
+      repo: ROOT,
+      workspace: "7",
+    });
+    expect((stash as { idempotency_key: string }).idempotency_key).toBeTruthy();
+    expect(invoke).not.toHaveBeenCalled();
   });
 });
 

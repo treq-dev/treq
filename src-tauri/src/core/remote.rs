@@ -269,6 +269,13 @@ pub enum TreqCommandRequest {
     patch_base64: String,
     idempotency_key: String,
   },
+  /// Moves the working copy's changes into a new stash entry, stored in the
+  /// repository's own `.treq/local.db` like the local command's.
+  StashWorkspaceChanges {
+    repo: String,
+    workspace: Option<String>,
+    idempotency_key: String,
+  },
   // -- Phase 5: commit mutations ------------------------------------------------
   CreateCommit {
     repo: String,
@@ -463,6 +470,7 @@ impl TreqCommandRequest {
       | Self::RebaseWorkspace { .. }
       | Self::RestoreFile { .. }
       | Self::PatchFile { .. }
+      | Self::StashWorkspaceChanges { .. }
       | Self::CreateCommit { .. }
       | Self::DescribeCommit { .. }
       | Self::SplitCommit { .. }
@@ -493,6 +501,7 @@ impl TreqCommandRequest {
       | Self::MoveWorkspaceChanges { .. }
       | Self::RebaseWorkspace { .. }
       | Self::PatchFile { .. }
+      | Self::StashWorkspaceChanges { .. }
       | Self::CreateCommit { .. }
       | Self::SplitCommit { .. }
       | Self::MoveCommit { .. }
@@ -563,6 +572,7 @@ impl TreqCommandRequest {
       Self::RebaseWorkspace { .. } => "RebaseWorkspace",
       Self::RestoreFile { .. } => "RestoreFile",
       Self::PatchFile { .. } => "PatchFile",
+      Self::StashWorkspaceChanges { .. } => "StashWorkspaceChanges",
       Self::CreateCommit { .. } => "CreateCommit",
       Self::DescribeCommit { .. } => "DescribeCommit",
       Self::SplitCommit { .. } => "SplitCommit",
@@ -610,6 +620,7 @@ impl TreqCommandRequest {
     "RebaseWorkspace",
     "RestoreFile",
     "PatchFile",
+    "StashWorkspaceChanges",
     "CreateCommit",
     "DescribeCommit",
     "SplitCommit",
@@ -1402,6 +1413,15 @@ impl TreqCommandRequest {
         fields.idempotency_key = Some(idempotency_key);
         ("file", "patch", repo)
       }
+      Self::StashWorkspaceChanges {
+        repo,
+        workspace,
+        idempotency_key,
+      } => {
+        fields.workspace = workspace.as_deref();
+        fields.idempotency_key = Some(idempotency_key);
+        ("workspace", "stash", repo)
+      }
       Self::ListCommits { repo, workspace } => {
         fields.workspace = workspace.as_deref();
         ("commits", "list", repo)
@@ -2136,6 +2156,22 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
           workspace_id(workspace.as_ref())?,
           &path,
           &patch_base64,
+        ))
+      },
+    ),
+    TreqCommandRequest::StashWorkspaceChanges {
+      repo,
+      workspace,
+      idempotency_key,
+    } => with_idempotency_key(
+      &repo,
+      "stash.workspace",
+      Some(idempotency_key.as_str()),
+      request_snapshot.as_ref().expect("stash is a mutation"),
+      || {
+        json(crate::core::stash::stash_workspace_changes(
+          &repo,
+          workspace_id(workspace.as_ref())?,
         ))
       },
     ),
@@ -4092,7 +4128,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 46);
   }
 
   #[test]

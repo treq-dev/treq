@@ -9,6 +9,7 @@ import type {
   JjRebaseResult,
   RenameWorkspaceResult,
   ResolveCommitResult,
+  StashEntry,
   Workspace,
 } from "./api-types";
 import {
@@ -262,6 +263,24 @@ export async function transportSplitWorkingCopy(
     idempotency_key: newIdempotencyKey(),
   });
   return result ?? ALREADY_APPLIED;
+}
+
+/** Stashes a workspace's working copy; the entry lives on the remote host. */
+export async function transportStashWorkspaceChanges(
+  repoPath: string,
+  workspaceId: number | null,
+  local: () => Promise<StashEntry>,
+): Promise<StashEntry> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  const entry = await remoteMutation<StashEntry>(repo, {
+    kind: "StashWorkspaceChanges",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+    idempotency_key: newIdempotencyKey(),
+  });
+  if (!entry) throw new Error("stash_ambiguous: stash state unknown");
+  return entry;
 }
 
 export async function transportResolveCommit(
