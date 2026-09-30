@@ -298,3 +298,66 @@ fn test_delete_middle_workspace_splices_children_onto_its_parent() {
     .expect("top should still exist");
   assert_eq!(updated_top.target_branch, Some("feat/base".to_string()));
 }
+
+#[test]
+fn test_delete_squash_merged_parent_rebases_child_off_its_commits() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+  let default_branch = repo.default_branch().to_string();
+  let parent = repo
+    .create_workspace_with_commit("feat/merged-parent", "parent.txt", "parent\n", None)
+    .expect("Failed to create parent workspace");
+  let child = repo
+    .create_workspace_with_commit(
+      "feat/spliced-child",
+      "child.txt",
+      "child\n",
+      Some("feat/merged-parent"),
+    )
+    .expect("Failed to create child workspace");
+
+  // Squash-merge the parent: same tree as its tip, new commit on the default branch.
+  let parent_tree = TestRepo::run_git(
+    &repo.repo_path,
+    &["rev-parse", &format!("{}^{{tree}}", parent.branch_name)],
+  )
+  .expect("Failed to resolve parent tree");
+  let base = TestRepo::run_git(&repo.repo_path, &["rev-parse", &default_branch])
+    .expect("Failed to resolve default branch");
+  let squash = TestRepo::run_git(
+    &repo.repo_path,
+    &[
+      "commit-tree",
+      parent_tree.trim(),
+      "-p",
+      base.trim(),
+      "-m",
+      "Squashed parent",
+    ],
+  )
+  .expect("Failed to create squash commit");
+  TestRepo::run_git(
+    &repo.repo_path,
+    &[
+      "update-ref",
+      &format!("refs/heads/{default_branch}"),
+      squash.trim(),
+    ],
+  )
+  .expect("Failed to advance default branch");
+  treq_lib::jj::jj_util_import_git_refs(&repo.repo_path).expect("Failed to import squash");
+
+  treq_lib::core::delete_workspace(&repo.repo_path, &parent.id)
+    .expect("Failed to delete merged parent");
+
+  let child_path = repo.workspace_full_path(&child);
+  let carried = treq_lib::jj::jj_log_revset_commit_ids(
+    &child_path,
+    &format!("{default_branch}..{}", child.branch_name),
+  )
+  .expect("Failed to inspect child topology");
+  assert_eq!(
+    carried.len(),
+    1,
+    "child should carry only its own commit once the merged parent is removed"
+  );
+}
