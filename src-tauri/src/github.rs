@@ -469,6 +469,9 @@ pub fn gh_list_prs_impl(
   let mut args = vec!["pr", "list", "--repo", repo_full_name, "--state", gh_state];
   if is_draft {
     args.push("--draft");
+  } else if gh_state == "open" {
+    // `--state open` includes drafts, which have their own filter.
+    args.extend(["--search", "draft:false"]);
   }
   args.extend([
     "--json",
@@ -1616,6 +1619,19 @@ echo '[]'"#,
     let page = gh_list_prs_impl(&gh_path, "owner/repo", "draft", 30, 1, "/usr/bin:/bin").unwrap();
     assert!(page.items.is_empty());
     assert!(!page.has_more);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_list_prs_excludes_drafts_when_state_is_open() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "pr list --repo owner/repo --state open --search draft:false --json number,title,state,url,author,labels,headRefName,baseRefName,createdAt,updatedAt,isDraft --limit 30" || exit 9
+echo '[]'"#,
+    );
+    let page = gh_list_prs_impl(&gh_path, "owner/repo", "open", 30, 1, "/usr/bin:/bin").unwrap();
+    assert!(page.items.is_empty());
   }
 
   // ── check duration ───────────────────────────────────────────────────────
