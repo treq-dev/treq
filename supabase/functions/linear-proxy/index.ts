@@ -1,8 +1,11 @@
 // Proxies authenticated Linear API requests to the Linear GraphQL endpoint.
 // The client sends a GraphQL query/mutation, and this function forwards it
-// using the stored access token from linear_oauth_tokens.
+// using the stored access token from linear_oauth_tokens. An access token
+// close to expiry is refreshed first and the new grant is stored. The
+// request logic lives in lib.ts so it can be unit tested.
 
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";
+import { proxyLinearRequest, type StoredToken } from "./lib.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,11 +13,15 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
+function respond(body: string, status: number): Response {
+  return new Response(body, {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function json(body: unknown, status = 200): Response {
+  return respond(JSON.stringify(body), status);
 }
 
 Deno.serve(async (req) => {
@@ -56,53 +63,35 @@ Deno.serve(async (req) => {
     supabaseUrl,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   );
+  const clientId = Deno.env.get("LINEAR_CLIENT_ID");
+  const clientSecret = Deno.env.get("LINEAR_CLIENT_SECRET");
 
-  const { data: tokenData, error: tokenError } = await supabase
-    .from("linear_oauth_tokens")
-    .select("access_token")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (tokenError) {
-    console.error("[linear-proxy] token lookup failed:", tokenError.message);
-    return json({ error: "Failed to retrieve Linear token" }, 500);
-  }
-
-  if (!tokenData) {
-    return json({ error: "Linear account not linked" }, 403);
-  }
-
-  try {
-    const response = await fetch("https://api.linear.app/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": tokenData.access_token,
+  const result = await proxyLinearRequest(
+    { query: body.query, variables: body.variables },
+    {
+      fetch,
+      linearClient: clientId && clientSecret
+        ? { id: clientId, secret: clientSecret }
+        : null,
+      store: {
+        load: async () => {
+          const { data, error } = await supabase
+            .from("linear_oauth_tokens")
+            .select("access_token, refresh_token, expires_at, updated_at")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (error) throw new Error(error.message);
+          return (data as StoredToken | null) ?? null;
+        },
+        save: async (update) => {
+          const { error } = await supabase
+            .from("linear_oauth_tokens")
+            .update({ ...update, updated_at: new Date().toISOString() })
+            .eq("user_id", user.id);
+          if (error) throw new Error(error.message);
+        },
       },
-      body: JSON.stringify({
-        query: body.query,
-        variables: body.variables,
-      }),
-    });
-
-    if (!response.ok) {
-      console.error(
-        "[linear-proxy] Linear API error:",
-        response.status,
-      );
-      return json(
-        { error: "Linear API error", status: response.status },
-        response.status,
-      );
-    }
-
-    const result = await response.json();
-    return json(result);
-  } catch (err) {
-    console.error(
-      "[linear-proxy] request failed:",
-      err instanceof Error ? err.message : String(err),
-    );
-    return json({ error: "Failed to proxy Linear request" }, 502);
-  }
+    },
+  );
+  return respond(result.body, result.status);
 });

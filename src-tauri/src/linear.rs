@@ -2,7 +2,7 @@ use crate::tracker::{KickoffLedger, KickoffPoller, MAX_KICKOFF_ATTEMPTS};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -82,22 +82,70 @@ pub struct LinearComment {
 }
 
 pub enum LinearClientSource {
+  /// A personal API key from the repo's Linear settings, sent straight to
+  /// Linear.
   ApiKey(String),
-  ProxyToken,
+  /// The signed-in treq user's Linear OAuth grant, used through the
+  /// `linear-proxy` Edge Function, which holds the Linear token.
+  Proxy(LinearProxySession),
+}
+
+#[derive(Clone)]
+pub struct LinearProxySession {
+  pub supabase_url: String,
+  pub access_token: String,
+}
+
+// The frontend pushes the Supabase session on sign-in and every token
+// refresh. The auto-kickoff poller reads it here too, so OAuth-connected
+// repos work without a Tauri command in flight. It is never logged.
+static PROXY_SESSION: RwLock<Option<LinearProxySession>> = RwLock::new(None);
+
+/// Sets, or clears on sign-out, the session used for the OAuth proxy.
+pub fn set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
+  let session = match (supabase_url, access_token) {
+    (Some(url), Some(token)) if !url.trim().is_empty() && !token.is_empty() => {
+      Some(LinearProxySession {
+        supabase_url: url.trim().trim_end_matches('/').to_string(),
+        access_token: token,
+      })
+    }
+    _ => None,
+  };
+  match PROXY_SESSION.write() {
+    Ok(mut guard) => *guard = session,
+    Err(poisoned) => *poisoned.into_inner() = session,
+  }
+}
+
+fn proxy_session() -> Option<LinearProxySession> {
+  match PROXY_SESSION.read() {
+    Ok(guard) => guard.clone(),
+    Err(poisoned) => poisoned.into_inner().clone(),
+  }
 }
 
 pub fn resolve_linear_client(
   repo_path: &str,
   db: &crate::db::Database,
 ) -> Result<LinearClientSource, String> {
-  let api_key = db
-    .get_repo_setting(repo_path, "linear_api_key")
-    .map_err(|e| format!("Failed to read linear_api_key setting: {e}"))?;
+  let api_key = crate::tracker::read_setting(db, repo_path, "linear_api_key")?;
+  resolve_client_source(api_key, proxy_session())
+}
 
-  if let Some(key) = api_key {
-    Ok(LinearClientSource::ApiKey(key))
-  } else {
-    Ok(LinearClientSource::ProxyToken)
+/// A repo API key wins over OAuth so a repo can target a different Linear
+/// workspace than the one the user connected.
+fn resolve_client_source(
+  api_key: Option<String>,
+  session: Option<LinearProxySession>,
+) -> Result<LinearClientSource, String> {
+  match (api_key, session) {
+    (Some(key), _) => Ok(LinearClientSource::ApiKey(key)),
+    (None, Some(session)) => Ok(LinearClientSource::Proxy(session)),
+    (None, None) => Err(
+      "Linear is not connected. Add an API key in the Linear settings, or sign in to treq and connect Linear with OAuth."
+        .to_string(),
+    ),
   }
 }
 
@@ -150,15 +198,24 @@ fn linear_http_client() -> &'static reqwest::Client {
 /// Sends one GraphQL request to Linear and returns its `data`. `what` names
 /// the resource in error messages ("issues", "teams").
 async fn linear_graphql<T: DeserializeOwned>(
-  api_key: &str,
+  client: &LinearClientSource,
   body: &serde_json::Value,
   what: &str,
 ) -> Result<T, String> {
   let (url, timeout) = linear_endpoint();
-  let response = linear_http_client()
-    .post(url)
+  let request = match client {
+    LinearClientSource::ApiKey(api_key) => linear_http_client()
+      .post(url)
+      .header("Authorization", api_key),
+    LinearClientSource::Proxy(session) => linear_http_client()
+      .post(format!(
+        "{}/functions/v1/linear-proxy",
+        session.supabase_url
+      ))
+      .bearer_auth(&session.access_token),
+  };
+  let response = request
     .timeout(timeout)
-    .header("Authorization", api_key)
     .json(body)
     .send()
     .await
@@ -175,7 +232,11 @@ async fn linear_graphql<T: DeserializeOwned>(
     .text()
     .await
     .map_err(|e| format!("Failed to read Linear response: {e}"))?;
-  parse_graphql_response(status, &text)
+  parse_graphql_response(
+    status,
+    &text,
+    matches!(client, LinearClientSource::Proxy(_)),
+  )
 }
 
 /// Linear reports query errors as a GraphQL `errors` array, often with a 4xx
@@ -185,11 +246,12 @@ async fn linear_graphql<T: DeserializeOwned>(
 fn parse_graphql_response<T: DeserializeOwned>(
   status: reqwest::StatusCode,
   text: &str,
+  via_proxy: bool,
 ) -> Result<T, String> {
   let result = match serde_json::from_str::<LinearGraphqlResponse<T>>(text) {
     Ok(result) => result,
     Err(e) if status.is_success() => return Err(format!("Failed to parse Linear response: {e}")),
-    Err(_) => return Err(http_status_error(status, text)),
+    Err(_) => return Err(http_status_error(status, text, via_proxy)),
   };
 
   if let Some(errors) = result.errors.filter(|errors| !errors.is_empty()) {
@@ -203,7 +265,7 @@ fn parse_graphql_response<T: DeserializeOwned>(
     ));
   }
   if !status.is_success() {
-    return Err(http_status_error(status, text));
+    return Err(http_status_error(status, text, via_proxy));
   }
 
   result
@@ -211,8 +273,23 @@ fn parse_graphql_response<T: DeserializeOwned>(
     .ok_or_else(|| "No data in Linear response".to_string())
 }
 
-fn http_status_error(status: reqwest::StatusCode, text: &str) -> String {
+fn http_status_error(status: reqwest::StatusCode, text: &str, via_proxy: bool) -> String {
+  // The proxy explains its own failures ("Linear account not linked") in an
+  // `error` field. Those beat a generic status message.
+  if via_proxy {
+    if let Some(message) = serde_json::from_str::<serde_json::Value>(text)
+      .ok()
+      .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
+    {
+      return format!("Linear: {message}");
+    }
+  }
   match status.as_u16() {
+    401 | 403 if via_proxy => {
+      format!(
+        "treq could not authenticate with the Linear proxy ({status}). Sign in to treq again."
+      )
+    }
     401 | 403 => {
       format!(
         "Linear rejected the API key ({status}). Check the Linear settings for this repository."
@@ -343,7 +420,9 @@ struct LinearTeamNode {
   key: String,
 }
 
-pub async fn linear_list_teams_impl(api_key: &str) -> Result<Vec<LinearTeam>, String> {
+pub async fn linear_list_teams_impl(
+  client: &LinearClientSource,
+) -> Result<Vec<LinearTeam>, String> {
   let query = r#"query {
     teams(first: 100) {
       nodes {
@@ -355,7 +434,7 @@ pub async fn linear_list_teams_impl(api_key: &str) -> Result<Vec<LinearTeam>, St
   }"#;
 
   let data: LinearTeamsData =
-    linear_graphql(api_key, &serde_json::json!({ "query": query }), "teams").await?;
+    linear_graphql(client, &serde_json::json!({ "query": query }), "teams").await?;
 
   Ok(
     data
@@ -402,9 +481,17 @@ fn team_issue_filter(team_filter: Option<&str>) -> Option<serde_json::Value> {
 }
 
 fn list_issues_body(filter: Option<&serde_json::Value>, after: Option<&str>) -> serde_json::Value {
+  issue_page_body(ISSUE_FIELDS, filter, after)
+}
+
+fn issue_page_body(
+  fields: &str,
+  filter: Option<&serde_json::Value>,
+  after: Option<&str>,
+) -> serde_json::Value {
   serde_json::json!({
     "query": format!(
-      "query($first: Int!, $after: String, $filter: IssueFilter) {{ issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {{ nodes {{ {ISSUE_FIELDS} }} pageInfo {{ hasNextPage endCursor }} }} }}"
+      "query($first: Int!, $after: String, $filter: IssueFilter) {{ issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {{ nodes {{ {fields} }} pageInfo {{ hasNextPage endCursor }} }} }}"
     ),
     "variables": {
       "first": ISSUE_PAGE_SIZE,
@@ -417,14 +504,14 @@ fn list_issues_body(filter: Option<&serde_json::Value>, after: Option<&str>) -> 
 /// Follows `pageInfo` cursors until Linear reports no next page or the
 /// `MAX_ISSUE_PAGES` cap is hit.
 async fn fetch_issue_pages(
-  api_key: &str,
+  client: &LinearClientSource,
   filter: Option<&serde_json::Value>,
 ) -> Result<Vec<LinearIssue>, String> {
   let mut issues = Vec::new();
   let mut after: Option<String> = None;
   for _ in 0..MAX_ISSUE_PAGES {
     let data: LinearIssuesData = linear_graphql(
-      api_key,
+      client,
       &list_issues_body(filter, after.as_deref()),
       "issues",
     )
@@ -441,6 +528,60 @@ async fn fetch_issue_pages(
     MAX_ISSUE_PAGES * ISSUE_PAGE_SIZE as usize
   );
   Ok(issues)
+}
+
+// The poller prunes its ledger against this list, so a partial list would
+// make it forget handled issues and kick them off again. The cap is high and
+// exceeding it is an error rather than a silent truncation.
+const MAX_LABELED_ISSUE_PAGES: usize = 50;
+
+/// Open issues carrying `label`, for auto-kickoff. Filtering happens in
+/// Linear so issues outside the panel's page window are still found, and
+/// completed or canceled issues never start a workspace.
+fn kickoff_issue_filter(label: &str) -> serde_json::Value {
+  serde_json::json!({
+    "labels": { "some": { "name": { "eqIgnoreCase": label } } },
+    "state": { "type": { "nin": ["completed", "canceled"] } },
+  })
+}
+
+#[derive(Deserialize)]
+struct LinearIssueIdsData {
+  issues: LinearIssueIdsConnection,
+}
+
+#[derive(Deserialize)]
+struct LinearIssueIdsConnection {
+  nodes: Vec<LinearSubIssueNode>,
+  #[serde(default, rename = "pageInfo")]
+  page_info: LinearPageInfo,
+}
+
+pub async fn linear_list_labeled_issue_ids_impl(
+  client: &LinearClientSource,
+  label: &str,
+) -> Result<Vec<String>, String> {
+  let filter = kickoff_issue_filter(label);
+  let mut ids = Vec::new();
+  let mut after: Option<String> = None;
+  for _ in 0..MAX_LABELED_ISSUE_PAGES {
+    let data: LinearIssueIdsData = linear_graphql(
+      client,
+      &issue_page_body("id", Some(&filter), after.as_deref()),
+      "labeled issues",
+    )
+    .await?;
+    let page = data.issues;
+    ids.extend(page.nodes.into_iter().map(|node| node.id));
+    match next_cursor(page.page_info) {
+      Some(cursor) => after = Some(cursor),
+      None => return Ok(ids),
+    }
+  }
+  Err(format!(
+    "More than {} open issues carry the label \"{label}\"; skipping auto-kickoff",
+    MAX_LABELED_ISSUE_PAGES * ISSUE_PAGE_SIZE as usize
+  ))
 }
 
 fn next_cursor(page_info: LinearPageInfo) -> Option<String> {
@@ -504,10 +645,10 @@ fn entity_comments_body(entity: CommentEntity, entity_id: &str) -> serde_json::V
 }
 
 pub async fn linear_list_issues_impl(
-  api_key: &str,
+  client: &LinearClientSource,
   team_filter: Option<&str>,
 ) -> Result<Vec<LinearIssue>, String> {
-  fetch_issue_pages(api_key, team_issue_filter(team_filter).as_ref()).await
+  fetch_issue_pages(client, team_issue_filter(team_filter).as_ref()).await
 }
 
 fn map_issue_node(node: LinearIssueNode) -> LinearIssue {
@@ -538,13 +679,16 @@ fn map_issue_node(node: LinearIssueNode) -> LinearIssue {
   }
 }
 
-pub async fn linear_get_issue_impl(api_key: &str, issue_id: &str) -> Result<LinearIssue, String> {
+pub async fn linear_get_issue_impl(
+  client: &LinearClientSource,
+  issue_id: &str,
+) -> Result<LinearIssue, String> {
   #[derive(Deserialize)]
   struct IssueData {
     issue: Option<LinearIssueNode>,
   }
 
-  let data: IssueData = linear_graphql(api_key, &get_issue_body(issue_id), "issue").await?;
+  let data: IssueData = linear_graphql(client, &get_issue_body(issue_id), "issue").await?;
   let node = data
     .issue
     .ok_or_else(|| format!("Issue {issue_id} not found"))?;
@@ -552,7 +696,7 @@ pub async fn linear_get_issue_impl(api_key: &str, issue_id: &str) -> Result<Line
   Ok(map_issue_node(node))
 }
 
-pub async fn linear_get_viewer_impl(api_key: &str) -> Result<LinearUser, String> {
+pub async fn linear_get_viewer_impl(client: &LinearClientSource) -> Result<LinearUser, String> {
   let query = r#"query { viewer { id name } }"#;
 
   #[derive(Deserialize)]
@@ -561,7 +705,7 @@ pub async fn linear_get_viewer_impl(api_key: &str) -> Result<LinearUser, String>
   }
 
   let data: ViewerData =
-    linear_graphql(api_key, &serde_json::json!({ "query": query }), "viewer").await?;
+    linear_graphql(client, &serde_json::json!({ "query": query }), "viewer").await?;
 
   Ok(LinearUser {
     id: data.viewer.id,
@@ -569,7 +713,9 @@ pub async fn linear_get_viewer_impl(api_key: &str) -> Result<LinearUser, String>
   })
 }
 
-pub async fn linear_list_projects_impl(api_key: &str) -> Result<Vec<LinearProject>, String> {
+pub async fn linear_list_projects_impl(
+  client: &LinearClientSource,
+) -> Result<Vec<LinearProject>, String> {
   let query = r#"query {
     projects(first: 100) {
       nodes {
@@ -611,7 +757,7 @@ pub async fn linear_list_projects_impl(api_key: &str) -> Result<Vec<LinearProjec
   }
 
   let data: ProjectsData =
-    linear_graphql(api_key, &serde_json::json!({ "query": query }), "projects").await?;
+    linear_graphql(client, &serde_json::json!({ "query": query }), "projects").await?;
 
   Ok(
     data
@@ -636,7 +782,7 @@ pub async fn linear_list_projects_impl(api_key: &str) -> Result<Vec<LinearProjec
 }
 
 pub async fn linear_list_project_documents_impl(
-  api_key: &str,
+  client: &LinearClientSource,
   project_id: &str,
 ) -> Result<Vec<LinearDocument>, String> {
   #[derive(Deserialize)]
@@ -665,7 +811,7 @@ pub async fn linear_list_project_documents_impl(
   }
 
   let data: ProjectDocumentsData =
-    linear_graphql(api_key, &project_documents_body(project_id), "documents").await?;
+    linear_graphql(client, &project_documents_body(project_id), "documents").await?;
   let project = data
     .project
     .ok_or_else(|| format!("Project {project_id} not found"))?;
@@ -717,7 +863,7 @@ fn map_comment_node(node: CommentNode) -> LinearComment {
 }
 
 async fn fetch_comments_for_entity(
-  api_key: &str,
+  client: &LinearClientSource,
   entity: CommentEntity,
   entity_id: &str,
 ) -> Result<Vec<LinearComment>, String> {
@@ -733,12 +879,8 @@ async fn fetch_comments_for_entity(
     comments: CommentsConnection,
   }
 
-  let mut data: EntityCommentsData = linear_graphql(
-    api_key,
-    &entity_comments_body(entity, entity_id),
-    "comments",
-  )
-  .await?;
+  let mut data: EntityCommentsData =
+    linear_graphql(client, &entity_comments_body(entity, entity_id), "comments").await?;
   let node = data
     .entity
     .remove(entity_field)
@@ -756,24 +898,24 @@ async fn fetch_comments_for_entity(
 }
 
 pub async fn linear_list_issue_comments_impl(
-  api_key: &str,
+  client: &LinearClientSource,
   issue_id: &str,
 ) -> Result<Vec<LinearComment>, String> {
-  fetch_comments_for_entity(api_key, CommentEntity::Issue, issue_id).await
+  fetch_comments_for_entity(client, CommentEntity::Issue, issue_id).await
 }
 
 pub async fn linear_list_project_comments_impl(
-  api_key: &str,
+  client: &LinearClientSource,
   project_id: &str,
 ) -> Result<Vec<LinearComment>, String> {
-  fetch_comments_for_entity(api_key, CommentEntity::Project, project_id).await
+  fetch_comments_for_entity(client, CommentEntity::Project, project_id).await
 }
 
 pub async fn linear_list_document_comments_impl(
-  api_key: &str,
+  client: &LinearClientSource,
   document_id: &str,
 ) -> Result<Vec<LinearComment>, String> {
-  fetch_comments_for_entity(api_key, CommentEntity::Document, document_id).await
+  fetch_comments_for_entity(client, CommentEntity::Document, document_id).await
 }
 
 fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
@@ -795,29 +937,16 @@ fn poll_linear_kickoff(repo_path: &str) -> Result<(), String> {
     _ => return Ok(()),
   };
 
-  let client_source = resolve_linear_client(repo_path, &db)?;
-  let api_key = match client_source {
-    LinearClientSource::ApiKey(key) => key,
-    LinearClientSource::ProxyToken => {
-      return Err("Linear auto-kickoff requires API key (OAuth proxy not ready)".to_string())
-    }
-  };
+  let client = resolve_linear_client(repo_path, &db)?;
 
   let rt =
     tokio::runtime::Runtime::new().map_err(|e| format!("Failed to create async runtime: {e}"))?;
 
-  let issues = rt.block_on(linear_list_issues_impl(&api_key, None))?;
-  let labeled_ids: Vec<String> = issues
-    .into_iter()
-    .filter(|issue| issue.labels.contains(&label))
-    .map(|issue| issue.id)
-    .collect();
+  let labeled_ids = rt.block_on(linear_list_labeled_issue_ids_impl(&client, &label))?;
 
   let mut ledger = KickoffLedger::load(&db, repo_path, HANDLED_KEY, FAILURES_KEY)?;
   for issue_id in ledger.due(&labeled_ids) {
-    match rt.block_on(kickoff_linear_issue_internal(
-      repo_path, &api_key, &issue_id,
-    )) {
+    match rt.block_on(kickoff_linear_issue_internal(repo_path, &client, &issue_id)) {
       Ok(_) => ledger.record_success(&issue_id),
       Err(e) => {
         let attempts = ledger.record_failure(&issue_id);
@@ -835,10 +964,10 @@ const FAILURES_KEY: &str = "linear_kickoff_failures";
 
 async fn kickoff_linear_issue_internal(
   repo_path: &str,
-  api_key: &str,
+  client: &LinearClientSource,
   issue_id: &str,
 ) -> Result<crate::commands::linear::LinearKickoffResult, String> {
-  let issue = linear_get_issue_impl(api_key, issue_id).await?;
+  let issue = linear_get_issue_impl(client, issue_id).await?;
   crate::commands::linear::open_or_create_workspace_from_linear_issue(repo_path, &issue).await
 }
 
@@ -947,6 +1076,20 @@ mod tests {
   }
 
   #[test]
+  fn kickoff_filter_matches_label_and_skips_closed_issues() {
+    let body = issue_page_body("id", Some(&kickoff_issue_filter(HOSTILE)), None);
+    let query = body["query"].as_str().unwrap();
+    assert!(!query.contains(HOSTILE));
+    assert!(query.contains("nodes { id }"));
+    let filter = &body["variables"]["filter"];
+    assert_eq!(filter["labels"]["some"]["name"]["eqIgnoreCase"], HOSTILE);
+    assert_eq!(
+      filter["state"]["type"]["nin"],
+      serde_json::json!(["completed", "canceled"])
+    );
+  }
+
+  #[test]
   fn next_cursor_stops_on_last_page() {
     let more = LinearPageInfo {
       has_next_page: true,
@@ -1004,6 +1147,7 @@ mod tests {
     let data: ViewerOnly = parse_graphql_response(
       reqwest::StatusCode::OK,
       r#"{"data":{"viewer":{"id":"u1","name":"Ada"}}}"#,
+      false,
     )
     .unwrap();
     assert_eq!(data.viewer.id, "u1");
@@ -1014,6 +1158,7 @@ mod tests {
     let err = parse_graphql_response::<ViewerOnly>(
       reqwest::StatusCode::BAD_REQUEST,
       r#"{"errors":[{"message":"Argument Validation Error"}]}"#,
+      false,
     )
     .unwrap_err();
     assert_eq!(err, "Linear API error: Argument Validation Error");
@@ -1024,22 +1169,91 @@ mod tests {
     let err = parse_graphql_response::<ViewerOnly>(
       reqwest::StatusCode::UNAUTHORIZED,
       "<html>Unauthorized</html>",
+      false,
     )
     .unwrap_err();
     assert!(err.contains("rejected the API key"), "{err}");
 
-    let err =
-      parse_graphql_response::<ViewerOnly>(reqwest::StatusCode::TOO_MANY_REQUESTS, "slow down")
-        .unwrap_err();
+    let err = parse_graphql_response::<ViewerOnly>(
+      reqwest::StatusCode::TOO_MANY_REQUESTS,
+      "slow down",
+      false,
+    )
+    .unwrap_err();
     assert!(err.contains("rate limit"), "{err}");
   }
 
   #[test]
   fn error_status_without_graphql_errors_is_not_success() {
-    let err =
-      parse_graphql_response::<ViewerOnly>(reqwest::StatusCode::BAD_GATEWAY, r#"{"data":null}"#)
-        .unwrap_err();
+    let err = parse_graphql_response::<ViewerOnly>(
+      reqwest::StatusCode::BAD_GATEWAY,
+      r#"{"data":null}"#,
+      false,
+    )
+    .unwrap_err();
     assert!(err.contains("502"), "{err}");
+  }
+
+  #[test]
+  fn proxy_error_field_is_reported() {
+    let err = parse_graphql_response::<ViewerOnly>(
+      reqwest::StatusCode::FORBIDDEN,
+      r#"{"error":"Linear account not linked"}"#,
+      true,
+    )
+    .unwrap_err();
+    assert_eq!(err, "Linear: Linear account not linked");
+
+    let err = parse_graphql_response::<ViewerOnly>(
+      reqwest::StatusCode::UNAUTHORIZED,
+      r#"{"msg":"Invalid JWT"}"#,
+      true,
+    )
+    .unwrap_err();
+    assert!(err.contains("Sign in to treq again"), "{err}");
+  }
+
+  fn session() -> LinearProxySession {
+    LinearProxySession {
+      supabase_url: "https://proj.supabase.co".into(),
+      access_token: "jwt".into(),
+    }
+  }
+
+  #[test]
+  fn api_key_wins_over_proxy_session() {
+    let source = resolve_client_source(Some("lin_api".into()), Some(session())).unwrap();
+    assert!(matches!(source, LinearClientSource::ApiKey(key) if key == "lin_api"));
+  }
+
+  #[test]
+  fn proxy_session_is_used_without_api_key() {
+    let source = resolve_client_source(None, Some(session())).unwrap();
+    assert!(matches!(source, LinearClientSource::Proxy(s) if s.access_token == "jwt"));
+  }
+
+  #[test]
+  fn no_credentials_is_a_clear_error() {
+    let err = resolve_client_source(None, None).err().unwrap();
+    assert!(err.contains("not connected"), "{err}");
+  }
+
+  #[test]
+  fn set_proxy_session_normalizes_and_clears() {
+    set_proxy_session(
+      Some("https://proj.supabase.co/ ".into()),
+      Some("jwt".into()),
+    );
+    assert_eq!(
+      proxy_session().map(|s| s.supabase_url).as_deref(),
+      Some("https://proj.supabase.co")
+    );
+    set_proxy_session(Some("https://proj.supabase.co".into()), None);
+    assert!(proxy_session().is_none());
+  }
+
+  fn api_key(key: &str) -> LinearClientSource {
+    LinearClientSource::ApiKey(key.to_string())
   }
 
   struct TestEndpointGuard;
@@ -1071,7 +1285,7 @@ mod tests {
 
     let result = tokio::time::timeout(
       Duration::from_secs(3),
-      linear_get_viewer_impl("lin_api_test"),
+      linear_get_viewer_impl(&api_key("lin_api_test")),
     )
     .await
     .expect("the request must fail on its own timeout, not hang");
@@ -1089,7 +1303,9 @@ mod tests {
       .await;
     let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
 
-    let err = linear_get_viewer_impl("lin_api_bad").await.unwrap_err();
+    let err = linear_get_viewer_impl(&api_key("lin_api_bad"))
+      .await
+      .unwrap_err();
     assert!(err.contains("rejected the API key"), "{err}");
   }
 
@@ -1111,7 +1327,9 @@ mod tests {
       .await;
     let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
 
-    let viewer = linear_get_viewer_impl("lin_api_test").await.unwrap();
+    let viewer = linear_get_viewer_impl(&api_key("lin_api_test"))
+      .await
+      .unwrap();
     assert_eq!(viewer.id, "u1");
   }
 
@@ -1159,7 +1377,7 @@ mod tests {
       .await;
     let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
 
-    let issues = linear_list_issues_impl("lin_api_test", Some("ENG"))
+    let issues = linear_list_issues_impl(&api_key("lin_api_test"), Some("ENG"))
       .await
       .unwrap();
     let ids: Vec<_> = issues.iter().map(|i| i.id.as_str()).collect();
@@ -1177,7 +1395,159 @@ mod tests {
       .await;
     let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
 
-    let issues = linear_list_issues_impl("lin_api_test", None).await.unwrap();
+    let issues = linear_list_issues_impl(&api_key("lin_api_test"), None)
+      .await
+      .unwrap();
     assert_eq!(issues.len(), MAX_ISSUE_PAGES);
+  }
+
+  fn labeled_node(id: &str, label: &str, state_type: &str) -> serde_json::Value {
+    serde_json::json!({
+      "id": id,
+      "identifier": id.to_uppercase(),
+      "title": format!("Issue {id}"),
+      "branchName": format!("branch-{id}"),
+      "url": format!("https://linear.app/t/issue/{id}"),
+      "state": { "name": state_type, "type": state_type },
+      "labels": { "nodes": [{ "name": label }] },
+    })
+  }
+
+  fn nodes_page(nodes: Vec<serde_json::Value>, next: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+      "data": { "issues": {
+        "nodes": nodes,
+        "pageInfo": { "hasNextPage": next.is_some(), "endCursor": next },
+      } }
+    })
+  }
+
+  fn kickoff_filter_matcher(label: &str) -> wiremock::matchers::BodyPartialJsonMatcher {
+    wiremock::matchers::body_partial_json(serde_json::json!({
+      "variables": { "filter": kickoff_issue_filter(label) }
+    }))
+  }
+
+  #[tokio::test]
+  async fn kickoff_finds_labeled_issues_outside_the_first_unfiltered_page() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    // Linear only returns the labeled issue when asked for it; an
+    // unfiltered first page is full of other issues.
+    Mock::given(method("POST"))
+      .and(kickoff_filter_matcher("agent"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(
+        vec![labeled_node("old-labeled", "agent", "unstarted")],
+        None,
+      )))
+      .with_priority(1)
+      .mount(&server)
+      .await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(
+        vec![labeled_node("recent", "bug", "started")],
+        Some("more"),
+      )))
+      .with_priority(2)
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let ids = linear_list_labeled_issue_ids_impl(&api_key("lin_api_test"), "agent")
+      .await
+      .unwrap();
+    assert_eq!(ids, ["old-labeled"]);
+  }
+
+  #[tokio::test]
+  async fn kickoff_skips_closed_labeled_issues() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(kickoff_filter_matcher("agent"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(vec![], None)))
+      .with_priority(1)
+      .mount(&server)
+      .await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(
+        vec![
+          labeled_node("done", "agent", "completed"),
+          labeled_node("dropped", "agent", "canceled"),
+        ],
+        None,
+      )))
+      .with_priority(2)
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let ids = linear_list_labeled_issue_ids_impl(&api_key("lin_api_test"), "agent")
+      .await
+      .unwrap();
+    assert!(ids.is_empty(), "{ids:?}");
+  }
+
+  #[tokio::test]
+  async fn kickoff_refuses_a_partial_list_instead_of_truncating() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(nodes_page(
+        vec![labeled_node("x", "agent", "unstarted")],
+        Some("again"),
+      )))
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+
+    let result = linear_list_labeled_issue_ids_impl(&api_key("lin_api_test"), "agent").await;
+    assert!(result.is_err(), "{result:?}");
+  }
+
+  #[tokio::test]
+  async fn oauth_session_reaches_linear_through_the_proxy() {
+    use wiremock::{
+      matchers::{header, method, path},
+      Mock, MockServer, ResponseTemplate,
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(path("/functions/v1/linear-proxy"))
+      .and(header("authorization", "Bearer supabase-jwt"))
+      .respond_with(
+        ResponseTemplate::new(200)
+          .set_body_string(r#"{"data":{"viewer":{"id":"u1","name":"Ada"}}}"#),
+      )
+      .expect(1)
+      .mount(&server)
+      .await;
+    let session = LinearProxySession {
+      supabase_url: server.uri(),
+      access_token: "supabase-jwt".into(),
+    };
+
+    let client = resolve_client_source(None, Some(session)).unwrap();
+    let viewer = linear_get_viewer_impl(&client).await.unwrap();
+    assert_eq!(viewer.id, "u1");
+  }
+
+  #[tokio::test]
+  async fn proxy_explains_an_unlinked_linear_account() {
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .respond_with(
+        ResponseTemplate::new(403).set_body_string(r#"{"error":"Linear account not linked"}"#),
+      )
+      .mount(&server)
+      .await;
+    let client = LinearClientSource::Proxy(LinearProxySession {
+      supabase_url: server.uri(),
+      access_token: "supabase-jwt".into(),
+    });
+
+    let err = linear_get_viewer_impl(&client).await.unwrap_err();
+    assert_eq!(err, "Linear: Linear account not linked");
   }
 }
