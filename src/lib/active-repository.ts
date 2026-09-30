@@ -64,18 +64,19 @@ export function activeRepositoryFromRemote(
   endpoint?: SshEndpoint | null,
 ): ActiveRepository {
   const sshEndpoint = endpoint ?? saved.endpoint ?? null;
-  const location: RepositoryLocation = saved.inspection?.descriptor
-    ?.location ?? {
+  // A typed `InspectRepository` runs on the remote host, so its descriptor
+  // describes the repository as local to that host. Never take a local
+  // location from it: this repository is remote from here.
+  const inspected = saved.inspection?.descriptor;
+  const descriptor = inspected?.location.type === "ssh" ? inspected : null;
+  const location: RepositoryLocation = descriptor?.location ?? {
     type: "ssh",
     host: saved.host,
     path: saved.path,
   };
-  const canonicalPath = location.type === "ssh" ? location.path : location.path;
+  const canonicalPath = location.path;
   const endpointId =
-    sshEndpoint?.id ??
-    saved.endpoint_id ??
-    saved.inspection?.descriptor?.id ??
-    null;
+    sshEndpoint?.id ?? saved.endpoint_id ?? descriptor?.id ?? null;
   const generation =
     saved.endpoint_generation ??
     (sshEndpoint?.source &&
@@ -84,7 +85,7 @@ export function activeRepositoryFromRemote(
       ? Number(sshEndpoint.source.generation)
       : 0);
   return {
-    id: saved.inspection?.descriptor?.id ?? `${saved.host}:${saved.path}`,
+    id: descriptor?.id ?? `${saved.host}:${saved.path}`,
     location,
     endpoint: sshEndpoint,
     endpointId,
