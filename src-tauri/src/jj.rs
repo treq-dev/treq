@@ -537,34 +537,37 @@ fn evaluate_revset<'a>(
     .map_err(|e| JjError::IoError(format!("Failed to evaluate revset '{}': {}", revset_str, e)))
 }
 
+/// Snapshots the working copy into its working-copy commit, as the jj CLI
+/// does before every command, and returns that commit and its tree.
+/// `loaded.repo` moves to the snapshot operation when the tree changed.
+///
+/// The saved working-copy state and the commit must advance together. Saving
+/// the snapshotted state while the commit keeps its older tree makes the
+/// working copy look stale after the next operation that does not touch it
+/// (a HEAD or refs import), and stale recovery then checks out the older tree
+/// and deletes every file only the snapshot had seen.
 fn snapshot_working_copy_tree(
   loaded: &mut LoadedWorkspaceRepo,
   workspace_path: &str,
 ) -> Result<Option<(jj_lib::backend::CommitId, MergedTree)>, JjError> {
-  let workspace_name = loaded.workspace.workspace_name().to_owned();
+  let ignore_root =
+    derive_repo_path_from_workspace(workspace_path).unwrap_or_else(|| workspace_path.to_string());
+  snapshot_loaded_working_copy_inner(loaded, &ignore_root)?;
+
   let Some(wc_commit_id) = loaded
     .repo
     .view()
-    .get_wc_commit_id(&workspace_name)
+    .get_wc_commit_id(loaded.workspace.workspace_name())
     .cloned()
   else {
     return Ok(None);
   };
-
-  let ignore_root =
-    derive_repo_path_from_workspace(workspace_path).unwrap_or_else(|| workspace_path.to_string());
-  let matcher = repo_root_matcher();
-  let opts = snapshot_options_for_all_paths(&ignore_root, &matcher);
-  let mut locked_ws = loaded
-    .workspace
-    .start_working_copy_mutation()
-    .map_err(|e| JjError::IoError(format!("Failed to lock working copy: {}", e)))?;
-  let (tree, _stats) = block_on(locked_ws.locked_wc().snapshot(&opts))
-    .map_err(|e| JjError::IoError(format!("Failed to snapshot working copy: {}", e)))?;
-  block_on(locked_ws.finish(loaded.repo.op_id().clone()))
-    .map_err(|e| JjError::IoError(format!("Failed to finish working copy snapshot: {}", e)))?;
-
-  Ok(Some((wc_commit_id, tree)))
+  let wc_commit = loaded
+    .repo
+    .store()
+    .get_commit(&wc_commit_id)
+    .map_err(|e| JjError::IoError(format!("Failed to load working-copy commit: {e}")))?;
+  Ok(Some((wc_commit_id, wc_commit.tree())))
 }
 
 fn count_lines(content: &[u8]) -> u32 {
@@ -9355,6 +9358,35 @@ mod tests {
     assert_eq!(
       read_git_head_branch(repo_path).expect("read HEAD"),
       "feature"
+    );
+  }
+
+  #[test]
+  fn snapshot_read_keeps_new_files_when_a_later_operation_marks_the_working_copy_stale() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    jj_git_init_colocated(repo_path).expect("init colocated repo");
+    fs::write(temp.path().join(".gitignore"), ".jj/\n.treq/\n").expect("write gitignore");
+
+    // Reads such as jj_get_log and get_conflicted_files snapshot this way.
+    let mut loaded = load_workspace_repo(repo_path).expect("load repo");
+    snapshot_working_copy_tree(&mut loaded, repo_path).expect("snapshot");
+
+    // A later operation that leaves the working copy alone, like the HEAD and
+    // refs imports those reads run.
+    let loaded = load_workspace_repo(repo_path).expect("reload repo");
+    let root_id = loaded.repo.store().root_commit_id().clone();
+    let mut tx = loaded.repo.start_transaction();
+    tx.repo_mut()
+      .set_local_bookmark_target(RefName::new("marker"), RefTarget::normal(root_id));
+    block_on(tx.commit("unrelated operation")).expect("commit operation");
+
+    // The stale-working-copy recovery get_conflicted_files runs.
+    update_stale_workspace(repo_path).expect("update stale working copy");
+
+    assert!(
+      temp.path().join(".gitignore").exists(),
+      "stale recovery after a snapshot read must not delete a new file"
     );
   }
 
