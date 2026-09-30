@@ -7502,7 +7502,12 @@ pub fn jj_rebase_home_repo_branch(
   // Rebase all commits unique to current branch onto target
   let revset = format!("({target_sym}..{current_sym}) ~ empty()");
 
-  jj_rebase_with_revset(repo_path, &revset, target_branch, current_branch, "git")
+  let result = jj_rebase_with_revset(repo_path, &revset, target_branch, current_branch, "git")?;
+  // Exporting the moved bookmark detaches Git HEAD at the pre-rebase commit. Left
+  // there, the next HEAD import checks `@` back out onto it and every file the
+  // target changed shows up as a working-copy change.
+  attach_git_head_to_branch(repo_path, current_branch);
+  Ok(result)
 }
 
 /// Dry-run a home-repo rebase: check whether rebasing `current_branch` onto `target_branch`
