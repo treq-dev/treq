@@ -319,6 +319,13 @@ pub enum TreqCommandRequest {
     commit: String,
     idempotency_key: String,
   },
+  /// Undoes `operation_id` (e.g. the id an abandon returned). The operation
+  /// must still be the head, so a repeat fails instead of undoing twice.
+  UndoOperation {
+    repo: String,
+    workspace: Option<String>,
+    operation_id: String,
+  },
   // -- Phase 5: conflict mutations ----------------------------------------------
   ResolveConflict {
     repo: String,
@@ -468,6 +475,7 @@ impl TreqCommandRequest {
       | Self::SplitCommit { .. }
       | Self::MoveCommit { .. }
       | Self::AbandonCommit { .. }
+      | Self::UndoOperation { .. }
       | Self::ResolveConflict { .. }
       | Self::GitFetch { .. }
       | Self::GitBookmarkTrack { .. }
@@ -523,6 +531,7 @@ impl TreqCommandRequest {
       | Self::DeleteWorkspace { .. }
       | Self::RestoreFile { .. }
       | Self::DescribeCommit { .. }
+      | Self::UndoOperation { .. }
       | Self::GitFetch { .. }
       | Self::GitBookmarkTrack { .. }
       | Self::AgentStatus { .. }
@@ -568,6 +577,7 @@ impl TreqCommandRequest {
       Self::SplitCommit { .. } => "SplitCommit",
       Self::MoveCommit { .. } => "MoveCommit",
       Self::AbandonCommit { .. } => "AbandonCommit",
+      Self::UndoOperation { .. } => "UndoOperation",
       Self::ResolveConflict { .. } => "ResolveConflict",
       Self::GitFetch { .. } => "GitFetch",
       Self::GitBookmarkTrack { .. } => "GitBookmarkTrack",
@@ -615,6 +625,7 @@ impl TreqCommandRequest {
     "SplitCommit",
     "MoveCommit",
     "AbandonCommit",
+    "UndoOperation",
     "ResolveConflict",
     "GitFetch",
     "GitBookmarkTrack",
@@ -1480,6 +1491,15 @@ impl TreqCommandRequest {
         fields.idempotency_key = Some(idempotency_key);
         ("commits", "abandon", repo)
       }
+      Self::UndoOperation {
+        repo,
+        workspace,
+        operation_id,
+      } => {
+        fields.workspace = workspace.as_deref();
+        fields.target = Some(operation_id);
+        ("commits", "undo-operation", repo)
+      }
       Self::ListConflicts { repo, workspace } => {
         fields.workspace = workspace.as_deref();
         ("conflicts", "list", repo)
@@ -2259,6 +2279,15 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         json(crate::core::commits::abandon_commit(&repo, id, &commit))
       },
     ),
+    TreqCommandRequest::UndoOperation {
+      repo,
+      workspace,
+      operation_id,
+    } => json(crate::core::commits::undo_repo_operation(
+      &repo,
+      workspace_id(workspace.as_ref())?,
+      &operation_id,
+    )),
     TreqCommandRequest::ResolveConflict {
       repo,
       revision,
@@ -4092,7 +4121,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 46);
   }
 
   #[test]

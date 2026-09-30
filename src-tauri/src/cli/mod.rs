@@ -464,6 +464,11 @@ pub(crate) fn parse_remote_command_request(
       commit: require_target("commit change id")?,
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
+    ("commits", "undo-operation") => Ok(TreqCommandRequest::UndoOperation {
+      repo,
+      workspace,
+      operation_id: require_target("operation id")?,
+    }),
     ("conflicts", "list") => Ok(TreqCommandRequest::ListConflicts { repo, workspace }),
     ("workspace", "marker") => Ok(TreqCommandRequest::WorkspaceChangeMarker { repo, workspace }),
     ("conflicts", "resolve") => Ok(TreqCommandRequest::ResolveConflict {

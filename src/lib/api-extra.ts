@@ -31,6 +31,7 @@ import {
   transportGetCommitDescription,
   transportMoveCommit,
   transportResolveCommit,
+  transportUndoOperation,
 } from "./repository-adapter-mutations";
 import { currentWindowLabel } from "./window-label";
 
@@ -645,18 +646,14 @@ export const abandonCommit = (
     }),
   );
 
-export const undoRepoOperation = async (
+export const undoRepoOperation = (
   repoPath: string,
   workspaceId: number | null,
   operationId: string,
-): Promise<string> => {
-  assertLocalOperation(repoPath, "Undoing an operation");
-  return invoke("undo_repo_operation", {
-    repoPath,
-    workspaceId,
-    operationId,
-  });
-};
+): Promise<string> =>
+  transportUndoOperation(repoPath, workspaceId, operationId, () =>
+    invoke("undo_repo_operation", { repoPath, workspaceId, operationId }),
+  );
 
 /**
  * Undo the latest commit in a workspace's own lineage (not the working copy,

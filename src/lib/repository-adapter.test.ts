@@ -17,6 +17,7 @@ import {
   saveFileBrowserReview,
   searchWorkspaceFiles,
   setWorkspaceTargetBranch,
+  undoRepoOperation,
 } from "./api";
 import {
   localActiveRepository,
@@ -257,6 +258,19 @@ describe("remote repository mutations", () => {
         repo: ROOT,
         workspace: "7",
         target_branch: "feat-b",
+      },
+    ]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("undoes a remote operation through the typed command", async () => {
+    await undoRepoOperation(ROOT, 7, "0a1b");
+    expect(sentMutations()).toEqual([
+      {
+        kind: "UndoOperation",
+        repo: ROOT,
+        workspace: "7",
+        operation_id: "0a1b",
       },
     ]);
     expect(invoke).not.toHaveBeenCalled();

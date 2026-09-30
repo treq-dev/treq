@@ -328,6 +328,23 @@ export async function transportAbandonCommit(
   return result ?? "";
 }
 
+export async function transportUndoOperation(
+  repoPath: string,
+  workspaceId: number | null,
+  operationId: string,
+  local: () => Promise<string>,
+): Promise<string> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  const result = await remoteMutation<string>(repo, {
+    kind: "UndoOperation",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+    operation_id: operationId,
+  });
+  return result ?? ALREADY_APPLIED;
+}
+
 export async function transportDescribeCommit(
   target: CommitTarget,
   description: string,
