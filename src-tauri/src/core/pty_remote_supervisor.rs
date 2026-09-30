@@ -20,8 +20,8 @@
 //!   tmux/screen already get right; the PRD's own examples of what a
 //!   session must survive (detach, reattach, resize) are tmux's core
 //!   purpose.
-//! - Session persistence with tmux is a single detached session per
-//!   workspace, keyed by a name derived from `repo`+`workspace` so `list`
+//! - Session persistence with tmux is one detached session per
+//!   (repo, workspace, label), keyed by a name derived from all three so `list`
 //!   and `attach` are naturally idempotent — reattach-or-create.
 //! - Resize does not need a dedicated wire message: when the SSH PTY
 //!   channel's `window_change_request` changes the terminal size tmux is
@@ -91,8 +91,8 @@ pub fn detect_backend() -> Option<PtyBackend> {
 }
 
 /// One VM-local persistent PTY session's identity. The session name is
-/// derived deterministically from `workspace` plus `label` so repeated
-/// `start` calls for the same (workspace, label) are idempotent — the same
+/// derived deterministically from `repo`, `workspace` and `label`, so
+/// repeated `start` calls for the same triple are idempotent: the same
 /// underlying tmux/screen session is reused rather than a duplicate created.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PtySessionInfo {
@@ -104,33 +104,170 @@ pub struct PtySessionInfo {
   pub running: bool,
 }
 
-/// Builds the tmux/screen session name for a (workspace, label) pair. Kept
-/// short and shell-safe: alphanumeric plus `-`/`_` only, so it never needs
-/// quoting when interpolated into a `tmux -t <name>` argument.
-pub fn session_name(workspace: &str, label: &str) -> String {
-  let sanitize = |s: &str| -> String {
-    s.chars()
-      .map(|c| {
-        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-          c
-        } else {
-          '_'
-        }
+/// Prefix shared by every session this module creates. Listing filters the
+/// backend's sessions by it, so unrelated tmux/screen sessions on the host
+/// are never reported or touched.
+const SESSION_PREFIX: &str = "treq-pty-";
+
+/// Number of hex characters of the repository hash kept in a session name.
+/// Long enough that two repositories on one VM do not collide in practice,
+/// short enough to keep `tmux ls` readable.
+const REPO_SCOPE_LEN: usize = 12;
+
+/// Stable short identifier for the repository a session belongs to.
+///
+/// Workspace ids are only unique within one repository. A session name
+/// built from the workspace alone would let two repositories on the same VM
+/// list, attach to, or stop each other's sessions. The path is canonicalized
+/// first so `/srv/repo`, `/srv/repo/` and a symlink to it share one scope. A
+/// path that cannot be canonicalized (for example a deleted checkout) falls
+/// back to the trimmed string, which is still stable, so sessions left
+/// behind can be listed and stopped.
+pub fn repo_scope(repo: &str) -> String {
+  use sha2::{Digest, Sha256};
+  let trimmed = repo.trim();
+  let canonical = std::fs::canonicalize(trimmed)
+    .map(|path| path.to_string_lossy().into_owned())
+    .unwrap_or_else(|_| {
+      let without_slash = trimmed.trim_end_matches('/');
+      if without_slash.is_empty() {
+        trimmed.to_string()
+      } else {
+        without_slash.to_string()
+      }
+    });
+  let digest = Sha256::digest(canonical.as_bytes());
+  let mut hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+  hex.truncate(REPO_SCOPE_LEN);
+  hex
+}
+
+/// Encodes one name component so it contains only `[A-Za-z0-9_]`. Every
+/// other byte, `_` included, becomes `_xx` (two lowercase hex digits). The
+/// result is safe to pass to `tmux -t` and `screen -S` without quoting, and
+/// `-` stays free as an unambiguous separator, so a workspace such as
+/// `feat-x` or a label such as `shell-2` round-trips exactly through
+/// [`parse_session_name`].
+fn encode_component(value: &str) -> String {
+  let mut out = String::with_capacity(value.len());
+  for byte in value.bytes() {
+    if byte.is_ascii_alphanumeric() {
+      out.push(byte as char);
+    } else {
+      out.push_str(&format!("_{byte:02x}"));
+    }
+  }
+  out
+}
+
+/// Reverses [`encode_component`]. Returns `None` for input this module did
+/// not produce (a truncated escape, invalid hex, or invalid UTF-8), so a
+/// foreign session that happens to share the prefix is ignored.
+fn decode_component(value: &str) -> Option<String> {
+  let bytes = value.as_bytes();
+  let mut out = Vec::with_capacity(bytes.len());
+  let mut i = 0;
+  while i < bytes.len() {
+    let byte = bytes[i];
+    if byte == b'_' {
+      let hex = value.get(i + 1..i + 3)?;
+      out.push(u8::from_str_radix(hex, 16).ok()?);
+      i += 3;
+    } else if byte.is_ascii_alphanumeric() {
+      out.push(byte);
+      i += 1;
+    } else {
+      return None;
+    }
+  }
+  String::from_utf8(out).ok()
+}
+
+/// Builds the tmux/screen session name for a (repo, workspace, label)
+/// triple: `treq-pty-<repo scope>-<workspace>-<label>`, with the workspace
+/// and label encoded by [`encode_component`].
+pub fn session_name(repo: &str, workspace: &str, label: &str) -> String {
+  session_name_for_scope(&repo_scope(repo), workspace, label)
+}
+
+fn session_name_for_scope(scope: &str, workspace: &str, label: &str) -> String {
+  format!(
+    "{SESSION_PREFIX}{scope}-{}-{}",
+    encode_component(workspace),
+    encode_component(label)
+  )
+}
+
+/// A session name split back into its repository scope, workspace and label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedSessionName {
+  scope: String,
+  workspace: String,
+  label: String,
+}
+
+/// Parses a name built by [`session_name`]. Returns `None` for any session
+/// this module did not create, including names from older builds that had
+/// no repository scope: those cannot be attributed to a repository, so they
+/// are never shown to (or stopped from) the wrong one.
+fn parse_session_name(name: &str) -> Option<ParsedSessionName> {
+  let rest = name.strip_prefix(SESSION_PREFIX)?;
+  let mut parts = rest.split('-');
+  let scope = parts.next()?;
+  let workspace = parts.next()?;
+  let label = parts.next()?;
+  if parts.next().is_some()
+    || scope.len() != REPO_SCOPE_LEN
+    || !scope.bytes().all(|b| b.is_ascii_hexdigit())
+  {
+    return None;
+  }
+  Some(ParsedSessionName {
+    scope: scope.to_string(),
+    workspace: decode_component(workspace)?,
+    label: decode_component(label)?,
+  })
+}
+
+/// Keeps only the sessions that belong to `scope` (and to `workspace`, when
+/// given) out of the backend's raw session names. Split out from
+/// [`list_sessions`] so the filtering is testable without a tmux server.
+fn filter_sessions(
+  names: impl IntoIterator<Item = String>,
+  scope: &str,
+  workspace: Option<&str>,
+) -> Vec<PtySessionInfo> {
+  names
+    .into_iter()
+    .filter_map(|name| {
+      let parsed = parse_session_name(&name)?;
+      if parsed.scope != scope || workspace.is_some_and(|w| w != parsed.workspace) {
+        return None;
+      }
+      Some(PtySessionInfo {
+        session_name: name,
+        workspace: parsed.workspace,
+        label: parsed.label,
+        running: true,
       })
-      .collect()
-  };
-  format!("treq-pty-{}-{}", sanitize(workspace), sanitize(label))
+    })
+    .collect()
+}
+
+fn no_backend_error() -> String {
+  "dependency_error: Neither tmux nor screen is installed on this host; pty-remote requires one of them for persistent/reattachable sessions".to_string()
 }
 
 /// Starts (or, if one already exists, leaves running) a detached persistent
-/// session for `workspace`/`label` in `remote_dir`, running `launch` (a
-/// login shell or an allow-listed agent binary). `launch` is always a typed
-/// [`PtyLaunchSpec`] — never a raw frontend-supplied command string — so its
-/// program is built by [`build_launch_program`], which individually quotes
-/// every dynamic component exactly as `core::remote_pty`'s direct-launch
-/// path does; there is no code path here that lets a caller-supplied string
-/// reach the shell unquoted.
+/// session for `repo`/`workspace`/`label` in `remote_dir`, running `launch`
+/// (a login shell or an allow-listed agent binary). `launch` is always a
+/// typed [`PtyLaunchSpec`], never a raw frontend-supplied command string, so
+/// its program is built by [`build_launch_program`], which quotes every
+/// dynamic component exactly as `core::remote_pty`'s direct-launch path
+/// does. No code path here lets a caller-supplied string reach the shell
+/// unquoted.
 pub fn start_session(
+  repo: &str,
   remote_dir: &str,
   workspace: &str,
   label: &str,
@@ -138,10 +275,8 @@ pub fn start_session(
   cols: u16,
   rows: u16,
 ) -> Result<PtySessionInfo, String> {
-  let backend = detect_backend().ok_or_else(|| {
-    "dependency_error: Neither tmux nor screen is installed on this host; pty-remote requires one of them for persistent/reattachable sessions".to_string()
-  })?;
-  let name = session_name(workspace, label);
+  let backend = detect_backend().ok_or_else(no_backend_error)?;
+  let name = session_name(repo, workspace, label);
 
   if session_exists(backend, &name) {
     return Ok(PtySessionInfo {
@@ -203,7 +338,7 @@ pub fn start_session(
 fn session_exists(backend: PtyBackend, name: &str) -> bool {
   match backend {
     PtyBackend::Tmux => Command::new("tmux")
-      .args(["has-session", "-t", name])
+      .args(["has-session", "-t", &format!("={name}")])
       .status()
       .map(|s| s.success())
       .unwrap_or(false),
@@ -215,12 +350,11 @@ fn session_exists(backend: PtyBackend, name: &str) -> bool {
   }
 }
 
-/// Lists persistent sessions for `workspace` (or every treq-managed session
-/// when `workspace` is `None`). Reads backend-reported state directly (no
-/// Treq-owned index file to go stale) — every session this module ever
-/// created is named `treq-pty-<workspace>-<label>`, so listing is a filter
-/// over the backend's own session listing.
-pub fn list_sessions(workspace: Option<&str>) -> Result<Vec<PtySessionInfo>, String> {
+/// Lists persistent sessions for `repo`, optionally narrowed to
+/// `workspace`. Reads backend-reported state directly (no Treq-owned index
+/// file to go stale): every session this module creates follows
+/// [`session_name`], so listing is a filter over the backend's own list.
+pub fn list_sessions(repo: &str, workspace: Option<&str>) -> Result<Vec<PtySessionInfo>, String> {
   let Some(backend) = detect_backend() else {
     return Ok(vec![]);
   };
@@ -261,47 +395,22 @@ pub fn list_sessions(workspace: Option<&str>) -> Result<Vec<PtySessionInfo>, Str
     }
   };
 
-  Ok(
-    names
-      .into_iter()
-      .filter_map(|name| parse_session_name(&name))
-      .filter(|(ws, _)| workspace.is_none_or(|w| w == ws))
-      .map(|(ws, label)| PtySessionInfo {
-        session_name: session_name(&ws, &label),
-        workspace: ws,
-        label,
-        running: true,
-      })
-      .collect(),
-  )
-}
-
-/// Parses a `treq-pty-<workspace>-<label>` session name back into
-/// `(workspace, label)`. Best-effort: since sanitization is one-way (`-`/`_`
-/// substitution), this recovers the sanitized form, which is what callers
-/// need to re-derive `session_name` for `stop`/`resize`/`attach` — not
-/// necessarily byte-identical to the original unsanitized workspace id, but
-/// stable and sufficient for round-tripping sessions this module created.
-fn parse_session_name(name: &str) -> Option<(String, String)> {
-  let rest = name.strip_prefix("treq-pty-")?;
-  // Split on the last '-' so a workspace id itself containing '-' (rare,
-  // but session names are user-influenced) still resolves — the label is
-  // the final path segment.
-  let idx = rest.rfind('-')?;
-  Some((rest[..idx].to_string(), rest[idx + 1..].to_string()))
+  Ok(filter_sessions(names, &repo_scope(repo), workspace))
 }
 
 /// Stops (kills) a persistent session. Idempotent: stopping a session that
 /// does not exist is not an error.
-pub fn stop_session(workspace: &str, label: &str) -> Result<(), String> {
+pub fn stop_session(repo: &str, workspace: &str, label: &str) -> Result<(), String> {
   let Some(backend) = detect_backend() else {
     return Ok(());
   };
-  let name = session_name(workspace, label);
+  let name = session_name(repo, workspace, label);
   match backend {
     PtyBackend::Tmux => {
+      // `=` asks tmux for an exact match. Without it tmux falls back to
+      // prefix matching, so stopping `...-shell` could kill `...-shell_2d2`.
       let _ = Command::new("tmux")
-        .args(["kill-session", "-t", &name])
+        .args(["kill-session", "-t", &format!("={name}")])
         .status();
     }
     PtyBackend::Screen => {
@@ -317,17 +426,23 @@ pub fn stop_session(workspace: &str, label: &str) -> Result<(), String> {
 /// attached client. Normally unnecessary (see module docs: tmux/screen
 /// auto-resize to the attached client's window), but useful to pre-size a
 /// session before the first attach.
-pub fn resize_session(workspace: &str, label: &str, cols: u16, rows: u16) -> Result<(), String> {
+pub fn resize_session(
+  repo: &str,
+  workspace: &str,
+  label: &str,
+  cols: u16,
+  rows: u16,
+) -> Result<(), String> {
   let backend = detect_backend()
     .ok_or_else(|| "dependency_error: Neither tmux nor screen is installed".to_string())?;
-  let name = session_name(workspace, label);
+  let name = session_name(repo, workspace, label);
   match backend {
     PtyBackend::Tmux => {
       let status = Command::new("tmux")
         .args([
           "resize-window",
           "-t",
-          &name,
+          &format!("={name}"),
           "-x",
           &cols.to_string(),
           "-y",
@@ -363,7 +478,9 @@ pub fn resize_session(workspace: &str, label: &str, cols: u16, rows: u16) -> Res
 /// command line covers both "start a fresh session" and "reattach to a
 /// running one" — the mobile/desktop client does not need to know in
 /// advance which case applies.
+#[allow(clippy::too_many_arguments)]
 pub fn build_attach_command(
+  repo: &str,
   remote_dir: &str,
   workspace: &str,
   label: &str,
@@ -371,22 +488,36 @@ pub fn build_attach_command(
   cols: u16,
   rows: u16,
 ) -> Result<String, String> {
-  let backend = detect_backend().ok_or_else(|| {
-    "dependency_error: Neither tmux nor screen is installed on this host; pty-remote requires one of them for persistent/reattachable sessions".to_string()
-  })?;
-  let name = session_name(workspace, label);
+  let backend = detect_backend().ok_or_else(no_backend_error)?;
+  Ok(attach_command_for_backend(
+    backend,
+    &session_name(repo, workspace, label),
+    remote_dir,
+    launch,
+    cols,
+    rows,
+  ))
+}
+
+fn attach_command_for_backend(
+  backend: PtyBackend,
+  name: &str,
+  remote_dir: &str,
+  launch: &PtyLaunchSpec,
+  cols: u16,
+  rows: u16,
+) -> String {
   let command = build_launch_program(launch);
-  let command = command.as_str();
   let quoted_dir = crate::core::remote::shell_quote(remote_dir);
-  let quoted_name = crate::core::remote::shell_quote(&name);
-  Ok(match backend {
+  let quoted_name = crate::core::remote::shell_quote(name);
+  match backend {
     PtyBackend::Tmux => format!(
       "cd {quoted_dir} && exec tmux new-session -A -s {quoted_name} -x {cols} -y {rows} {command}"
     ),
     PtyBackend::Screen => {
       format!("cd {quoted_dir} && exec screen -xRR {quoted_name} bash -lc {command}")
     }
-  })
+  }
 }
 
 #[cfg(test)]
@@ -399,35 +530,102 @@ mod tests {
   }
 
   #[test]
-  fn session_name_sanitizes_unsafe_characters() {
-    let name = session_name("workspace/1", "my label!");
-    assert_eq!(name, "treq-pty-workspace_1-my_label_");
+  fn session_name_encodes_unsafe_characters_into_a_tmux_safe_name() {
+    let name = session_name("/srv/repo", "workspace/1", "my label!");
+    let rest = name.strip_prefix(SESSION_PREFIX).unwrap();
+    assert!(rest
+      .bytes()
+      .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'));
+    // tmux treats `.` and `:` as target separators.
+    assert!(!name.contains('.') && !name.contains(':'));
+    assert!(name.ends_with("-workspace_2f1-my_20label_21"));
   }
 
   #[test]
-  fn parse_session_name_round_trips_through_session_name() {
-    let name = session_name("ws1", "term");
-    let (workspace, label) = parse_session_name(&name).unwrap();
-    assert_eq!(workspace, "ws1");
-    assert_eq!(label, "term");
+  fn parse_session_name_round_trips_workspaces_and_labels_containing_dashes() {
+    let name = session_name("/srv/repo", "feat-x_y", "shell-2");
+    let parsed = parse_session_name(&name).unwrap();
+    assert_eq!(parsed.scope, repo_scope("/srv/repo"));
+    assert_eq!(parsed.workspace, "feat-x_y");
+    assert_eq!(parsed.label, "shell-2");
   }
 
   #[test]
-  fn build_attach_command_quotes_a_malicious_working_directory() {
-    if detect_backend().is_none() {
-      // Environment has neither tmux nor screen: exercised by the
-      // dependency_error test below instead.
-      return;
+  fn parse_session_name_rejects_legacy_and_foreign_names() {
+    assert_eq!(parse_session_name("treq-pty-ws1-term"), None);
+    assert_eq!(parse_session_name("my-own-session"), None);
+    assert_eq!(parse_session_name("treq-pty-0123456789ab-ws-_zz"), None);
+  }
+
+  #[test]
+  fn session_name_differs_for_the_same_workspace_in_two_repos() {
+    assert_ne!(
+      session_name("/srv/repo-a", "root", "shell"),
+      session_name("/srv/repo-b", "root", "shell")
+    );
+  }
+
+  #[test]
+  fn repo_scope_ignores_trailing_slashes_and_symlinks() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("repo");
+    std::fs::create_dir(&real).unwrap();
+    let real_str = real.to_str().unwrap();
+    assert_eq!(repo_scope(real_str), repo_scope(&format!("{real_str}/")));
+
+    #[cfg(unix)]
+    {
+      let link = dir.path().join("link");
+      std::os::unix::fs::symlink(&real, &link).unwrap();
+      assert_eq!(repo_scope(real_str), repo_scope(link.to_str().unwrap()));
     }
-    let command = build_attach_command(
+
+    assert_eq!(repo_scope("/gone/repo/"), repo_scope("/gone/repo"));
+    assert_eq!(repo_scope("/gone/repo").len(), REPO_SCOPE_LEN);
+  }
+
+  #[test]
+  fn filter_sessions_keeps_only_the_requested_repo_and_workspace() {
+    let names = vec![
+      session_name("/srv/a", "root", "shell"),
+      session_name("/srv/a", "feat", "claude"),
+      session_name("/srv/b", "root", "shell"),
+      "treq-pty-root-shell".to_string(),
+      "unrelated".to_string(),
+    ];
+
+    let all_a = filter_sessions(names.clone(), &repo_scope("/srv/a"), None);
+    let labels: Vec<_> = all_a
+      .iter()
+      .map(|s| (s.workspace.as_str(), s.label.as_str()))
+      .collect();
+    assert_eq!(labels, vec![("root", "shell"), ("feat", "claude")]);
+
+    let root_a = filter_sessions(names.clone(), &repo_scope("/srv/a"), Some("root"));
+    assert_eq!(root_a.len(), 1);
+    assert_eq!(
+      root_a[0].session_name,
+      session_name("/srv/a", "root", "shell")
+    );
+
+    let root_b = filter_sessions(names, &repo_scope("/srv/b"), Some("root"));
+    assert_eq!(root_b.len(), 1);
+    assert_eq!(
+      root_b[0].session_name,
+      session_name("/srv/b", "root", "shell")
+    );
+  }
+
+  #[test]
+  fn attach_command_quotes_a_malicious_working_directory() {
+    let command = attach_command_for_backend(
+      PtyBackend::Tmux,
+      &session_name("/srv/repo", "ws1", "term"),
       "/tmp/x'; rm -rf / #",
-      "ws1",
-      "term",
       &PtyLaunchSpec::Shell,
       80,
       24,
-    )
-    .expect("backend detected");
+    );
     assert!(command.contains("'/tmp/x'\\''; rm -rf / #'"));
   }
 
@@ -435,41 +633,46 @@ mod tests {
   /// raw string, so a malicious agent argument (shell metacharacters,
   /// attempted command chaining) can only ever appear individually
   /// `shell_quote`d in the built command line, never interpreted as shell
-  /// syntax. This is the fix for the gap where `remote_pty_reattach`
-  /// previously accepted an unvalidated `command: String` straight from the
-  /// frontend and interpolated it unquoted into this function's output.
+  /// syntax.
   #[test]
-  fn build_attach_command_quotes_malicious_agent_arguments_and_cannot_be_used_to_inject_shell_syntax(
-  ) {
-    if detect_backend().is_none() {
-      return;
-    }
+  fn attach_command_quotes_malicious_agent_arguments() {
     let malicious_arg = "'; rm -rf / #";
     let launch = PtyLaunchSpec::Agent {
       agent: RemoteAgentId::Claude,
       args: vec!["--prompt".to_string(), malicious_arg.to_string()],
     };
-    let command =
-      build_attach_command("/tmp", "ws1", "term", &launch, 80, 24).expect("backend detected");
-    // The malicious argument must appear only as its own `shell_quote`d
-    // token (every embedded `'` escaped as `'\''`), never as a bare
-    // unescaped token a shell could interpret as ending the quoted string
-    // and starting a new command.
-    assert!(command.contains("claude"));
-    assert!(command.contains(&crate::core::remote::shell_quote(malicious_arg)));
-    assert!(!command.contains(&format!(" {malicious_arg} ")));
+    for backend in [PtyBackend::Tmux, PtyBackend::Screen] {
+      let command = attach_command_for_backend(
+        backend,
+        &session_name("/srv/repo", "ws1", "term"),
+        "/tmp",
+        &launch,
+        80,
+        24,
+      );
+      assert!(command.contains("claude"));
+      assert!(command.contains(&crate::core::remote::shell_quote(malicious_arg)));
+      assert!(!command.contains(&format!(" {malicious_arg} ")));
+    }
   }
 
   #[test]
   fn build_attach_command_errors_clearly_when_no_backend_detected() {
-    // This test only documents behavior; it cannot force `detect_binary` to
-    // fail in an environment where tmux/screen genuinely exist, so it is a
-    // smoke check of the message shape via a direct call when unavailable.
+    // Cannot force `detect_binary` to fail where tmux/screen exist, so this
+    // only runs on hosts that genuinely lack both.
     if detect_backend().is_some() {
       return;
     }
-    let error =
-      build_attach_command("/tmp", "ws1", "term", &PtyLaunchSpec::Shell, 80, 24).unwrap_err();
+    let error = build_attach_command(
+      "/srv/repo",
+      "/tmp",
+      "ws1",
+      "term",
+      &PtyLaunchSpec::Shell,
+      80,
+      24,
+    )
+    .unwrap_err();
     assert!(error.contains("dependency_error"));
   }
 
@@ -482,33 +685,90 @@ mod tests {
     let dir = tempfile::tempdir().unwrap();
     let repo_path = dir.path().to_str().unwrap();
     let workspace = "test-ws-pty";
-    let label = "term";
+    let label = "term-1";
 
     // Ensure a clean slate in case a previous failed run left a session.
-    let _ = stop_session(workspace, label);
+    let _ = stop_session(repo_path, workspace, label);
 
-    let info = start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
+    let info = start_session(
+      repo_path,
+      repo_path,
+      workspace,
+      label,
+      &PtyLaunchSpec::Shell,
+      80,
+      24,
+    )
+    .unwrap();
     assert!(info.running);
-    assert_eq!(info.session_name, session_name(workspace, label));
+    assert_eq!(info.session_name, session_name(repo_path, workspace, label));
 
     // Starting again is idempotent: same session, no error.
-    let info_again =
-      start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
+    let info_again = start_session(
+      repo_path,
+      repo_path,
+      workspace,
+      label,
+      &PtyLaunchSpec::Shell,
+      80,
+      24,
+    )
+    .unwrap();
     assert_eq!(info_again.session_name, info.session_name);
 
-    let sessions = list_sessions(Some(workspace)).unwrap();
-    assert!(sessions.iter().any(|s| s.session_name == info.session_name));
+    let sessions = list_sessions(repo_path, Some(workspace)).unwrap();
+    let listed = sessions
+      .iter()
+      .find(|s| s.session_name == info.session_name)
+      .expect("session listed for its repo");
+    assert_eq!(listed.workspace, workspace);
+    assert_eq!(listed.label, label);
 
-    resize_session(workspace, label, 100, 40).unwrap();
+    // A different repository on the same host does not see the session.
+    let other = tempfile::tempdir().unwrap();
+    let other_sessions = list_sessions(other.path().to_str().unwrap(), Some(workspace)).unwrap();
+    assert!(other_sessions.is_empty());
 
-    stop_session(workspace, label).unwrap();
-    let sessions_after = list_sessions(Some(workspace)).unwrap();
+    resize_session(repo_path, workspace, label, 100, 40).unwrap();
+
+    stop_session(repo_path, workspace, label).unwrap();
+    let sessions_after = list_sessions(repo_path, Some(workspace)).unwrap();
     assert!(!sessions_after
       .iter()
       .any(|s| s.session_name == info.session_name));
 
     // Stopping again is idempotent.
-    stop_session(workspace, label).unwrap();
+    stop_session(repo_path, workspace, label).unwrap();
+  }
+
+  #[test]
+  fn stop_session_does_not_kill_a_session_whose_name_extends_the_target() {
+    if !tmux_available() {
+      eprintln!("skipping: tmux not installed in this environment");
+      return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let repo_path = dir.path().to_str().unwrap();
+    let workspace = "test-ws-prefix";
+    let _ = stop_session(repo_path, workspace, "sh-2");
+    start_session(
+      repo_path,
+      repo_path,
+      workspace,
+      "sh-2",
+      &PtyLaunchSpec::Shell,
+      80,
+      24,
+    )
+    .unwrap();
+
+    // `sh` encodes to a strict prefix of `sh-2`'s name. tmux's default
+    // prefix matching would otherwise resolve it to the running session.
+    stop_session(repo_path, workspace, "sh").unwrap();
+    let sessions = list_sessions(repo_path, Some(workspace)).unwrap();
+    assert!(sessions.iter().any(|s| s.label == "sh-2"));
+
+    stop_session(repo_path, workspace, "sh-2").unwrap();
   }
 
   #[test]
@@ -521,15 +781,32 @@ mod tests {
     let repo_path = dir.path().to_str().unwrap();
     let workspace = "test-ws-reattach";
     let label = "term";
-    let _ = stop_session(workspace, label);
+    let _ = stop_session(repo_path, workspace, label);
 
-    let info = start_session(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
+    let info = start_session(
+      repo_path,
+      repo_path,
+      workspace,
+      label,
+      &PtyLaunchSpec::Shell,
+      80,
+      24,
+    )
+    .unwrap();
 
-    let attach_cmd =
-      build_attach_command(repo_path, workspace, label, &PtyLaunchSpec::Shell, 80, 24).unwrap();
+    let attach_cmd = build_attach_command(
+      repo_path,
+      repo_path,
+      workspace,
+      label,
+      &PtyLaunchSpec::Shell,
+      80,
+      24,
+    )
+    .unwrap();
     assert!(attach_cmd.contains("new-session -A"));
     assert!(attach_cmd.contains(&info.session_name));
 
-    stop_session(workspace, label).unwrap();
+    stop_session(repo_path, workspace, label).unwrap();
   }
 }

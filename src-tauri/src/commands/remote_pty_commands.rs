@@ -96,58 +96,95 @@ pub async fn remote_pty_create(
     window_label,
   };
 
+  let (on_output, on_exit) = tauri_event_handlers(app, session_id);
+  manager
+    .create(binding, &endpoint, launch, cols, rows, on_output, on_exit)
+    .await
+    .map_err(remote_pty_error_to_string)
+}
+
+/// Wraps a pair of text/exit sinks in the byte-level callbacks
+/// `RemotePtyManager` expects, decoding output with one
+/// [`Utf8StreamDecoder`] per session.
+///
+/// SSH delivers output in arbitrary chunks, so a multibyte character (an
+/// emoji, a box-drawing glyph in a TUI) is often split across two chunks.
+/// Decoding each chunk on its own turns both halves into replacement
+/// characters. The decoder holds an incomplete trailing sequence until the
+/// next chunk arrives, and flushes whatever is left before the exit event.
+/// Both the fresh-session and the reattach paths go through this function
+/// so they cannot drift apart again.
+fn decoding_handlers<D, X>(
+  emit_data: D,
+  emit_exit: X,
+) -> (
+  impl Fn(Vec<u8>) + Send + 'static,
+  impl FnOnce(Option<u32>) + Send + 'static,
+)
+where
+  D: Fn(String) + Send + Sync + 'static,
+  X: FnOnce(Option<u32>) + Send + 'static,
+{
+  let decoder = std::sync::Arc::new(std::sync::Mutex::new(Utf8StreamDecoder::new()));
+  let emit_data = std::sync::Arc::new(emit_data);
+  let data_decoder = decoder.clone();
+  let data_sink = emit_data.clone();
+  let on_output = move |chunk: Vec<u8>| {
+    let decoded = data_decoder
+      .lock()
+      .unwrap_or_else(|e| e.into_inner())
+      .push(&chunk);
+    if !decoded.is_empty() {
+      data_sink(decoded);
+    }
+  };
+  let on_exit = move |exit_status: Option<u32>| {
+    let trailing = decoder.lock().unwrap_or_else(|e| e.into_inner()).finish();
+    if !trailing.is_empty() {
+      emit_data(trailing);
+    }
+    emit_exit(exit_status);
+  };
+  (on_output, on_exit)
+}
+
+/// Callbacks that forward a session's decoded output and exit status as the
+/// `remote-pty-data-<id>` / `remote-pty-exit-<id>` Tauri events. Never logs
+/// raw terminal data (PRD "never log raw terminal output ... by default");
+/// only the event name and session id appear in warnings.
+fn tauri_event_handlers(
+  app: tauri::AppHandle,
+  session_id: String,
+) -> (
+  impl Fn(Vec<u8>) + Send + 'static,
+  impl FnOnce(Option<u32>) + Send + 'static,
+) {
   let data_event = data_event_name(&session_id);
   let exit_event = exit_event_name(&session_id);
   let app_for_data = app.clone();
-  let app_for_decoder_exit = app.clone();
   let sid_for_data = session_id.clone();
-  let app_for_exit = app;
-  let sid_for_exit = session_id.clone();
-  let decoder = std::sync::Arc::new(std::sync::Mutex::new(Utf8StreamDecoder::new()));
-  let data_decoder = decoder.clone();
-  let exit_decoder = decoder;
-  let data_event_for_exit = data_event.clone();
-
-  manager
-    .create(
-      binding,
-      &endpoint,
-      launch,
-      cols,
-      rows,
-      move |chunk| {
-        // Never log raw terminal data (PRD "never log raw terminal output ...
-        // by default"); only the event name/session id are logged, in
-        // `remote_pty_create`'s entry line above.
-        let decoded = data_decoder.lock().unwrap().push(&chunk);
-        if !decoded.is_empty() {
-          if let Err(error) = app_for_data.emit(&data_event, decoded) {
-            log::warn!(
-              "remote pty emit failed: session_id={}, event={}, error={}",
-              sid_for_data,
-              data_event,
-              error
-            );
-          }
-        }
-      },
-      move |exit_status| {
-        let trailing = exit_decoder.lock().unwrap().finish();
-        if !trailing.is_empty() {
-          let _ = app_for_decoder_exit.emit(&data_event_for_exit, trailing);
-        }
-        if let Err(error) = app_for_exit.emit(&exit_event, RemotePtyExitPayload { exit_status }) {
-          log::warn!(
-            "remote pty exit emit failed: session_id={}, event={}, error={}",
-            sid_for_exit,
-            exit_event,
-            error
-          );
-        }
-      },
-    )
-    .await
-    .map_err(remote_pty_error_to_string)
+  decoding_handlers(
+    move |text| {
+      if let Err(error) = app_for_data.emit(&data_event, text) {
+        log::warn!(
+          "remote pty emit failed: session_id={}, event={}, error={}",
+          sid_for_data,
+          data_event,
+          error
+        );
+      }
+    },
+    move |exit_status| {
+      if let Err(error) = app.emit(&exit_event, RemotePtyExitPayload { exit_status }) {
+        log::warn!(
+          "remote pty exit emit failed: session_id={}, event={}, error={}",
+          session_id,
+          exit_event,
+          error
+        );
+      }
+    },
+  )
 }
 
 #[tauri::command]
@@ -295,13 +332,7 @@ pub async fn remote_pty_reattach(
     window_label,
   };
 
-  let data_event = data_event_name(&session_id);
-  let exit_event = exit_event_name(&session_id);
-  let app_for_data = app.clone();
-  let sid_for_data = session_id.clone();
-  let app_for_exit = app;
-  let sid_for_exit = session_id;
-
+  let (on_output, on_exit) = tauri_event_handlers(app, session_id);
   manager
     .create_with_command(
       binding,
@@ -309,29 +340,57 @@ pub async fn remote_pty_reattach(
       &attach_command,
       cols,
       rows,
-      move |chunk| {
-        if let Err(error) =
-          app_for_data.emit(&data_event, String::from_utf8_lossy(&chunk).into_owned())
-        {
-          log::warn!(
-            "remote pty emit failed: session_id={}, event={}, error={}",
-            sid_for_data,
-            data_event,
-            error
-          );
-        }
-      },
-      move |exit_status| {
-        if let Err(error) = app_for_exit.emit(&exit_event, RemotePtyExitPayload { exit_status }) {
-          log::warn!(
-            "remote pty exit emit failed: session_id={}, event={}, error={}",
-            sid_for_exit,
-            exit_event,
-            error
-          );
-        }
-      },
+      on_output,
+      on_exit,
     )
     .await
     .map_err(remote_pty_error_to_string)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::sync::{Arc, Mutex};
+
+  #[test]
+  fn decoding_handlers_keep_multibyte_characters_split_across_chunks() {
+    let received = Arc::new(Mutex::new(String::new()));
+    let exits = Arc::new(Mutex::new(Vec::new()));
+    let sink = received.clone();
+    let exit_sink = exits.clone();
+    let (on_output, on_exit) = decoding_handlers(
+      move |text| sink.lock().unwrap().push_str(&text),
+      move |status| exit_sink.lock().unwrap().push(status),
+    );
+
+    let text = "ok ✓ 日本 🚀\n";
+    // Feed one byte at a time so every multibyte character is split.
+    for byte in text.as_bytes() {
+      on_output(vec![*byte]);
+    }
+    on_exit(Some(0));
+
+    assert_eq!(received.lock().unwrap().as_str(), text);
+    assert_eq!(exits.lock().unwrap().as_slice(), &[Some(0)]);
+  }
+
+  #[test]
+  fn decoding_handlers_flush_an_incomplete_tail_before_exit() {
+    let events = Arc::new(Mutex::new(Vec::<String>::new()));
+    let data_events = events.clone();
+    let exit_events = events.clone();
+    let (on_output, on_exit) = decoding_handlers(
+      move |text| data_events.lock().unwrap().push(text),
+      move |_| exit_events.lock().unwrap().push("<exit>".to_string()),
+    );
+
+    // First two bytes of the three-byte "✓" and then the channel ends.
+    on_output(vec![b'a', 0xE2, 0x9C]);
+    on_exit(None);
+
+    let events = events.lock().unwrap();
+    assert_eq!(events[0], "a");
+    assert_eq!(events[1], "\u{FFFD}");
+    assert_eq!(events[2], "<exit>");
+  }
 }

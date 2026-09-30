@@ -20,8 +20,7 @@ import { dispatchOverSsh } from "../../lib/remote-dispatch";
 import type { SshEndpoint } from "../../lib/api-types-remote";
 import type { Workspace } from "../../lib/api-types";
 import { RemoteTerminalTouchToolbar } from "./RemoteTerminalTouchToolbar";
-
-const DEFAULT_LABEL = "shell";
+import { newRemoteSessionLabel } from "../../lib/remote-terminal-target";
 
 export function RemoteTerminalScreen({
   endpoint,
@@ -143,10 +142,9 @@ export function RemoteTerminalScreen({
               repositoryId: repo,
               workspaceId: workspace,
               remoteWorkingDirectory,
-              label:
-                sessions.length > 0
-                  ? `${DEFAULT_LABEL}-${sessions.length + 1}`
-                  : DEFAULT_LABEL,
+              // A fresh label: reusing one that is already running would
+              // attach to that session instead of starting a new one.
+              label: newRemoteSessionLabel(null),
               reattach: false,
             })
           }

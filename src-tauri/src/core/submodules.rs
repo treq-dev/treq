@@ -1,10 +1,12 @@
-use crate::binary_paths;
 use crate::jj;
+use gix::bstr::{BStr, ByteSlice};
+use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit};
+use gix::refs::Target;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
 /// Readonly checkout state of a Git submodule in a superproject working copy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,32 +175,27 @@ fn working_copy_commit_hex(workspace_path: &str) -> Option<String> {
 }
 
 fn gitlinks_from_rev(git_repo_path: &str, rev: &str) -> BTreeMap<String, String> {
-  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
-  let output = git_command()
-    .current_dir(git_repo_path)
-    .args(["ls-tree", "-r", rev])
-    .output();
-  let Ok(output) = output else {
+  let Ok(repo) = gix::open(git_repo_path) else {
     return BTreeMap::new();
   };
-  if !output.status.success() {
+  let Some(tree) = repo
+    .rev_parse_single(rev)
+    .ok()
+    .and_then(|id| id.object().ok())
+    .and_then(|object| object.peel_to_tree().ok())
+  else {
+    return BTreeMap::new();
+  };
+  let mut recorder = gix::traverse::tree::Recorder::default();
+  if tree.traverse().breadthfirst(&mut recorder).is_err() {
     return BTreeMap::new();
   }
-  let mut out = BTreeMap::new();
-  for line in String::from_utf8_lossy(&output.stdout).lines() {
-    // 160000 commit <oid>\t<path>
-    let Some((meta, path)) = line.split_once('\t') else {
-      continue;
-    };
-    let mut parts = meta.split_whitespace();
-    let Some(mode) = parts.next() else { continue };
-    let Some(kind) = parts.next() else { continue };
-    let Some(oid) = parts.next() else { continue };
-    if mode == "160000" && kind == "commit" {
-      out.insert(path.to_string(), oid.to_string());
-    }
-  }
-  out
+  recorder
+    .records
+    .into_iter()
+    .filter(|entry| entry.mode.is_commit())
+    .map(|entry| (entry.filepath.to_string(), entry.oid.to_string()))
+    .collect()
 }
 
 fn inspect_submodule(workspace_root: &Path, spec: SubmoduleSpec, pin: String) -> GitSubmodule {
@@ -245,15 +242,16 @@ fn nested_head_hex(checkout: &Path) -> Option<String> {
 }
 
 fn nested_is_dirty(checkout: &Path) -> bool {
-  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
-  let output = git_command()
-    .current_dir(checkout)
-    .args(["status", "--porcelain"])
-    .output();
-  match output {
-    Ok(out) if out.status.success() => !out.stdout.is_empty(),
-    _ => false,
-  }
+  let Ok(repo) = gix::open(checkout) else {
+    return false;
+  };
+  let Ok(status) = repo.status(gix::progress::Discard) else {
+    return false;
+  };
+  let Ok(mut changes) = status.into_iter(Vec::<gix::bstr::BString>::new()) else {
+    return false;
+  };
+  changes.any(|change| change.is_ok())
 }
 
 fn ids_match(left: &str, right: &str) -> bool {
@@ -275,59 +273,145 @@ fn populate_submodule(
     fs::create_dir_all(parent).map_err(|e| format!("Failed to create modules dir: {e}"))?;
   }
 
+  let pin = gix::ObjectId::from_hex(submodule.pin.as_bytes())
+    .map_err(|e| format!("Invalid pin '{}': {e}", submodule.pin))?;
   if !modules_dir.join("HEAD").is_file() && !modules_dir.join("objects").is_dir() {
     if modules_dir.exists() {
       fs::remove_dir_all(&modules_dir)
         .map_err(|e| format!("Failed to clear incomplete submodule store: {e}"))?;
     }
-    run_git_with_config(
-      git_repo_path,
-      &[
-        "clone",
-        "--",
-        &submodule.url,
-        &modules_dir.to_string_lossy(),
-      ],
-    )?;
-  } else {
-    let _ = run_git(
-      modules_dir.to_string_lossy().as_ref(),
-      &["fetch", "--all", "--tags"],
-    );
+    clone_submodule_store(&submodule.url, &modules_dir)?;
+  }
+  let repo = gix::open(&modules_dir)
+    .map_err(|e| format!("Failed to open submodule '{}': {e}", submodule.path))?;
+  if !repo.has_object(pin) {
+    fetch_all_remotes(&repo);
   }
 
   let checkout = Path::new(workspace_path).join(&submodule.path);
-  if let Some(parent) = checkout.parent() {
-    fs::create_dir_all(parent).map_err(|e| format!("Failed to create submodule path: {e}"))?;
-  }
   fs::create_dir_all(&checkout).map_err(|e| format!("Failed to create submodule checkout: {e}"))?;
   write_gitfile(&checkout, &modules_dir)?;
+  checkout_detached(&repo, &checkout, pin).map_err(|e| {
+    format!(
+      "Failed to check out submodule '{}' at {}: {e}",
+      submodule.path, pin
+    )
+  })
+}
 
-  let work_tree = checkout.to_string_lossy().into_owned();
-  let git_dir = modules_dir.to_string_lossy().into_owned();
-  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
-  let output = git_command()
-    .args([
-      "--git-dir",
-      &git_dir,
-      "--work-tree",
-      &work_tree,
-      "checkout",
-      "--detach",
-      "--force",
-      &submodule.pin,
-    ])
-    .output()
-    .map_err(|e| format!("Failed to check out submodule '{}': {e}", submodule.path))?;
-  if !output.status.success() {
-    return Err(format!(
-      "Failed to check out submodule '{}' at {}: {}{}",
-      submodule.path,
-      submodule.pin,
-      String::from_utf8_lossy(&output.stdout),
-      String::from_utf8_lossy(&output.stderr)
-    ));
+/// Clones `url` into a git dir with no worktree of its own; each checkout
+/// reaches it through a `.git` file.
+fn clone_submodule_store(url: &str, modules_dir: &Path) -> Result<(), String> {
+  let clone_err = |e: &dyn std::fmt::Display| format!("Failed to clone submodule {url}: {e}");
+  let mut prepare = gix::prepare_clone_bare(url, modules_dir).map_err(|e| clone_err(&e))?;
+  prepare
+    .fetch_only(gix::progress::Discard, &AtomicBool::new(false))
+    .map_err(|e| clone_err(&e))?;
+  // Not bare, so git and gix treat the directory holding the `.git` file as its worktree.
+  let config_path = modules_dir.join("config");
+  let mut config =
+    gix::config::File::from_path_no_includes(config_path.clone(), gix::config::Source::Local)
+      .map_err(|e| clone_err(&e))?;
+  config
+    .set_raw_value(&"core.bare", "false")
+    .map_err(|e| clone_err(&e))?;
+  fs::write(&config_path, config.to_bstring()).map_err(|e| clone_err(&e))
+}
+
+/// Best effort, like `git fetch --all`: a pin that is still missing afterwards
+/// fails the checkout with a clear error.
+fn fetch_all_remotes(repo: &gix::Repository) {
+  let interrupt = AtomicBool::new(false);
+  for name in repo.remote_names() {
+    let Ok(remote) = repo.find_remote(name.as_ref()) else {
+      continue;
+    };
+    let fetched = remote
+      .connect(gix::remote::Direction::Fetch)
+      .map_err(|e| e.to_string())
+      .and_then(|connection| {
+        connection
+          .prepare_fetch(gix::progress::Discard, Default::default())
+          .map_err(|e| e.to_string())
+      })
+      .and_then(|prepare| {
+        prepare
+          .receive(gix::progress::Discard, &interrupt)
+          .map_err(|e| e.to_string())
+      });
+    if let Err(e) = fetched {
+      tracing::warn!("Failed to fetch submodule remote '{}': {}", name, e);
+    }
   }
+}
+
+/// `git checkout --detach --force <pin>`: writes the pin's tree over the
+/// checkout, deletes files only the previous index tracked, and leaves
+/// untracked files alone.
+fn checkout_detached(
+  repo: &gix::Repository,
+  checkout: &Path,
+  pin: gix::ObjectId,
+) -> Result<(), String> {
+  let tree_id = repo
+    .find_commit(pin)
+    .map_err(|e| e.to_string())?
+    .tree_id()
+    .map_err(|e| e.to_string())?
+    .detach();
+  let state = gix::index::State::from_tree(&tree_id, &repo.objects, Default::default())
+    .map_err(|e| e.to_string())?;
+  let mut index = gix::index::File::from_state(state, repo.index_path());
+
+  let previous = repo.index_or_empty().map_err(|e| e.to_string())?;
+  let kept: HashSet<&BStr> = index.entries().iter().map(|e| e.path(&index)).collect();
+  for entry in previous.entries() {
+    let path = entry.path(&previous);
+    if !kept.contains(path) {
+      if let Ok(relative) = path.to_path() {
+        let _ = fs::remove_file(checkout.join(relative));
+      }
+    }
+  }
+
+  let mut options = repo
+    .checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)
+    .map_err(|e| e.to_string())?;
+  options.overwrite_existing = true;
+  options.destination_is_initially_empty = false;
+  let objects = repo.objects.clone().into_arc().map_err(|e| e.to_string())?;
+  let outcome = gix::worktree::state::checkout(
+    &mut index,
+    checkout,
+    objects,
+    &gix::progress::Discard,
+    &gix::progress::Discard,
+    &AtomicBool::new(false),
+    options,
+  )
+  .map_err(|e| e.to_string())?;
+  if let Some(failed) = outcome.errors.first() {
+    return Err(format!("{}: {}", failed.path, failed.error));
+  }
+  index.write(Default::default()).map_err(|e| e.to_string())?;
+
+  // The HEAD reflog entry needs a committer; like git, fall back to a
+  // generated identity when none is configured.
+  let mut repo = repo.clone();
+  repo
+    .committer_or_set_generic_fallback()
+    .map_err(|e| e.to_string())?;
+  repo
+    .edit_reference(RefEdit {
+      change: Change::Update {
+        log: LogChange::default(),
+        expected: PreviousValue::Any,
+        new: Target::Object(pin),
+      },
+      name: "HEAD".try_into().map_err(|e| format!("{e}"))?,
+      deref: false,
+    })
+    .map_err(|e| e.to_string())?;
   Ok(())
 }
 
@@ -336,52 +420,8 @@ fn write_gitfile(checkout: &Path, modules_dir: &Path) -> Result<(), String> {
   if gitfile.is_dir() {
     return Ok(());
   }
-  let relative = pathdiff_to_modules(checkout, modules_dir);
-  fs::write(&gitfile, format!("gitdir: {}\n", relative))
+  fs::write(&gitfile, format!("gitdir: {}\n", modules_dir.display()))
     .map_err(|e| format!("Failed to write gitfile: {e}"))
-}
-
-fn pathdiff_to_modules(checkout: &Path, modules_dir: &Path) -> String {
-  let mut prefix = PathBuf::new();
-  let depth = checkout.components().count();
-  // gitfile lives inside checkout, so walk from checkout to root then to modules.
-  // Prefer a relative path Git accepts; fall back to absolute.
-  for _ in 0..depth {
-    prefix.push("..");
-  }
-  let _ = prefix;
-  modules_dir.to_string_lossy().into_owned()
-}
-
-fn git_command() -> Command {
-  match binary_paths::get_binary_path("git") {
-    Some(path) => Command::new(path),
-    // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
-    None => Command::new("git"),
-  }
-}
-
-fn run_git(cwd: &str, args: &[&str]) -> Result<String, String> {
-  run_git_with_config(cwd, args)
-}
-
-fn run_git_with_config(cwd: &str, args: &[&str]) -> Result<String, String> {
-  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
-  let output = git_command()
-    .current_dir(cwd)
-    .args(["-c", "protocol.file.allow=always"])
-    .args(args)
-    .output()
-    .map_err(|e| format!("git {} failed: {e}", args.join(" ")))?;
-  if !output.status.success() {
-    return Err(format!(
-      "git {} failed: {}{}",
-      args.join(" "),
-      String::from_utf8_lossy(&output.stdout),
-      String::from_utf8_lossy(&output.stderr)
-    ));
-  }
-  Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 const SUBMODULE_SYNC_KEY: &str = "submodule_sync";
@@ -499,6 +539,7 @@ pub fn merge_submodules_into_entries(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::process::Command;
   use tempfile::TempDir;
 
   fn run(cwd: &Path, program: &str, args: &[&str]) {
@@ -627,6 +668,96 @@ mod tests {
     assert!(Path::new(&superproject).join("vendor/lib/.git").exists());
     let head = updated[0].head.as_deref().unwrap();
     assert!(ids_match(head, &updated[0].pin));
+  }
+
+  fn git_stdout(cwd: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+      .current_dir(cwd)
+      .args(args)
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "git {:?}", args);
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+  }
+
+  #[test]
+  fn update_submodules_clones_missing_store_into_usable_checkout() {
+    let (_temp, superproject, _) = create_superproject_with_submodule();
+    let root = Path::new(&superproject);
+    fs::remove_dir_all(root.join(".git/modules/vendor/lib")).unwrap();
+    fs::remove_dir_all(root.join("vendor/lib")).unwrap();
+
+    let updated = update_submodules(&superproject, None, None).unwrap();
+
+    assert_eq!(updated[0].state, SubmoduleState::Clean);
+    let checkout = root.join("vendor/lib");
+    assert_eq!(
+      fs::read_to_string(checkout.join("README.md")).unwrap(),
+      "sub\n"
+    );
+    // Plain git sees a detached, clean worktree at the pin.
+    assert_eq!(
+      git_stdout(&checkout, &["rev-parse", "HEAD"]),
+      updated[0].pin
+    );
+    assert_eq!(git_stdout(&checkout, &["status", "--porcelain"]), "");
+  }
+
+  #[test]
+  fn update_submodules_fetches_pin_missing_from_store() {
+    let (_temp, superproject, sub) = create_superproject_with_submodule();
+    let root = Path::new(&superproject);
+    let store = root.join(".git/modules/vendor/lib");
+    fs::remove_dir_all(&store).unwrap();
+    fs::remove_dir_all(root.join("vendor/lib")).unwrap();
+    git(root, &["init", "--bare", store.to_str().unwrap()]);
+    git(&store, &["remote", "add", "origin", &sub]);
+
+    let updated = update_submodules(&superproject, None, None).unwrap();
+
+    assert_eq!(updated[0].state, SubmoduleState::Clean);
+    assert!(ids_match(
+      updated[0].head.as_deref().unwrap(),
+      &updated[0].pin
+    ));
+  }
+
+  #[test]
+  fn update_submodules_restores_pin_and_keeps_untracked_files() {
+    let (_temp, superproject, sub) = create_superproject_with_submodule();
+    let sub = Path::new(&sub);
+    fs::write(sub.join("NEW.md"), "new\n").unwrap();
+    git(sub, &["rm", "-q", "README.md"]);
+    git(sub, &["add", "NEW.md"]);
+    git(sub, &["commit", "-m", "replace readme"]);
+    let checkout = Path::new(&superproject).join("vendor/lib");
+    git(&checkout, &["fetch", "-q", "origin"]);
+    git(&checkout, &["checkout", "-q", "--detach", "FETCH_HEAD"]);
+    fs::write(checkout.join("keep.txt"), "mine\n").unwrap();
+    assert_eq!(
+      list_submodules(&superproject, None).unwrap()[0].state,
+      SubmoduleState::Diverged
+    );
+
+    let updated = update_submodules(&superproject, None, None).unwrap();
+
+    assert!(ids_match(
+      updated[0].head.as_deref().unwrap(),
+      &updated[0].pin
+    ));
+    assert_eq!(
+      fs::read_to_string(checkout.join("README.md")).unwrap(),
+      "sub\n"
+    );
+    assert!(!checkout.join("NEW.md").exists());
+    assert_eq!(
+      fs::read_to_string(checkout.join("keep.txt")).unwrap(),
+      "mine\n"
+    );
+    assert_eq!(
+      git_stdout(&checkout, &["status", "--porcelain"]),
+      "?? keep.txt"
+    );
   }
 
   #[test]

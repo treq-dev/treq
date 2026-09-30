@@ -10,7 +10,11 @@ import type { LinearIssueAttachment } from "../lib/promptAttachments";
 import { Button } from "./ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { LinearFilterMenu } from "./LinearFilterMenu";
-import { LinearIssuesList, LinearKanbanView } from "./LinearIssueRows";
+import {
+  type KanbanColumn,
+  LinearIssuesList,
+  LinearKanbanView,
+} from "./LinearIssueRows";
 import { cn } from "../lib/utils";
 
 type ViewMode = "list" | "kanban";
@@ -116,12 +120,37 @@ function splitRootIssues(issues: LinearIssue[]) {
   return { rootIssues, subissuesMap };
 }
 
-function groupByState(issues: LinearIssue[]): Record<string, LinearIssue[]> {
-  const grouped: Record<string, LinearIssue[]> = {};
+// Linear workflow order. Unknown state types sort last.
+const STATE_TYPE_ORDER = [
+  "triage",
+  "backlog",
+  "unstarted",
+  "started",
+  "completed",
+  "canceled",
+];
+
+function stateTypeRank(type: string): number {
+  const rank = STATE_TYPE_ORDER.indexOf(type);
+  return rank === -1 ? STATE_TYPE_ORDER.length : rank;
+}
+
+function groupByState(issues: LinearIssue[]): KanbanColumn[] {
+  const columns = new Map<string, KanbanColumn>();
   issues.forEach((issue) => {
-    (grouped[issue.state.name] ??= []).push(issue);
+    const column = columns.get(issue.state.name) ?? {
+      name: issue.state.name,
+      type: issue.state.type,
+      issues: [],
+    };
+    column.issues.push(issue);
+    columns.set(issue.state.name, column);
   });
-  return grouped;
+  return Array.from(columns.values()).sort(
+    (a, b) =>
+      stateTypeRank(a.type) - stateTypeRank(b.type) ||
+      a.name.localeCompare(b.name),
+  );
 }
 
 export const LinearIssuesSection: React.FC<{
@@ -150,10 +179,15 @@ export const LinearIssuesSection: React.FC<{
     { revalidateOnFocus: false },
   );
 
-  const handleKickoff = (issueId: string, hasSubissues: boolean) => {
+  // Use the issue's real sub-issues, not the ones the current filter shows,
+  // to match what the backend kicks off.
+  const handleKickoff = (issueId: string) => {
     const issue = issues.find((candidate) => candidate.id === issueId);
     if (issue)
-      onStartPromptFromIssue?.({ ...issue, includeSubissues: hasSubissues });
+      onStartPromptFromIssue?.({
+        ...issue,
+        includeSubissues: issue.sub_issue_ids.length > 0,
+      });
   };
 
   const viewFilteredIssues = useMemo(
@@ -172,7 +206,8 @@ export const LinearIssuesSection: React.FC<{
   );
 
   const { rootIssues, subissuesMap } = splitRootIssues(filteredIssues);
-  const issuesByState = groupByState(rootIssues);
+  const kanbanColumns = groupByState(filteredIssues);
+  const identifiersById = new Map(issues.map((i) => [i.id, i.identifier]));
 
   return (
     <>
@@ -310,9 +345,8 @@ export const LinearIssuesSection: React.FC<{
           filteredIssues.length > 0 &&
           viewMode === "kanban" && (
             <LinearKanbanView
-              issues={rootIssues}
-              subissuesMap={subissuesMap}
-              issuesByState={issuesByState}
+              columns={kanbanColumns}
+              identifiersById={identifiersById}
               onKickoff={handleKickoff}
             />
           )}

@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::jj;
 
@@ -2380,6 +2379,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       request_snapshot.as_ref().expect("PtyStart is a mutation"),
       || {
         json(crate::core::pty_remote_supervisor::start_session(
+          &repo,
           &remote_dir,
           &workspace,
           &label,
@@ -2389,23 +2389,26 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         ))
       },
     ),
-    TreqCommandRequest::PtyList { workspace, .. } => json(
-      crate::core::pty_remote_supervisor::list_sessions(workspace.as_deref()),
+    TreqCommandRequest::PtyList { repo, workspace } => json(
+      crate::core::pty_remote_supervisor::list_sessions(&repo, workspace.as_deref()),
     ),
     TreqCommandRequest::PtyStop {
-      workspace, label, ..
+      repo,
+      workspace,
+      label,
     } => json(crate::core::pty_remote_supervisor::stop_session(
-      &workspace, &label,
+      &repo, &workspace, &label,
     )),
     TreqCommandRequest::PtyAttachCommand {
+      repo,
       workspace,
       label,
       remote_dir,
       launch,
       cols,
       rows,
-      ..
     } => json(crate::core::pty_remote_supervisor::build_attach_command(
+      &repo,
       &remote_dir,
       &workspace,
       &label,
@@ -2659,17 +2662,16 @@ fn clone_repo_local(repo_url: &str, destination: &str) -> Result<RepositoryInspe
   }
   validate_remote_path(destination)?;
   enforce_disk_quota(Path::new(destination))?;
-  // ast-grep-ignore: no-command-for-jj-or-git-tauri-src
-  let output = Command::new("git")
-    .args(["clone", repo_url, destination])
-    .output()
-    .map_err(|e| format!("dependency_error: Failed to run git: {e}"))?;
-  if !output.status.success() {
-    return Err(format!(
-      "git_command_failed: {}",
-      String::from_utf8_lossy(&output.stderr).trim()
-    ));
-  }
+  let interrupt = std::sync::atomic::AtomicBool::new(false);
+  let clone_err = |e: &dyn std::fmt::Display| format!("git_command_failed: {e}");
+  // Dropping an unfinished clone removes the partial destination.
+  let mut prepare = gix::prepare_clone(repo_url, destination).map_err(|e| clone_err(&e))?;
+  let (mut checkout, _) = prepare
+    .fetch_then_checkout(gix::progress::Discard, &interrupt)
+    .map_err(|e| clone_err(&e))?;
+  checkout
+    .main_worktree(gix::progress::Discard, &interrupt)
+    .map_err(|e| clone_err(&e))?;
   inspect_repository_path(destination)
 }
 
@@ -3156,6 +3158,7 @@ fn validate_remote_path(path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::process::Command;
 
   #[test]
   fn parses_ssh_hosts_ignoring_patterns() {
@@ -3186,6 +3189,78 @@ mod tests {
     std::fs::create_dir(&nested).unwrap();
     std::fs::write(nested.join("b.txt"), vec![0u8; 5]).unwrap();
     assert_eq!(directory_usage_bytes(dir.path()), 15);
+  }
+
+  #[test]
+  fn clone_repo_local_checks_out_default_branch_with_origin() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    for args in [
+      &["init", "-b", "main"][..],
+      &[
+        "-c",
+        "user.name=T",
+        "-c",
+        "user.email=t@e.x",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "init",
+      ],
+    ] {
+      let status = Command::new("git")
+        .current_dir(&source)
+        .args(args)
+        .status()
+        .unwrap();
+      assert!(status.success(), "git {args:?}");
+    }
+    std::fs::write(source.join("README.md"), "hi\n").unwrap();
+    for args in [
+      &["add", "README.md"][..],
+      &[
+        "-c",
+        "user.name=T",
+        "-c",
+        "user.email=t@e.x",
+        "commit",
+        "-m",
+        "readme",
+      ],
+    ] {
+      let status = Command::new("git")
+        .current_dir(&source)
+        .args(args)
+        .status()
+        .unwrap();
+      assert!(status.success(), "git {args:?}");
+    }
+
+    let destination = dir.path().join("clone");
+    clone_repo_local(source.to_str().unwrap(), destination.to_str().unwrap()).unwrap();
+
+    assert_eq!(
+      std::fs::read_to_string(destination.join("README.md")).unwrap(),
+      "hi\n"
+    );
+    let repo = gix::open(&destination).unwrap();
+    assert_eq!(
+      repo.head_name().unwrap().unwrap().shorten().to_string(),
+      "main"
+    );
+    assert!(repo.find_remote("origin").is_ok());
+  }
+
+  #[test]
+  fn clone_repo_local_leaves_no_partial_destination_on_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let destination = dir.path().join("clone");
+    let missing = dir.path().join("missing");
+    let error =
+      clone_repo_local(missing.to_str().unwrap(), destination.to_str().unwrap()).unwrap_err();
+    assert!(error.starts_with("git_command_failed: "), "{error}");
+    assert!(!destination.exists());
   }
 
   #[test]

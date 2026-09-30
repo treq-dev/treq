@@ -13,6 +13,7 @@ import {
 import { AgentTerminalPanel } from "./terminal/AgentTerminalPanel";
 import { ResizeDivider } from "./terminal/ResizeDivider";
 import { ShellTerminalPanel } from "./terminal/ShellTerminalPanel";
+import { RemoteTerminalPanel } from "./RemoteTerminalPanel";
 import { type TerminalWithWorkspace } from "./workspace-terminal-pane/types";
 import { agentTerminalId } from "./terminal/agentTerminalId";
 
@@ -199,6 +200,44 @@ export const WorkspaceTerminalPaneView: React.FC<
                 workspace.workspaceKey,
                 workspace.isMainRepo,
               );
+
+            if (terminal.type === "shell" && terminal.data.remote) {
+              const terminalId = terminal.data.id;
+              const width = terminalWidths.get(terminalId);
+              return (
+                <React.Fragment key={terminalId}>
+                  <div
+                    data-terminal-id={terminalId}
+                    data-remote-terminal="true"
+                    className={cn(
+                      "flex flex-col min-h-0 overflow-hidden flex-shrink-0 border-r border-border",
+                      width == null && "flex-1",
+                      activePtySessionId === terminalId &&
+                        "ring-1 ring-inset ring-primary/40",
+                    )}
+                    style={{
+                      width: width != null ? width : undefined,
+                      minWidth: minTerminalPx,
+                    }}
+                    onMouseDown={() => setActivePtySessionId(terminalId)}
+                    onDoubleClick={() => onTerminalDoubleClick(terminalId)}
+                  >
+                    <RemoteTerminalPanel
+                      target={terminal.data.remote}
+                      onClose={() => handleCloseShell(terminalId)}
+                      onOutput={() => onTerminalOutput?.(terminalId, true)}
+                    />
+                  </div>
+                  {!isLast && nextId && (
+                    <ResizeDivider
+                      onResize={(deltaX) =>
+                        handleTerminalResize(terminalId, nextId, deltaX)
+                      }
+                    />
+                  )}
+                </React.Fragment>
+              );
+            }
 
             if (terminal.type === "shell") {
               const terminalId = terminal.data.id;

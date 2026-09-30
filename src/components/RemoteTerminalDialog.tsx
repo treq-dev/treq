@@ -6,6 +6,10 @@
  * pick "Reattach" (pick up a running session, mirroring mobile's
  * `WorkspaceDetailScreen` "Reattach"/"Start new" choice) or "Start new"
  * (a fresh label).
+ *
+ * When `onOpenTarget` is given (desktop), the chosen session opens in the
+ * normal terminal pane and the dialog closes. Otherwise the terminal renders
+ * inside the dialog.
  */
 import { useEffect, useState } from "react";
 import { Loader2, TerminalSquare } from "lucide-react";
@@ -26,8 +30,7 @@ import {
   type RemoteTerminalTarget,
 } from "./RemoteTerminalPanel";
 import type { SshEndpoint } from "../lib/api-types-remote";
-
-const DEFAULT_LABEL = "shell";
+import { newRemoteSessionLabel } from "../lib/remote-terminal-target";
 
 interface RemoteTerminalDialogProps {
   open: boolean;
@@ -36,6 +39,7 @@ interface RemoteTerminalDialogProps {
   repositoryId: string;
   workspaceId: string;
   remoteWorkingDirectory: string;
+  onOpenTarget?: (target: RemoteTerminalTarget) => void;
 }
 
 export const RemoteTerminalDialog = ({
@@ -45,6 +49,7 @@ export const RemoteTerminalDialog = ({
   repositoryId,
   workspaceId,
   remoteWorkingDirectory,
+  onOpenTarget,
 }: RemoteTerminalDialogProps) => {
   const [sessions, setSessions] = useState<RemotePersistentPtySession[] | null>(
     null,
@@ -74,6 +79,15 @@ export const RemoteTerminalDialog = ({
   }, [open, endpoint, repositoryId, workspaceId]);
 
   if (!open) return null;
+
+  const openTarget = (next: RemoteTerminalTarget) => {
+    if (onOpenTarget) {
+      onOpenTarget(next);
+      onOpenChange(false);
+    } else {
+      setTarget(next);
+    }
+  };
 
   // Once a target is chosen, hand off to the terminal itself full-screen
   // within the dialog frame.
@@ -135,7 +149,7 @@ export const RemoteTerminalDialog = ({
                     size="sm"
                     disabled={!session.running}
                     onClick={() =>
-                      setTarget({
+                      openTarget({
                         endpoint,
                         repositoryId,
                         workspaceId,
@@ -156,15 +170,14 @@ export const RemoteTerminalDialog = ({
             <Button
               variant={sessions.length > 0 ? "outline" : "default"}
               onClick={() =>
-                setTarget({
+                openTarget({
                   endpoint,
                   repositoryId,
                   workspaceId,
                   remoteWorkingDirectory,
-                  label:
-                    sessions.length > 0
-                      ? `${DEFAULT_LABEL}-${sessions.length + 1}`
-                      : DEFAULT_LABEL,
+                  // Always a fresh label: reusing one that is already
+                  // running would attach to that session instead.
+                  label: newRemoteSessionLabel(null),
                   reattach: false,
                 })
               }

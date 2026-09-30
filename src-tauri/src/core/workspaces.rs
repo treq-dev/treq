@@ -1080,6 +1080,18 @@ fn forget_workspace_record(
             .map_err(|e| format!("Failed to archive workspace in db: {}", e))?;
         }
       }
+      // Rebase spliced children now so a merged parent's commits drop out of
+      // their PRs immediately. Best effort: the next auto-rebase retries.
+      if !children.is_empty() {
+        let style = resolve_workspace_diff_conflict_marker_style(repo_path)
+          .unwrap_or_else(|_| crate::core::DEFAULT_CONFLICT_MARKER_STYLE.to_string());
+        for child in &children {
+          if let Err(e) = check_and_rebase_workspaces(repo_path, Some(child.id), None, None, &style)
+          {
+            tracing::warn!("Failed to rebase child workspace {}: {}", child.id, e);
+          }
+        }
+      }
       Ok(Some(move_workspace_dir_to_trash(
         repo_path,
         &workspace_path,

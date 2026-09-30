@@ -60,7 +60,7 @@ urlencoding = "2"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 imara-diff = "0.1.8"
-gix = { version = "0.81.0" }
+gix = { version = "0.81.0", features = ["blocking-http-transport-reqwest-rust-tls"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["registry", "env-filter"] }

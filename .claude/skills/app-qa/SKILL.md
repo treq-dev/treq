@@ -69,8 +69,9 @@ for a real user clicking the same button — it defeats the point of this skill.
 This extends to *setup*, not just the behavior under test: if the scenario's
 narrative includes "the user creates a workspace" (or renames one, deletes one,
 etc.) as a step, create it by clicking through the real dialog (the "Stack" button
-on the home repo header, or "Stack" on an existing workspace's header to create a
-stacked child) rather than calling `createWorkspace()` from `src/lib/api` directly.
+on the home repo header, or hover an existing workspace's sidebar row and click its
+"Stack a workspace" button to create a stacked child -- workspace headers have no
+"Stack" button) rather than calling `createWorkspace()` from `src/lib/api` directly.
 The API helper is still fine for *incidental background state* a spec needs but
 isn't itself testing (e.g. two throwaway workspaces just so a branch-switcher
 dropdown has something to list). `scripts/screenshot/specs/commits-tab-after-push.spec.tsx`

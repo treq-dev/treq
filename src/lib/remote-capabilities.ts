@@ -1,14 +1,11 @@
 /**
  * Capabilities the current client may offer for a remote repository.
- * Native interactive PTY over russh is not wired on this client; the UI
- * must disable shell and agent PTY actions with this reason rather than
- * falling back to a system `ssh` executable.
+ *
+ * Remote shells and agents run over the native russh PTY channel
+ * (`remote_pty_*` commands), inside a persistent tmux/screen session on the
+ * host so they can be detached and reattached. A system `ssh` executable is
+ * never used.
  */
-export const NATIVE_REMOTE_PTY_AVAILABLE = false;
-
-export const NATIVE_REMOTE_PTY_REASON =
-  "Interactive remote terminals require native SSH PTY support, which is not available yet. System ssh is not used as a fallback.";
-
 export const REMOTE_MERGE_REASON =
   "Merging a remote workspace is not available yet. Push the branch and merge it from your hosting provider instead.";
 
@@ -28,14 +25,8 @@ export interface RemoteCapabilities {
 
 export function remoteCapabilities(): RemoteCapabilities {
   return {
-    shell: {
-      supported: NATIVE_REMOTE_PTY_AVAILABLE,
-      reason: NATIVE_REMOTE_PTY_REASON,
-    },
-    agentPty: {
-      supported: NATIVE_REMOTE_PTY_AVAILABLE,
-      reason: NATIVE_REMOTE_PTY_REASON,
-    },
+    shell: { supported: true },
+    agentPty: { supported: true },
     agentLifecycle: { supported: true },
     // Routed through the typed `SplitCommit` command (whole files of a
     // workspace's working copy).
