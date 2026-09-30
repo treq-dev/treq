@@ -6348,6 +6348,11 @@ pub fn get_default_branch(repo_path: &str) -> Result<String, JjError> {
 pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
   // Get current branch name to check/ensure tracking
   let branch_name = get_workspace_branch(workspace_path)?;
+  if branch_name.is_empty() || branch_name == "HEAD" {
+    return Err(JjError::IoError(
+      "Cannot push: not on a branch (HEAD is detached). Check out a branch first.".to_string(),
+    ));
+  }
 
   // Ensure bookmark is tracked before push to avoid non-tracking bookmark warnings.
   let mut tracking_message = String::new();
@@ -6414,6 +6419,7 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
     )),
   };
   if let Some(update) = update {
+    ensure_no_conflicted_commits_to_push(tx.repo(), &update)?;
     let targets = git::GitPushRefTargets {
       bookmarks: vec![(RefName::new(&branch_name).to_owned(), update)],
     };
@@ -6431,6 +6437,37 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
       .map_err(|e| JjError::IoError(format!("Failed to commit push metadata: {}", e)))?;
   }
   Ok(tracking_message)
+}
+
+/// Refuse to push commits with conflicts, like `jj git push`: git readers would
+/// only see one side of each conflicted file.
+fn ensure_no_conflicted_commits_to_push(
+  repo: &dyn jj_lib::repo::Repo,
+  update: &Diff<Option<jj_lib::backend::CommitId>>,
+) -> Result<(), JjError> {
+  let Some(new_head) = update.after.clone() else {
+    return Ok(());
+  };
+  let old_heads: Vec<_> = repo
+    .view()
+    .remote_bookmarks(RemoteName::new("origin"))
+    .flat_map(|(_, remote_ref)| remote_ref.target.added_ids().cloned())
+    .collect();
+  let to_push = revset::RevsetExpression::commits(old_heads)
+    .range(&revset::RevsetExpression::commits(vec![new_head]))
+    .evaluate(repo)
+    .map_err(|e| JjError::IoError(format!("Failed to find commits to push: {}", e)))?;
+  for commit in to_push.iter().commits(repo.store()) {
+    let commit =
+      commit.map_err(|e| JjError::IoError(format!("Failed to find commits to push: {}", e)))?;
+    if commit.has_conflict() {
+      return Err(JjError::IoError(format!(
+        "Cannot push: commit {} has conflicts. Resolve them first.",
+        commit.id().hex()
+      )));
+    }
+  }
+  Ok(())
 }
 
 /// Get bookmarks on a given revision
