@@ -738,3 +738,38 @@ fn test_resolve_and_commit_clears_committed_tip_conflict_from_status() {
     "sidebar has_conflicts must clear after committed-tip resolve+commit"
   );
 }
+
+#[test]
+fn get_file_lines_reads_parent_revision_in_workspace() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+  let workspace = repo
+    .create_workspace_with_commit("feat/read-parent", "a.txt", "committed\n", None)
+    .expect("create workspace with commit");
+  let ws_dir = repo.workspace_full_path(&workspace);
+  TestRepo::write_workspace_file(&ws_dir, "a.txt", "edited\n").expect("edit a.txt");
+
+  let parent = treq_lib::core::changes::get_file_lines(
+    &repo.repo_path,
+    Some(workspace.id),
+    "a.txt",
+    true,
+    1,
+    10,
+  )
+  .expect("read parent revision in workspace");
+  assert_eq!(parent.lines, vec!["committed".to_string()]);
+}
+
+#[test]
+fn get_file_lines_reads_parent_revision_in_home_repo() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+  repo
+    .create_file("a.txt", "committed\n")
+    .expect("write a.txt");
+  treq_lib::jj::jj_commit(&repo.repo_path, "add a").expect("commit");
+  repo.create_file("a.txt", "edited\n").expect("edit a.txt");
+
+  let parent = treq_lib::core::changes::get_file_lines(&repo.repo_path, None, "a.txt", true, 1, 10)
+    .expect("read parent revision in home repo");
+  assert_eq!(parent.lines, vec!["committed".to_string()]);
+}

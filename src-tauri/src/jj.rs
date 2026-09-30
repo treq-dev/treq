@@ -4144,23 +4144,33 @@ pub fn jj_get_file_lines(
     )));
   }
   let content = if from_parent {
-    let repo = gix::open(workspace_path).map_err(|e| JjError::IoError(e.to_string()))?;
-    let head_commit = repo
-      .head_commit()
-      .map_err(|e| JjError::IoError(e.to_string()))?;
-    let tree = head_commit
-      .tree()
-      .map_err(|e| JjError::IoError(e.to_string()))?;
-    let entry = tree
-      .lookup_entry_by_path(file_path)
-      .map_err(|e| JjError::IoError(e.to_string()))?
-      .ok_or_else(|| JjError::IoError(format!("Path '{}' not found in HEAD", file_path)))?;
-    let blob = entry
-      .object()
-      .map_err(|e| JjError::IoError(e.to_string()))?
-      .try_into_blob()
-      .map_err(|e| JjError::IoError(e.to_string()))?;
-    String::from_utf8_lossy(&blob.data).to_string()
+    // Read through jj-lib: a secondary workspace has no `.git` of its own.
+    let mut loaded = load_workspace_repo(workspace_path)?;
+    import_colocated_git_state(&mut loaded, workspace_path)?;
+    let wc_commit = get_workspace_wc_commit(&loaded)?
+      .ok_or_else(|| JjError::IoError("No working-copy commit found".to_string()))?;
+    let parent_tree = block_on(wc_commit.parent_tree(loaded.repo.as_ref()))
+      .map_err(|e| JjError::IoError(format!("Failed to read parent tree: {}", e)))?;
+    let repo_path = RepoPathBuf::from_relative_path(relative)
+      .map_err(|_| JjError::IoError("Invalid file path".to_string()))?;
+    let value = block_on(parent_tree.path_value(&repo_path))
+      .map_err(|e| JjError::IoError(format!("Failed to read parent path value: {}", e)))?;
+    let materialized = block_on(jj_lib::conflicts::materialize_tree_value(
+      loaded.repo.store(),
+      &repo_path,
+      value,
+      &ConflictLabels::unlabeled(),
+    ))
+    .map_err(|e| JjError::IoError(format!("Failed to materialize parent value: {}", e)))?;
+    let MaterializedTreeValue::File(mut file) = materialized else {
+      return Err(JjError::IoError(format!(
+        "Path '{}' not found in parent",
+        file_path
+      )));
+    };
+    let bytes = block_on(file.read_all(&repo_path))
+      .map_err(|e| JjError::IoError(format!("Failed to read file: {}", e)))?;
+    String::from_utf8_lossy(&bytes).to_string()
   } else {
     // Read file from working directory
     let full_path = Path::new(workspace_path).join(file_path);
