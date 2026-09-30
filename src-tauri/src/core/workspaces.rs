@@ -544,6 +544,10 @@ pub fn open_or_create_workspace_from_pr(
     return Err("PR base branch is required".to_string());
   }
 
+  // Prune rows whose directory or jj registration is gone first; otherwise a
+  // stale row is "opened" while the sidebar, which lists jj workspaces, shows nothing.
+  sync_workspaces(repo_path)?;
+
   if let Some(existing) = local_db::get_workspace_by_branch(repo_path, head_branch)
     .map_err(|e| format!("Failed to check existing workspace: {e}"))?
   {
@@ -606,6 +610,7 @@ pub fn open_or_create_workspace_from_issue(
   title: &str,
   description: Option<&str>,
 ) -> Result<(local_db::Workspace, bool), String> {
+  sync_workspaces(repo_path)?;
   if let Some(existing) = local_db::get_workspace_by_branch(repo_path, branch_name)
     .map_err(|e| format!("Failed to check existing workspace: {e}"))?
   {
@@ -2093,6 +2098,28 @@ mod tests {
     assert!(created);
     assert_ne!(workspace.id, first.id);
     assert!(!workspace.archived);
+  }
+
+  #[test]
+  fn open_or_create_workspace_from_pr_recreates_workspace_with_missing_directory() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let first = super::create_workspace(&repo_path, "fix/pr", None, None, None, None, None)
+      .expect("create workspace");
+    let workspace_dir = temp
+      .path()
+      .join(".treq/workspaces")
+      .join(&first.workspace_path);
+    fs::remove_dir_all(&workspace_dir).expect("remove workspace directory");
+
+    let (workspace, created) =
+      super::open_or_create_workspace_from_pr(&repo_path, "fix/pr", "main", None, None)
+        .expect("open PR workspace");
+
+    assert!(created);
+    assert!(workspace_dir.exists());
+    let listed = super::list_workspace_statuses(&repo_path).expect("list statuses");
+    assert!(listed.iter().any(|s| s.current.id == workspace.id));
   }
 
   #[test]
