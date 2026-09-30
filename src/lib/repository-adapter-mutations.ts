@@ -312,6 +312,20 @@ export async function transportMoveCommit(
   });
 }
 
+export async function transportUndoCommit(
+  target: CommitTarget,
+  local: () => Promise<void>,
+): Promise<void> {
+  const repo = activeForPath(target.repoPath);
+  if (!repo) return local();
+  await remoteMutation(repo, {
+    kind: "UndoCommit",
+    repo: repo.canonicalPath,
+    workspace: String(target.workspaceId),
+    commit: target.commitChangeId,
+  });
+}
+
 export async function transportAbandonCommit(
   target: CommitTarget,
   local: () => Promise<string>,

@@ -958,6 +958,11 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       target_workspace: "2".into(),
       idempotency_key: key(),
     },
+    R::UndoCommit {
+      repo: repo(),
+      workspace: "1".into(),
+      commit: "abc".into(),
+    },
     R::AbandonCommit {
       repo: repo(),
       workspace: "1".into(),

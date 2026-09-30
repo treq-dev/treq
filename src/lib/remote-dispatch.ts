@@ -60,6 +60,7 @@ export const TREQ_COMMAND_KINDS = [
   "DescribeCommit",
   "SplitCommit",
   "MoveCommit",
+  "UndoCommit",
   "AbandonCommit",
   "ResolveConflict",
   "GitFetch",
@@ -229,6 +230,7 @@ export type TreqCommandRequest =
       target_workspace: string;
       idempotency_key: string;
     }
+  | { kind: "UndoCommit"; repo: string; workspace: string; commit: string }
   | {
       kind: "AbandonCommit";
       repo: string;

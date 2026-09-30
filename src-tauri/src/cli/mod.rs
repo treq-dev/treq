@@ -458,6 +458,11 @@ pub(crate) fn parse_remote_command_request(
       target_workspace: require_value("target workspace id")?,
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
+    ("commits", "undo") => Ok(TreqCommandRequest::UndoCommit {
+      repo,
+      workspace: require_workspace()?,
+      commit: require_target("commit change id")?,
+    }),
     ("commits", "abandon") => Ok(TreqCommandRequest::AbandonCommit {
       repo,
       workspace: require_workspace()?,

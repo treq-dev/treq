@@ -31,6 +31,7 @@ import {
   transportGetCommitDescription,
   transportMoveCommit,
   transportResolveCommit,
+  transportUndoCommit,
 } from "./repository-adapter-mutations";
 import { currentWindowLabel } from "./window-label";
 
@@ -662,18 +663,14 @@ export const undoRepoOperation = async (
  * Undo the latest commit in a workspace's own lineage (not the working copy,
  * not a commit on the target branch). Must be undone sequentially from the tip.
  */
-export const undoCommit = async (
+export const undoCommit = (
   repoPath: string,
   workspaceId: number,
   commitChangeId: string,
-): Promise<void> => {
-  assertLocalOperation(repoPath, "Undoing a commit");
-  return invoke("undo_commit", {
-    repoPath,
-    workspaceId,
-    commitChangeId,
-  });
-};
+): Promise<void> =>
+  transportUndoCommit({ repoPath, workspaceId, commitChangeId }, () =>
+    invoke("undo_commit", { repoPath, workspaceId, commitChangeId }),
+  );
 
 /**
  * Revert a commit by creating a new commit that reverses its changes on top

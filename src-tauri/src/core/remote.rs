@@ -313,6 +313,12 @@ pub enum TreqCommandRequest {
     target_workspace: String,
     idempotency_key: String,
   },
+  /// Abandons the workspace's tip commit, like the local `undo_commit`.
+  UndoCommit {
+    repo: String,
+    workspace: String,
+    commit: String,
+  },
   AbandonCommit {
     repo: String,
     workspace: String,
@@ -467,6 +473,7 @@ impl TreqCommandRequest {
       | Self::DescribeCommit { .. }
       | Self::SplitCommit { .. }
       | Self::MoveCommit { .. }
+      | Self::UndoCommit { .. }
       | Self::AbandonCommit { .. }
       | Self::ResolveConflict { .. }
       | Self::GitFetch { .. }
@@ -523,6 +530,7 @@ impl TreqCommandRequest {
       | Self::DeleteWorkspace { .. }
       | Self::RestoreFile { .. }
       | Self::DescribeCommit { .. }
+      | Self::UndoCommit { .. }
       | Self::GitFetch { .. }
       | Self::GitBookmarkTrack { .. }
       | Self::AgentStatus { .. }
@@ -567,6 +575,7 @@ impl TreqCommandRequest {
       Self::DescribeCommit { .. } => "DescribeCommit",
       Self::SplitCommit { .. } => "SplitCommit",
       Self::MoveCommit { .. } => "MoveCommit",
+      Self::UndoCommit { .. } => "UndoCommit",
       Self::AbandonCommit { .. } => "AbandonCommit",
       Self::ResolveConflict { .. } => "ResolveConflict",
       Self::GitFetch { .. } => "GitFetch",
@@ -614,6 +623,7 @@ impl TreqCommandRequest {
     "DescribeCommit",
     "SplitCommit",
     "MoveCommit",
+    "UndoCommit",
     "AbandonCommit",
     "ResolveConflict",
     "GitFetch",
@@ -772,11 +782,17 @@ pub fn verification_for(request: &TreqCommandRequest) -> Option<MutationVerifica
         check: Box::new(move |value| check_create_commit(value, &base_change_id, &message)),
       })
     }
+    // Undoing a commit abandons it too: its change id leaves the log.
     TreqCommandRequest::AbandonCommit {
       repo,
       workspace,
       commit,
       ..
+    }
+    | TreqCommandRequest::UndoCommit {
+      repo,
+      workspace,
+      commit,
     } => {
       let commit = commit.clone();
       Some(MutationVerification {
@@ -1468,6 +1484,15 @@ impl TreqCommandRequest {
         fields.value = Some(target_workspace.clone());
         fields.idempotency_key = Some(idempotency_key);
         ("commits", "move", repo)
+      }
+      Self::UndoCommit {
+        repo,
+        workspace,
+        commit,
+      } => {
+        fields.workspace = Some(workspace);
+        fields.target = Some(commit);
+        ("commits", "undo", repo)
       }
       Self::AbandonCommit {
         repo,
@@ -2241,6 +2266,14 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         ))
       },
     ),
+    TreqCommandRequest::UndoCommit {
+      repo,
+      workspace,
+      commit,
+    } => {
+      let id = workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
+      json(crate::core::commits::undo_commit(&repo, id, &commit))
+    }
     TreqCommandRequest::AbandonCommit {
       repo,
       workspace,
@@ -3906,6 +3939,21 @@ mod tests {
   }
 
   #[test]
+  fn undo_commit_verification_treats_a_missing_change_as_applied() {
+    let check = verification_for(&TreqCommandRequest::UndoCommit {
+      repo: "/r".into(),
+      workspace: "1".into(),
+      commit: "abc".into(),
+    })
+    .expect("UndoCommit has a verification recipe")
+    .check;
+    let present = serde_json::json!({ "commits": [{ "change_id": "abc" }] });
+    assert_eq!(check(&present), MutationVerificationOutcome::NotApplied);
+    let gone = serde_json::json!({ "commits": [{ "change_id": "xyz" }] });
+    assert_eq!(check(&gone), MutationVerificationOutcome::AlreadyApplied);
+  }
+
+  #[test]
   fn restore_file_has_no_verification_recipe() {
     // Documented carve-out: rather than guess at a false-positive check, a
     // mutation with no reliable observable-state read falls back to
@@ -4092,7 +4140,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 46);
   }
 
   #[test]
