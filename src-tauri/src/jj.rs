@@ -9719,20 +9719,20 @@ mod tests {
   }
 
   #[test]
-  fn bookmark_track_marks_remote_as_tracked_even_before_first_push() {
+  fn bookmark_track_rejects_remote_that_does_not_exist() {
     let temp = TempDir::new().expect("tempdir");
     init_jj_repo(&temp);
     let workspace_path = temp.path().to_str().expect("utf8 path");
     jj_set_bookmark(workspace_path, "main", "@").expect("set main bookmark");
 
+    let err = jj_bookmark_track(workspace_path, "main", "origin").expect_err("no origin remote");
+    assert!(
+      err.to_string().contains("Remote 'origin' not found"),
+      "{err}"
+    );
     assert!(
       !is_bookmark_tracked(workspace_path, "main", "origin").expect("tracked check"),
-      "main@origin should start untracked"
-    );
-    jj_bookmark_track(workspace_path, "main", "origin").expect("track bookmark");
-    assert!(
-      is_bookmark_tracked(workspace_path, "main", "origin").expect("tracked check"),
-      "main@origin should become tracked"
+      "main@origin should stay untracked"
     );
   }
 
