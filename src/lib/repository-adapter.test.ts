@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyAgentReviewSuggestion,
+  checkBranchExists,
   createCommit,
   createWorkspace,
   getCommitDiff,
@@ -168,6 +169,16 @@ describe("remote repository reads", () => {
       `${scope}/.treq/workspaces/feat-a`,
     );
     expect(repoStateScope("/home/me/project")).toBe("/home/me/project");
+  });
+
+  it("checks a remote branch through the typed ListBranches read", async () => {
+    vi.mocked(dispatch).mockResolvedValue([{ name: "feat/a" }]);
+    await expect(checkBranchExists(ROOT, "feat/a")).resolves.toEqual({
+      local_exists: true,
+      remote_exists: false,
+    });
+    expect(sentReads()).toEqual([{ kind: "ListBranches", repo: ROOT }]);
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("reads default repo settings and scopes agent review comments", async () => {

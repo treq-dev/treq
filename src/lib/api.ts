@@ -52,6 +52,7 @@ import {
   transportListWorkspaceStatuses,
 } from "./repository-adapter";
 import {
+  transportCheckBranchExists,
   transportCreateWorkspace,
   transportDeleteWorkspace,
   transportMoveWorkspaceChanges,
@@ -442,10 +443,12 @@ export const checkBranchExists = (
   repoPath: string,
   branchName: string,
 ): Promise<BranchStatus> =>
-  invoke("jj_check_branch_exists", {
-    repoPath,
-    branchName,
-  });
+  transportCheckBranchExists(repoPath, branchName, () =>
+    invoke("jj_check_branch_exists", {
+      repoPath,
+      branchName,
+    }),
+  );
 
 export const getCommitDiff = (
   repoPath: string,

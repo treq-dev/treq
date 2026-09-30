@@ -3514,7 +3514,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
               setPromptHistoryFocusId(null);
               setShowPromptHistory(true);
             }}
-            onOpenStash={() => setShowStashModal(true)}
+            onOpenStash={
+              isRemoteActive ? undefined : () => setShowStashModal(true)
+            }
             onCreateShellTerminal={() =>
               terminalPaneRef.current?.createShellSession()
             }

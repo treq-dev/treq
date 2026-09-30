@@ -6,6 +6,7 @@
 /* eslint-disable max-params -- each wrapper mirrors its local invoke arity plus the fallback */
 
 import type {
+  BranchStatus,
   JjRebaseResult,
   RenameWorkspaceResult,
   ResolveCommitResult,
@@ -18,6 +19,7 @@ import {
   remoteMutation,
   RemoteOperationUnsupportedError,
   resolveRemoteLocation,
+  transportListRepoBranches,
   workspaceArg,
 } from "./repository-adapter";
 import type { ActiveRepository } from "./active-repository";
@@ -370,4 +372,19 @@ export async function transportGetCommitDescription(
     throw new Error(`commit_not_found: ${id}`);
   }
   return match.description;
+}
+
+/** Whether a branch exists, from the typed `ListBranches` read. Remote-tracking refs are not reported yet. */
+export async function transportCheckBranchExists(
+  repoPath: string,
+  branchName: string,
+  local: () => Promise<BranchStatus>,
+): Promise<BranchStatus> {
+  if (!activeForPath(repoPath)) return local();
+  const branches = await transportListRepoBranches<{ name: string }[]>(
+    repoPath,
+    async () => [],
+  );
+  const exists = branches.some(({ name }) => name === branchName);
+  return { local_exists: exists, remote_exists: false };
 }
