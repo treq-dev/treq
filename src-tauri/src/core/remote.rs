@@ -239,6 +239,12 @@ pub enum TreqCommandRequest {
     repo: String,
     workspace: String,
   },
+  /// Forgets the workspace and removes its directory but keeps its record,
+  /// like the local `archive_workspace` command.
+  ArchiveWorkspace {
+    repo: String,
+    workspace: String,
+  },
   MoveWorkspaceChanges {
     repo: String,
     workspace: String,
@@ -459,6 +465,7 @@ impl TreqCommandRequest {
       | Self::RenameWorkspace { .. }
       | Self::UpdateWorkspace { .. }
       | Self::DeleteWorkspace { .. }
+      | Self::ArchiveWorkspace { .. }
       | Self::MoveWorkspaceChanges { .. }
       | Self::RebaseWorkspace { .. }
       | Self::RestoreFile { .. }
@@ -521,6 +528,7 @@ impl TreqCommandRequest {
       | Self::ProbeRepo { .. }
       | Self::UpdateWorkspace { .. }
       | Self::DeleteWorkspace { .. }
+      | Self::ArchiveWorkspace { .. }
       | Self::RestoreFile { .. }
       | Self::DescribeCommit { .. }
       | Self::GitFetch { .. }
@@ -559,6 +567,7 @@ impl TreqCommandRequest {
       Self::RenameWorkspace { .. } => "RenameWorkspace",
       Self::UpdateWorkspace { .. } => "UpdateWorkspace",
       Self::DeleteWorkspace { .. } => "DeleteWorkspace",
+      Self::ArchiveWorkspace { .. } => "ArchiveWorkspace",
       Self::MoveWorkspaceChanges { .. } => "MoveWorkspaceChanges",
       Self::RebaseWorkspace { .. } => "RebaseWorkspace",
       Self::RestoreFile { .. } => "RestoreFile",
@@ -606,6 +615,7 @@ impl TreqCommandRequest {
     "RenameWorkspace",
     "UpdateWorkspace",
     "DeleteWorkspace",
+    "ArchiveWorkspace",
     "MoveWorkspaceChanges",
     "RebaseWorkspace",
     "RestoreFile",
@@ -705,7 +715,9 @@ pub fn verification_for(request: &TreqCommandRequest) -> Option<MutationVerifica
         }),
       })
     }
-    TreqCommandRequest::DeleteWorkspace { repo, workspace } => {
+    // Archived workspaces drop out of `ListWorkspaces` just like deleted ones.
+    TreqCommandRequest::DeleteWorkspace { repo, workspace }
+    | TreqCommandRequest::ArchiveWorkspace { repo, workspace } => {
       let workspace = workspace.clone();
       Some(MutationVerification {
         read_request: TreqCommandRequest::ListWorkspaces { repo: repo.clone() },
@@ -1287,6 +1299,10 @@ impl TreqCommandRequest {
       Self::DeleteWorkspace { repo, workspace } => {
         fields.workspace = Some(workspace);
         ("workspace", "delete", repo)
+      }
+      Self::ArchiveWorkspace { repo, workspace } => {
+        fields.workspace = Some(workspace);
+        ("workspace", "archive", repo)
       }
       Self::MoveWorkspaceChanges {
         repo,
@@ -2051,6 +2067,10 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
     TreqCommandRequest::DeleteWorkspace { repo, workspace } => {
       let id = workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
       json(crate::core::workspaces::delete_workspace(&repo, &id))
+    }
+    TreqCommandRequest::ArchiveWorkspace { repo, workspace } => {
+      let id = workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
+      json(crate::core::workspaces::archive_workspace(&repo, &id))
     }
     TreqCommandRequest::MoveWorkspaceChanges {
       repo,
@@ -3856,6 +3876,20 @@ mod tests {
   }
 
   #[test]
+  fn archive_workspace_verification_treats_absence_as_applied() {
+    let verification = verification_for(&TreqCommandRequest::ArchiveWorkspace {
+      repo: "/r".into(),
+      workspace: "42".into(),
+    })
+    .expect("ArchiveWorkspace has a verification recipe");
+    let check = verification.check;
+    let present = serde_json::json!([{ "id": 42 }]);
+    assert_eq!(check(&present), MutationVerificationOutcome::NotApplied);
+    let gone = serde_json::json!([{ "id": 7 }]);
+    assert_eq!(check(&gone), MutationVerificationOutcome::AlreadyApplied);
+  }
+
+  #[test]
   fn rename_workspace_verification_reads_the_current_branch() {
     let verification = verification_for(&TreqCommandRequest::RenameWorkspace {
       repo: "/r".into(),
@@ -4092,7 +4126,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 46);
   }
 
   #[test]

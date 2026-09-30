@@ -27,6 +27,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "RenameWorkspace",
       "UpdateWorkspace",
       "DeleteWorkspace",
+      "ArchiveWorkspace",
       "MoveWorkspaceChanges",
       "RebaseWorkspace",
       "RestoreFile",
@@ -54,7 +55,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "CommitFileDiff",
       "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(45);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(46);
   });
 
   it("is exhaustive over the request union", () => {
@@ -99,6 +100,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       },
       { kind: "UpdateWorkspace", repo: "/r", workspace: "1" },
       { kind: "DeleteWorkspace", repo: "/r", workspace: "1" },
+      { kind: "ArchiveWorkspace", repo: "/r", workspace: "1" },
       {
         kind: "MoveWorkspaceChanges",
         repo: "/r",

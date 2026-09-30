@@ -902,6 +902,10 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       repo: repo(),
       workspace: "1".into(),
     },
+    R::ArchiveWorkspace {
+      repo: repo(),
+      workspace: "1".into(),
+    },
     R::MoveWorkspaceChanges {
       repo: repo(),
       workspace: "feat-a".into(),

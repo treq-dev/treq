@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  archiveWorkspace,
   createCommit,
   createWorkspace,
   getCommitDiff,
@@ -185,6 +186,14 @@ describe("remote repository mutations", () => {
     expect(secondKey).toBeTruthy();
     expect(firstKey).not.toBe(secondKey);
     expect(vi.mocked(dispatchMutationOverSsh).mock.calls[0][0]).toBe(endpoint);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("archives a remote workspace through the typed command", async () => {
+    await archiveWorkspace(ROOT, 7);
+    expect(sentMutations()).toEqual([
+      { kind: "ArchiveWorkspace", repo: ROOT, workspace: "7" },
+    ]);
     expect(invoke).not.toHaveBeenCalled();
   });
 

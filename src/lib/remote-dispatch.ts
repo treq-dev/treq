@@ -52,6 +52,7 @@ export const TREQ_COMMAND_KINDS = [
   "RenameWorkspace",
   "UpdateWorkspace",
   "DeleteWorkspace",
+  "ArchiveWorkspace",
   "MoveWorkspaceChanges",
   "RebaseWorkspace",
   "RestoreFile",
@@ -165,6 +166,7 @@ export type TreqCommandRequest =
       description?: string | null;
     }
   | { kind: "DeleteWorkspace"; repo: string; workspace: string }
+  | { kind: "ArchiveWorkspace"; repo: string; workspace: string }
   | {
       kind: "MoveWorkspaceChanges";
       repo: string;

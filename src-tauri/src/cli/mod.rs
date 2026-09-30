@@ -359,6 +359,10 @@ pub(crate) fn parse_remote_command_request(
       repo,
       workspace: require_workspace()?,
     }),
+    ("workspace", "archive") => Ok(TreqCommandRequest::ArchiveWorkspace {
+      repo,
+      workspace: require_workspace()?,
+    }),
     ("workspace", "move") => Ok(TreqCommandRequest::MoveWorkspaceChanges {
       repo,
       workspace: require_workspace()?,

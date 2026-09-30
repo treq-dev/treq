@@ -82,11 +82,12 @@ export async function transportDeleteWorkspace(
   repoPath: string,
   id: number,
   local: () => Promise<void>,
+  kind: "DeleteWorkspace" | "ArchiveWorkspace" = "DeleteWorkspace",
 ): Promise<void> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
   await remoteMutation(repo, {
-    kind: "DeleteWorkspace",
+    kind,
     repo: repo.canonicalPath,
     workspace: String(id),
   });

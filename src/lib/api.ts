@@ -111,16 +111,13 @@ export const deleteWorkspace = (repoPath: string, id: number): Promise<void> =>
     }),
   );
 
-export const archiveWorkspace = async (
-  repoPath: string,
-  id: number,
-): Promise<void> => {
-  assertLocalOperation(repoPath, "Archiving a workspace");
-  return invoke("archive_workspace", {
+export const archiveWorkspace = (repoPath: string, id: number): Promise<void> =>
+  transportDeleteWorkspace(
     repoPath,
     id,
-  });
-};
+    () => invoke("archive_workspace", { repoPath, id }),
+    "ArchiveWorkspace",
+  );
 
 export const ensureWorkspaceIndexed = (
   repoPath: string,
