@@ -2380,6 +2380,7 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       request_snapshot.as_ref().expect("PtyStart is a mutation"),
       || {
         json(crate::core::pty_remote_supervisor::start_session(
+          &repo,
           &remote_dir,
           &workspace,
           &label,
@@ -2389,23 +2390,26 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         ))
       },
     ),
-    TreqCommandRequest::PtyList { workspace, .. } => json(
-      crate::core::pty_remote_supervisor::list_sessions(workspace.as_deref()),
+    TreqCommandRequest::PtyList { repo, workspace } => json(
+      crate::core::pty_remote_supervisor::list_sessions(&repo, workspace.as_deref()),
     ),
     TreqCommandRequest::PtyStop {
-      workspace, label, ..
+      repo,
+      workspace,
+      label,
     } => json(crate::core::pty_remote_supervisor::stop_session(
-      &workspace, &label,
+      &repo, &workspace, &label,
     )),
     TreqCommandRequest::PtyAttachCommand {
+      repo,
       workspace,
       label,
       remote_dir,
       launch,
       cols,
       rows,
-      ..
     } => json(crate::core::pty_remote_supervisor::build_attach_command(
+      &repo,
       &remote_dir,
       &workspace,
       &label,

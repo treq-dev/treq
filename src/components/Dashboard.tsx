@@ -60,6 +60,7 @@ import type {
   InstanceStatusResponse,
   MachineUsageReport,
   RemoteRepoProbe,
+  RemoteAgentId,
   RepositoryInspection,
   SshEndpoint,
 } from "../lib/api-types-remote";
@@ -147,7 +148,13 @@ import {
 } from "../lib/managed-ssh-connection";
 import { startManagedCertificateRenewal } from "../lib/remote-cert-lifecycle";
 import { ensureRelayAccessTokenSync } from "../lib/remote-relay-auth";
-import { resolveRemoteTerminalTarget } from "../lib/remote-terminal-target";
+import {
+  newRemoteSessionLabel,
+  remoteAgentIdFor,
+  remoteLaunchFor,
+  resolveRemoteTerminalTarget,
+} from "../lib/remote-terminal-target";
+import type { RemoteTerminalTarget } from "./RemoteTerminalPanel";
 import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 import { remoteForceCutoff } from "../lib/api-extra";
 import { RemoteRepositorySelector } from "./remote/RemoteRepositorySelector";
@@ -2255,6 +2262,107 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setSelectedWorkspaceIds(workspaceIds);
   };
 
+  /**
+   * Where a remote shell or agent for `workspace` runs: the endpoint, the
+   * repository and workspace that scope its persistent session name, and
+   * the directory on the host it starts in. Returns `null` (after telling
+   * the user why) when no remote session can be opened right now.
+   */
+  const remoteSessionScope = (
+    workspace: Workspace | null,
+  ): Omit<RemoteTerminalTarget, "label" | "launch" | "reattach"> | null => {
+    const repositoryId = activeRepository?.canonicalPath;
+    if (!isRemoteActive || !repositoryId) return null;
+    if (cutoffReason || !activeSshEndpoint) {
+      addToast({
+        title: "Remote terminal unavailable",
+        description: cutoffReason
+          ? "Reconnect to the remote host before opening a terminal."
+          : "Connect to this repository's SSH host to open a terminal.",
+        type: "warning",
+      });
+      return null;
+    }
+    return {
+      endpoint: activeSshEndpoint,
+      repositoryId,
+      ...resolveRemoteTerminalTarget(
+        repositoryId,
+        workspace
+          ? {
+              workspace_name: workspace.workspace_name,
+              workspace_path: getFullWorkspacePath(workspace),
+            }
+          : null,
+      ),
+    };
+  };
+
+  const openNewRemoteSession = (
+    workspace: Workspace | null,
+    agent: RemoteAgentId | null,
+  ) => {
+    const scope = remoteSessionScope(workspace);
+    if (!scope) return;
+    terminalPaneRef.current?.openRemoteSession({
+      ...scope,
+      label: newRemoteSessionLabel(agent),
+      launch: remoteLaunchFor(agent),
+      reattach: false,
+    });
+  };
+
+  const resolveRemoteShell = (
+    workingDirectory: string,
+  ): RemoteTerminalTarget | null => {
+    const workspace =
+      workspaces.find((w) => getFullWorkspacePath(w) === workingDirectory) ??
+      null;
+    const scope = remoteSessionScope(workspace);
+    if (!scope) return null;
+    return {
+      ...scope,
+      label: newRemoteSessionLabel(null),
+      launch: remoteLaunchFor(null),
+      reattach: false,
+    };
+  };
+
+  /**
+   * Remote counterpart of the local agent flow below. The agent runs inside
+   * a persistent session on the host, in the workspace's directory, so it
+   * keeps running when the pane closes or the connection drops. Only the
+   * app-level default agent applies: repository settings are stored in the
+   * local checkout, which a remote repository does not have.
+   */
+  const startRemoteAgent = async (
+    workspace: Workspace | null,
+    agent?: "claude" | "codex" | "cursor" | "copilot",
+  ) => {
+    let chosen = agent;
+    if (!chosen) {
+      const appDefault = await getSetting("default_agent").catch(() => null);
+      chosen =
+        appDefault === "codex" ||
+        appDefault === "cursor" ||
+        appDefault === "copilot"
+          ? appDefault
+          : "claude";
+    }
+    const remoteAgent = remoteAgentIdFor(chosen);
+    if (!remoteAgent) {
+      addToast({
+        title: "Agent unavailable on remote hosts",
+        description:
+          "Copilot cannot be started in a remote workspace yet. Choose Claude, Codex or Cursor.",
+        type: "warning",
+      });
+      return;
+    }
+    setSelectedWorkspace(workspace);
+    openNewRemoteSession(workspace, remoteAgent);
+  };
+
   const handleCreateSessionFromSidebar = async (
     workspaceId: number | null,
     agent?: AgentKind,
@@ -2270,6 +2378,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const workspace = workspaceId
       ? (workspaces.find((w) => w.id === workspaceId) ?? null)
       : null;
+    if (isRemoteActive) {
+      await startRemoteAgent(workspace, agent);
+      return;
+    }
 
     // When no agent is specified explicitly, resolve from settings (repo-level
     // overrides app-level, both fall back to "claude").
@@ -3125,6 +3237,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 activeAgentSessionId={isSessionView ? activeSessionId : null}
                 workspaceBranchByPath={workspaceBranchByPath}
                 onTerminalsChange={setTerminalSessionSummaries}
+                resolveRemoteShell={
+                  isRemoteActive ? resolveRemoteShell : undefined
+                }
                 onActiveSessionChange={(sessionId) => {
                   if (sessionId === null) {
                     setActiveSessionId(null);
@@ -3494,8 +3609,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
               repositoryId={activeRepository.canonicalPath}
               {...resolveRemoteTerminalTarget(
                 activeRepository.canonicalPath,
-                isRemoteActive ? selectedWorkspace : null,
+                isRemoteActive && selectedWorkspace
+                  ? {
+                      workspace_name: selectedWorkspace.workspace_name,
+                      workspace_path: getFullWorkspacePath(selectedWorkspace),
+                    }
+                  : null,
               )}
+              onOpenTarget={(target) =>
+                terminalPaneRef.current?.openRemoteSession(target)
+              }
             />
           )}
         </SidebarProvider>

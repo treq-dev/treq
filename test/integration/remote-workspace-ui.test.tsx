@@ -86,9 +86,9 @@ describe("remote workspace UI", () => {
       ).findByRole("button", { name: defaultBranch }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
-    expect(screen.getByTestId("remote-capability-notice")).toHaveTextContent(
-      "native SSH PTY",
-    );
+    const notice = screen.getByTestId("remote-capability-notice");
+    expect(notice).toHaveTextContent("Merging a remote workspace");
+    expect(notice).not.toHaveTextContent("native SSH PTY");
   });
 
   it("selects a remote workspace from the sidebar", async () => {
@@ -127,9 +127,9 @@ describe("remote workspace UI", () => {
     await user.click(await screen.findByTitle("remote-change.txt"));
     expect(await screen.findByText(/hello remote/)).toBeTruthy();
     await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
-    expect(screen.getByTestId("remote-capability-notice")).toHaveTextContent(
-      "Interactive remote terminals require native SSH PTY support",
-    );
+    const notice = screen.getByTestId("remote-capability-notice");
+    expect(notice).toHaveTextContent("Merging a remote workspace");
+    expect(notice).not.toHaveTextContent("native SSH PTY");
   });
 
   it("shows remote conflicts in the workspace review UI", async () => {
@@ -168,7 +168,7 @@ describe("remote workspace UI", () => {
     );
   }, 20_000);
 
-  it("disables shell and agent actions from remote capabilities", async () => {
+  it("enables shell and agent actions for remote workspaces", async () => {
     const { repoPath } = createTestRepo(false);
     await createWorkspace(repoPath, "feat/caps");
     await openSavedRemoteRepo(repoPath);
@@ -178,10 +178,13 @@ describe("remote workspace UI", () => {
       "div",
     ) as HTMLElement;
     const shell = within(row).getByRole("button", { name: "Open shell" });
-    expect(shell).toBeDisabled();
-    expect(shell).toHaveAttribute("title", expect.stringContaining("PTY"));
+    expect(shell).toBeEnabled();
+    expect(shell).not.toHaveAttribute("title");
     const agent = within(row).getByRole("button", { name: "Start agent" });
-    expect(agent).toBeDisabled();
+    expect(agent).toBeEnabled();
+    const notice = screen.getByTestId("remote-capability-notice");
+    expect(notice).toHaveTextContent("Merging a remote workspace");
+    expect(notice).not.toHaveTextContent("native SSH PTY");
   });
 
   it("blocks interaction behind a credential cutoff banner", async () => {
