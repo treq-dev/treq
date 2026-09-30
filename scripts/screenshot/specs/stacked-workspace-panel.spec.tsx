@@ -7,6 +7,7 @@ import { render, screen, waitFor, within } from "../../../test/test-utils";
 import {
 	commitWorkspaceFile,
 	createTestRepo,
+	findSidebarBranchElement,
 	openRepo,
 	resolveWorkspacePath,
 	writeWorkspaceFile,
@@ -17,8 +18,8 @@ const PARENT_BRANCH = "feat/stack-parent";
 const CHILD_BRANCH = "feat/stack-child";
 
 // Scenario: the user creates a workspace from the home repo, then stacks a
-// second workspace on top of it via the workspace header's own "Stack"
-// button (not createWorkspace()+setWorkspaceTargetBranch -- workspace
+// second workspace on top of it via the sidebar row's "Stack a workspace"
+// hover button (not createWorkspace()+setWorkspaceTargetBranch -- workspace
 // creation and stacking are the behavior under test, so both go through the
 // real dialogs). Captures the child workspace's Code tab (showing the new
 // stack panel) and the view after clicking the parent in that panel.
@@ -45,9 +46,15 @@ it("captures the stack panel and navigation to a sibling workspace", async () =>
 	let header = await screen.findByTestId("show-workspace-header");
 	await within(header).findByText(PARENT_BRANCH);
 
-	// From the parent workspace's own header, stack a child workspace on top
-	// of it -- the same "Stack" button, now scoped to this workspace.
-	await user.click(await screen.findByRole("button", { name: "Stack" }));
+	// Stack a child workspace on top of the parent from its sidebar row's
+	// hover action (workspace headers have no "Stack" button).
+	const parentRow = (await findSidebarBranchElement(PARENT_BRANCH)).closest(
+		"div",
+	) as HTMLElement;
+	await user.hover(parentRow);
+	await user.click(
+		await within(parentRow).findByRole("button", { name: "Stack a workspace" }),
+	);
 
 	dialog = await screen.findByTestId("modal");
 	await user.type(within(dialog).getByLabelText("Branch Name"), CHILD_BRANCH);
@@ -109,7 +116,9 @@ it("captures the stack panel and navigation to a sibling workspace", async () =>
 	// zero commits) when the child workspace was first selected above, and
 	// nothing re-fetches it just by re-selecting the same workspace. Navigate
 	// to the home repo and back to fully remount the panel so it picks up the
-	// commit made above.
+	// commit made above. Wait out SWR's 2s dedupe window first, or the
+	// remount reuses the cached empty result instead of refetching.
+	await new Promise((resolve) => setTimeout(resolve, 2100));
 	await user.click(await screen.findByTestId("home-repo-row"));
 	await user.click(await screen.findByText(CHILD_BRANCH));
 
