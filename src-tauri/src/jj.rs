@@ -5015,18 +5015,17 @@ pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError>
     resolve_home_repo_branch(workspace_path)?
   };
 
-  let settings_path = repo_path_opt.as_deref().unwrap_or(workspace_path);
-  let settings = create_user_settings(settings_path)?;
-  let mut workspace = Workspace::load(
-    &settings,
-    Path::new(workspace_path),
-    &StoreFactories::default(),
-    &default_working_copy_factories(),
-  )
-  .map_err(|e| JjError::IoError(format!("Failed to load workspace: {}", e)))?;
-
-  let mut repo = block_on(workspace.repo_loader().load_at_head())
-    .map_err(|e| JjError::IoError(format!("Failed to load repo: {}", e)))?;
+  // Import git refs first, as jj does at the start of every command in a colocated
+  // repo. If jj's record of a git ref is stale (never imported, or moved by git),
+  // the export after this commit is refused and the next import conflicts the bookmark.
+  let mut loaded = load_workspace_repo(workspace_path)?;
+  import_remaining_git_refs(&mut loaded)?;
+  let LoadedWorkspaceRepo {
+    settings,
+    mut workspace,
+    mut repo,
+    ..
+  } = loaded;
 
   let workspace_name: WorkspaceNameBuf = workspace.workspace_name().to_owned();
 
