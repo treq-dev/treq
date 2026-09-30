@@ -1367,6 +1367,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const effectiveDefaultBranch = currentBranch || repoDefaultBranch || "main";
 
+  // Stack from the home repo parents the new workspace on the home branch.
+  // Until that branch has loaded, effectiveDefaultBranch is only the "main"
+  // fallback, and stacking on it registered a workspace for "main". Fetch
+  // the branch instead of guessing.
+  const resolveHomeStackBranch = async (): Promise<string | null> => {
+    try {
+      const branch = repoBranch
+        ? (currentBranch ?? repoBranch.current_branch)
+        : (await getRepoCurrentBranch(dataRepoPath)).current_branch;
+      return (
+        branch ||
+        repoDefaultBranch ||
+        (await getRepoDefaultBranch(dataRepoPath))
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  const openHomeStackDialog = async () => {
+    if (!dataRepoPath) return;
+    const targetBranch = await resolveHomeStackBranch();
+    if (!targetBranch) {
+      addToast({
+        title: "Cannot create stacked workspace",
+        description: "No parent branch available",
+        type: "error",
+      });
+      return;
+    }
+    setUnifiedDialogDefaults({ targetBranch, sourceWorkspace: null });
+  };
+
   const handleCreateStackedWorkspace = () => {
     if (!dataRepoPath) return;
 
@@ -1375,17 +1408,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         targetBranch: selectedWorkspace.branch_name,
         sourceWorkspace: selectedWorkspace,
       });
-    } else if (effectiveDefaultBranch) {
-      setUnifiedDialogDefaults({
-        targetBranch: effectiveDefaultBranch,
-        sourceWorkspace: null,
-      });
     } else {
-      addToast({
-        title: "Cannot create stacked workspace",
-        description: "No parent branch available",
-        type: "error",
-      });
+      void openHomeStackDialog();
     }
   };
 
@@ -1400,7 +1424,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     () => {
       handleCreateStackedWorkspace();
     },
-    [selectedWorkspace, effectiveDefaultBranch],
+    [selectedWorkspace, effectiveDefaultBranch, repoBranch],
     { shift: true },
   );
 
@@ -2462,19 +2486,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleStackHomeFromSidebar = () => {
-    if (!dataRepoPath) return;
-    if (!effectiveDefaultBranch) {
-      addToast({
-        title: "Cannot create stacked workspace",
-        description: "No parent branch available",
-        type: "error",
-      });
-      return;
-    }
-    setUnifiedDialogDefaults({
-      targetBranch: effectiveDefaultBranch,
-      sourceWorkspace: null,
-    });
+    void openHomeStackDialog();
   };
 
   // Full workspace path -> branch name, used to resolve terminal branches
