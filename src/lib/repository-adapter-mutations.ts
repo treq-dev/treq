@@ -13,8 +13,8 @@ import type {
 } from "./api-types";
 import {
   activeForPath,
-  newIdempotencyKey,
   remoteDispatch,
+  remoteKeyedMutation,
   remoteMutation,
   RemoteOperationUnsupportedError,
   resolveRemoteLocation,
@@ -58,13 +58,12 @@ export async function transportCreateWorkspace(
 ): Promise<number> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const created = await remoteMutation<Workspace>(repo, {
+  const created = await remoteKeyedMutation<Workspace>(repo, {
     kind: "CreateWorkspace",
     repo: repo.canonicalPath,
     branch_name: branchName,
     source_branch: sourceBranch ?? null,
     metadata: metadata ?? null,
-    idempotency_key: newIdempotencyKey(),
   });
   if (created) return created.id;
   // Landed before a reconnect: look the new workspace up by branch.
@@ -101,7 +100,7 @@ export async function transportMoveWorkspaceChanges(
 ): Promise<MoveResult> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const result = await remoteMutation<MoveResult>(repo, {
+  const result = await remoteKeyedMutation<MoveResult>(repo, {
     kind: "MoveWorkspaceChanges",
     repo: repo.canonicalPath,
     workspace: sourceBranch,
@@ -109,7 +108,6 @@ export async function transportMoveWorkspaceChanges(
     files: request.files,
     hunks: request.hunks,
     commits: request.commits,
-    idempotency_key: newIdempotencyKey(),
   });
   return (
     result ?? {
@@ -140,12 +138,11 @@ export async function transportRenameWorkspace(
   // No typed dry-run command exists; the real rename below still returns the
   // remote's structured validation error.
   if (dryRun) return accepted;
-  const result = await remoteMutation<RenameWorkspaceResult>(repo, {
+  const result = await remoteKeyedMutation<RenameWorkspaceResult>(repo, {
     kind: "RenameWorkspace",
     repo: repo.canonicalPath,
     workspace: String(workspaceId),
     new_name: newBranchName,
-    idempotency_key: newIdempotencyKey(),
   });
   return result ?? { ...accepted, message: ALREADY_APPLIED };
 }
@@ -157,11 +154,10 @@ export async function transportPushWorkspace(
 ): Promise<string> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const result = await remoteMutation<string>(repo, {
+  const result = await remoteKeyedMutation<string>(repo, {
     kind: "GitPush",
     repo: repo.canonicalPath,
     workspace: workspaceArg(workspaceId),
-    idempotency_key: newIdempotencyKey(),
   });
   return result ?? ALREADY_APPLIED;
 }
@@ -204,12 +200,11 @@ export async function transportSetWorkspaceTargetBranch(
 ): Promise<JjRebaseResult> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  await remoteMutation(repo, {
+  await remoteKeyedMutation(repo, {
     kind: "RebaseWorkspace",
     repo: repo.canonicalPath,
     workspace: String(workspaceId),
     target_branch: targetBranch,
-    idempotency_key: newIdempotencyKey(),
   });
   return {
     success: true,
@@ -251,7 +246,7 @@ export async function transportSplitWorkingCopy(
       "Committing selected files in the repository root",
     );
   }
-  const result = await remoteMutation<string>(location.repo, {
+  const result = await remoteKeyedMutation<string>(location.repo, {
     kind: "SplitCommit",
     repo: location.repo.canonicalPath,
     workspace: location.workspace,
@@ -259,7 +254,6 @@ export async function transportSplitWorkingCopy(
     files: filePaths,
     hunks: [],
     message,
-    idempotency_key: newIdempotencyKey(),
   });
   return result ?? ALREADY_APPLIED;
 }
@@ -272,12 +266,11 @@ export async function transportResolveCommit(
 ): Promise<ResolveCommitResult> {
   const repo = activeForPath(repoPath);
   if (!repo) return local();
-  const result = await remoteMutation<ResolveCommitResult>(repo, {
+  const result = await remoteKeyedMutation<ResolveCommitResult>(repo, {
     kind: "ResolveConflict",
     repo: repo.canonicalPath,
     revision,
     sides,
-    idempotency_key: newIdempotencyKey(),
   });
   return (
     result ?? {
@@ -302,13 +295,12 @@ export async function transportMoveCommit(
 ): Promise<void> {
   const repo = activeForPath(target.repoPath);
   if (!repo) return local();
-  await remoteMutation(repo, {
+  await remoteKeyedMutation(repo, {
     kind: "MoveCommit",
     repo: repo.canonicalPath,
     workspace: String(target.workspaceId),
     commit: target.commitChangeId,
     target_workspace: String(targetWorkspaceId),
-    idempotency_key: newIdempotencyKey(),
   });
 }
 
@@ -318,12 +310,11 @@ export async function transportAbandonCommit(
 ): Promise<string> {
   const repo = activeForPath(target.repoPath);
   if (!repo) return local();
-  const result = await remoteMutation<string>(repo, {
+  const result = await remoteKeyedMutation<string>(repo, {
     kind: "AbandonCommit",
     repo: repo.canonicalPath,
     workspace: String(target.workspaceId),
     commit: target.commitChangeId,
-    idempotency_key: newIdempotencyKey(),
   });
   return result ?? "";
 }
