@@ -843,6 +843,14 @@ export const remoteForceCutoff = (
 ): Promise<void> => invoke("remote_force_cutoff", { endpointId, reason });
 
 /**
+ * Cuts off every managed endpoint on sign-out: tears down pooled managed
+ * connections and PTYs, emits `remote://cutoff` for each, and refuses new
+ * managed connections until a signed-in token reaches the native pool.
+ */
+export const remoteCutOffManaged = (): Promise<void> =>
+  invoke("remote_cut_off_managed");
+
+/**
  * Clears a previously forced cutoff after the user reauthenticates and a
  * fresh certificate is issued through the normal registration and issuance
  * flow. Used by `src/stores/remoteCutoffStore.ts`.
