@@ -32,16 +32,19 @@ import {
   transportMoveCommit,
   transportResolveCommit,
 } from "./repository-adapter-mutations";
+import { localReadOr, localRepoPathOrNull } from "./local-only";
 import { currentWindowLabel } from "./window-label";
 
 export * from "./api-pr-status";
 
-export const setGitSubmoduleSynced = (
+export const setGitSubmoduleSynced = async (
   repoPath: string,
   path: string,
   enabled: boolean,
-): Promise<void> =>
-  invoke("set_git_submodule_synced", { repoPath, path, enabled });
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Syncing a git submodule");
+  return invoke("set_git_submodule_synced", { repoPath, path, enabled });
+};
 
 export const startResolveConflicts = async (
   repoPath: string,
@@ -252,16 +255,18 @@ export const remotePtyReattach = (
 export const readFile = (path: string): Promise<string> =>
   transportReadFile(path, () => invoke("read_file", { path }));
 
-export const writeSendReviewImage = (
+export const writeSendReviewImage = async (
   repoPath: string,
   suggestedName: string,
   contentsBase64: string,
-): Promise<string> =>
-  invoke("write_send_review_image", {
+): Promise<string> => {
+  assertLocalOperation(repoPath, "Sending review images");
+  return invoke("write_send_review_image", {
     repoPath,
     suggestedName,
     contentsBase64,
   });
+};
 
 export const writeAgentCliFiles = (
   prompt: string,
@@ -344,7 +349,8 @@ export interface SendArtifactRecord {
 
 export const listSendArtifacts = (
   repoPath: string,
-): Promise<SendArtifactRecord[]> => invoke("list_send_artifacts", { repoPath });
+): Promise<SendArtifactRecord[]> =>
+  localReadOr(repoPath, [], () => invoke("list_send_artifacts", { repoPath }));
 
 export const searchWorkspaceFiles = (
   repoPath: string,
@@ -948,7 +954,7 @@ export const listSkillCatalog = (
   catalogUrl?: string | null,
 ): Promise<SkillCatalogView> =>
   invoke("list_skill_catalog", {
-    repoPath: repoPath ?? null,
+    repoPath: localRepoPathOrNull(repoPath),
     catalogUrl: catalogUrl ?? null,
   });
 

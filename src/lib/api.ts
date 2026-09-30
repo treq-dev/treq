@@ -30,7 +30,7 @@ import type {
   WorkspaceStatus,
 } from "./api-types";
 import { enqueueJjExclusive } from "./enqueue-jj-exclusive";
-import { localReadOr } from "./local-only";
+import { localReadOr, localRepoPathOrNull } from "./local-only";
 import {
   assertLocalOperation,
   remoteRepositoryContaining,
@@ -73,8 +73,10 @@ export * from "./api-github";
 export * from "./api-remote-ssh";
 export * from "./api-types";
 
-export const initRepo = (repoPath: string): Promise<void> =>
-  invoke("init_repo", { repoPath });
+export const initRepo = async (repoPath: string): Promise<void> => {
+  assertLocalOperation(repoPath, "Initializing a repository");
+  return invoke("init_repo", { repoPath });
+};
 
 // Database API
 export const getWorkspaces = (repoPath: string): Promise<Workspace[]> =>
@@ -206,14 +208,30 @@ export const applyAgentReviewSuggestion = async (
   return invoke("apply_agent_review_suggestion", { repoPath, commentId });
 };
 
+// A remote repository's `.treq/config.yaml` lives on the remote host.
+const NO_REPO_YAML: RepoYamlConfig = {
+  branch_name_pattern: null,
+  default_model: null,
+  default_agent: null,
+  target_branch: null,
+  included_copy_files: null,
+  review_prompt: null,
+  review_agent: null,
+  auto_review_trigger: null,
+};
+
 export const loadRepoYamlConfig = (repoPath: string): Promise<RepoYamlConfig> =>
-  invoke("load_repo_yaml_config", { repoPath });
+  localReadOr(repoPath, NO_REPO_YAML, () =>
+    invoke("load_repo_yaml_config", { repoPath }),
+  );
 
 export const setWindowRepoPath = (repoPath: string): Promise<void> =>
-  invoke("set_window_repo_path", {
-    repoPath,
-    windowLabel: currentWindowLabel(),
-  });
+  localReadOr(repoPath, undefined, () =>
+    invoke("set_window_repo_path", {
+      repoPath,
+      windowLabel: currentWindowLabel(),
+    }),
+  );
 
 export const detectEditorApps = (): Promise<EditorAppsResponse> =>
   invoke("detect_editor_apps");
@@ -252,7 +270,9 @@ export const getWorkspaceChangedFiles = (
 export const listGitignoredPathSuggestions = (
   repoPath: string,
 ): Promise<string[]> =>
-  invoke("list_gitignored_path_suggestions", { repoPath });
+  localReadOr(repoPath, [], () =>
+    invoke("list_gitignored_path_suggestions", { repoPath }),
+  );
 
 export const getWorkspaceReadme = async (
   repoPath: string,
@@ -732,4 +752,4 @@ export const ensureMobileDeviceKey = (): Promise<DeviceKeyInfo> =>
 export const listInstalledSkills = (
   repoPath?: string | null,
 ): Promise<InstalledSkill[]> =>
-  invoke("list_installed_skills", { repoPath: repoPath ?? null });
+  invoke("list_installed_skills", { repoPath: localRepoPathOrNull(repoPath) });

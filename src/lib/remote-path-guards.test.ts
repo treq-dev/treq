@@ -22,29 +22,7 @@ const NOT_REPOSITORY_PATHS = new Set(["cleanupAgentCliFiles"]);
 
 // Local commands that still receive a remote path. Each entry is a gap to
 // close: guard it, route it, or scope it, then remove it from this list.
-const KNOWN_UNGUARDED: string[] = [
-  "get_log_timeseries",
-  "get_repo_logs",
-  "get_workspace_setup_status",
-  "github_open_or_create_workspace_from_issue",
-  "init_repo",
-  "is_repo_trusted",
-  "list_gitignored_path_suggestions",
-  "list_installed_skills",
-  "list_send_artifacts",
-  "list_skill_catalog",
-  "list_workflow_runs",
-  "list_workflows",
-  "load_repo_yaml_config",
-  "rerun_workspace_setup_script",
-  "run_logs_sql",
-  "run_workflow",
-  "run_workflow_job",
-  "set_git_submodule_synced",
-  "set_window_repo_path",
-  "trust_repo",
-  "write_send_review_image",
-];
+const KNOWN_UNGUARDED: string[] = [];
 
 function mentionsRemotePath(value: unknown): boolean {
   if (typeof value === "string") {

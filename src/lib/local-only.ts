@@ -11,3 +11,8 @@ export function localReadOr<T>(
 ): Promise<T> {
   return remoteRepositoryContaining(repoPath) ? Promise.resolve(empty) : read();
 }
+
+/** `repoPath` for a local repository; `null` (application scope) for a remote one. */
+export function localRepoPathOrNull(repoPath?: string | null): string | null {
+  return repoPath && !remoteRepositoryContaining(repoPath) ? repoPath : null;
+}

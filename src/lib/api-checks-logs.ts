@@ -15,69 +15,94 @@ import { invalidateQueries, setQueryData } from "./swr-cache";
 
 // Checks / logs API
 
-export const listWorkflows = (repoPath: string): Promise<WorkflowInfo[]> =>
-  invoke("list_workflows", { repoPath });
+const CHECKS_AND_LOGS = "Checks and logs";
 
-export const runWorkflowJob = (
+export const listWorkflows = async (
+  repoPath: string,
+): Promise<WorkflowInfo[]> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("list_workflows", { repoPath });
+};
+
+export const runWorkflowJob = async (
   repoPath: string,
   filename: string,
   jobId: string,
   workspaceId: number,
   workspacePath: string,
-): Promise<JobResult> =>
-  invoke("run_workflow_job", {
+): Promise<JobResult> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("run_workflow_job", {
     repoPath,
     filename,
     jobId,
     workspaceId,
     workspacePath,
   });
+};
 
-export const runWorkflow = (
+export const runWorkflow = async (
   repoPath: string,
   filename: string,
   workspaceId: number,
   workspacePath: string,
-): Promise<JobResult[]> =>
-  invoke("run_workflow", { repoPath, filename, workspaceId, workspacePath });
+): Promise<JobResult[]> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("run_workflow", {
+    repoPath,
+    filename,
+    workspaceId,
+    workspacePath,
+  });
+};
 
-export const isRepoTrusted = (repoPath: string): Promise<boolean> =>
-  invoke("is_repo_trusted", { repoPath });
+export const isRepoTrusted = async (repoPath: string): Promise<boolean> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("is_repo_trusted", { repoPath });
+};
 
-export const trustRepo = (repoPath: string): Promise<void> =>
-  invoke("trust_repo", { repoPath });
+export const trustRepo = async (repoPath: string): Promise<void> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("trust_repo", { repoPath });
+};
 
-export const listWorkflowRuns = (
+export const listWorkflowRuns = async (
   repoPath: string,
   workspaceId: number,
   filename: string,
   limit?: number,
-): Promise<RunSummary[]> =>
-  invoke("list_workflow_runs", {
+): Promise<RunSummary[]> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("list_workflow_runs", {
     repoPath,
     workspaceId,
     filename,
     limit: limit ?? null,
   });
+};
 
-export const getWorkspaceSetupStatus = (
+export const getWorkspaceSetupStatus = async (
   repoPath: string,
   workspaceId: number,
-): Promise<SetupScriptStatus> =>
-  invoke("get_workspace_setup_status", { repoPath, workspaceId });
+): Promise<SetupScriptStatus> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("get_workspace_setup_status", { repoPath, workspaceId });
+};
 
-export const rerunWorkspaceSetupScript = (
+export const rerunWorkspaceSetupScript = async (
   repoPath: string,
   workspaceId: number,
   workspacePath: string,
-): Promise<JobResult> =>
-  invoke("rerun_workspace_setup_script", {
+): Promise<JobResult> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("rerun_workspace_setup_script", {
     repoPath,
     workspaceId,
     workspacePath,
   });
+};
 
-export const getRepoLogs = (
+export const getRepoLogs = async (
   repoPath: string,
   options?: {
     levels?: string[];
@@ -85,32 +110,38 @@ export const getRepoLogs = (
     limit?: number;
     offset?: number;
   },
-): Promise<LogRecordView[]> =>
-  invoke("get_repo_logs", {
+): Promise<LogRecordView[]> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("get_repo_logs", {
     repoPath,
     levels: options?.levels ?? null,
     search: options?.search ?? null,
     limit: options?.limit ?? null,
     offset: options?.offset ?? null,
   });
+};
 
-export const getLogTimeseries = (
+export const getLogTimeseries = async (
   repoPath: string,
   options?: { levels?: string[]; search?: string; bucketSeconds?: number },
-): Promise<LogBucket[]> =>
-  invoke("get_log_timeseries", {
+): Promise<LogBucket[]> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("get_log_timeseries", {
     repoPath,
     levels: options?.levels ?? null,
     search: options?.search ?? null,
     bucketSeconds: options?.bucketSeconds ?? null,
   });
+};
 
-export const runLogsSql = (
+export const runLogsSql = async (
   repoPath: string,
   sql: string,
   maxRows?: number,
-): Promise<SqlResult> =>
-  invoke("run_logs_sql", { repoPath, sql, maxRows: maxRows ?? null });
+): Promise<SqlResult> => {
+  assertLocalOperation(repoPath, CHECKS_AND_LOGS);
+  return invoke("run_logs_sql", { repoPath, sql, maxRows: maxRows ?? null });
+};
 
 // Agent chat logs are files under the repository's `.treq` directory.
 const AGENT_CHAT_LOGS = "Agent chat logs";
