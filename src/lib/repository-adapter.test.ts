@@ -10,11 +10,9 @@ import {
   jjGetCommitsAhead,
   jjRestoreFile,
   jjSplit,
-  loadFileBrowserReview,
   mergeWorkspace,
   moveWorkspaceChanges,
   readFile,
-  saveFileBrowserReview,
   searchWorkspaceFiles,
   setWorkspaceTargetBranch,
 } from "./api";
@@ -29,7 +27,7 @@ import {
   dispatchMutationOverSsh,
   type TreqCommandRequest,
 } from "./remote-dispatch";
-import { transportCreateCommit } from "./repository-adapter";
+import { repoStateScope, transportCreateCommit } from "./repository-adapter";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -159,11 +157,13 @@ describe("remote repository reads", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("keeps a remote file-browser review draft off the local database", async () => {
-    await saveFileBrowserReview(ROOT, 7, [], "summary");
-    const saved = await loadFileBrowserReview(ROOT, 7);
-    expect(saved?.summary_text).toBe("summary");
-    expect(invoke).not.toHaveBeenCalled();
+  it("keys remote review state by descriptor, never by the remote path", () => {
+    const scope = "treq-remote-state:ssh:endpoint-1:gen1:/srv/project";
+    expect(repoStateScope(ROOT)).toBe(scope);
+    expect(repoStateScope(WORKSPACE_DIR)).toBe(
+      `${scope}/.treq/workspaces/feat-a`,
+    );
+    expect(repoStateScope("/home/me/project")).toBe("/home/me/project");
   });
 });
 

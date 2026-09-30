@@ -21,7 +21,7 @@ import type {
 import type { ConflictCommentRecord } from "./api-types-review";
 import {
   assertLocalOperation,
-  remoteRepositoryContaining,
+  repoStateScope,
   transportReadFile,
   transportSearchWorkspaceFiles,
 } from "./repository-adapter";
@@ -458,12 +458,20 @@ export const markFileViewed = (
   filePath: string,
   contentHash: string,
 ): Promise<void> =>
-  invoke("mark_file_viewed", { workspacePath, filePath, contentHash });
+  invoke("mark_file_viewed", {
+    workspacePath: repoStateScope(workspacePath),
+    filePath,
+    contentHash,
+  });
 
 export const unmarkFileViewed = (
   workspacePath: string,
   filePath: string,
-): Promise<void> => invoke("unmark_file_viewed", { workspacePath, filePath });
+): Promise<void> =>
+  invoke("unmark_file_viewed", {
+    workspacePath: repoStateScope(workspacePath),
+    filePath,
+  });
 
 // Diff cache API (in-memory stub implementation)
 const diffCache = new Map<string, { data: string; timestamp: number }>();
@@ -483,7 +491,10 @@ export const loadPendingReview = (
   repoPath: string,
   workspaceId: number,
 ): Promise<PendingReview | null> =>
-  invoke("load_pending_review", { repoPath, workspaceId }).then((review) => {
+  invoke("load_pending_review", {
+    repoPath: repoStateScope(repoPath),
+    workspaceId,
+  }).then((review) => {
     if (!review) return null;
     const normalized = { ...review } as PendingReview & {
       comments: unknown;
@@ -512,7 +523,7 @@ export const savePendingReview = (
   conflictComments?: ConflictCommentRecord[],
 ): Promise<number> =>
   invoke("save_pending_review", {
-    repoPath,
+    repoPath: repoStateScope(repoPath),
     workspaceId,
     comments: JSON.stringify(comments),
     viewedFiles: viewedFiles ? JSON.stringify(viewedFiles) : null,
@@ -526,79 +537,51 @@ export const savePendingReview = (
 export const clearPendingReview = (
   repoPath: string,
   workspaceId: number,
-): Promise<void> => invoke("clear_pending_review", { repoPath, workspaceId });
-
-// The file browser's draft review lives in the repository's `.treq/local.db`.
-// No typed command exposes that table on a remote host, so a remote draft is
-// kept in memory for this session instead of writing a local database for a
-// path that only exists remotely.
-const remoteFileBrowserReviews = new Map<string, FileBrowserPendingReview>();
-
-function remoteReviewKey(repoPath: string, workspaceId: number): string | null {
-  return remoteRepositoryContaining(repoPath)
-    ? JSON.stringify([repoPath, workspaceId])
-    : null;
-}
+): Promise<void> =>
+  invoke("clear_pending_review", {
+    repoPath: repoStateScope(repoPath),
+    workspaceId,
+  });
 
 export const loadFileBrowserReview = async (
   repoPath: string,
   workspaceId: number,
-): Promise<FileBrowserPendingReview | null> => {
-  const remoteKey = remoteReviewKey(repoPath, workspaceId);
-  if (remoteKey) return remoteFileBrowserReviews.get(remoteKey) ?? null;
-  return invoke("load_file_browser_review", { repoPath, workspaceId }).then(
-    (review) => {
-      if (!review) return null;
-      const normalized = { ...review } as FileBrowserPendingReview & {
-        comments: unknown;
-      };
-      if (typeof normalized.comments === "string") {
-        normalized.comments = JSON.parse(normalized.comments);
-      }
-      return normalized as FileBrowserPendingReview;
-    },
-  );
-};
+): Promise<FileBrowserPendingReview | null> =>
+  invoke("load_file_browser_review", {
+    repoPath: repoStateScope(repoPath),
+    workspaceId,
+  }).then((review) => {
+    if (!review) return null;
+    const normalized = { ...review } as FileBrowserPendingReview & {
+      comments: unknown;
+    };
+    if (typeof normalized.comments === "string") {
+      normalized.comments = JSON.parse(normalized.comments);
+    }
+    return normalized as FileBrowserPendingReview;
+  });
 
 export const saveFileBrowserReview = async (
   repoPath: string,
   workspaceId: number,
   comments: LineComment[],
   summaryText?: string,
-): Promise<number> => {
-  const remoteKey = remoteReviewKey(repoPath, workspaceId);
-  if (remoteKey) {
-    const now = new Date().toISOString();
-    const previous = remoteFileBrowserReviews.get(remoteKey);
-    remoteFileBrowserReviews.set(remoteKey, {
-      id: previous?.id ?? remoteFileBrowserReviews.size + 1,
-      workspace_id: workspaceId,
-      comments,
-      summary_text: summaryText ?? null,
-      created_at: previous?.created_at ?? now,
-      updated_at: now,
-    });
-    return remoteFileBrowserReviews.get(remoteKey)!.id;
-  }
-  return invoke("save_file_browser_review", {
-    repoPath,
+): Promise<number> =>
+  invoke("save_file_browser_review", {
+    repoPath: repoStateScope(repoPath),
     workspaceId,
     comments: JSON.stringify(comments),
     summaryText: summaryText ?? null,
   });
-};
 
 export const clearFileBrowserReview = async (
   repoPath: string,
   workspaceId: number,
-): Promise<void> => {
-  const remoteKey = remoteReviewKey(repoPath, workspaceId);
-  if (remoteKey) {
-    remoteFileBrowserReviews.delete(remoteKey);
-    return;
-  }
-  return invoke("clear_file_browser_review", { repoPath, workspaceId });
-};
+): Promise<void> =>
+  invoke("clear_file_browser_review", {
+    repoPath: repoStateScope(repoPath),
+    workspaceId,
+  });
 
 // File Watcher API
 export const startFileWatcher = (
