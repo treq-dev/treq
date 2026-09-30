@@ -1,19 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  applyAgentReviewSuggestion,
   createCommit,
   createWorkspace,
   getCommitDiff,
+  getRepoSetting,
   getCommitFileDiff,
   getWorkspaceDiff,
   getWorkspaceFileHunks,
   jjGetCommitsAhead,
   jjRestoreFile,
   jjSplit,
+  listAgentReviewComments,
   mergeWorkspace,
   moveWorkspaceChanges,
   readFile,
   searchWorkspaceFiles,
+  setRepoSetting,
   setWorkspaceTargetBranch,
 } from "./api";
 import {
@@ -164,6 +168,28 @@ describe("remote repository reads", () => {
       `${scope}/.treq/workspaces/feat-a`,
     );
     expect(repoStateScope("/home/me/project")).toBe("/home/me/project");
+  });
+
+  it("reads default repo settings and scopes agent review comments", async () => {
+    vi.mocked(invoke).mockResolvedValue([]);
+    await expect(getRepoSetting(ROOT, "default_agent")).resolves.toBeNull();
+    await expect(setRepoSetting(ROOT, "default_agent", "x")).rejects.toThrow(
+      /^unsupported:/,
+    );
+    await expect(applyAgentReviewSuggestion(ROOT, "c1")).rejects.toThrow(
+      /^unsupported:/,
+    );
+    await listAgentReviewComments(ROOT, "workspace", "7");
+    expect(vi.mocked(invoke).mock.calls).toEqual([
+      [
+        "list_agent_review_comments",
+        {
+          repoPath: repoStateScope(ROOT),
+          targetType: "workspace",
+          targetId: "7",
+        },
+      ],
+    ]);
   });
 });
 

@@ -32,6 +32,8 @@ import type {
 import { enqueueJjExclusive } from "./enqueue-jj-exclusive";
 import {
   assertLocalOperation,
+  remoteRepositoryContaining,
+  repoStateScope,
   transportCreateCommit,
   transportGetCommitDiff,
   transportGetCommitFileDiff,
@@ -144,41 +146,61 @@ export const getSettingsBatch = (
 export const setSetting = (key: string, value: string): Promise<void> =>
   invoke("set_setting", { key, value });
 
-export const getRepoSetting = (
+// Repository settings are keyed by local path. A remote repository has none
+// yet, so it reads defaults and refuses writes.
+export const getRepoSetting = async (
   repoPath: string,
   key: string,
-): Promise<string | null> => invoke("get_repo_setting", { repoPath, key });
+): Promise<string | null> =>
+  remoteRepositoryContaining(repoPath)
+    ? null
+    : invoke("get_repo_setting", { repoPath, key });
 
-export const setRepoSetting = (
+export const setRepoSetting = async (
   repoPath: string,
   key: string,
   value: string,
-): Promise<void> => invoke("set_repo_setting", { repoPath, key, value });
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Changing repository settings");
+  return invoke("set_repo_setting", { repoPath, key, value });
+};
 
 export const listAgentReviewComments = (
   repoPath: string,
   targetType: string,
   targetId: string,
 ): Promise<import("./api-types-review").AgentReviewComment[]> =>
-  invoke("list_agent_review_comments", { repoPath, targetType, targetId });
+  invoke("list_agent_review_comments", {
+    repoPath: repoStateScope(repoPath),
+    targetType,
+    targetId,
+  });
 
 export const resolveAgentReviewComment = (
   repoPath: string,
   commentId: string,
 ): Promise<void> =>
-  invoke("resolve_agent_review_comment", { repoPath, commentId });
+  invoke("resolve_agent_review_comment", {
+    repoPath: repoStateScope(repoPath),
+    commentId,
+  });
 
 export const deleteAgentReviewComment = (
   repoPath: string,
   commentId: string,
 ): Promise<void> =>
-  invoke("delete_agent_review_comment", { repoPath, commentId });
+  invoke("delete_agent_review_comment", {
+    repoPath: repoStateScope(repoPath),
+    commentId,
+  });
 
-export const applyAgentReviewSuggestion = (
+export const applyAgentReviewSuggestion = async (
   repoPath: string,
   commentId: string,
-): Promise<void> =>
-  invoke("apply_agent_review_suggestion", { repoPath, commentId });
+): Promise<void> => {
+  assertLocalOperation(repoPath, "Applying a review suggestion");
+  return invoke("apply_agent_review_suggestion", { repoPath, commentId });
+};
 
 export const loadRepoYamlConfig = (repoPath: string): Promise<RepoYamlConfig> =>
   invoke("load_repo_yaml_config", { repoPath });
