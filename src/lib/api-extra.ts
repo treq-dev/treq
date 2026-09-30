@@ -358,7 +358,12 @@ export const createSession = (
   repoPath: string,
   workspaceId: number | null,
   name: string,
-): Promise<number> => invoke("create_session", { repoPath, workspaceId, name });
+): Promise<number> =>
+  invoke("create_session", {
+    repoPath: repoStateScope(repoPath),
+    workspaceId,
+    name,
+  });
 
 export type AgentDispatchAcknowledgmentStatus = "accepted" | "rejected";
 
@@ -373,23 +378,30 @@ export const acknowledgeAgentDispatch = (
     reason: reason ?? null,
   });
 export const getSessions = (repoPath: string): Promise<Session[]> =>
-  invoke("get_sessions", { repoPath });
+  invoke("get_sessions", { repoPath: repoStateScope(repoPath) });
 
 export const updateSessionAccess = (
   repoPath: string,
   id: number,
-): Promise<void> => invoke("update_session_access", { repoPath, id });
+): Promise<void> =>
+  invoke("update_session_access", { repoPath: repoStateScope(repoPath), id });
 
 export const getSessionModel = (
   repoPath: string,
   id: number,
-): Promise<string | null> => invoke("get_session_model", { repoPath, id });
+): Promise<string | null> =>
+  invoke("get_session_model", { repoPath: repoStateScope(repoPath), id });
 
 export const setSessionModel = (
   repoPath: string,
   id: number,
   model: string | null,
-): Promise<void> => invoke("set_session_model", { repoPath, id, model });
+): Promise<void> =>
+  invoke("set_session_model", {
+    repoPath: repoStateScope(repoPath),
+    id,
+    model,
+  });
 
 // Prompt history API
 export const addPromptHistory = (
@@ -400,7 +412,7 @@ export const addPromptHistory = (
   agent?: string | null,
 ): Promise<number> =>
   invoke("add_prompt_history", {
-    repoPath,
+    repoPath: repoStateScope(repoPath),
     workspaceId,
     sessionId,
     promptText,
@@ -409,13 +421,17 @@ export const addPromptHistory = (
 
 export const getPromptHistory = (
   repoPath: string,
-): Promise<PromptHistoryEntry[]> => invoke("get_prompt_history", { repoPath });
+): Promise<PromptHistoryEntry[]> =>
+  invoke("get_prompt_history", { repoPath: repoStateScope(repoPath) });
 
 export const getWorkspaceStartingPrompt = (
   repoPath: string,
   workspaceId: number,
 ): Promise<PromptHistoryEntry | null> =>
-  invoke("get_workspace_starting_prompt", { repoPath, workspaceId });
+  invoke("get_workspace_starting_prompt", {
+    repoPath: repoStateScope(repoPath),
+    workspaceId,
+  });
 
 // Stash API — immutable local gist storage for working-copy change sets
 export const stashWorkspaceChanges = (
