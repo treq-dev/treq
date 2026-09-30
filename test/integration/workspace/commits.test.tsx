@@ -164,7 +164,7 @@ describe("ShowWorkspace - Commits tab", () => {
     await openWorkspaceCommitsTab(user, "feat/no-workspace-commits");
 
     await screen.findByText(/^Recent on /);
-    await screen.findByText("Initial commit");
+    await screen.findByText("Target pagination commit 12");
     await screen.findByText(
       "There are no commits within this workspace branch yet.",
     );

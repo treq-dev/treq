@@ -643,3 +643,27 @@ fn test_workspace_diff_reports_copy_status() {
     assert_eq!(copied.previous_path.as_deref(), Some("source.txt"));
   }
 }
+
+#[test]
+fn test_diff_of_workspace_stacked_after_a_home_repo_commit() {
+  let repo = TestRepo::new().unwrap();
+  TestRepo::write_workspace_file(&repo.repo_path, "home.txt", "home").unwrap();
+  treq_lib::core::commit_workspace_with_auto_push(&repo.repo_path, None, "home commit")
+    .expect("committing on the home repo should succeed");
+
+  let ws = treq_lib::core::create_workspace(
+    &repo.repo_path,
+    "feat/after-home-commit",
+    None,
+    None,
+    None,
+    None,
+    None,
+  )
+  .unwrap();
+  workspace_write_file(&repo, &ws, "ws.txt", "ws");
+
+  init_test_app_db(&repo, Some("git"));
+  let diff = treq_lib::core::workspace_diff(&repo.repo_path, ws.id);
+  assert!(diff.is_ok(), "workspace diff failed: {:?}", diff.err());
+}
