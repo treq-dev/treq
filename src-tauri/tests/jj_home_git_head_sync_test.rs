@@ -323,3 +323,105 @@ fn sibling_rewrite_keeps_unread_external_checkout() {
     .is_empty());
   assert!(assert_git_head_follows_wc_parent(&repo, Some(&main)).is_empty());
 }
+
+#[test]
+fn restore_file() {
+  let (repo, _) = home_on_feature();
+  TestRepo::write_workspace_file(&repo.repo_path, "f1.txt", "edited\n").expect("write");
+  jj::jj_get_changed_files(&repo.repo_path).expect("snapshot disk");
+  jj::jj_restore_file(&repo.repo_path, "f1.txt").expect("restore file");
+  assert!(assert_git_head_follows_wc_parent(&repo, Some("feature")).is_empty());
+}
+
+#[test]
+fn delete_workspace() {
+  let (repo, _) = home_on_feature();
+  let ws = repo
+    .create_workspace_simple("ws-branch")
+    .expect("workspace");
+  core::delete_workspace(&repo.repo_path, &ws.id).expect("delete workspace");
+  assert!(assert_git_head_follows_wc_parent(&repo, Some("feature")).is_empty());
+}
+
+#[test]
+fn workspace_bookmark_rebase() {
+  let (repo, main) = home_on_feature();
+  let ws = repo
+    .create_workspace_with_commit("ws-branch", "ws.txt", "ws\n", Some("feature"))
+    .expect("stacked workspace");
+  let ws_path = repo.workspace_full_path(&ws);
+  jj::jj_rebase_workspace_bookmark_onto(&ws_path, "ws-branch", &main).expect("rebase workspace");
+  assert!(assert_git_head_follows_wc_parent(&repo, Some("feature")).is_empty());
+}
+
+/// Covers the resolve workspace lifecycle: start (detach), pick a side,
+/// commit the resolution, then forget the resolve workspace.
+#[test]
+fn resolve_home_conflict() {
+  let repo = TestRepo::new().expect("create repo");
+  let main = repo.default_branch().to_string();
+  git(&repo, &["add", ".gitignore"]);
+  git(&repo, &["commit", "-m", "Commit init metadata"]);
+  git(&repo, &["checkout", "-b", "feature"]);
+  repo
+    .commit_file("shared.txt", "feature\n", "feature edit")
+    .expect("feature commit");
+  git(&repo, &["checkout", &main]);
+  repo
+    .commit_file("shared.txt", "main\n", "main edit")
+    .expect("main commit");
+  git(&repo, &["checkout", "feature"]);
+  jj::jj_rebase_home_repo_branch(&repo.repo_path, "feature", &main).expect("conflicting rebase");
+
+  let session = core::start_resolve_conflicts(&repo.repo_path, None, None).expect("start resolve");
+  let target = session.targets.first().expect("conflicted commit");
+  let result = core::resolve_commit(
+    &repo.repo_path,
+    &target.change_id,
+    &[core::ResolveSide::Side2],
+    None,
+  )
+  .expect("resolve");
+  assert!(result.success, "{}", result.message);
+  assert!(assert_git_head_follows_wc_parent(&repo, Some("feature")).is_empty());
+}
+
+fn collect_home_head_markers(dir: &std::path::Path, markers: &mut Vec<(String, String)>) {
+  for entry in std::fs::read_dir(dir).expect("read src dir") {
+    let path = entry.expect("dir entry").path();
+    if path.is_dir() {
+      collect_home_head_markers(&path, markers);
+    } else if path.extension().is_some_and(|ext| ext == "rs") {
+      let source = std::fs::read_to_string(&path).expect("read source");
+      for line in source.lines() {
+        if let Some(names) = line.strip_prefix("// home-head-test: ") {
+          for name in names.split(", ") {
+            markers.push((path.display().to_string(), name.to_string()));
+          }
+        }
+      }
+    }
+  }
+}
+
+/// The `home-git-head-history-edit-needs-test` ast-grep rule makes every
+/// history-editing function name its tests with a `// home-head-test:` line;
+/// this checks those names are tests in this file.
+#[test]
+fn home_head_test_markers_name_tests_in_this_file() {
+  let this_file = include_str!("jj_home_git_head_sync_test.rs");
+  let mut markers = Vec::new();
+  collect_home_head_markers(
+    &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+    &mut markers,
+  );
+  assert!(!markers.is_empty(), "no home-head-test markers found");
+  let missing: Vec<_> = markers
+    .iter()
+    .filter(|(_, name)| !this_file.contains(&format!("#[test]\nfn {name}()")))
+    .collect();
+  assert!(
+    missing.is_empty(),
+    "home-head-test markers name missing tests: {missing:?}"
+  );
+}

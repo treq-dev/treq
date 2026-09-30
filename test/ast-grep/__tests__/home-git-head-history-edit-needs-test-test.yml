@@ -1,0 +1,42 @@
+id: home-git-head-history-edit-needs-test
+valid:
+  - |
+    // home-head-test: describe_tip
+    pub fn jj_describe(path: &str) {
+      let _ = reconcile_all_workspaces_after_rewrite(path, None);
+    }
+  - |
+    /// Docs stay above the marker.
+    // home-head-test: stash_commit, stash_and_apply_working_copy
+    fn stash(loaded: &mut LoadedWorkspaceRepo) {
+      update_workspace_after_history_edit(loaded, &repo, None, CheckoutMode::Immediate)?;
+    }
+  - |
+    fn update_workspace_after_history_edit(path: &str) {
+      let _ = reconcile_all_workspaces_after_rewrite(path, None);
+    }
+  - |
+    fn read_only(path: &str) {
+      let _ = list_changes(path);
+    }
+  - |
+    #[cfg(test)]
+    mod tests {
+      fn helper(path: &str) {
+        let _ = reconcile_all_workspaces_after_rewrite(path, None);
+      }
+    }
+invalid:
+  - |
+    pub fn jj_describe(path: &str) {
+      let _ = reconcile_all_workspaces_after_rewrite(path, None);
+    }
+  - |
+    pub fn resolve_commit(path: &str) {
+      let _ = jj::reconcile_all_workspaces_after_rewrite(path, None);
+    }
+  - |
+    // home-head-test:
+    fn commit(path: &str) {
+      sync_home_git_head_to_wc_parent(path, None);
+    }

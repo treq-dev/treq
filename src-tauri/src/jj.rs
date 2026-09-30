@@ -2050,6 +2050,7 @@ pub fn jj_apply_file_patch(
 
 /// Move a resolve workspace `@` to a new empty child of the current tip so
 /// forgetting the workspace cannot hide the resolved change.
+// home-head-test: resolve_home_conflict
 pub fn jj_detach_resolve_workspace_wc(workspace_path: &str) -> Result<(), JjError> {
   if !Path::new(workspace_path).exists() {
     return Ok(());
@@ -2088,6 +2089,7 @@ pub fn jj_detach_resolve_workspace_wc(workspace_path: &str) -> Result<(), JjErro
 ///
 /// Side indexes: 1 = left/add0, 2 = right/add1, 0 = base/remove0.
 /// Multiple sides concatenate textual content in the given order ("both").
+// home-head-test: resolve_home_conflict
 pub fn jj_resolve_conflict_sides(workspace_path: &str, sides: &[u8]) -> Result<(), JjError> {
   if sides.is_empty() {
     return Err(JjError::IoError(
@@ -2649,6 +2651,7 @@ pub fn remove_workspace_directory_only(workspace_path: &str) -> Result<(), JjErr
 }
 
 /// Forget a jj workspace without deleting its directory.
+// home-head-test: delete_workspace, resolve_home_conflict
 pub fn forget_workspace(repo_path: &str, workspace_path: &str) -> Result<(), JjError> {
   let workspace_dir = Path::new(workspace_path);
 
@@ -2943,6 +2946,7 @@ fn move_paths_between_workspaces(
 
 /// Abandon a specific commit by change-id.
 /// Runs: jj abandon <change_id>
+// home-head-test: abandon_tip, undo_commit
 pub fn jj_abandon(workspace_path: &str, change_id: &str) -> Result<String, JjError> {
   let loaded = load_workspace_repo(workspace_path)?;
   let commit = resolve_commit_by_revision(&loaded, change_id)?;
@@ -2967,6 +2971,7 @@ pub fn jj_abandon(workspace_path: &str, change_id: &str) -> Result<String, JjErr
 ///
 /// Fails if `operation_id` is not the current operation, so a toast Undo cannot
 /// clobber later work.
+// home-head-test: undo_operation
 pub fn jj_undo_operation(workspace_path: &str, operation_id: &str) -> Result<String, JjError> {
   let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
   let requested = OperationId::try_from_hex(operation_id)
@@ -3061,6 +3066,7 @@ pub fn jj_undo_commit(
 /// the workspace's current tip commit. Can target any real commit reachable from
 /// the workspace (including immutable or target-branch commits) except the
 /// working-copy commit itself.
+// home-head-test: revert_commit
 pub fn jj_revert_commit(workspace_path: &str, change_id: &str) -> Result<String, JjError> {
   let loaded = load_workspace_repo(workspace_path)?;
   let commit = resolve_commit_by_revision(&loaded, change_id)?;
@@ -3164,6 +3170,7 @@ pub fn jj_get_commit_description(workspace_path: &str, change_id: &str) -> Resul
 
 /// Set (rewrite) the description of a specific commit by change-id.
 /// Runs: jj describe <change_id> -m <message>
+// home-head-test: describe_tip, describe_ancestor, sibling_workspace_rewrites_home_ancestor, sibling_rewrite_keeps_unread_external_checkout
 pub fn jj_describe(
   workspace_path: &str,
   change_id: &str,
@@ -3459,6 +3466,7 @@ pub fn jj_shift_mutable_lineage_to_now(
   )
 }
 
+// home-head-test: shift_lineage_timestamps
 fn apply_lineage_timestamp_plan(
   loaded: LoadedWorkspaceRepo,
   workspace_path: &str,
@@ -3985,6 +3993,7 @@ pub fn jj_resolve_bookmark_tip(workspace_path: &str) -> Result<String, JjError> 
 /// - Ok(true) if sync was performed
 /// - Ok(false) if sync was skipped (working copy not empty or already synced)
 /// - Err if sync failed
+// home-head-test: sync_working_copy_to_moved_bookmark
 pub fn jj_sync_working_copy_if_safe(
   workspace_path: &str,
   branch_name: &str,
@@ -4232,6 +4241,7 @@ pub fn jj_get_file_lines(
 /// Snapshots on-disk content and restores in a single WC rewrite so we never
 /// publish an intermediate dirty WC commit (which would rebase sibling
 /// workspace WCs onto unrelated dirty paths).
+// home-head-test: restore_file
 pub fn jj_restore_file(workspace_path: &str, file_path: &str) -> Result<String, JjError> {
   if !Path::new(workspace_path).exists() {
     return Ok(String::new());
@@ -4314,6 +4324,7 @@ pub fn jj_restore_file(workspace_path: &str, file_path: &str) -> Result<String, 
 }
 
 /// Restore all changes
+// home-head-test: restore_discarded_changes
 pub fn jj_restore_all(workspace_path: &str) -> Result<String, JjError> {
   if !Path::new(workspace_path).exists() {
     return Ok(String::new());
@@ -4396,6 +4407,7 @@ pub fn jj_snapshot_working_copy(workspace_path: &str) -> Result<String, JjError>
 
 /// Restore the working copy to a snapshot previously captured with
 /// `jj_snapshot_working_copy`.
+// home-head-test: restore_discarded_changes
 pub fn jj_restore_snapshot(workspace_path: &str, snapshot_id: &str) -> Result<String, JjError> {
   let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
   let ws_name = loaded.workspace.workspace_name().to_owned();
@@ -4457,6 +4469,7 @@ pub struct JjStashCommit {
 
 /// Capture working-copy changes into an immutable stash commit, then restore the
 /// working copy to a clean state (changes are moved out of the WC).
+// home-head-test: stash_and_apply_working_copy
 pub fn jj_stash_working_copy(
   workspace_path: &str,
   bookmark_name: &str,
@@ -4569,6 +4582,7 @@ pub fn jj_stash_working_copy(
 /// Park an existing commit into an immutable stash: duplicate its tree as a
 /// stash commit under `bookmark_name`, then abandon the original change so it
 /// leaves the branch. The stash can later be applied (copied) onto any workspace.
+// home-head-test: stash_commit
 pub fn jj_stash_commit(
   workspace_path: &str,
   change_id: &str,
@@ -4670,6 +4684,7 @@ pub fn jj_stash_commit(
 
 /// Copy the file changes from a stash commit onto a target working copy.
 /// The stash commit itself is left untouched (immutable / re-applicable).
+// home-head-test: stash_and_apply_working_copy
 pub fn jj_apply_stash_commit(workspace_path: &str, stash_commit_id: &str) -> Result<(), JjError> {
   if !Path::new(workspace_path).exists() {
     return Err(JjError::IoError(
@@ -4957,6 +4972,7 @@ pub fn is_bookmark_tracked(
 /// Edit/switch to a bookmark (similar to git checkout)
 /// Uses a multi-strategy approach to handle immutable commits
 /// For colocated repos, also syncs git HEAD
+// home-head-test: switch_branch, merge_workspace_into_home
 pub fn jj_edit_bookmark(repo_path: &str, bookmark_name: &str) -> Result<String, JjError> {
   let mut loaded = load_workspace_repo_for_history_edit(repo_path)?;
   let destination = resolve_commit_by_revision(&loaded, bookmark_name)?;
@@ -5031,6 +5047,7 @@ pub fn jj_working_copy_commit_hex(workspace_path: &str) -> Option<String> {
 /// the home workspace WC under the jj root while the branch bookmark still tracks the real tip;
 /// rewriting that WC can yield a root-only parent and truncate history in the log. We stack the
 /// home WC on the branch tip before snapshotting when needed.
+// home-head-test: commit, commit_drops_autosave_ancestors
 pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError> {
   let repo_path_opt = derive_repo_path_from_workspace(workspace_path);
 
@@ -5533,6 +5550,7 @@ pub fn resolve_home_repo_branch(repo_path: &str) -> Result<String, JjError> {
 
 /// Split selected files from working copy into a new parent commit
 /// Uses: jj split -r @ -m <message> <file_paths...>
+// home-head-test: split
 pub fn jj_split(
   workspace_path: &str,
   message: &str,
@@ -5704,6 +5722,7 @@ pub fn jj_rebase_workspace_bookmark_onto_deferred_checkout(
   )
 }
 
+// home-head-test: workspace_bookmark_rebase
 fn jj_rebase_workspace_bookmark_onto_with_checkout_mode(
   workspace_path: &str,
   workspace_branch: &str,
@@ -6236,6 +6255,7 @@ pub fn jj_log_entries(
 /// Rebase using a revset expression
 /// Runs from specified directory to ensure correct commit resolution
 /// Sets jj bookmark after successful rebase
+// home-head-test: rebase_home_branch
 pub fn jj_rebase_with_revset(
   working_dir: &str,
   revset: &str,
@@ -6313,6 +6333,7 @@ pub fn jj_rebase_with_revset(
 /// Resolve a diverged bookmark without discarding local work. All local-only
 /// mutable changes are captured before the ref is changed, rebased in one jj
 /// transaction, and checked for reachability before that transaction is committed.
+// home-head-test: resolve_bookmark_conflict_onto_target
 pub fn jj_resolve_bookmark_conflict_losslessly(
   workspace_path: &str,
   bookmark_name: &str,
@@ -7822,6 +7843,7 @@ pub fn jj_collapse_empty_merge_tip(
 /// Reparents the new commit onto the last non-autosave ancestor, keeping the
 /// new commit's tree, then abandons the autosave commits. Does nothing when
 /// `@-` itself is still an autosave (no manual commit yet).
+// home-head-test: commit_drops_autosave_ancestors
 pub fn jj_drop_autosave_ancestors(workspace_path: &str) -> Result<Vec<String>, JjError> {
   if !Path::new(workspace_path).exists() {
     return Ok(Vec::new());
@@ -8704,6 +8726,7 @@ fn count_changed_lines(hunks: &[JjDiffHunk]) -> usize {
 /// workspace, merges their trees, writes an empty commit with those parents and
 /// edits it, so a multi-parent call leaves the working copy conflicted exactly the
 /// way the CLI does.
+// home-head-test: new_on_other_branch
 pub fn jj_new_with_parents(
   workspace_path: &str,
   parent_revisions: &[String],
@@ -8763,6 +8786,7 @@ pub fn jj_new_with_parents(
 /// 3. jj bookmark set target_branch -r @- - move target_branch to merge commit
 ///
 /// This is executed in the context of the workspace directory, @ refers to workspace HEAD
+// home-head-test: merge_workspace_into_home
 pub fn jj_create_merge_commit(
   workspace_path: &str,
   workspace_branch: &str,
@@ -8857,6 +8881,7 @@ pub fn jj_create_merge_commit(
 ///
 /// # Returns
 /// Returns the rebase result or a JjError on failure.
+// home-head-test: merge_workspace_into_home
 pub fn jj_rebase_merge_commit(
   workspace_path: &str,
   workspace_branch: &str,
@@ -8987,6 +9012,7 @@ pub fn jj_rebase_merge_commit(
 ///
 /// # Returns
 /// Returns Ok(()) on success, or a JjError on failure.
+// home-head-test: merge_workspace_into_home
 pub fn jj_squash_merge_commit(
   workspace_path: &str,
   workspace_branch: &str,
