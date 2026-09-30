@@ -42,7 +42,7 @@ import { useAuthStore } from "../stores/authStore";
 import { CreateIssueForm, IssueDetailPanel } from "./github-panel/IssueDetail";
 import { MergeQueueTab } from "./github-panel/MergeQueueTab";
 import { NewPrDialog } from "./github-panel/NewPrDialog";
-import { PrFilterBar } from "./github-panel/PrFilterBar";
+import { PrFilterMenu, PrSearchBar } from "./github-panel/PrFilterBar";
 import { PrDetailPanel } from "./github-panel/PrDetail";
 import {
   EmptyState,
@@ -50,6 +50,7 @@ import {
   IssueListItem,
   LoadMoreButton,
   PrListItem,
+  StateFilterButtons,
 } from "./github-panel/shared";
 import {
   useGithubIssuePages,
@@ -286,23 +287,18 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
 
         {isListTab && (
           <div className="flex items-center gap-2 px-4 pb-2 shrink-0">
-            <div className="flex items-center gap-1 border border-border rounded-md p-0.5 bg-muted/30">
-              {(activeTab === "prs" ? PR_FILTERS : ISSUE_FILTERS).map((btn) => (
-                <button
-                  key={btn.value}
-                  type="button"
-                  onClick={() => handleFilterChange(btn.value)}
-                  aria-pressed={currentFilter === btn.value}
-                  className={`text-base px-2 py-0.5 rounded transition-colors ${
-                    currentFilter === btn.value
-                      ? "bg-background shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {btn.label}
-                </button>
-              ))}
-            </div>
+            <StateFilterButtons
+              options={activeTab === "prs" ? PR_FILTERS : ISSUE_FILTERS}
+              value={currentFilter}
+              onChange={handleFilterChange}
+            />
+            {activeTab === "prs" && (
+              <PrFilterMenu
+                prs={prs}
+                filters={prFilters}
+                onChange={setPrFilters}
+              />
+            )}
             <div className="flex-1" />
             <Button
               variant="ghost"
@@ -327,7 +323,7 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
         )}
 
         {activeTab === "prs" && remoteInfo && (
-          <PrFilterBar prs={prs} filters={prFilters} onChange={setPrFilters} />
+          <PrSearchBar filters={prFilters} onChange={setPrFilters} />
         )}
 
         {activeTab === "merge-queue" &&

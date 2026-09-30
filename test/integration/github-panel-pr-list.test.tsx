@@ -107,6 +107,22 @@ describe("GitHubPanel pull request list", () => {
     expect(screen.queryByText("Fix login")).not.toBeInTheDocument();
   });
 
+  it("places the Filters button right of the state filters, above the search bar", async () => {
+    render(<GitHubPanel repoPath="/tmp/repo" />);
+
+    const all = await screen.findByRole("button", { name: "All" });
+    const filters = screen.getByRole("button", { name: /^filters/i });
+    const search = screen.getByRole("searchbox", {
+      name: /search pull requests/i,
+    });
+    expect(all.compareDocumentPosition(filters)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(filters.compareDocumentPosition(search)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
   it("ANDs the author and label filters", async () => {
     api.ghListPrs.mockResolvedValue({
       items: [

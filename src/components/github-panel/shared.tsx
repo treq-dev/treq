@@ -236,6 +236,37 @@ export function PrListItem({
   );
 }
 
+/** Segmented Draft/Open/Closed/All control for the issue and PR lists. */
+export function StateFilterButtons<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { label: string; value: T }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 border border-border rounded-md p-0.5 bg-muted/30">
+      {options.map((btn) => (
+        <button
+          key={btn.value}
+          type="button"
+          onClick={() => onChange(btn.value)}
+          aria-pressed={value === btn.value}
+          className={`text-base px-2 py-0.5 rounded transition-colors ${
+            value === btn.value
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {btn.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function LoadMoreButton({
   loading,
   onClick,
