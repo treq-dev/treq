@@ -29,6 +29,11 @@ import {
   MERGE_QUEUE_HISTORY_PAGE_SIZE,
   type QueueEntry,
 } from "../lib/merge-queue-stacks";
+import {
+  EMPTY_PR_FILTERS,
+  filterPrs,
+  type PrFilters,
+} from "../lib/github-pr-filters";
 import type { GitHubIssueAttachment } from "../lib/promptAttachments";
 import { supabase } from "../lib/supabase";
 import { pollMs } from "../lib/swr-cache";
@@ -36,12 +41,14 @@ import { cn } from "../lib/utils";
 import { useAuthStore } from "../stores/authStore";
 import { CreateIssueForm, IssueDetailPanel } from "./github-panel/IssueDetail";
 import { MergeQueueTab } from "./github-panel/MergeQueueTab";
-import { CreatePrForm } from "./github-panel/CreatePrForm";
+import { NewPrDialog } from "./github-panel/NewPrDialog";
+import { PrFilterBar } from "./github-panel/PrFilterBar";
 import { PrDetailPanel } from "./github-panel/PrDetail";
 import {
   EmptyState,
   ErrorState,
   IssueListItem,
+  LoadMoreButton,
   PrListItem,
 } from "./github-panel/shared";
 import {
@@ -89,6 +96,7 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
   const [historyLimit, setHistoryLimit] = useState(
     MERGE_QUEUE_HISTORY_PAGE_SIZE,
   );
+  const [prFilters, setPrFilters] = useState<PrFilters>(EMPTY_PR_FILTERS);
 
   // Routing: the current tab, filter, selection, and create-form state all
   // live in the URL (as /github/<tab>/<filter>/<selector?>) so browser
@@ -152,6 +160,7 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
     fetchNext: fetchNextPrs,
     refetch: refetchPrs,
   } = useGithubPrPages(repoFullName, activeTab, currentFilter);
+  const visiblePrs = filterPrs(prs, prFilters);
 
   const {
     data: queueEntries = [],
@@ -317,6 +326,10 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
           </div>
         )}
 
+        {activeTab === "prs" && remoteInfo && (
+          <PrFilterBar prs={prs} filters={prFilters} onChange={setPrFilters} />
+        )}
+
         {activeTab === "merge-queue" &&
           isPro &&
           queueEnabled === true &&
@@ -368,31 +381,31 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
             </div>
           )}
 
-        {showCreateForm && remoteInfo && isListTab && (
+        {showCreateForm && remoteInfo && activeTab === "issues" && (
           <div className="shrink-0 overflow-y-auto">
-            {activeTab === "issues" ? (
-              <CreateIssueForm
-                repoFullName={repoFullName}
-                onSuccess={(n) =>
-                  navigate(githubDetailPath("issues", n, currentFilter), {
-                    replace: true,
-                  })
-                }
-                onCancel={handleCloseDetail}
-              />
-            ) : (
-              <CreatePrForm
-                repoPath={repoPath}
-                repoFullName={repoFullName}
-                onSuccess={(n) =>
-                  navigate(githubDetailPath("prs", n, currentFilter), {
-                    replace: true,
-                  })
-                }
-                onCancel={handleCloseDetail}
-              />
-            )}
+            <CreateIssueForm
+              repoFullName={repoFullName}
+              onSuccess={(n) =>
+                navigate(githubDetailPath("issues", n, currentFilter), {
+                  replace: true,
+                })
+              }
+              onCancel={handleCloseDetail}
+            />
           </div>
+        )}
+
+        {showCreateForm && remoteInfo && activeTab === "prs" && (
+          <NewPrDialog
+            repoPath={repoPath}
+            repoFullName={repoFullName}
+            onSuccess={(n) =>
+              navigate(githubDetailPath("prs", n, currentFilter), {
+                replace: true,
+              })
+            }
+            onCancel={handleCloseDetail}
+          />
         )}
 
         <div className="flex-1 overflow-y-auto">
@@ -433,19 +446,10 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
                   />
                 ))}
                 {issuesHasNextPage && (
-                  <div className="p-3">
-                    <Button
-                      variant="outline"
-                      className="w-full text-base"
-                      disabled={issuesFetchingNext}
-                      onClick={() => void fetchNextIssues()}
-                    >
-                      {issuesFetchingNext ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : null}
-                      Load more
-                    </Button>
-                  </div>
+                  <LoadMoreButton
+                    loading={issuesFetchingNext}
+                    onClick={() => void fetchNextIssues()}
+                  />
                 )}
               </>
             ))}
@@ -466,7 +470,13 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
               />
             ) : (
               <>
-                {prs.map((pr) => (
+                {visiblePrs.length === 0 && (
+                  <EmptyState
+                    icon={GitPullRequest}
+                    message="No loaded pull requests match the filters."
+                  />
+                )}
+                {visiblePrs.map((pr) => (
                   <PrListItem
                     key={pr.number}
                     pr={pr}
@@ -476,19 +486,10 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
                   />
                 ))}
                 {prsHasNextPage && (
-                  <div className="p-3">
-                    <Button
-                      variant="outline"
-                      className="w-full text-base"
-                      disabled={prsFetchingNext}
-                      onClick={() => void fetchNextPrs()}
-                    >
-                      {prsFetchingNext ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : null}
-                      Load more
-                    </Button>
-                  </div>
+                  <LoadMoreButton
+                    loading={prsFetchingNext}
+                    onClick={() => void fetchNextPrs()}
+                  />
                 )}
               </>
             ))}
