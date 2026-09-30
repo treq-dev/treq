@@ -1,3 +1,5 @@
+use std::path::{Component, Path};
+
 use tauri_plugin_cli::Matches;
 
 use crate::core;
@@ -89,15 +91,28 @@ pub(super) fn handle_agent_review_command(
         ));
       }
       let suggestion = get_arg_value(matches, "suggestion").map(|s| strip_suggestion_fence(&s));
+      let target_type =
+        get_arg_value(matches, "target-type").unwrap_or_else(|| DEFAULT_TARGET_TYPE.to_string());
+      let target_id = require_value(matches, "target-id")?;
+      let file = require_value(matches, "file")?;
+      let side = parse_side(get_arg_value(matches, "side").as_deref())?;
+      validate_add_target(
+        &repo_path,
+        &target_type,
+        &target_id,
+        &file,
+        end_line,
+        side.as_deref(),
+      )?;
       let comment = local_db::create_agent_review_comment(
         &repo_path,
-        &get_arg_value(matches, "target-type").unwrap_or_else(|| DEFAULT_TARGET_TYPE.to_string()),
-        &require_value(matches, "target-id")?,
-        &require_value(matches, "file")?,
+        &target_type,
+        &target_id,
+        &file,
         None,
         start_line,
         end_line,
-        parse_side(get_arg_value(matches, "side").as_deref())?.as_deref(),
+        side.as_deref(),
         &require_value(matches, "comment")?,
         suggestion.as_deref(),
         LOCAL_AGENT_SOURCE,
@@ -165,6 +180,76 @@ pub(super) fn handle_agent_review_command(
     }
     other => Err(format!("unknown agent review action '{other}'")),
   }
+}
+
+/// Target types the app renders review comments for.
+const KNOWN_TARGET_TYPES: &[&str] = &[DEFAULT_TARGET_TYPE, "file_browser_file"];
+
+/// Rejects an `add` that nothing could display: an unknown target type, a
+/// target that does not exist, a `--file` that is not relative, or (on the
+/// new side, which is the file on disk) lines past the end of the file.
+fn validate_add_target(
+  repo_path: &str,
+  target_type: &str,
+  target_id: &str,
+  file: &str,
+  end_line: i64,
+  side: Option<&str>,
+) -> Result<(), String> {
+  // The file on disk the new-side lines refer to.
+  let anchored = match target_type {
+    DEFAULT_TARGET_TYPE => {
+      let id = target_id.trim().parse::<i64>().ok().filter(|id| *id > 0);
+      let id = id.ok_or_else(|| {
+        format!("invalid_arguments: --target-id must be a workspace id, got '{target_id}'")
+      })?;
+      let workspace_dir = core::changes::resolve_workspace_dir(repo_path, Some(id))
+        .map_err(|_| format!("workspace_not_found: workspace {id} not found"))?;
+      Path::new(&workspace_dir).join(file)
+    }
+    "file_browser_file" => {
+      let inside_repo = match (
+        Path::new(target_id).canonicalize(),
+        Path::new(repo_path).canonicalize(),
+      ) {
+        (Ok(target), Ok(repo)) => target.is_file() && target.starts_with(repo),
+        _ => false,
+      };
+      if !inside_repo {
+        return Err(format!(
+          "invalid_arguments: --target-id '{target_id}' is not a file in the repository"
+        ));
+      }
+      Path::new(target_id).to_path_buf()
+    }
+    other => {
+      return Err(format!(
+        "invalid_arguments: unknown --target-type '{other}'. Expected one of: {}",
+        KNOWN_TARGET_TYPES.join(", ")
+      ))
+    }
+  };
+  let relative = Path::new(file);
+  if !relative
+    .components()
+    .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+  {
+    return Err(format!(
+      "invalid_arguments: --file must be a relative path inside the repository, got '{file}'"
+    ));
+  }
+  if side == Some("old") {
+    return Ok(());
+  }
+  let content = std::fs::read(anchored)
+    .map_err(|_| format!("invalid_arguments: --file '{file}' does not exist"))?;
+  let line_count = String::from_utf8_lossy(&content).lines().count();
+  if end_line as usize > line_count {
+    return Err(format!(
+      "invalid_arguments: line {end_line} is past the end of {file} ({line_count} lines)"
+    ));
+  }
+  Ok(())
 }
 
 fn require_comment(repo_path: &str, comment_id: &str) -> Result<(), String> {
@@ -236,6 +321,52 @@ mod tests {
   #[test]
   fn keeps_an_empty_suggestion_empty() {
     assert_eq!(strip_suggestion_fence("```suggestion\n```"), "");
+  }
+
+  #[test]
+  fn add_target_must_be_real_and_inside_the_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().to_str().unwrap();
+    let id = local_db::add_workspace(
+      repo,
+      "feat".into(),
+      "feat".into(),
+      "feat".into(),
+      None,
+      None,
+      None,
+    )
+    .unwrap()
+    .to_string();
+    let workspace = dir.path().join(".treq/workspaces/feat");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::write(workspace.join("a.rs"), "1\n2\n3\n").unwrap();
+    std::fs::write(dir.path().join("b.rs"), "1\n").unwrap();
+    let b = dir.path().join("b.rs");
+    let b = b.to_str().unwrap();
+    let check = |target_type: &str, target_id: &str, file: &str, end: i64, side: Option<&str>| {
+      validate_add_target(repo, target_type, target_id, file, end, side)
+    };
+
+    check(DEFAULT_TARGET_TYPE, &id, "a.rs", 3, None).unwrap();
+    check(DEFAULT_TARGET_TYPE, &id, "a.rs", 99, Some("old")).unwrap();
+    check("file_browser_file", b, "b.rs", 1, None).unwrap();
+    for (target_type, target_id, file, end) in [
+      ("bogus", id.as_str(), "a.rs", 1),
+      (DEFAULT_TARGET_TYPE, "999", "a.rs", 1),
+      (DEFAULT_TARGET_TYPE, "feat", "a.rs", 1),
+      (DEFAULT_TARGET_TYPE, id.as_str(), "/etc/passwd", 1),
+      (DEFAULT_TARGET_TYPE, id.as_str(), "../../../b.rs", 1),
+      (DEFAULT_TARGET_TYPE, id.as_str(), "missing.rs", 1),
+      (DEFAULT_TARGET_TYPE, id.as_str(), "a.rs", 4),
+      ("file_browser_file", "/etc/passwd", "b.rs", 1),
+      ("file_browser_file", b, "b.rs", 2),
+    ] {
+      assert!(
+        check(target_type, target_id, file, end, None).is_err(),
+        "{target_type} {target_id} {file}:{end} was accepted"
+      );
+    }
   }
 
   #[test]
