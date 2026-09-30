@@ -64,6 +64,7 @@ export const TREQ_COMMAND_KINDS = [
   "ResolveConflict",
   "GitFetch",
   "GitBookmarkTrack",
+  "GitRemoteInfo",
   "GitPush",
   "AgentStart",
   "AgentInput",
@@ -250,6 +251,7 @@ export type TreqCommandRequest =
       bookmark: string;
       remote_name: string;
     }
+  | { kind: "GitRemoteInfo"; repo: string }
   | {
       kind: "GitPush";
       repo: string;

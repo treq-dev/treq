@@ -473,6 +473,7 @@ pub(crate) fn parse_remote_command_request(
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
     ("git", "fetch") => Ok(TreqCommandRequest::GitFetch { repo }),
+    ("git", "remote-info") => Ok(TreqCommandRequest::GitRemoteInfo { repo }),
     ("git", "bookmark-track") => Ok(TreqCommandRequest::GitBookmarkTrack {
       repo,
       bookmark: require_value("bookmark name")?,

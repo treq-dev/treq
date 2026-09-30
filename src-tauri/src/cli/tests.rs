@@ -971,6 +971,7 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       idempotency_key: key(),
     },
     R::GitFetch { repo: repo() },
+    R::GitRemoteInfo { repo: repo() },
     R::GitBookmarkTrack {
       repo: repo(),
       bookmark: "main".into(),

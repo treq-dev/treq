@@ -35,6 +35,7 @@ import {
   transportCreateCommit,
   transportGetCommitDiff,
   transportGetCommitFileDiff,
+  transportGetGitRemoteInfo,
   transportGetWorkspaceFileHunks,
   transportGetRepoCurrentBranch,
   transportGetRepoDefaultBranch,
@@ -194,7 +195,10 @@ export const detectEditorApps = (): Promise<EditorAppsResponse> =>
 
 export const getGitRemoteUrl = (
   repoPath: string,
-): Promise<GitRemoteInfo | null> => invoke("get_git_remote_url", { repoPath });
+): Promise<GitRemoteInfo | null> =>
+  transportGetGitRemoteInfo(repoPath, () =>
+    invoke("get_git_remote_url", { repoPath }),
+  );
 
 export const getPrChecksViaGh = (
   repoPath: string,

@@ -540,7 +540,7 @@
               "index": 1,
               "takesValue": true,
               "required": true,
-              "description": "Command action: fetch, bookmark-track, push"
+              "description": "Command action: fetch, remote-info, bookmark-track, push"
             },
             {
               "name": "repo",

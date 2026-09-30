@@ -271,6 +271,19 @@ export async function transportListRepoBranches<T>(
   });
 }
 
+/** GitHub owner/name of the repository's origin, read where the repo lives. */
+export async function transportGetGitRemoteInfo<T>(
+  repoPath: string,
+  local: () => Promise<T>,
+): Promise<T> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  return remoteDispatch<T>(repo, {
+    kind: "GitRemoteInfo",
+    repo: repo.canonicalPath,
+  });
+}
+
 export async function transportGetWorkspaceChangedFiles(
   repoPath: string,
   workspaceId: number | null,

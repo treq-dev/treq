@@ -335,6 +335,11 @@ pub enum TreqCommandRequest {
     bookmark: String,
     remote_name: String,
   },
+  /// GitHub owner/name parsed from the repository's origin remote, the same
+  /// read the local `get_git_remote_url` command does. `null` when absent.
+  GitRemoteInfo {
+    repo: String,
+  },
   GitPush {
     repo: String,
     workspace: Option<String>,
@@ -446,6 +451,7 @@ impl TreqCommandRequest {
       | Self::CommitFileDiff { .. }
       | Self::SearchFiles { .. }
       | Self::ProbeRepo { .. }
+      | Self::GitRemoteInfo { .. }
       | Self::AgentStatus { .. }
       | Self::AgentLogs { .. }
       | Self::PtyList { .. }
@@ -525,6 +531,7 @@ impl TreqCommandRequest {
       | Self::DescribeCommit { .. }
       | Self::GitFetch { .. }
       | Self::GitBookmarkTrack { .. }
+      | Self::GitRemoteInfo { .. }
       | Self::AgentStatus { .. }
       | Self::AgentStop { .. }
       | Self::AgentLogs { .. }
@@ -571,6 +578,7 @@ impl TreqCommandRequest {
       Self::ResolveConflict { .. } => "ResolveConflict",
       Self::GitFetch { .. } => "GitFetch",
       Self::GitBookmarkTrack { .. } => "GitBookmarkTrack",
+      Self::GitRemoteInfo { .. } => "GitRemoteInfo",
       Self::GitPush { .. } => "GitPush",
       Self::AgentStart { .. } => "AgentStart",
       Self::AgentInput { .. } => "AgentInput",
@@ -618,6 +626,7 @@ impl TreqCommandRequest {
     "ResolveConflict",
     "GitFetch",
     "GitBookmarkTrack",
+    "GitRemoteInfo",
     "GitPush",
     "AgentStart",
     "AgentInput",
@@ -1500,6 +1509,7 @@ impl TreqCommandRequest {
         ("conflicts", "resolve", repo)
       }
       Self::GitFetch { repo } => ("git", "fetch", repo),
+      Self::GitRemoteInfo { repo } => ("git", "remote-info", repo),
       Self::GitBookmarkTrack {
         repo,
         bookmark,
@@ -2283,6 +2293,10 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         ))
       },
     ),
+    TreqCommandRequest::GitRemoteInfo { repo } => {
+      require_existing_repo(&repo)?;
+      json(crate::github::get_git_remote_url_impl(&repo))
+    }
     TreqCommandRequest::GitFetch { repo } => {
       json(crate::jj::jj_git_fetch(&repo).map_err(|error| format!("jj_command_failed: {error}")))
     }
@@ -4092,7 +4106,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 46);
   }
 
   #[test]

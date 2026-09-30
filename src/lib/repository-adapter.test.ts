@@ -5,6 +5,7 @@ import {
   createWorkspace,
   getCommitDiff,
   getCommitFileDiff,
+  getGitRemoteUrl,
   getWorkspaceDiff,
   getWorkspaceFileHunks,
   jjGetCommitsAhead,
@@ -135,6 +136,14 @@ describe("remote repository reads", () => {
         limit: 4,
       },
     ]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("reads the GitHub remote of a remote repository on its host", async () => {
+    const info = { owner: "acme", repo: "widgets", full_name: "acme/widgets" };
+    vi.mocked(dispatch).mockResolvedValueOnce(info);
+    await expect(getGitRemoteUrl(ROOT)).resolves.toEqual(info);
+    expect(sentReads()).toEqual([{ kind: "GitRemoteInfo", repo: ROOT }]);
     expect(invoke).not.toHaveBeenCalled();
   });
 

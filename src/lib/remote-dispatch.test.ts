@@ -39,6 +39,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "ResolveConflict",
       "GitFetch",
       "GitBookmarkTrack",
+      "GitRemoteInfo",
       "GitPush",
       "AgentStart",
       "AgentInput",
@@ -54,7 +55,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "CommitFileDiff",
       "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(45);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(46);
   });
 
   it("is exhaustive over the request union", () => {
@@ -173,6 +174,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
         bookmark: "main",
         remote_name: "origin",
       },
+      { kind: "GitRemoteInfo", repo: "/r" },
       { kind: "GitPush", repo: "/r", idempotency_key: "k" },
       {
         kind: "AgentStart",
