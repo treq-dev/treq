@@ -151,10 +151,14 @@ async function addInlineComment(
   lineMatch: RegExp,
   text: string,
 ) {
-  const line = [...document.querySelectorAll("[data-diff-line]")].find((el) =>
-    lineMatch.test(el.textContent ?? ""),
-  ) as HTMLElement | undefined;
-  if (!line) throw new Error(`No diff line matching ${lineMatch}`);
+  // The diff for a just-clicked file loads asynchronously.
+  const line = await waitFor(() => {
+    const match = [...document.querySelectorAll("[data-diff-line]")].find((el) =>
+      lineMatch.test(el.textContent ?? ""),
+    ) as HTMLElement | undefined;
+    if (!match) throw new Error(`No diff line matching ${lineMatch}`);
+    return match;
+  });
   await user.hover(line);
   await user.click(
     line.querySelector("[data-comment-button]") as HTMLElement,
