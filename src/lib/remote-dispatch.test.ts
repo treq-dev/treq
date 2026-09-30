@@ -36,6 +36,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "SplitCommit",
       "MoveCommit",
       "AbandonCommit",
+      "RevertCommit",
       "ResolveConflict",
       "GitFetch",
       "GitBookmarkTrack",
@@ -54,7 +55,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "CommitFileDiff",
       "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(45);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(46);
   });
 
   it("is exhaustive over the request union", () => {
@@ -154,6 +155,13 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       },
       {
         kind: "AbandonCommit",
+        repo: "/r",
+        workspace: "1",
+        commit: "c",
+        idempotency_key: "k",
+      },
+      {
+        kind: "RevertCommit",
         repo: "/r",
         workspace: "1",
         commit: "c",

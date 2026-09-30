@@ -14,6 +14,7 @@ import {
   mergeWorkspace,
   moveWorkspaceChanges,
   readFile,
+  revertCommit,
   saveFileBrowserReview,
   searchWorkspaceFiles,
   setWorkspaceTargetBranch,
@@ -185,6 +186,21 @@ describe("remote repository mutations", () => {
     expect(secondKey).toBeTruthy();
     expect(firstKey).not.toBe(secondKey);
     expect(vi.mocked(dispatchMutationOverSsh).mock.calls[0][0]).toBe(endpoint);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("reverts a remote commit with an idempotency key", async () => {
+    await revertCommit(ROOT, 7, "abc");
+    const [revert] = sentMutations();
+    expect(revert).toMatchObject({
+      kind: "RevertCommit",
+      repo: ROOT,
+      workspace: "7",
+      commit: "abc",
+    });
+    expect(
+      (revert as { idempotency_key: string }).idempotency_key,
+    ).toBeTruthy();
     expect(invoke).not.toHaveBeenCalled();
   });
 

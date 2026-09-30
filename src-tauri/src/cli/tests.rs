@@ -964,6 +964,12 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       commit: "abc".into(),
       idempotency_key: key(),
     },
+    R::RevertCommit {
+      repo: repo(),
+      workspace: "1".into(),
+      commit: "abc".into(),
+      idempotency_key: key(),
+    },
     R::ResolveConflict {
       repo: repo(),
       revision: "abc".into(),

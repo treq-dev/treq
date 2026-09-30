@@ -328,6 +328,21 @@ export async function transportAbandonCommit(
   return result ?? "";
 }
 
+export async function transportRevertCommit(
+  target: CommitTarget,
+  local: () => Promise<void>,
+): Promise<void> {
+  const repo = activeForPath(target.repoPath);
+  if (!repo) return local();
+  await remoteMutation(repo, {
+    kind: "RevertCommit",
+    repo: repo.canonicalPath,
+    workspace: String(target.workspaceId),
+    commit: target.commitChangeId,
+    idempotency_key: newIdempotencyKey(),
+  });
+}
+
 export async function transportDescribeCommit(
   target: CommitTarget,
   description: string,

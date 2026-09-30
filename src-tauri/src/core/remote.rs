@@ -319,6 +319,14 @@ pub enum TreqCommandRequest {
     commit: String,
     idempotency_key: String,
   },
+  /// Adds a commit reversing `commit` on top of the workspace's tip. A
+  /// repeat would add a second revert, so it needs an idempotency key.
+  RevertCommit {
+    repo: String,
+    workspace: String,
+    commit: String,
+    idempotency_key: String,
+  },
   // -- Phase 5: conflict mutations ----------------------------------------------
   ResolveConflict {
     repo: String,
@@ -468,6 +476,7 @@ impl TreqCommandRequest {
       | Self::SplitCommit { .. }
       | Self::MoveCommit { .. }
       | Self::AbandonCommit { .. }
+      | Self::RevertCommit { .. }
       | Self::ResolveConflict { .. }
       | Self::GitFetch { .. }
       | Self::GitBookmarkTrack { .. }
@@ -497,6 +506,7 @@ impl TreqCommandRequest {
       | Self::SplitCommit { .. }
       | Self::MoveCommit { .. }
       | Self::AbandonCommit { .. }
+      | Self::RevertCommit { .. }
       | Self::ResolveConflict { .. }
       | Self::GitPush { .. }
       | Self::AgentStart { .. }
@@ -568,6 +578,7 @@ impl TreqCommandRequest {
       Self::SplitCommit { .. } => "SplitCommit",
       Self::MoveCommit { .. } => "MoveCommit",
       Self::AbandonCommit { .. } => "AbandonCommit",
+      Self::RevertCommit { .. } => "RevertCommit",
       Self::ResolveConflict { .. } => "ResolveConflict",
       Self::GitFetch { .. } => "GitFetch",
       Self::GitBookmarkTrack { .. } => "GitBookmarkTrack",
@@ -615,6 +626,7 @@ impl TreqCommandRequest {
     "SplitCommit",
     "MoveCommit",
     "AbandonCommit",
+    "RevertCommit",
     "ResolveConflict",
     "GitFetch",
     "GitBookmarkTrack",
@@ -1480,6 +1492,17 @@ impl TreqCommandRequest {
         fields.idempotency_key = Some(idempotency_key);
         ("commits", "abandon", repo)
       }
+      Self::RevertCommit {
+        repo,
+        workspace,
+        commit,
+        idempotency_key,
+      } => {
+        fields.workspace = Some(workspace);
+        fields.target = Some(commit);
+        fields.idempotency_key = Some(idempotency_key);
+        ("commits", "revert", repo)
+      }
       Self::ListConflicts { repo, workspace } => {
         fields.workspace = workspace.as_deref();
         ("conflicts", "list", repo)
@@ -2257,6 +2280,24 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         let id =
           workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
         json(crate::core::commits::abandon_commit(&repo, id, &commit))
+      },
+    ),
+    TreqCommandRequest::RevertCommit {
+      repo,
+      workspace,
+      commit,
+      idempotency_key,
+    } => with_idempotency_key(
+      &repo,
+      "commit.revert",
+      Some(idempotency_key.as_str()),
+      request_snapshot
+        .as_ref()
+        .expect("RevertCommit is a mutation"),
+      || {
+        let id =
+          workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?;
+        json(crate::core::commits::revert_commit(&repo, id, &commit))
       },
     ),
     TreqCommandRequest::ResolveConflict {
@@ -4092,7 +4133,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 46);
   }
 
   #[test]

@@ -31,6 +31,7 @@ import {
   transportGetCommitDescription,
   transportMoveCommit,
   transportResolveCommit,
+  transportRevertCommit,
 } from "./repository-adapter-mutations";
 import { currentWindowLabel } from "./window-label";
 
@@ -679,18 +680,14 @@ export const undoCommit = async (
  * Revert a commit by creating a new commit that reverses its changes on top
  * of the workspace's current tip. Can target any commit except the working copy.
  */
-export const revertCommit = async (
+export const revertCommit = (
   repoPath: string,
   workspaceId: number,
   commitChangeId: string,
-): Promise<void> => {
-  assertLocalOperation(repoPath, "Reverting a commit");
-  return invoke("revert_commit", {
-    repoPath,
-    workspaceId,
-    commitChangeId,
-  });
-};
+): Promise<void> =>
+  transportRevertCommit({ repoPath, workspaceId, commitChangeId }, () =>
+    invoke("revert_commit", { repoPath, workspaceId, commitChangeId }),
+  );
 
 export const getCommitDescription = (
   repoPath: string,
