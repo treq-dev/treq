@@ -330,6 +330,13 @@ pub enum TreqCommandRequest {
   GitFetch {
     repo: String,
   },
+  /// Fetches and rebases a workspace onto its remote branch, like the local
+  /// `pull_workspace_from_remote` command. Without a workspace it only
+  /// fetches. Pulling again is a no-op, so it takes no idempotency key.
+  PullWorkspace {
+    repo: String,
+    workspace: Option<String>,
+  },
   GitBookmarkTrack {
     repo: String,
     bookmark: String,
@@ -470,6 +477,7 @@ impl TreqCommandRequest {
       | Self::AbandonCommit { .. }
       | Self::ResolveConflict { .. }
       | Self::GitFetch { .. }
+      | Self::PullWorkspace { .. }
       | Self::GitBookmarkTrack { .. }
       | Self::GitPush { .. }
       | Self::AgentStart { .. }
@@ -524,6 +532,7 @@ impl TreqCommandRequest {
       | Self::RestoreFile { .. }
       | Self::DescribeCommit { .. }
       | Self::GitFetch { .. }
+      | Self::PullWorkspace { .. }
       | Self::GitBookmarkTrack { .. }
       | Self::AgentStatus { .. }
       | Self::AgentStop { .. }
@@ -570,6 +579,7 @@ impl TreqCommandRequest {
       Self::AbandonCommit { .. } => "AbandonCommit",
       Self::ResolveConflict { .. } => "ResolveConflict",
       Self::GitFetch { .. } => "GitFetch",
+      Self::PullWorkspace { .. } => "PullWorkspace",
       Self::GitBookmarkTrack { .. } => "GitBookmarkTrack",
       Self::GitPush { .. } => "GitPush",
       Self::AgentStart { .. } => "AgentStart",
@@ -617,6 +627,7 @@ impl TreqCommandRequest {
     "AbandonCommit",
     "ResolveConflict",
     "GitFetch",
+    "PullWorkspace",
     "GitBookmarkTrack",
     "GitPush",
     "AgentStart",
@@ -1500,6 +1511,10 @@ impl TreqCommandRequest {
         ("conflicts", "resolve", repo)
       }
       Self::GitFetch { repo } => ("git", "fetch", repo),
+      Self::PullWorkspace { repo, workspace } => {
+        fields.workspace = workspace.as_deref();
+        ("git", "pull", repo)
+      }
       Self::GitBookmarkTrack {
         repo,
         bookmark,
@@ -2283,6 +2298,15 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         ))
       },
     ),
+    // The desktop conflict-marker setting lives in the client's app
+    // database, which the VM does not have, so pulls use the default style.
+    TreqCommandRequest::PullWorkspace { repo, workspace } => {
+      json(crate::core::workspaces::pull_workspace_from_remote(
+        &repo,
+        workspace_id(workspace.as_ref())?,
+        crate::core::DEFAULT_CONFLICT_MARKER_STYLE,
+      ))
+    }
     TreqCommandRequest::GitFetch { repo } => {
       json(crate::jj::jj_git_fetch(&repo).map_err(|error| format!("jj_command_failed: {error}")))
     }
@@ -4092,7 +4116,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 46);
   }
 
   #[test]

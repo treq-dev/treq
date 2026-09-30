@@ -38,6 +38,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "AbandonCommit",
       "ResolveConflict",
       "GitFetch",
+      "PullWorkspace",
       "GitBookmarkTrack",
       "GitPush",
       "AgentStart",
@@ -54,7 +55,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "CommitFileDiff",
       "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(45);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(46);
   });
 
   it("is exhaustive over the request union", () => {
@@ -167,6 +168,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
         idempotency_key: "k",
       },
       { kind: "GitFetch", repo: "/r" },
+      { kind: "PullWorkspace", repo: "/r", workspace: "1" },
       {
         kind: "GitBookmarkTrack",
         repo: "/r",

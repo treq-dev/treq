@@ -53,6 +53,7 @@ import {
   transportCreateWorkspace,
   transportDeleteWorkspace,
   transportMoveWorkspaceChanges,
+  transportPullWorkspace,
   transportPushWorkspace,
   transportRenameWorkspace,
   transportRestoreFile,
@@ -401,16 +402,13 @@ export const jjGitFetchBackground = (repoPath: string): Promise<void> =>
     invoke("jj_git_fetch_background", { repoPath }),
   );
 
-export const pullWorkspaceFromRemote = async (
+export const pullWorkspaceFromRemote = (
   repoPath: string,
   workspaceId: number | null,
-): Promise<PullWorkspaceResult> => {
-  assertLocalOperation(repoPath, "Pulling a workspace");
-  return invoke("pull_workspace_from_remote", {
-    repoPath,
-    workspaceId,
-  });
-};
+): Promise<PullWorkspaceResult> =>
+  transportPullWorkspace(repoPath, workspaceId, () =>
+    invoke("pull_workspace_from_remote", { repoPath, workspaceId }),
+  );
 
 export const checkBranchExists = (
   repoPath: string,

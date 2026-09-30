@@ -63,6 +63,7 @@ export const TREQ_COMMAND_KINDS = [
   "AbandonCommit",
   "ResolveConflict",
   "GitFetch",
+  "PullWorkspace",
   "GitBookmarkTrack",
   "GitPush",
   "AgentStart",
@@ -244,6 +245,7 @@ export type TreqCommandRequest =
       idempotency_key: string;
     }
   | { kind: "GitFetch"; repo: string }
+  | { kind: "PullWorkspace"; repo: string; workspace?: string | null }
   | {
       kind: "GitBookmarkTrack";
       repo: string;

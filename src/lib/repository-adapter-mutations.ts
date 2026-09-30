@@ -7,6 +7,7 @@
 
 import type {
   JjRebaseResult,
+  PullWorkspaceResult,
   RenameWorkspaceResult,
   ResolveCommitResult,
   Workspace,
@@ -164,6 +165,29 @@ export async function transportPushWorkspace(
     idempotency_key: newIdempotencyKey(),
   });
   return result ?? ALREADY_APPLIED;
+}
+
+export async function transportPullWorkspace(
+  repoPath: string,
+  workspaceId: number | null,
+  local: () => Promise<PullWorkspaceResult>,
+): Promise<PullWorkspaceResult> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  const result = await remoteMutation<PullWorkspaceResult>(repo, {
+    kind: "PullWorkspace",
+    repo: repo.canonicalPath,
+    workspace: workspaceArg(workspaceId),
+  });
+  return (
+    result ?? {
+      success: true,
+      message: ALREADY_APPLIED,
+      was_diverged: false,
+      commits_rebased: 0,
+      has_conflicts: false,
+    }
+  );
 }
 
 interface WorkspaceUpdate {
