@@ -59,6 +59,7 @@ import {
   transportSetWorkspaceTargetBranch,
   transportSplitWorkingCopy,
   transportUpdateWorkspace,
+  transportWorkingCopyMutation,
 } from "./repository-adapter-mutations";
 import { currentWindowLabel } from "./window-label";
 
@@ -312,17 +313,19 @@ export const jjRestoreFile = (
     }),
   );
 
-export const jjRestoreAll = async (workspacePath: string): Promise<string> => {
-  assertLocalOperation(workspacePath, "Discarding all changes");
-  return invoke("jj_restore_all", { workspacePath });
-};
+export const jjRestoreAll = (workspacePath: string): Promise<string> =>
+  transportWorkingCopyMutation(
+    workspacePath,
+    (repo, workspace) => ({ kind: "RestoreAll", repo, workspace }),
+    () => invoke("jj_restore_all", { workspacePath }),
+  );
 
-export const jjSnapshotWorkingCopy = async (
-  workspacePath: string,
-): Promise<string> => {
-  assertLocalOperation(workspacePath, "Snapshotting the working copy");
-  return invoke("jj_snapshot_working_copy", { workspacePath });
-};
+export const jjSnapshotWorkingCopy = (workspacePath: string): Promise<string> =>
+  transportWorkingCopyMutation(
+    workspacePath,
+    (repo, workspace) => ({ kind: "SnapshotWorkingCopy", repo, workspace }),
+    () => invoke("jj_snapshot_working_copy", { workspacePath }),
+  );
 
 export const jjRestoreSnapshot = async (
   workspacePath: string,

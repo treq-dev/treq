@@ -21,6 +21,7 @@ import {
   workspaceArg,
 } from "./repository-adapter";
 import type { ActiveRepository } from "./active-repository";
+import type { TreqCommandRequest } from "./remote-dispatch";
 
 interface MoveRequest {
   files: string[];
@@ -230,6 +231,25 @@ export async function transportRestoreFile(
     workspace: location.workspace,
     path: filePath,
   });
+  return result ?? ALREADY_APPLIED;
+}
+
+/**
+ * Runs a whole-working-copy mutation (snapshot, discard all) addressed by a
+ * workspace path in the active remote repository.
+ */
+export async function transportWorkingCopyMutation(
+  workspacePath: string,
+  request: (repo: string, workspace: string | null) => TreqCommandRequest,
+  local: () => Promise<string>,
+): Promise<string> {
+  const location = await resolveRemoteLocation(workspacePath);
+  if (!location) return local();
+  const { repo, workspace } = location;
+  const result = await remoteMutation<string>(
+    repo,
+    request(repo.canonicalPath, workspace),
+  );
   return result ?? ALREADY_APPLIED;
 }
 

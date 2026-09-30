@@ -8,7 +8,9 @@ import {
   getWorkspaceDiff,
   getWorkspaceFileHunks,
   jjGetCommitsAhead,
+  jjRestoreAll,
   jjRestoreFile,
+  jjSnapshotWorkingCopy,
   jjSplit,
   loadFileBrowserReview,
   mergeWorkspace,
@@ -258,6 +260,16 @@ describe("remote repository mutations", () => {
         workspace: "7",
         target_branch: "feat-b",
       },
+    ]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("snapshots and discards a remote working copy", async () => {
+    await jjSnapshotWorkingCopy(WORKSPACE_DIR);
+    await jjRestoreAll(ROOT);
+    expect(sentMutations()).toEqual([
+      { kind: "SnapshotWorkingCopy", repo: ROOT, workspace: "7" },
+      { kind: "RestoreAll", repo: ROOT, workspace: null },
     ]);
     expect(invoke).not.toHaveBeenCalled();
   });

@@ -269,6 +269,16 @@ pub enum TreqCommandRequest {
     patch_base64: String,
     idempotency_key: String,
   },
+  /// Records the working copy so a later discard can be undone. Returns the
+  /// snapshot id the local `jj_restore_snapshot` command takes.
+  SnapshotWorkingCopy {
+    repo: String,
+    workspace: Option<String>,
+  },
+  RestoreAll {
+    repo: String,
+    workspace: Option<String>,
+  },
   // -- Phase 5: commit mutations ------------------------------------------------
   CreateCommit {
     repo: String,
@@ -463,6 +473,8 @@ impl TreqCommandRequest {
       | Self::RebaseWorkspace { .. }
       | Self::RestoreFile { .. }
       | Self::PatchFile { .. }
+      | Self::SnapshotWorkingCopy { .. }
+      | Self::RestoreAll { .. }
       | Self::CreateCommit { .. }
       | Self::DescribeCommit { .. }
       | Self::SplitCommit { .. }
@@ -522,6 +534,8 @@ impl TreqCommandRequest {
       | Self::UpdateWorkspace { .. }
       | Self::DeleteWorkspace { .. }
       | Self::RestoreFile { .. }
+      | Self::SnapshotWorkingCopy { .. }
+      | Self::RestoreAll { .. }
       | Self::DescribeCommit { .. }
       | Self::GitFetch { .. }
       | Self::GitBookmarkTrack { .. }
@@ -563,6 +577,8 @@ impl TreqCommandRequest {
       Self::RebaseWorkspace { .. } => "RebaseWorkspace",
       Self::RestoreFile { .. } => "RestoreFile",
       Self::PatchFile { .. } => "PatchFile",
+      Self::SnapshotWorkingCopy { .. } => "SnapshotWorkingCopy",
+      Self::RestoreAll { .. } => "RestoreAll",
       Self::CreateCommit { .. } => "CreateCommit",
       Self::DescribeCommit { .. } => "DescribeCommit",
       Self::SplitCommit { .. } => "SplitCommit",
@@ -610,6 +626,8 @@ impl TreqCommandRequest {
     "RebaseWorkspace",
     "RestoreFile",
     "PatchFile",
+    "SnapshotWorkingCopy",
+    "RestoreAll",
     "CreateCommit",
     "DescribeCommit",
     "SplitCommit",
@@ -823,6 +841,18 @@ pub fn verification_for(request: &TreqCommandRequest) -> Option<MutationVerifica
         }),
       })
     }
+    // Discarding everything leaves no changed files to list.
+    TreqCommandRequest::RestoreAll { repo, workspace } => Some(MutationVerification {
+      read_request: TreqCommandRequest::ListChanges {
+        repo: repo.clone(),
+        workspace: workspace.clone(),
+      },
+      check: Box::new(|value| match value.as_array() {
+        Some(items) if items.is_empty() => MutationVerificationOutcome::AlreadyApplied,
+        Some(_) => MutationVerificationOutcome::NotApplied,
+        None => MutationVerificationOutcome::Ambiguous,
+      }),
+    }),
     TreqCommandRequest::GitBookmarkTrack { repo, bookmark, .. } => {
       let bookmark = bookmark.clone();
       Some(MutationVerification {
@@ -1401,6 +1431,14 @@ impl TreqCommandRequest {
         fields.value = Some(patch_base64.clone());
         fields.idempotency_key = Some(idempotency_key);
         ("file", "patch", repo)
+      }
+      Self::SnapshotWorkingCopy { repo, workspace } => {
+        fields.workspace = workspace.as_deref();
+        ("workspace", "snapshot", repo)
+      }
+      Self::RestoreAll { repo, workspace } => {
+        fields.workspace = workspace.as_deref();
+        ("workspace", "restore-all", repo)
       }
       Self::ListCommits { repo, workspace } => {
         fields.workspace = workspace.as_deref();
@@ -2119,6 +2157,15 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         &path,
       ))
     }
+    TreqCommandRequest::SnapshotWorkingCopy { repo, workspace } => {
+      json(crate::core::snapshot_working_copy(&resolve_workspace_path(
+        &repo,
+        workspace_id(workspace.as_ref())?,
+      )?))
+    }
+    TreqCommandRequest::RestoreAll { repo, workspace } => json(crate::core::discard_all_changes(
+      &resolve_workspace_path(&repo, workspace_id(workspace.as_ref())?)?,
+    )),
     TreqCommandRequest::PatchFile {
       repo,
       workspace,
@@ -3919,6 +3966,25 @@ mod tests {
   }
 
   #[test]
+  fn restore_all_verification_checks_for_remaining_changes() {
+    let request = TreqCommandRequest::RestoreAll {
+      repo: "/r".into(),
+      workspace: Some("1".into()),
+    };
+    let check = verification_for(&request).expect("recipe").check;
+    let changed = serde_json::json!([{ "path": "a.txt" }]);
+    assert_eq!(
+      check(&serde_json::json!([])),
+      MutationVerificationOutcome::AlreadyApplied
+    );
+    assert_eq!(check(&changed), MutationVerificationOutcome::NotApplied);
+    assert_eq!(
+      check(&serde_json::json!({})),
+      MutationVerificationOutcome::Ambiguous
+    );
+  }
+
+  #[test]
   fn split_commit_rejects_empty_files_and_hunks() {
     let error = TreqCommandRequest::SplitCommit {
       repo: "/srv/project".into(),
@@ -4092,7 +4158,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 47);
   }
 
   #[test]

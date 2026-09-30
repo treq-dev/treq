@@ -56,6 +56,8 @@ export const TREQ_COMMAND_KINDS = [
   "RebaseWorkspace",
   "RestoreFile",
   "PatchFile",
+  "SnapshotWorkingCopy",
+  "RestoreAll",
   "CreateCommit",
   "DescribeCommit",
   "SplitCommit",
@@ -196,6 +198,8 @@ export type TreqCommandRequest =
       patch_base64: string;
       idempotency_key: string;
     }
+  | { kind: "SnapshotWorkingCopy"; repo: string; workspace?: string | null }
+  | { kind: "RestoreAll"; repo: string; workspace?: string | null }
   | {
       kind: "CreateCommit";
       repo: string;

@@ -922,6 +922,14 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       workspace: Some("1".into()),
       path: "a.rs".into(),
     },
+    R::SnapshotWorkingCopy {
+      repo: repo(),
+      workspace: Some("1".into()),
+    },
+    R::RestoreAll {
+      repo: repo(),
+      workspace: None,
+    },
     R::PatchFile {
       repo: repo(),
       workspace: Some("1".into()),

@@ -374,6 +374,8 @@ pub(crate) fn parse_remote_command_request(
       target_branch: require_target("target branch")?,
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
+    ("workspace", "snapshot") => Ok(TreqCommandRequest::SnapshotWorkingCopy { repo, workspace }),
+    ("workspace", "restore-all") => Ok(TreqCommandRequest::RestoreAll { repo, workspace }),
     ("changes", "list") => Ok(TreqCommandRequest::ListChanges { repo, workspace }),
     ("changes", "workspace-diff") => Ok(TreqCommandRequest::WorkspaceDiff {
       repo,
