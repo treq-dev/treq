@@ -773,6 +773,9 @@ pub fn create_workspace_with_symlinked_dirs(
   };
 
   let new_branch: bool = !branch_exists || resolved_source_branch.as_deref() == Some(&remote_ref);
+  let prior_bookmark = branch_exists
+    .then(|| jj::jj_get_commit_id(repo_path, branch_name).ok())
+    .flatten();
   let workspace_name = jj::create_workspace(
     repo_path,
     branch_name,
@@ -927,6 +930,19 @@ pub fn create_workspace_with_symlinked_dirs(
   })();
 
   if result.is_err() {
+    // jj::create_workspace pointed the bookmark at the new working copy; put it back.
+    let restored = match (branch_exists, &prior_bookmark) {
+      (false, _) => jj::jj_delete_bookmark(repo_path, branch_name),
+      (true, Some(commit)) => jj::jj_set_bookmark(repo_path, branch_name, commit),
+      (true, None) => Ok(()),
+    };
+    if let Err(e) = restored {
+      tracing::warn!(
+        "Rollback: failed to restore bookmark {}: {}",
+        branch_name,
+        e
+      );
+    }
     let workspace_dir = Path::new(repo_path)
       .join(".treq")
       .join("workspaces")
@@ -1761,10 +1777,52 @@ mod tests {
     assert!(super::list_workspaces(&repo_path)
       .expect("list workspaces")
       .is_empty());
+    assert!(crate::jj::jj_get_commit_id(&repo_path, "fix/rollback").is_err());
+    assert!(gix::open(&repo_path)
+      .expect("open git")
+      .try_find_reference("refs/heads/fix/rollback")
+      .expect("find ref")
+      .is_none());
 
     let retried = super::create_workspace(&repo_path, "fix/rollback", None, None, None, None, None)
       .expect("retry after rollback");
     assert_eq!(retried.branch_name, "fix/rollback");
+  }
+
+  #[test]
+  fn create_workspace_rollback_restores_an_existing_bookmark() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    fs::write(temp.path().join("tracked.txt"), "tracked").expect("write tracked file");
+    for args in [
+      vec!["commit", "-m", "add tracked file"],
+      vec!["bookmark", "set", "main", "fix/existing", "-r", "@-"],
+    ] {
+      let status = Command::new("jj")
+        .current_dir(temp.path())
+        .args(&args)
+        .status()
+        .expect("jj");
+      assert!(status.success(), "jj {:?}", args);
+    }
+    let before = crate::jj::jj_get_commit_id(&repo_path, "fix/existing").expect("bookmark");
+
+    super::create_workspace_with_symlinked_dirs(
+      &repo_path,
+      "fix/existing",
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(vec!["tracked.txt".to_string()]),
+    )
+    .expect_err("symlink over a tracked file must fail");
+
+    assert_eq!(
+      crate::jj::jj_get_commit_id(&repo_path, "fix/existing").expect("bookmark kept"),
+      before
+    );
   }
 
   #[test]
@@ -2125,6 +2183,47 @@ mod tests {
 
     assert_eq!(created.branch_name, "fix/partial");
     assert!(!partial.join("partial").exists());
+  }
+
+  #[test]
+  fn create_workspace_recovers_workspace_registered_by_interrupted_create() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    // A create killed after jj registered the workspace but before it moved
+    // the working copy off the root commit and set the bookmark.
+    fs::create_dir_all(temp.path().join(".treq/workspaces")).expect("workspaces dir");
+    let status = Command::new("jj")
+      .current_dir(temp.path())
+      .args(["workspace", "add", "--name", "fix-killed", "-r", "root()"])
+      .arg(".treq/workspaces/fix-killed")
+      .status()
+      .expect("jj workspace add");
+    assert!(status.success());
+
+    let created = super::create_workspace(&repo_path, "fix/killed", None, None, None, None, None)
+      .expect("retry recovers the interrupted create");
+
+    assert_eq!(created.workspace_path, "fix-killed");
+    assert!(crate::jj::jj_get_commit_id(&repo_path, "fix/killed").is_ok());
+  }
+
+  #[test]
+  fn create_workspace_leaves_no_directory_when_source_is_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+
+    super::create_workspace(
+      &repo_path,
+      "fix/bad-source",
+      None,
+      None,
+      Some("nonexistent"),
+      None,
+      None,
+    )
+    .expect_err("missing source must fail");
+
+    assert!(!temp.path().join(".treq/workspaces/fix-bad-source").exists());
   }
 
   #[test]
