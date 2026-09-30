@@ -2,6 +2,7 @@ use crate::lock_ext::LockExt;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -198,6 +199,49 @@ pub fn get_local_db_path(repo_path: &str) -> PathBuf {
   Path::new(repo_path).join(".treq").join("local.db")
 }
 
+/// Marks a `repo_path` argument as the client-side state scope of a remote
+/// repository (its descriptor key follows), not a path on this machine.
+pub const REMOTE_STATE_SCOPE_PREFIX: &str = "treq-remote-state:";
+
+/// Where a repository's client-side state database lives.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RepoStateScope<'a> {
+  /// A repository on this machine: `<path>/.treq/local.db`.
+  Local(&'a str),
+  /// A remote repository, keyed by its descriptor identity. Its state lives
+  /// under the app data directory, so nothing is created at the remote path.
+  Remote(&'a str),
+}
+
+impl<'a> RepoStateScope<'a> {
+  pub fn parse(repo_arg: &'a str) -> Self {
+    match repo_arg.strip_prefix(REMOTE_STATE_SCOPE_PREFIX) {
+      Some(key) => Self::Remote(key),
+      None => Self::Local(repo_arg),
+    }
+  }
+
+  pub fn db_path(&self, app_data_dir: Option<&Path>) -> Result<PathBuf, String> {
+    match self {
+      Self::Local(path) => Ok(get_local_db_path(path)),
+      Self::Remote(key) => {
+        let dir = app_data_dir.ok_or("Remote repository state needs the app data directory")?;
+        let digest = Sha256::digest(key.as_bytes());
+        let name: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        Ok(dir.join("remote-state").join(name).join("local.db"))
+      }
+    }
+  }
+}
+
+fn resolve_db_path(repo_arg: &str) -> Result<PathBuf, String> {
+  let app_data_dir = std::env::var("TREQ_APP_DATA_DIR")
+    .ok()
+    .filter(|dir| !dir.trim().is_empty())
+    .map(PathBuf::from);
+  RepoStateScope::parse(repo_arg).db_path(app_data_dir.as_deref())
+}
+
 /// Initialize the local database for a repository.
 ///
 /// Creates tables for workspaces, sessions, changed_files, and workspace_files.
@@ -206,7 +250,7 @@ pub fn get_local_db_path(repo_path: &str) -> PathBuf {
 /// # Returns
 /// The path to the created/opened database file.
 pub fn init_local_db(repo_path: &str) -> Result<PathBuf, String> {
-  let db_path = get_local_db_path(repo_path);
+  let db_path = resolve_db_path(repo_path)?;
   if let Some(parent) = db_path.parent() {
     fs::create_dir_all(parent).map_err(|e| format!("Failed to create .treq directory: {}", e))?;
   }
@@ -849,7 +893,7 @@ fn get_connection(repo_path: &str) -> Result<Connection, String> {
     }
   }
 
-  let db_path = get_local_db_path(repo_path);
+  let db_path = resolve_db_path(repo_path)?;
   let conn = Connection::open(db_path).map_err(|e| format!("Failed to open local db: {}", e))?;
   conn
     .pragma_update(None, "foreign_keys", true)
@@ -2423,6 +2467,39 @@ mod tests {
       cached_at: "2026-08-26T00:00:00Z".to_string(),
       mtime: None,
     }
+  }
+
+  #[test]
+  fn parses_remote_state_scope_prefix() {
+    assert_eq!(
+      RepoStateScope::parse("/srv/repo"),
+      RepoStateScope::Local("/srv/repo")
+    );
+    assert_eq!(
+      RepoStateScope::parse("treq-remote-state:ssh:ep:gen0:/srv/repo"),
+      RepoStateScope::Remote("ssh:ep:gen0:/srv/repo")
+    );
+  }
+
+  #[test]
+  fn stores_remote_state_under_app_data_dir() {
+    let app_data = TempDir::new().unwrap();
+    let path = RepoStateScope::Remote("ssh:ep:gen0:/srv/repo")
+      .db_path(Some(app_data.path()))
+      .unwrap();
+    assert!(path.starts_with(app_data.path().join("remote-state")));
+    assert!(!path.to_string_lossy().contains("/srv/repo"));
+    let other = RepoStateScope::Remote("ssh:ep:gen1:/srv/repo")
+      .db_path(Some(app_data.path()))
+      .unwrap();
+    assert_ne!(path, other);
+  }
+
+  #[test]
+  fn refuses_remote_state_without_app_data_dir() {
+    assert!(RepoStateScope::Remote("ssh:ep:gen0:/srv")
+      .db_path(None)
+      .is_err());
   }
 
   #[test]
