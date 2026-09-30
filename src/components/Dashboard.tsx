@@ -1,5 +1,6 @@
 /* eslint-disable max-lines */
 
+import { syncRepoUrlParam } from "../lib/repo-url";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -278,6 +279,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const urlParams = new URLSearchParams(window.location.search);
     return urlParams.get("repo") || "";
   });
+  useEffect(() => {
+    syncRepoUrlParam(repoPath);
+  }, [repoPath]);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [homeRepoDisplayRef, setHomeRepoDisplayRef] = useState<string | null>(
     null,
