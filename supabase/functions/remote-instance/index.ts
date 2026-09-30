@@ -426,11 +426,7 @@ async function handleEnsure(
   }
 
   const existingInstance = await getInstanceForOwner(supabase, ownerUserId);
-  if (
-    existingInstance &&
-    existingInstance.status !== "deleted" &&
-    existingInstance.status !== "failed"
-  ) {
+  if (existingInstance && existingInstance.status !== "failed") {
     // One managed instance per user (Goal 1): ensure is a no-op once
     // provisioned, regardless of idempotency key, so a second "first open of
     // a managed repo" never provisions a second VM.
@@ -892,12 +888,8 @@ async function handleDelete(
     return json({ error: (err as Error).message }, 400, correlationId);
   }
 
-  const instance = await requireOwnedInstance(
-    supabase,
-    ownerUserId,
-    body.instance_id,
-  );
-
+  // Replay before the ownership lookup: once the delete succeeded the owner
+  // has no live instance, and a retry must still return the stored result.
   const existingOp = await findExistingOperation(
     supabase,
     ownerUserId,
@@ -909,6 +901,12 @@ async function handleDelete(
       200,
       correlationId,
     );
+
+  const instance = await requireOwnedInstance(
+    supabase,
+    ownerUserId,
+    body.instance_id,
+  );
 
   const op = await beginOperation(supabase, {
     ownerUserId,
