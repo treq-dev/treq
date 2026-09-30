@@ -4122,6 +4122,27 @@ fn parse_git_diff_hunks(diff: &str) -> Result<Vec<JjDiffHunk>, JjError> {
   Ok(hunks)
 }
 
+/// Reads `file_path` from git HEAD for a plain git repo with no `.jj`.
+fn read_git_head_blob(repo_path: &str, file_path: &str) -> Result<String, JjError> {
+  let repo = gix::open(repo_path).map_err(|e| JjError::IoError(e.to_string()))?;
+  let head_commit = repo
+    .head_commit()
+    .map_err(|e| JjError::IoError(e.to_string()))?;
+  let tree = head_commit
+    .tree()
+    .map_err(|e| JjError::IoError(e.to_string()))?;
+  let entry = tree
+    .lookup_entry_by_path(file_path)
+    .map_err(|e| JjError::IoError(e.to_string()))?
+    .ok_or_else(|| JjError::IoError(format!("Path '{}' not found in HEAD", file_path)))?;
+  let blob = entry
+    .object()
+    .map_err(|e| JjError::IoError(e.to_string()))?
+    .try_into_blob()
+    .map_err(|e| JjError::IoError(e.to_string()))?;
+  Ok(String::from_utf8_lossy(&blob.data).to_string())
+}
+
 /// Get file content at specific lines for context expansion
 pub fn jj_get_file_lines(
   workspace_path: &str,
@@ -4143,7 +4164,9 @@ pub fn jj_get_file_lines(
       file_path
     )));
   }
-  let content = if from_parent {
+  let content = if from_parent && !Path::new(workspace_path).join(".jj").exists() {
+    read_git_head_blob(workspace_path, file_path)?
+  } else if from_parent {
     // Read through jj-lib: a secondary workspace has no `.git` of its own.
     let mut loaded = load_workspace_repo(workspace_path)?;
     import_colocated_git_state(&mut loaded, workspace_path)?;
