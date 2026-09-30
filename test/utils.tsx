@@ -1,11 +1,12 @@
 import { createCommit } from "../src/lib/api";
+import { dispatchRefreshWorkspaceChanges } from "../src/lib/change-file-drag";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterAll, expect } from "vitest";
-import { waitFor, within } from "./test-utils";
+import { act, waitFor, within } from "./test-utils";
 import { waitForPendingInvokes } from "./setup.integration";
 
 export function openRepo(repoPath: string) {
@@ -310,6 +311,41 @@ export async function findSidebarBranchElement(
     );
   });
   return within(sidebarRoot).getAllByText(branchName)[0];
+}
+
+/**
+ * A workspace's sidebar row. Its hover actions include "Start agent" and
+ * "Open shell", which open terminals in that workspace.
+ */
+export async function findSidebarWorkspaceRow(
+  branchName: string,
+): Promise<HTMLElement> {
+  const label = await findSidebarBranchElement(branchName);
+  return label.closest("div") as HTMLElement;
+}
+
+/**
+ * Stands in for the file watcher, which tests don't run: after a test writes
+ * to a workspace outside the UI (files, commits), this refreshes the visible
+ * tab the way the watcher's `workspace-files-changed` event does in the app.
+ */
+export function notifyWorkspaceChanged(workspaceId?: number) {
+  act(() => {
+    dispatchRefreshWorkspaceChanges(
+      workspaceId === undefined ? undefined : { workspaceId },
+    );
+  });
+}
+
+/** The URL of the repo's `origin` remote (a path for local test remotes). */
+export function getOriginUrl(repoPath: string): string {
+  const config = fs.readFileSync(
+    path.join(repoPath, ".git", "config"),
+    "utf-8",
+  );
+  const match = /\[remote "origin"\][^[]*?url\s*=\s*(.+)/.exec(config);
+  if (!match) throw new Error(`no origin remote in ${repoPath}`);
+  return match[1].trim();
 }
 
 /** Point the repo's `origin` remote at `remoteUrl`, adding the remote if absent. */

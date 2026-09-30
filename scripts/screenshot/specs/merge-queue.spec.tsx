@@ -31,14 +31,20 @@ const { queueState, mockInvoke, mockGetCachedPrInfo, mockGetGitRemoteUrl } =
 		mockGetGitRemoteUrl: vi.fn(),
 	}));
 
-vi.mock("../../../src/lib/features", () => ({
-	FEATURES: {
-		pro: true,
-		stripePayments: false,
-		emailSignup: false,
-		mergeQueue: true,
-	},
-}));
+vi.mock("../../../src/lib/features", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../../src/lib/features")>();
+	return {
+		...actual,
+		FEATURES: {
+			...actual.FEATURES,
+			pro: true,
+			stripePayments: false,
+			emailSignup: false,
+			mergeQueue: true,
+		},
+	};
+});
 
 vi.mock("../../../src/lib/supabase", () => ({
 	supabase: {

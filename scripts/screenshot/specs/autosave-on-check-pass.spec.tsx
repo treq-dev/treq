@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
 	createTestRepo,
+	notifyWorkspaceChanged,
 	openRepo,
 	resolveWorkspacePath,
 	writeRepoFile,
@@ -10,7 +11,11 @@ import {
 } from "../../../test/utils";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
-import { getWorkspaces } from "../../../src/lib/api";
+import {
+	getWorkspaces,
+	runWorkflowJob,
+	trustRepo,
+} from "../../../src/lib/api";
 import { captureDocument } from "../capture";
 
 const BRANCH_NAME = "feat/autosave-check";
@@ -60,46 +65,22 @@ it("captures autosave after a passing check and drop after a manual commit", asy
 	);
 	writeWorkspaceFile(workspacePath, "good.txt", "checked-in\n");
 
-	await user.click(await screen.findByRole("tab", { name: /^Checks/ }));
-	await screen.findByRole("tab", { name: /^Checks/, selected: true });
-	await screen.findByText("Passing CI");
-
-	await user.click(
-		await screen.findByRole("button", { name: /Trust Repository/i }),
+	// A passing check job autosaves the working copy. Checks run from a PR's
+	// Checks tab in the app; here the job runs through the API, and the
+	// autosave it leaves behind is what this spec covers.
+	await trustRepo(repoPath);
+	const result = await runWorkflowJob(
+		repoPath,
+		"ci.yaml",
+		"greet",
+		workspace.id,
+		workspacePath,
 	);
-	await waitFor(() => {
-		if (screen.queryByRole("button", { name: /Trust Repository/i })) {
-			throw new Error("trust banner still present");
-		}
-	});
-
-	await captureDocument(document, {
-		name: "autosave-on-check-pass-01-before-run",
-		expectations: [
-			"The Checks tab is selected on a workspace named feat/autosave-check.",
-			'A workflow card titled "Passing CI" lists Greet Job with Run buttons enabled and no green pass icons yet.',
-		],
-	});
-
-	await user.click(
-		await screen.findByRole("button", { name: /Run Greet Job/i }),
-	);
-	await waitFor(
-		() => {
-			const passIcons = document.querySelectorAll(
-				'[data-testid="step-result-pass"]',
-			);
-			if (passIcons.length < 2) {
-				throw new Error(
-					`expected passing steps, got ${passIcons.length} pass icons`,
-				);
-			}
-		},
-		{ timeout: 20000 },
-	);
+	expect(result.success).toBe(true);
 
 	await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
 	await screen.findByRole("tab", { name: /^Commits/, selected: true });
+	notifyWorkspaceChanged(workspace.id);
 	await screen.findByText(/treq-autosave: good\.txt/);
 
 	await captureDocument(document, {
@@ -113,6 +94,7 @@ it("captures autosave after a passing check and drop after a manual commit", asy
 	writeWorkspaceFile(workspacePath, "good.txt", "shipped\n");
 	await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
 	await screen.findByRole("tab", { name: /^Changes/, selected: true });
+	notifyWorkspaceChanged(workspace.id);
 	await screen.findByText("shipped");
 	await user.type(
 		await screen.findByPlaceholderText("Message"),

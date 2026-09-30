@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import {
 	commitRepoFile,
 	createTestRepo,
+	findSidebarWorkspaceRow,
 	openRepo,
 } from "../../../test/utils";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
@@ -62,11 +63,17 @@ it("captures the ShowWorkspace component", async () => {
 	console.log(`Saved screenshot -> ${workspacePngPath}`);
 
 	// Create a stacked workspace with a very long branch name, through the
-	// real "Stack" dialog, to verify the header truncates it instead of
-	// overflowing/pushing out the action buttons.
+	// real "Stack" dialog (opened from the workspace's sidebar row), to verify
+	// the header truncates it instead of overflowing/pushing out the action
+	// buttons.
 	const longBranchName =
 		"feat/a-very-long-branch-name-that-should-truncate-instead-of-overflowing-the-header-row";
-	await user.click(await screen.findByRole("button", { name: "Stack" }));
+	await user.click(
+		within(await findSidebarWorkspaceRow("feat/screenshot-demo")).getByRole(
+			"button",
+			{ name: "Stack a workspace" },
+		),
+	);
 	const dialog = await screen.findByTestId("modal");
 	const branchNameInput = within(dialog).getByLabelText("Branch Name");
 	await user.type(branchNameInput, longBranchName);

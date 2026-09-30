@@ -33,7 +33,7 @@ it("captures the Feature Preview settings tab and gated UI", async () => {
   });
 
   expect(screen.getByRole("tab", { name: /skills/i })).toBeVisible();
-  await user.click(screen.getByLabelText("Skills installation"));
+  await user.click(screen.getByRole("switch", { name: "Skills installation" }));
   expect(screen.queryByRole("tab", { name: /^skills$/i })).toBeNull();
 
   await captureDocument(document, {
@@ -44,7 +44,9 @@ it("captures the Feature Preview settings tab and gated UI", async () => {
     ],
   });
 
-  await user.click(screen.getByLabelText("Workspace scheduling"));
+  await user.click(
+    screen.getByRole("switch", { name: "Workspace scheduling" }),
+  );
   await user.click(screen.getByRole("button", { name: "Close" }));
   await user.click(await findSidebarBranchElement("feat/preview"));
   expect(await screen.findByTestId("show-workspace-header")).toBeTruthy();

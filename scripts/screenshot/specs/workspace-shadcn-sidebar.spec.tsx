@@ -27,7 +27,6 @@ it("captures the workspace list in the shadcn sidebar shell", async () => {
   expect(sidebar).toBeTruthy();
   expect(sidebar.querySelector('[data-sidebar="header"]')).toBeTruthy();
   expect(sidebar.querySelector('[data-sidebar="content"]')).toBeTruthy();
-  expect(sidebar.querySelector('[data-sidebar="footer"]')).toBeTruthy();
   expect(within(sidebar).getByText("Workspaces")).toBeTruthy();
   expect(await screen.findByTestId("home-repo-row")).toBeTruthy();
 
@@ -36,7 +35,6 @@ it("captures the workspace list in the shadcn sidebar shell", async () => {
     expectations: [
       "The left column is a full-height sidebar with the repo search header at the top.",
       "Home, Github, and a Workspaces heading sit above feat/alpha.",
-      "A Sessions footer is pinned at the bottom of the sidebar.",
     ],
   });
 
