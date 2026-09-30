@@ -442,6 +442,7 @@ fn dispatch_agent_request_selects_matching_instance_and_handles_ack() {
         normalized_repo_path: normalized_repo,
         focused: true,
         last_focused_at: Some(agent_dispatch::now_millis()),
+        supporting: false,
       }],
     }],
     repo.to_str().unwrap(),
@@ -505,6 +506,7 @@ fn dispatch_agent_request_surfaces_ack_timeout_error() {
         normalized_repo_path: normalized_repo,
         focused: true,
         last_focused_at: Some(agent_dispatch::now_millis()),
+        supporting: false,
       }],
     }],
     repo.to_str().unwrap(),
@@ -1285,4 +1287,48 @@ mod structured_errors {
     assert!(ok);
     assert!(out.is_empty() && err.is_empty());
   }
+}
+
+fn parsed_subcommand(args: &[&str]) -> SubcommandMatches {
+  let matches = super::args::parse(args.iter().copied()).expect("args should parse");
+  *matches.subcommand.expect("subcommand")
+}
+
+#[test]
+fn parses_repo_flag_on_workspace_commands() {
+  for args in [
+    &["treq", "add", "feat/x", "-r", "svc"][..],
+    &["treq", "agent", "feat/x", "do it", "--repo", "svc"][..],
+    &["treq", "st", "-r", "svc"][..],
+    &["treq", "commit", "feat/x", "-r", "svc", "-m", "msg"][..],
+  ] {
+    let sub = parsed_subcommand(args);
+    assert_eq!(
+      sub.matches.args.get("repo").and_then(|a| a.value.as_str()),
+      Some("svc"),
+      "{args:?}"
+    );
+  }
+}
+
+#[test]
+fn mv_keeps_short_r_for_ranges_and_takes_long_repo() {
+  let sub = parsed_subcommand(&["treq", "mv", "a", "b", "--repo", "svc", "-r", "f.rs:1-2"]);
+  assert_eq!(
+    sub.matches.args.get("repo").and_then(|a| a.value.as_str()),
+    Some("svc")
+  );
+  assert!(sub
+    .matches
+    .args
+    .get("ranges")
+    .is_some_and(|a| a.occurrences == 1));
+}
+
+#[test]
+fn agent_rejects_home_repo_branch() {
+  let sub = parsed_subcommand(&["treq", "agent", ".", "do it", "-r", "svc"]);
+  assert!(!super::workspace_handlers::handle_workspace_agent(
+    &sub.matches
+  ));
 }

@@ -64,8 +64,26 @@ pub(super) fn workspace_dir_name_from_cwd(cwd: &Path) -> Option<String> {
   }
 }
 
+/// Repository a workspace command acts on: the repository containing the
+/// current directory or, with `-r <repo>`, one of its supporting repositories.
+pub(super) fn resolve_command_repo(matches: &Matches) -> Result<String, String> {
+  let repo_path = detect_repo_path()?;
+  match get_arg_value(matches, "repo") {
+    None => Ok(repo_path),
+    Some(spec) => {
+      let cwd = std::env::current_dir().map_err(|e| format!("Failed to get CWD: {}", e))?;
+      core::supporting_repos::resolve(&repo_path, &spec, &cwd)
+    }
+  }
+}
+
 pub(super) fn lookup_workspace_from_cwd(repo_path: &str) -> Option<local_db::Workspace> {
   let cwd = std::env::current_dir().ok()?;
+  // With `-r`, the current directory belongs to another repository.
+  let cwd_repo = find_repo_root(&cwd).map(|root| normalize_repo_path(&root))?;
+  if cwd_repo != normalize_repo_path(Path::new(repo_path)) {
+    return None;
+  }
   let name = workspace_dir_name_from_cwd(&cwd)?;
   local_db::get_workspace_by_path(repo_path, &name)
     .ok()
@@ -664,15 +682,17 @@ fn print_cli_help() {
   println!("Treq - Stacking ADE");
   println!();
   println!("Usage:");
-  println!("  treq add <branch_name> [-d description] [-l title] [-s source_branch] [-p sparse]... [-k symlink]...");
-  println!("  treq set <workspace_name> [-d description] [-l title] [-t target_branch]");
-  println!("  treq st [workspace_name]");
-  println!("  treq diff [workspace_name]");
+  println!("  treq add <branch_name> [-r repo] [-d description] [-l title] [-s source_branch] [-p sparse]... [-k symlink]...");
+  println!("  treq set <workspace_name> [-r repo] [-d description] [-l title] [-t target_branch]");
+  println!("  treq st [workspace_name] [-r repo]");
+  println!("  treq diff [workspace_name] [-r repo]");
   println!(
-        "  treq mv <source> <destination> -f [FILES...] -r [RANGES...] -c [COMMITS...]  (use '.' for the home repo)"
+        "  treq mv <source> <destination> [--repo repo] -f [FILES...] -r [RANGES...] -c [COMMITS...]  (use '.' for the home repo)"
     );
-  println!("  treq agent <branch> <prompt> [-m <edit|plan>]");
-  println!("  treq commit <workspace_name> -m <message> [--push]");
+  println!("  treq agent <branch> <prompt> [-r repo] [-m <edit|plan>]");
+  println!("  treq commit <workspace_name> [-r repo] -m <message> [--push]");
+  println!();
+  println!("  -r/--repo targets a supporting repository by path or directory name.");
   println!("  treq resolve <commit_id> [sides...]");
   println!("  treq send [path|-]");
   println!("  treq send --browser <path-or-url>");
