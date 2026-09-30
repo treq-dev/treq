@@ -87,8 +87,7 @@ pub fn resolve_app_db_path(repo_path: &str) -> PathBuf {
 
 #[cfg(test)]
 thread_local! {
-  /// Per-thread app data dir for tests. Setting `TREQ_APP_DATA_DIR` would leak
-  /// into every test running in parallel.
+  /// Per-thread app data dir for tests; the env var would leak across parallel tests.
   pub(crate) static TEST_APP_DATA_DIR: std::cell::RefCell<Option<PathBuf>> =
     const { std::cell::RefCell::new(None) };
 }
