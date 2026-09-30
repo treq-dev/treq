@@ -2050,7 +2050,7 @@ pub fn jj_apply_file_patch(
 
 /// Move a resolve workspace `@` to a new empty child of the current tip so
 /// forgetting the workspace cannot hide the resolved change.
-// home-head-test: resolve_home_conflict
+// home-head-test: resolve_workspace_conflict
 pub fn jj_detach_resolve_workspace_wc(workspace_path: &str) -> Result<(), JjError> {
   if !Path::new(workspace_path).exists() {
     return Ok(());
@@ -2089,7 +2089,7 @@ pub fn jj_detach_resolve_workspace_wc(workspace_path: &str) -> Result<(), JjErro
 ///
 /// Side indexes: 1 = left/add0, 2 = right/add1, 0 = base/remove0.
 /// Multiple sides concatenate textual content in the given order ("both").
-// home-head-test: resolve_home_conflict
+// home-head-test: resolve_workspace_conflict
 pub fn jj_resolve_conflict_sides(workspace_path: &str, sides: &[u8]) -> Result<(), JjError> {
   if sides.is_empty() {
     return Err(JjError::IoError(
@@ -2651,7 +2651,7 @@ pub fn remove_workspace_directory_only(workspace_path: &str) -> Result<(), JjErr
 }
 
 /// Forget a jj workspace without deleting its directory.
-// home-head-test: delete_workspace, resolve_home_conflict
+// home-head-test: delete_workspace, resolve_workspace_conflict
 pub fn forget_workspace(repo_path: &str, workspace_path: &str) -> Result<(), JjError> {
   let workspace_dir = Path::new(workspace_path);
 

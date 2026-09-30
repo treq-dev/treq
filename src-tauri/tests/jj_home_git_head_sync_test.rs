@@ -347,8 +347,8 @@ fn delete_workspace() {
 fn workspace_bookmark_rebase() {
   let (repo, main) = home_on_feature();
   let ws = repo
-    .create_workspace_with_commit("ws-branch", "ws.txt", "ws\n", Some("feature"))
-    .expect("stacked workspace");
+    .create_workspace_with_commit("ws-branch", "ws.txt", "ws\n", None)
+    .expect("workspace");
   let ws_path = repo.workspace_full_path(&ws);
   jj::jj_rebase_workspace_bookmark_onto(&ws_path, "ws-branch", &main).expect("rebase workspace");
   assert!(assert_git_head_follows_wc_parent(&repo, Some("feature")).is_empty());
@@ -357,23 +357,21 @@ fn workspace_bookmark_rebase() {
 /// Covers the resolve workspace lifecycle: start (detach), pick a side,
 /// commit the resolution, then forget the resolve workspace.
 #[test]
-fn resolve_home_conflict() {
+fn resolve_workspace_conflict() {
   let repo = TestRepo::new().expect("create repo");
   let main = repo.default_branch().to_string();
-  git(&repo, &["add", ".gitignore"]);
-  git(&repo, &["commit", "-m", "Commit init metadata"]);
-  git(&repo, &["checkout", "-b", "feature"]);
+  let ws = repo
+    .create_workspace_with_commit("ws-branch", "conflict.txt", "workspace\n", None)
+    .expect("workspace");
+  let ws_path = repo.workspace_full_path(&ws);
   repo
-    .commit_file("shared.txt", "feature\n", "feature edit")
-    .expect("feature commit");
-  git(&repo, &["checkout", &main]);
-  repo
-    .commit_file("shared.txt", "main\n", "main edit")
-    .expect("main commit");
-  git(&repo, &["checkout", "feature"]);
-  jj::jj_rebase_home_repo_branch(&repo.repo_path, "feature", &main).expect("conflicting rebase");
+    .create_file("conflict.txt", "main\n")
+    .expect("write main side");
+  jj::jj_commit(&repo.repo_path, "main commit").expect("commit main");
+  jj::jj_rebase_workspace_bookmark_onto(&ws_path, "ws-branch", &main).expect("conflicting rebase");
 
-  let session = core::start_resolve_conflicts(&repo.repo_path, None, None).expect("start resolve");
+  let session =
+    core::start_resolve_conflicts(&repo.repo_path, Some(ws.id), None).expect("start resolve");
   let target = session.targets.first().expect("conflicted commit");
   let result = core::resolve_commit(
     &repo.repo_path,
@@ -383,7 +381,7 @@ fn resolve_home_conflict() {
   )
   .expect("resolve");
   assert!(result.success, "{}", result.message);
-  assert!(assert_git_head_follows_wc_parent(&repo, Some("feature")).is_empty());
+  assert!(assert_git_head_follows_wc_parent(&repo, Some(&main)).is_empty());
 }
 
 fn collect_home_head_markers(dir: &std::path::Path, markers: &mut Vec<(String, String)>) {
