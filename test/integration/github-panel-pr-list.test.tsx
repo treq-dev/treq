@@ -141,7 +141,16 @@ describe("GitHubPanel pull request list", () => {
     expect(screen.queryByText("Alice feature")).not.toBeInTheDocument();
     expect(screen.queryByText("Bob bug")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /clear filters/i }));
+    await user.click(screen.getByRole("button", { name: /^filters/i }));
+    expect(
+      screen.queryByRole("combobox", { name: "Author" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Bob bug")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^filters/i }));
+    await user.click(
+      await screen.findByRole("button", { name: /clear filters/i }),
+    );
     expect(screen.getByText("Bob bug")).toBeVisible();
   });
 

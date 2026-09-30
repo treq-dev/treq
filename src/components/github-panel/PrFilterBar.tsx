@@ -1,5 +1,4 @@
 import { ListFilter, Search } from "lucide-react";
-import { useState } from "react";
 import type { GhPullRequest } from "../../lib/api-types";
 import {
   EMPTY_PR_FILTERS,
@@ -9,6 +8,7 @@ import {
 } from "../../lib/github-pr-filters";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 const OPENED_OPTIONS = [
   { label: "Last 24 hours", days: 1 },
@@ -60,14 +60,13 @@ export function PrFilterBar({
   filters: PrFilters;
   onChange: (filters: PrFilters) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const activeCount = activePrFilterCount(filters);
   const options = prFilterOptions(prs);
   const set = <K extends keyof PrFilters>(key: K, value: PrFilters[K]) =>
     onChange({ ...filters, [key]: value });
 
   return (
-    <div className="px-4 pb-2 shrink-0 space-y-2">
+    <div className="px-4 pb-2 shrink-0">
       <div className="flex items-center gap-2">
         <div className="relative flex-1 min-w-0">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -80,95 +79,98 @@ export function PrFilterBar({
             className="h-7 w-full rounded-md border border-input bg-background pl-7 pr-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(
-            "h-7 text-base gap-1",
-            activeCount > 0 && "border-primary/40 bg-primary/10",
-          )}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <ListFilter className="w-3.5 h-3.5" />
-          Filters
-          {activeCount > 0 && (
-            <span className="rounded-full bg-primary px-1.5 text-xs leading-4 text-primary-foreground">
-              {activeCount}
-            </span>
-          )}
-        </Button>
-      </div>
-      {open && (
-        <div className="grid grid-cols-2 gap-2 rounded-md border border-border p-2 bg-muted/30">
-          <FilterSelect
-            label="Author"
-            value={filters.author ?? ""}
-            options={plain(options.authors)}
-            onChange={(v) => set("author", v || null)}
-          />
-          <FilterSelect
-            label="Label"
-            value={filters.label ?? ""}
-            options={plain(options.labels)}
-            onChange={(v) => set("label", v || null)}
-          />
-          <FilterSelect
-            label="Source branch"
-            value={filters.head ?? ""}
-            options={plain(options.heads)}
-            onChange={(v) => set("head", v || null)}
-          />
-          <FilterSelect
-            label="Target branch"
-            value={filters.base ?? ""}
-            options={plain(options.bases)}
-            onChange={(v) => set("base", v || null)}
-          />
-          <FilterSelect
-            label="Stack level"
-            value={filters.stackLevel?.toString() ?? ""}
-            options={options.stackLevels.map((n) => ({
-              label: n === 1 ? "1 (bottom)" : String(n),
-              value: String(n),
-            }))}
-            onChange={(v) => set("stackLevel", v ? Number(v) : null)}
-          />
-          <FilterSelect
-            label="Opened"
-            value={filters.openedWithinDays?.toString() ?? ""}
-            options={OPENED_OPTIONS.map((o) => ({
-              label: o.label,
-              value: String(o.days),
-            }))}
-            onChange={(v) => set("openedWithinDays", v ? Number(v) : null)}
-          />
-          <FilterSelect
-            label="Merge conflicts"
-            value={filters.conflict ?? ""}
-            options={[
-              { label: "Has conflicts", value: "conflicting" },
-              { label: "No conflicts", value: "clean" },
-            ]}
-            onChange={(v) =>
-              set("conflict", (v || null) as PrFilters["conflict"])
-            }
-          />
-          <div className="flex items-end">
+        <Popover>
+          <PopoverTrigger asChild>
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="h-8 text-base w-full"
-              disabled={activeCount === 0}
-              onClick={() =>
-                onChange({ ...EMPTY_PR_FILTERS, query: filters.query })
-              }
+              className={cn(
+                "h-7 text-base gap-1",
+                activeCount > 0 && "border-primary/40 bg-primary/10",
+              )}
             >
-              Clear filters
+              <ListFilter className="w-3.5 h-3.5" />
+              Filters
+              {activeCount > 0 && (
+                <span className="rounded-full bg-primary px-1.5 text-xs leading-4 text-primary-foreground">
+                  {activeCount}
+                </span>
+              )}
             </Button>
-          </div>
-        </div>
-      )}
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-[28rem] max-w-[calc(100vw-2rem)] p-3 grid grid-cols-2 gap-2"
+          >
+            <FilterSelect
+              label="Author"
+              value={filters.author ?? ""}
+              options={plain(options.authors)}
+              onChange={(v) => set("author", v || null)}
+            />
+            <FilterSelect
+              label="Label"
+              value={filters.label ?? ""}
+              options={plain(options.labels)}
+              onChange={(v) => set("label", v || null)}
+            />
+            <FilterSelect
+              label="Source branch"
+              value={filters.head ?? ""}
+              options={plain(options.heads)}
+              onChange={(v) => set("head", v || null)}
+            />
+            <FilterSelect
+              label="Target branch"
+              value={filters.base ?? ""}
+              options={plain(options.bases)}
+              onChange={(v) => set("base", v || null)}
+            />
+            <FilterSelect
+              label="Stack level"
+              value={filters.stackLevel?.toString() ?? ""}
+              options={options.stackLevels.map((n) => ({
+                label: n === 1 ? "1 (bottom)" : String(n),
+                value: String(n),
+              }))}
+              onChange={(v) => set("stackLevel", v ? Number(v) : null)}
+            />
+            <FilterSelect
+              label="Opened"
+              value={filters.openedWithinDays?.toString() ?? ""}
+              options={OPENED_OPTIONS.map((o) => ({
+                label: o.label,
+                value: String(o.days),
+              }))}
+              onChange={(v) => set("openedWithinDays", v ? Number(v) : null)}
+            />
+            <FilterSelect
+              label="Merge conflicts"
+              value={filters.conflict ?? ""}
+              options={[
+                { label: "Has conflicts", value: "conflicting" },
+                { label: "No conflicts", value: "clean" },
+              ]}
+              onChange={(v) =>
+                set("conflict", (v || null) as PrFilters["conflict"])
+              }
+            />
+            <div className="flex items-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-base w-full"
+                disabled={activeCount === 0}
+                onClick={() =>
+                  onChange({ ...EMPTY_PR_FILTERS, query: filters.query })
+                }
+              >
+                Clear filters
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
     </div>
   );
 }

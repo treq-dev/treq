@@ -8,7 +8,7 @@ import { expect, it, vi } from "vitest";
 import { GitHubPanel } from "../../../src/components/GitHubPanel";
 import { createWorkspace } from "../../../src/lib/api";
 import type { GhPullRequest } from "../../../src/lib/api-types";
-import { render, screen, within } from "../../../test/test-utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { createTestRepo } from "../../../test/utils";
 import { captureDocument } from "../capture";
 
@@ -18,6 +18,9 @@ const { mockGetGitRemoteUrl, mockGhListPrs, mockListCachedPrStatuses } =
     mockGhListPrs: vi.fn(),
     mockListCachedPrStatuses: vi.fn(),
   }));
+
+// The shared test mock renders popovers in-tree, where the list pane clips them.
+vi.unmock("../../../src/components/ui/popover");
 
 vi.mock("../../../src/lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../../src/lib/api")>(
@@ -118,13 +121,19 @@ it("shows authors, filters the PR list, and opens New in a modal", async () => {
   await captureDocument(document, {
     name: "github-pr-list-filters-02-filtered",
     expectations: [
-      "An open filter panel shows two columns of dropdowns: Author, Label, Source/Target branch, Stack level, Opened, Merge conflicts.",
+      "A floating popover card shows two columns of dropdowns: Author, Label, Source/Target branch, Stack level, Opened, Merge conflicts (jsdom has no layout, so it sits at the top-left).",
       'Author is "hubot" and Label is "bug"; the Filters button shows a badge with 2.',
       'Only "Billing page" is listed.',
     ],
   });
 
   await user.click(screen.getByRole("button", { name: /clear filters/i }));
+  await user.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("combobox", { name: "Author" }),
+    ).not.toBeInTheDocument(),
+  );
   await user.type(
     screen.getByRole("searchbox", { name: /search pull requests/i }),
     "login",
