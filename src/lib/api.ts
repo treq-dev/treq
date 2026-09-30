@@ -30,6 +30,7 @@ import type {
   WorkspaceStatus,
 } from "./api-types";
 import { enqueueJjExclusive } from "./enqueue-jj-exclusive";
+import { localReadOr } from "./local-only";
 import {
   assertLocalOperation,
   remoteRepositoryContaining,
@@ -219,13 +220,16 @@ export const detectEditorApps = (): Promise<EditorAppsResponse> =>
 
 export const getGitRemoteUrl = (
   repoPath: string,
-): Promise<GitRemoteInfo | null> => invoke("get_git_remote_url", { repoPath });
+): Promise<GitRemoteInfo | null> =>
+  localReadOr(repoPath, null, () => invoke("get_git_remote_url", { repoPath }));
 
 export const getPrChecksViaGh = (
   repoPath: string,
   branchName: string,
 ): Promise<PrCiStatus | null> =>
-  invoke("get_pr_checks_via_gh", { repoPath, branchName });
+  localReadOr(repoPath, null, () =>
+    invoke("get_pr_checks_via_gh", { repoPath, branchName }),
+  );
 
 export const getPrChecksForPr = (
   repoFullName: string,
