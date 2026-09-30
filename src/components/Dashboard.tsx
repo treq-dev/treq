@@ -49,6 +49,7 @@ import {
   remoteCloneRepoOverSsh,
   remoteOpenRepoOverSsh,
   remoteProbeRepoOverSsh,
+  resolveSshConfigAlias,
   selectFolder,
   setSetting,
   setWindowRepoPath,
@@ -118,10 +119,12 @@ import {
   wakeInstance,
 } from "../lib/remote-control-plane";
 import {
+  applyResolvedAlias,
   listUserManagedEndpoints,
   saveUserManagedEndpoint,
   sshEndpointFromUserManaged,
   type SavedRemoteRepositoryRecord,
+  type UserManagedEndpointRecord,
 } from "../lib/remote-endpoints";
 import {
   dispatchMutationOverSsh,
@@ -1100,40 +1103,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleRegisterUserManaged = async (values: UserManagedFormValues) => {
     setProvisioningError(undefined);
-    const id = `user-managed-${Date.now()}`;
-    await saveUserManagedEndpoint({
-      id,
-      display_name: values.display_name,
-      hostname: values.hostname,
-      port: values.port,
-      username: values.username,
-      host_key_fingerprint: values.host_key_fingerprint,
-      auth_identity_reference: values.auth_identity_reference,
-      alias: values.alias,
+    let record: UserManagedEndpointRecord = {
+      ...values,
+      id: `user-managed-${Date.now()}`,
       created_at: new Date().toISOString(),
-    });
-
+    };
     if (values.alias) {
-      // Alias mode: keep using the working alias-based probe/clone/terminal
-      // path below rather than the native transport, which cannot resolve
-      // `~/.ssh/config` aliases (it requires an explicit trusted host key).
-      setShowRemoteSetupDialog(false);
-      await handleOpenRemoteSsh();
-      setRemoteSshHost(values.alias);
-      return;
+      // Alias mode resolves the alias to the host it names, then registers
+      // the same trust-pinned endpoint as a hand-entered record.
+      try {
+        const resolved = await resolveSshConfigAlias(values.alias);
+        record = applyResolvedAlias(record, resolved);
+      } catch (error) {
+        setProvisioningError(
+          error instanceof Error ? error.message : String(error),
+        );
+        return;
+      }
     }
-
-    const endpoint = sshEndpointFromUserManaged({
-      id,
-      display_name: values.display_name,
-      hostname: values.hostname,
-      port: values.port,
-      username: values.username,
-      host_key_fingerprint: values.host_key_fingerprint,
-      auth_identity_reference: values.auth_identity_reference,
-      alias: values.alias,
-      created_at: new Date().toISOString(),
-    });
+    await saveUserManagedEndpoint(record);
+    const endpoint = sshEndpointFromUserManaged(record);
     setActiveSshEndpoint(endpoint);
     setActiveEndpointGeneration(0);
     setExplicitEndpointRepoConnected(false);
@@ -1763,24 +1752,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const existing: string[] = raw ? JSON.parse(raw) : [];
     const next = [host, ...existing.filter((h) => h !== host)].slice(0, 5);
     await setSetting("remote_ssh_recent_hosts", JSON.stringify(next));
-  };
-
-  const handleOpenRemoteSsh = async () => {
-    const configuredHosts = await listSshHosts().catch(() => []);
-    const recentRaw = await getSetting("remote_ssh_recent_hosts").catch(
-      () => null,
-    );
-    const recentHosts: string[] = recentRaw ? JSON.parse(recentRaw) : [];
-    setRemoteSshHosts([
-      ...new Set([...recentHosts, ...configuredHosts.map((h) => h.alias)]),
-    ]);
-    setRemoteSshHost(recentHosts[0] ?? configuredHosts[0]?.alias ?? "");
-    setRemoteSshPath("~/src/project");
-    setRemoteSshRepoUrl("");
-    setRemoteSshNeedsClone(false);
-    setRemoteSshFingerprint("");
-    setRemoteSshStage("");
-    setShowRemoteSshDialog(true);
   };
 
   const handleSubmitRemoteSsh = async () => {
