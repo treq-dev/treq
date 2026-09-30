@@ -1822,7 +1822,9 @@ fn workspace_id(value: Option<&String>) -> Result<Option<i64>, String> {
     .map(|value| {
       value
         .parse::<i64>()
-        .map_err(|_| "invalid_arguments: workspace must be a numeric id".to_string())
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| "invalid_arguments: workspace must be a positive numeric id".to_string())
     })
     .transpose()
 }
@@ -3159,6 +3161,15 @@ fn validate_remote_path(path: &str) -> Result<(), String> {
 mod tests {
   use super::*;
   use std::process::Command;
+
+  #[test]
+  fn workspace_id_rejects_zero_and_negative_ids() {
+    assert_eq!(workspace_id(Some(&"3".to_string())), Ok(Some(3)));
+    for bad in ["0", "-1"] {
+      let error = workspace_id(Some(&bad.to_string())).unwrap_err();
+      assert!(error.contains("positive"), "{bad}: {error}");
+    }
+  }
 
   #[test]
   fn parses_ssh_hosts_ignoring_patterns() {

@@ -56,7 +56,10 @@ fn build_command(name: &str, config: &CommandConfig) -> Command {
     command = command.about(description.clone());
   }
   for arg in &config.args {
-    let mut clap_arg = ClapArg::new(arg.name.clone()).required(arg.required);
+    // Numeric values like `-1` parse as values (then fail validation), not flags.
+    let mut clap_arg = ClapArg::new(arg.name.clone())
+      .required(arg.required)
+      .allow_negative_numbers(arg.takes_value || arg.multiple);
     match arg.index {
       Some(index) => clap_arg = clap_arg.index(index),
       None => {
