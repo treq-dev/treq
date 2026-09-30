@@ -7,7 +7,7 @@ import { LinearComments } from "./LinearComments";
 import { MarkdownContent } from "./MarkdownContent";
 import { cn } from "../lib/utils";
 
-type KickoffHandler = (issueId: string, hasSubissues: boolean) => void;
+type KickoffHandler = (issueId: string) => void;
 
 export const LinearIssuesList: React.FC<{
   repoPath: string;
@@ -24,7 +24,6 @@ export const LinearIssuesList: React.FC<{
             repoPath={repoPath}
             issue={issue}
             indent={false}
-            hasSubissues={subissues.length > 0}
             onKickoff={onKickoff}
           />
           {subissues.map((subissue) => (
@@ -33,7 +32,6 @@ export const LinearIssuesList: React.FC<{
               repoPath={repoPath}
               issue={subissue}
               indent
-              hasSubissues={false}
               onKickoff={onKickoff}
             />
           ))}
@@ -47,9 +45,8 @@ const LinearIssueRow: React.FC<{
   repoPath: string;
   issue: LinearIssue;
   indent: boolean;
-  hasSubissues: boolean;
   onKickoff: KickoffHandler;
-}> = ({ repoPath, issue, indent, hasSubissues, onKickoff }) => {
+}> = ({ repoPath, issue, indent, onKickoff }) => {
   const [expanded, setExpanded] = useState(false);
 
   const {
@@ -131,7 +128,7 @@ const LinearIssueRow: React.FC<{
           size="sm"
           variant="outline"
           className="mt-3 h-7 shrink-0 text-xs"
-          onClick={() => onKickoff(issue.id, hasSubissues)}
+          onClick={() => onKickoff(issue.id)}
         >
           Kick off
         </Button>
@@ -159,69 +156,53 @@ const LinearIssueRow: React.FC<{
   );
 };
 
-export const LinearKanbanView: React.FC<{
+export type KanbanColumn = {
+  name: string;
+  type: string;
   issues: LinearIssue[];
-  subissuesMap: Map<string, LinearIssue[]>;
-  issuesByState: Record<string, LinearIssue[]>;
-  onKickoff: KickoffHandler;
-}> = ({ issuesByState, subissuesMap, onKickoff }) => {
-  const states = Object.keys(issuesByState).sort();
-
-  return (
-    <div className="flex gap-3 overflow-x-auto p-4 h-full">
-      {states.map((stateName) => {
-        const stateIssues = issuesByState[stateName]!;
-        return (
-          <div
-            key={stateName}
-            className="flex-shrink-0 w-80 bg-muted/30 rounded-lg border border-border p-3 flex flex-col"
-          >
-            <h3 className="font-medium text-sm mb-3 text-muted-foreground">
-              {stateName}
-            </h3>
-            <div className="flex-1 overflow-y-auto flex flex-col gap-2">
-              {stateIssues.map((issue) => {
-                const subissues = subissuesMap.get(issue.id) || [];
-                return (
-                  <div key={issue.id}>
-                    <LinearKanbanCard
-                      issue={issue}
-                      hasSubissues={subissues.length > 0}
-                      onKickoff={onKickoff}
-                    />
-                    {subissues.map((subissue) => (
-                      <div key={subissue.id} className="ml-2 mt-2">
-                        <LinearKanbanCard
-                          issue={subissue}
-                          hasSubissues={false}
-                          onKickoff={onKickoff}
-                          isSubissue
-                        />
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
 };
+
+// Each issue, sub-issues included, sits in the column of its own state.
+export const LinearKanbanView: React.FC<{
+  columns: KanbanColumn[];
+  identifiersById: Map<string, string>;
+  onKickoff: KickoffHandler;
+}> = ({ columns, identifiersById, onKickoff }) => (
+  <div className="flex gap-3 overflow-x-auto p-4 h-full">
+    {columns.map((column) => (
+      <section
+        key={column.name}
+        aria-label={column.name}
+        className="flex-shrink-0 w-80 bg-muted/30 rounded-lg border border-border p-3 flex flex-col"
+      >
+        <h3 className="font-medium text-sm mb-3 text-muted-foreground">
+          {column.name}
+        </h3>
+        <div className="flex-1 overflow-y-auto flex flex-col gap-2">
+          {column.issues.map((issue) => (
+            <LinearKanbanCard
+              key={issue.id}
+              issue={issue}
+              parentIdentifier={
+                issue.parent_id
+                  ? identifiersById.get(issue.parent_id)
+                  : undefined
+              }
+              onKickoff={onKickoff}
+            />
+          ))}
+        </div>
+      </section>
+    ))}
+  </div>
+);
 
 const LinearKanbanCard: React.FC<{
   issue: LinearIssue;
-  hasSubissues: boolean;
+  parentIdentifier: string | undefined;
   onKickoff: KickoffHandler;
-  isSubissue?: boolean;
-}> = ({ issue, hasSubissues, onKickoff, isSubissue }) => (
-  <div
-    className={cn(
-      "bg-background border border-border rounded-md p-2.5 text-sm",
-      isSubissue && "opacity-75",
-    )}
-  >
+}> = ({ issue, parentIdentifier, onKickoff }) => (
+  <div className="bg-background border border-border rounded-md p-2.5 text-sm">
     <a
       href={issue.url}
       target="_blank"
@@ -231,6 +212,11 @@ const LinearKanbanCard: React.FC<{
       {issue.identifier}
     </a>
     <p className="text-xs font-medium mt-1 line-clamp-2">{issue.title}</p>
+    {parentIdentifier && (
+      <p className="text-xs text-muted-foreground mt-1">
+        Sub-issue of {parentIdentifier}
+      </p>
+    )}
     {issue.labels.length > 0 && (
       <div className="flex gap-1 mt-1.5 flex-wrap">
         {issue.labels.slice(0, 2).map((label) => (
@@ -252,7 +238,7 @@ const LinearKanbanCard: React.FC<{
       size="sm"
       variant="outline"
       className="w-full mt-2 text-xs h-7"
-      onClick={() => onKickoff(issue.id, hasSubissues)}
+      onClick={() => onKickoff(issue.id)}
     >
       Kick off
     </Button>

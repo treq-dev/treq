@@ -1,6 +1,6 @@
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "../../test/test-utils";
+import { render, screen, waitFor, within } from "../../test/test-utils";
 import type { LinearIssue } from "../lib/api-linear";
 import { LinearPanel } from "./LinearPanel";
 
@@ -130,5 +130,123 @@ describe("LinearPanel issue kickoff", () => {
     render(<LinearPanel repoPath="/repo" />);
 
     expect(await screen.findByText("Orphan sub-issue")).toBeInTheDocument();
+  });
+
+  it("places each kanban card in its own state column, in workflow order", async () => {
+    const user = userEvent.setup();
+    const parent: LinearIssue = {
+      ...issue,
+      title: "Parent issue",
+      sub_issue_ids: ["child-id"],
+    };
+    const child: LinearIssue = {
+      ...issue,
+      id: "child-id",
+      identifier: "TREQ-282",
+      title: "Child in progress",
+      state: { name: "In Progress", type: "started" },
+      parent_id: parent.id,
+    };
+    const done: LinearIssue = {
+      ...issue,
+      id: "done-id",
+      identifier: "TREQ-283",
+      title: "Finished work",
+      state: { name: "Done", type: "completed" },
+    };
+    const backlog: LinearIssue = {
+      ...issue,
+      id: "backlog-id",
+      identifier: "TREQ-284",
+      title: "Someday work",
+      state: { name: "Backlog", type: "backlog" },
+    };
+    const triage: LinearIssue = {
+      ...issue,
+      id: "triage-id",
+      identifier: "TREQ-285",
+      title: "New report",
+      state: { name: "Triage", type: "triage" },
+    };
+    const canceled: LinearIssue = {
+      ...issue,
+      id: "canceled-id",
+      identifier: "TREQ-286",
+      title: "Dropped work",
+      state: { name: "Canceled", type: "canceled" },
+    };
+    api.linearListIssues.mockResolvedValue([
+      done,
+      canceled,
+      child,
+      parent,
+      backlog,
+      triage,
+    ]);
+    render(<LinearPanel repoPath="/repo" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Kanban" }));
+    await screen.findByText("Child in progress");
+
+    const columnNames = screen
+      .getAllByRole("region")
+      .map((column) => column.getAttribute("aria-label"));
+    expect(columnNames).toEqual([
+      "Triage",
+      "Backlog",
+      "Todo",
+      "In Progress",
+      "Done",
+      "Canceled",
+    ]);
+
+    const todo = screen.getByRole("region", { name: "Todo" });
+    expect(within(todo).getByText("Parent issue")).toBeInTheDocument();
+    expect(within(todo).queryByText("Child in progress")).toBeNull();
+
+    const inProgress = screen.getByRole("region", { name: "In Progress" });
+    expect(
+      within(inProgress).getByText("Child in progress"),
+    ).toBeInTheDocument();
+    expect(
+      within(inProgress).getByText("Sub-issue of TREQ-281"),
+    ).toBeInTheDocument();
+  });
+
+  it("includes sub-issues on kickoff even when the filter hides them", async () => {
+    const user = userEvent.setup();
+    const onStartPromptFromIssue = vi.fn();
+    const parent: LinearIssue = {
+      ...issue,
+      sub_issue_ids: ["child-id"],
+      assignee: { id: "viewer-id", name: "Viewer" },
+    };
+    const child: LinearIssue = {
+      ...issue,
+      id: "child-id",
+      identifier: "TREQ-282",
+      title: "Someone else's child",
+      parent_id: parent.id,
+      assignee: { id: "other-id", name: "Other" },
+    };
+    api.linearListIssues.mockResolvedValue([parent, child]);
+    render(
+      <LinearPanel
+        repoPath="/repo"
+        onStartPromptFromIssue={onStartPromptFromIssue}
+      />,
+    );
+
+    await screen.findByText("Someone else's child");
+    await user.click(screen.getByRole("tab", { name: "My Issues" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Someone else's child")).toBeNull(),
+    );
+    await user.click(screen.getByRole("button", { name: "Kick off" }));
+
+    expect(onStartPromptFromIssue).toHaveBeenCalledWith({
+      ...parent,
+      includeSubissues: true,
+    });
   });
 });
