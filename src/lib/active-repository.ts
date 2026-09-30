@@ -7,7 +7,9 @@ import { remoteRepoIdentity } from "./remote-query-keys";
 
 export type RepositoryTransport =
   | { type: "local" }
-  | { type: "ssh"; endpoint: SshEndpoint };
+  | { type: "ssh"; endpoint: SshEndpoint }
+  /** A remote repository with no resolved endpoint. Every operation on it fails closed. */
+  | { type: "unresolved" };
 
 /**
  * Transport-aware descriptor for the repository the desktop UI is showing.
@@ -94,7 +96,7 @@ export function activeRepositoryFromRemote(
     displayName: saved.display_name,
     transport: sshEndpoint
       ? { type: "ssh", endpoint: sshEndpoint }
-      : { type: "local" },
+      : { type: "unresolved" },
   };
 }
 

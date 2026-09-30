@@ -1674,24 +1674,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const id = await getSetting(LAST_OPENED_REMOTE_REPO_ID_KEY).catch(
         () => null,
       );
-      if (!id) {
-        // No pinned descriptor was ever saved for this session (an
-        // alias-backed repo, which dispatches locally rather than through a
-        // trust-pinned endpoint - see `activeRepositoryFromRemote`). Restore
-        // the last-connected blob directly instead of requiring reconnect.
-        const saved = await getSetting("last_opened_remote_repo").catch(
-          () => null,
-        );
-        if (!saved || cancelled) return;
-        try {
-          const parsed = JSON.parse(saved) as PersistedRemoteRepository;
-          if (!cancelled) setActiveRemoteRepo(parsed);
-        } catch {
-          void setSetting("last_opened_remote_repo", "");
-        }
-        return;
-      }
-      if (cancelled) return;
+      // Without a saved descriptor there is no endpoint to validate trust
+      // against; the legacy endpoint-less blob is never restored on its own.
+      if (!id || cancelled) return;
       const descriptor = await getSavedRemoteRepository(id);
       if (!descriptor || cancelled) return;
 

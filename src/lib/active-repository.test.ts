@@ -59,5 +59,6 @@ describe("repositoryCacheKey", () => {
     });
     expect(repo.location).toEqual({ type: "ssh", host: "box", path: "/srv" });
     expect(repo.id).toBe("box:/srv");
+    expect(repo.transport).toEqual({ type: "unresolved" });
   });
 });

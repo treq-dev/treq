@@ -20,6 +20,7 @@ import { createRequire } from "node:module";
 import { afterAll, afterEach, vi } from "vitest";
 
 import "./setup.common";
+import { routeLoopbackSsh } from "./loopback-ssh";
 import {
   closeTestPtys,
   setTestEventSource,
@@ -50,7 +51,10 @@ vi.mock("@tauri-apps/api/core", () => ({
     if (cmd.startsWith("jj_")) {
       jjCalls.push(cmd);
     }
-    return tauriTest.invoke(cmd, args ?? {});
+    return (
+      routeLoopbackSsh(tauriTest.invoke, cmd, args ?? {}) ??
+      tauriTest.invoke(cmd, args ?? {})
+    );
   }),
   convertFileSrc: (filePath: string) => `file://${filePath}`,
   isTauri: () => false,

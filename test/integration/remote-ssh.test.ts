@@ -47,7 +47,10 @@ describe("remote SSH integration", () => {
     expect(screen.getByRole("button", { name: /Your own VM/ })).toBeTruthy();
   });
 
-  it("keeps a saved remote repository closed until reconnect and trust validation succeed", async () => {
+  it.each([
+    "missing-descriptor",
+    "",
+  ])("keeps a saved remote repository closed until reconnect and trust validation succeed (descriptor id %j)", async (descriptorId) => {
     const remoteRepository = {
       host: "devbox",
       path: "/srv/project",
@@ -71,7 +74,7 @@ describe("remote SSH integration", () => {
       "last_opened_remote_repo",
       JSON.stringify(remoteRepository),
     );
-    await setSetting("last_opened_remote_repo_id", "missing-descriptor");
+    await setSetting("last_opened_remote_repo_id", descriptorId);
 
     render(React.createElement(Dashboard));
 

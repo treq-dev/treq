@@ -37,14 +37,30 @@ type SshActiveRepository = ActiveRepository & {
   transport: { type: "ssh"; endpoint: SshEndpoint };
 };
 
-// Only SSH repositories route away from local execution. Narrowing here
-// means a remote mutation always has a real endpoint and can never fall
-// through to running on this machine.
+/** Raised for a remote repository whose SSH endpoint is not resolved. */
+export class RemoteEndpointUnresolvedError extends Error {
+  constructor(displayName: string) {
+    super(
+      `endpoint_unresolved: ${displayName} has no SSH endpoint; reopen it from the remote setup dialog`,
+    );
+    this.name = "RemoteEndpointUnresolvedError";
+  }
+}
+
+function requireSshTransport(repo: ActiveRepository): SshActiveRepository {
+  if (repo.transport.type !== "ssh") {
+    throw new RemoteEndpointUnresolvedError(repo.displayName);
+  }
+  return repo as SshActiveRepository;
+}
+
+// Local repositories run locally; a remote one routes over its endpoint, and
+// one without an endpoint throws rather than falling through to this machine.
 export function activeForPath(repoPath: string): SshActiveRepository | null {
   const active = peekActiveRepository();
-  if (!active || active.transport.type !== "ssh") return null;
+  if (!active || active.transport.type === "local") return null;
   if (!matchesActiveCanonicalPath(active, repoPath)) return null;
-  return active as SshActiveRepository;
+  return requireSshTransport(active);
 }
 
 function trimTrailingSlashes(path: string): string {
@@ -151,8 +167,9 @@ export async function remoteDispatch<T>(
   repo: ActiveRepository,
   request: TreqCommandRequest,
 ): Promise<T> {
+  const { transport } = requireSshTransport(repo);
   try {
-    return await dispatch<T>(repo.endpoint, request);
+    return await dispatch<T>(transport.endpoint, request);
   } catch (error) {
     noteCutoffFromError(error, repo.endpointId);
     throw error;
@@ -488,22 +505,13 @@ export async function remoteMutation<T>(
   repo: ActiveRepository,
   request: TreqCommandRequest,
 ): Promise<T | undefined> {
+  const { transport } = requireSshTransport(repo);
   let result: MutationDispatchResult<T>;
-  if (repo.transport.type === "ssh") {
-    try {
-      result = await dispatchMutationOverSsh<T>(
-        repo.transport.endpoint,
-        request,
-      );
-    } catch (error) {
-      noteCutoffFromError(error, repo.endpointId);
-      throw error;
-    }
-  } else {
-    result = {
-      status: "applied",
-      value: await remoteDispatch<T>(repo, request),
-    };
+  try {
+    result = await dispatchMutationOverSsh<T>(transport.endpoint, request);
+  } catch (error) {
+    noteCutoffFromError(error, repo.endpointId);
+    throw error;
   }
   const value = applyMutationDispatchResult(result);
   if (result.status === "ambiguous") {

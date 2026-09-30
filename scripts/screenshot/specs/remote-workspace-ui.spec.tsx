@@ -2,39 +2,17 @@ import * as React from "react";
 import userEvent from "@testing-library/user-event";
 import { it } from "vitest";
 import { Dashboard } from "../../../src/components/Dashboard";
-import { createWorkspace, setSetting } from "../../../src/lib/api";
+import { createWorkspace } from "../../../src/lib/api";
 import { useRemoteCutoffStore } from "../../../src/stores/remoteCutoffStore";
 import { render, screen } from "../../../test/test-utils";
+import { openSavedRemoteRepo } from "../../../test/remote-repo";
 import { createTestRepo } from "../../../test/utils";
 import { captureDocument } from "../capture";
 
 it("captures the remote workspace tree and state banners", async () => {
   const { repoPath } = createTestRepo(false);
   await createWorkspace(repoPath, "feat/remote-qa");
-  await setSetting(
-    "last_opened_remote_repo",
-    JSON.stringify({
-      host: "testhost",
-      path: repoPath,
-      display_name: "testhost-project",
-      repo_uri: `ssh://testhost${repoPath}`,
-      inspection: {
-        root: repoPath,
-        repository_type: "jj_colocated",
-        current_branch: "main",
-        default_branch: "main",
-        current_change_id: "",
-        current_commit_id: "",
-        descriptor: {
-          id: `ep-qa:${repoPath}`,
-          location: { type: "ssh", host: "testhost", path: repoPath },
-          display_name: "testhost-project",
-        },
-      },
-      endpoint_id: "ep-qa",
-      endpoint_generation: 1,
-    }),
-  );
+  await openSavedRemoteRepo(repoPath, { endpointId: "ep-qa", generation: 1 });
   window.history.replaceState({}, "", "/");
 
   const user = userEvent.setup();
