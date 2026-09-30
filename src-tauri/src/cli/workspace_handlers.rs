@@ -631,6 +631,9 @@ pub(super) fn commit_workspace_for_cli(
   message: &str,
   push: bool,
 ) -> Result<Vec<String>, String> {
+  if message.trim().is_empty() {
+    return Err("commit message must not be blank".to_string());
+  }
   let changed = core::list_changed_files(repo_path, Some(workspace.id))?;
   if changed.is_empty() {
     return Err(format!(

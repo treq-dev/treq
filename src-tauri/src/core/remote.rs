@@ -2153,10 +2153,15 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         .as_ref()
         .expect("CreateCommit is a mutation"),
       || {
+        if message.trim().is_empty() {
+          return Err("invalid_arguments: commit message must not be blank".to_string());
+        }
+        let id = workspace_id(workspace.as_ref())?;
+        if crate::core::list_changed_files(&repo, id)?.is_empty() {
+          return Err("invalid_arguments: nothing to commit in the working copy".to_string());
+        }
         json(crate::core::workspaces::commit_workspace_with_auto_push(
-          &repo,
-          workspace_id(workspace.as_ref())?,
-          &message,
+          &repo, id, &message,
         ))
       },
     ),
@@ -3622,6 +3627,7 @@ mod tests {
     // A mutation (a new commit) must advance the operation log, so the
     // marker a second client polls for changes even though it never
     // initiated the mutation itself.
+    std::fs::write(repo_dir.path().join("a.txt"), "a\n").unwrap();
     execute_local_request(TreqCommandRequest::CreateCommit {
       repo: repo_path.clone(),
       workspace: None,
@@ -3641,6 +3647,44 @@ mod tests {
     assert_ne!(
       before.operation_id, after.operation_id,
       "operation id must change after a mutation so a foreign client can detect it"
+    );
+  }
+
+  fn create_commit_in_fresh_repo(message: &str) -> Result<serde_json::Value, String> {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo = repo_dir.path().to_str().unwrap().to_string();
+    execute_local_request(TreqCommandRequest::InitRepo {
+      repo: repo.clone(),
+      idempotency_key: "init-1".into(),
+    })
+    .unwrap();
+    if message != "nothing" {
+      std::fs::write(repo_dir.path().join("a.txt"), "a\n").unwrap();
+    }
+    execute_local_request(TreqCommandRequest::CreateCommit {
+      repo,
+      workspace: None,
+      message: message.into(),
+      base_change_id: None,
+      idempotency_key: "commit-1".into(),
+    })
+  }
+
+  #[test]
+  fn create_commit_refuses_when_there_is_nothing_to_commit() {
+    let error = create_commit_in_fresh_repo("nothing").unwrap_err();
+    assert!(
+      error.starts_with("invalid_arguments:") && error.contains("nothing to commit"),
+      "{error}"
+    );
+  }
+
+  #[test]
+  fn create_commit_rejects_whitespace_only_message() {
+    let error = create_commit_in_fresh_repo("   ").unwrap_err();
+    assert!(
+      error.starts_with("invalid_arguments:") && error.contains("message"),
+      "{error}"
     );
   }
 
