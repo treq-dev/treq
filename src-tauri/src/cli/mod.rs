@@ -240,7 +240,7 @@ fn handle_repo_command(matches: &Matches, format: OutputFormat) -> Result<(), St
         }
       }
     }
-    "status" | "branches" | "probe" | "init" | "clone" | "usage" => {
+    "status" | "branches" | "probe" | "init" | "clone" | "usage" | "switch-branch" => {
       handle_remote_review_command("repo", matches, format)
     }
     other => Err(format!("unknown repo action '{other}'")),
@@ -321,6 +321,10 @@ pub(crate) fn parse_remote_command_request(
     ("repo", "branches") => Ok(TreqCommandRequest::ListBranches { repo }),
     ("repo", "probe") => Ok(TreqCommandRequest::ProbeRepo { repo }),
     ("repo", "usage") => Ok(TreqCommandRequest::MachineUsage { root: repo }),
+    ("repo", "switch-branch") => Ok(TreqCommandRequest::SwitchRepoBranch {
+      repo,
+      bookmark: require_value("branch name")?,
+    }),
     ("repo", "init") => Ok(TreqCommandRequest::InitRepo {
       repo,
       idempotency_key: require_idempotency_key(idempotency_key)?,

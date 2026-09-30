@@ -54,6 +54,7 @@ export const TREQ_COMMAND_KINDS = [
   "DeleteWorkspace",
   "MoveWorkspaceChanges",
   "RebaseWorkspace",
+  "SwitchRepoBranch",
   "RestoreFile",
   "PatchFile",
   "CreateCommit",
@@ -182,6 +183,7 @@ export type TreqCommandRequest =
       target_branch: string;
       idempotency_key: string;
     }
+  | { kind: "SwitchRepoBranch"; repo: string; bookmark: string }
   | {
       kind: "RestoreFile";
       repo: string;

@@ -217,6 +217,21 @@ export async function transportSetWorkspaceTargetBranch(
   };
 }
 
+export async function transportSwitchRepoBranch(
+  repoPath: string,
+  bookmark: string,
+  local: () => Promise<string>,
+): Promise<string> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  const result = await remoteMutation<string>(repo, {
+    kind: "SwitchRepoBranch",
+    repo: repo.canonicalPath,
+    bookmark,
+  });
+  return result ?? ALREADY_APPLIED;
+}
+
 export async function transportRestoreFile(
   workspacePath: string,
   filePath: string,

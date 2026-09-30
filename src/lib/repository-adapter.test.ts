@@ -17,6 +17,7 @@ import {
   saveFileBrowserReview,
   searchWorkspaceFiles,
   setWorkspaceTargetBranch,
+  switchRepoBranch,
 } from "./api";
 import {
   localActiveRepository,
@@ -258,6 +259,14 @@ describe("remote repository mutations", () => {
         workspace: "7",
         target_branch: "feat-b",
       },
+    ]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("switches the remote repository branch through the typed command", async () => {
+    await switchRepoBranch(ROOT, "feat-b");
+    expect(sentMutations()).toEqual([
+      { kind: "SwitchRepoBranch", repo: ROOT, bookmark: "feat-b" },
     ]);
     expect(invoke).not.toHaveBeenCalled();
   });

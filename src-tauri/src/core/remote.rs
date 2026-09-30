@@ -256,6 +256,12 @@ pub enum TreqCommandRequest {
     target_branch: String,
     idempotency_key: String,
   },
+  /// Moves the repository's own working copy onto `bookmark`. Switching to
+  /// the current branch again is a no-op, so it takes no idempotency key.
+  SwitchRepoBranch {
+    repo: String,
+    bookmark: String,
+  },
   // -- Phase 5: file mutations -------------------------------------------------
   RestoreFile {
     repo: String,
@@ -461,6 +467,7 @@ impl TreqCommandRequest {
       | Self::DeleteWorkspace { .. }
       | Self::MoveWorkspaceChanges { .. }
       | Self::RebaseWorkspace { .. }
+      | Self::SwitchRepoBranch { .. }
       | Self::RestoreFile { .. }
       | Self::PatchFile { .. }
       | Self::CreateCommit { .. }
@@ -521,6 +528,7 @@ impl TreqCommandRequest {
       | Self::ProbeRepo { .. }
       | Self::UpdateWorkspace { .. }
       | Self::DeleteWorkspace { .. }
+      | Self::SwitchRepoBranch { .. }
       | Self::RestoreFile { .. }
       | Self::DescribeCommit { .. }
       | Self::GitFetch { .. }
@@ -561,6 +569,7 @@ impl TreqCommandRequest {
       Self::DeleteWorkspace { .. } => "DeleteWorkspace",
       Self::MoveWorkspaceChanges { .. } => "MoveWorkspaceChanges",
       Self::RebaseWorkspace { .. } => "RebaseWorkspace",
+      Self::SwitchRepoBranch { .. } => "SwitchRepoBranch",
       Self::RestoreFile { .. } => "RestoreFile",
       Self::PatchFile { .. } => "PatchFile",
       Self::CreateCommit { .. } => "CreateCommit",
@@ -608,6 +617,7 @@ impl TreqCommandRequest {
     "DeleteWorkspace",
     "MoveWorkspaceChanges",
     "RebaseWorkspace",
+    "SwitchRepoBranch",
     "RestoreFile",
     "PatchFile",
     "CreateCommit",
@@ -748,6 +758,19 @@ pub fn verification_for(request: &TreqCommandRequest) -> Option<MutationVerifica
             Some(_) => MutationVerificationOutcome::NotApplied,
             None => MutationVerificationOutcome::Ambiguous,
           }
+        }),
+      })
+    }
+    TreqCommandRequest::SwitchRepoBranch { repo, bookmark } => {
+      let bookmark = bookmark.clone();
+      Some(MutationVerification {
+        read_request: TreqCommandRequest::InspectRepository { repo: repo.clone() },
+        check: Box::new(move |value| match value.get("current_branch") {
+          Some(serde_json::Value::String(current)) if *current == bookmark => {
+            MutationVerificationOutcome::AlreadyApplied
+          }
+          Some(_) => MutationVerificationOutcome::NotApplied,
+          None => MutationVerificationOutcome::Ambiguous,
         }),
       })
     }
@@ -1319,6 +1342,10 @@ impl TreqCommandRequest {
         fields.target = Some(target_branch);
         fields.idempotency_key = Some(idempotency_key);
         ("workspace", "rebase", repo)
+      }
+      Self::SwitchRepoBranch { repo, bookmark } => {
+        fields.value = Some(bookmark.clone());
+        ("repo", "switch-branch", repo)
       }
       Self::ListChanges { repo, workspace } => {
         fields.workspace = workspace.as_deref();
@@ -2108,6 +2135,9 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         ))
       },
     ),
+    TreqCommandRequest::SwitchRepoBranch { repo, bookmark } => {
+      json(crate::core::repo::switch_repo_branch(&repo, &bookmark))
+    }
     TreqCommandRequest::RestoreFile {
       repo,
       workspace,
@@ -3856,6 +3886,30 @@ mod tests {
   }
 
   #[test]
+  fn switch_repo_branch_verification_reads_the_current_branch() {
+    let check = verification_for(&TreqCommandRequest::SwitchRepoBranch {
+      repo: "/r".into(),
+      bookmark: "feat".into(),
+    })
+    .expect("SwitchRepoBranch has a verification recipe")
+    .check;
+    let on = |branch: serde_json::Value| check(&serde_json::json!({ "current_branch": branch }));
+    assert_eq!(
+      on("feat".into()),
+      MutationVerificationOutcome::AlreadyApplied
+    );
+    assert_eq!(on("main".into()), MutationVerificationOutcome::NotApplied);
+    assert_eq!(
+      on(serde_json::Value::Null),
+      MutationVerificationOutcome::NotApplied
+    );
+    assert_eq!(
+      check(&serde_json::json!({})),
+      MutationVerificationOutcome::Ambiguous
+    );
+  }
+
+  #[test]
   fn rename_workspace_verification_reads_the_current_branch() {
     let verification = verification_for(&TreqCommandRequest::RenameWorkspace {
       repo: "/r".into(),
@@ -4092,7 +4146,7 @@ mod tests {
     let value = serde_json::to_value(&sample).unwrap();
     assert_eq!(value["kind"], "GitFetch");
     assert!(TreqCommandRequest::KIND_NAMES.contains(&sample.kind_name()));
-    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 45);
+    assert_eq!(TreqCommandRequest::KIND_NAMES.len(), 46);
   }
 
   #[test]

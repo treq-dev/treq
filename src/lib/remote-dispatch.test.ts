@@ -29,6 +29,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "DeleteWorkspace",
       "MoveWorkspaceChanges",
       "RebaseWorkspace",
+      "SwitchRepoBranch",
       "RestoreFile",
       "PatchFile",
       "CreateCommit",
@@ -54,7 +55,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
       "CommitFileDiff",
       "SearchFiles",
     ]);
-    expect(TREQ_COMMAND_KINDS).toHaveLength(45);
+    expect(TREQ_COMMAND_KINDS).toHaveLength(46);
   });
 
   it("is exhaustive over the request union", () => {
@@ -114,6 +115,7 @@ describe("TreqCommandRequest TypeScript/Rust parity", () => {
         target_branch: "main",
         idempotency_key: "k",
       },
+      { kind: "SwitchRepoBranch", repo: "/r", bookmark: "feat" },
       { kind: "RestoreFile", repo: "/r", path: "a" },
       {
         kind: "PatchFile",

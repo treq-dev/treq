@@ -58,6 +58,7 @@ import {
   transportRestoreFile,
   transportSetWorkspaceTargetBranch,
   transportSplitWorkingCopy,
+  transportSwitchRepoBranch,
   transportUpdateWorkspace,
 } from "./repository-adapter-mutations";
 import { currentWindowLabel } from "./window-label";
@@ -380,16 +381,13 @@ export const listRepoBranches = (repoPath: string): Promise<JjBranch[]> =>
     invoke("list_repo_branches", { repoPath }),
   );
 
-export const switchRepoBranch = async (
+export const switchRepoBranch = (
   repoPath: string,
   bookmarkName: string,
-): Promise<string> => {
-  assertLocalOperation(repoPath, "Switching the repository branch");
-  return invoke("switch_repo_branch", {
-    repoPath,
-    bookmarkName,
-  });
-};
+): Promise<string> =>
+  transportSwitchRepoBranch(repoPath, bookmarkName, () =>
+    invoke("switch_repo_branch", { repoPath, bookmarkName }),
+  );
 
 export interface SyncStatus {
   ahead: number;

@@ -898,6 +898,10 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       title: Some("Title".into()),
       description: Some("desc".into()),
     },
+    R::SwitchRepoBranch {
+      repo: repo(),
+      bookmark: "feat-a".into(),
+    },
     R::DeleteWorkspace {
       repo: repo(),
       workspace: "1".into(),
