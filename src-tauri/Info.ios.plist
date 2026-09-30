@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged by the Tauri CLI into the generated src-tauri/gen/apple/*_iOS/Info.plist
+  on every `tauri ios build` / `tauri ios dev` (gen/ is not committed).
+
+  NSFaceIDUsageDescription: the mobile device SSH key lives in the iOS
+  Keychain behind `.userPresence` (tauri-plugin-keystore) and is gated on
+  tauri-plugin-biometric, both of which evaluate an LAContext. Without this
+  key iOS refuses Face ID and the biometric plugin reports it as missing.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Treq uses Face ID to unlock the SSH key that connects this device to your computer.</string>
+</dict>
+</plist>
