@@ -198,21 +198,22 @@ pub fn move_commit_to_existing_workspace(
     .ok_or("Failed to convert source workspace path to string")?
     .to_string();
 
-  // Squash the commit into the target workspace's working copy
-  jj::squash_commit_to_workspace(
-    &source_full_path_str,
-    commit_change_id,
-    &target.workspace_name,
-  )
-  .map_err(|e| format!("Failed to move commit to target workspace: {}", e))?;
-
-  // Refresh the target workspace's working copy so it reflects the squash
+  if source_workspace_id == target_workspace_id {
+    return Err("invalid_arguments: cannot move a commit into its own workspace".to_string());
+  }
+  ensure_rewritable(repo_path, &source_full_path_str, commit_change_id)?;
   let target_workspace_dir = Path::new(repo_path)
     .join(".treq")
     .join("workspaces")
     .join(&target.workspace_path);
-  jj::update_stale_workspace(&target_workspace_dir.to_string_lossy())
-    .map_err(|e| format!("Failed to update target workspace working copy: {}", e))?;
+
+  // Squash the commit into the target working copy and drop it from the source history
+  jj::squash_commit_to_workspace(
+    &source_full_path_str,
+    commit_change_id,
+    &target_workspace_dir.to_string_lossy(),
+  )
+  .map_err(|e| format!("Failed to move commit to target workspace: {}", e))?;
 
   Ok(())
 }

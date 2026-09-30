@@ -2732,15 +2732,73 @@ pub fn move_paths_between_workspace_paths(
   Ok(String::new())
 }
 
-/// Squash a specific commit's changes into a target workspace.
-/// Runs: jj squash --from <change_id> --into <target_workspace_name>@
+/// Squash a commit out of the source history into another workspace's working copy.
+/// Equivalent to: jj squash --from <change_id> --into <target workspace>@
 pub fn squash_commit_to_workspace(
   workspace_path: &str,
   change_id: &str,
-  target_workspace_name: &str,
-) -> Result<String, JjError> {
-  let selected_paths = jj_diff_summary(workspace_path, change_id)?;
-  squash_to_workspace(workspace_path, target_workspace_name, Some(selected_paths))
+  target_workspace_path: &str,
+) -> Result<(), JjError> {
+  // Record pending edits in both working copies so the rewrite cannot drop them.
+  jj_get_changed_files(workspace_path)?;
+  jj_get_changed_files(target_workspace_path)?;
+  let loaded = load_workspace_repo_for_history_edit(workspace_path)?;
+  let commit = resolve_commit_by_revision(&loaded, change_id)?;
+  reject_root_commit(&loaded, &commit)?;
+  let target_name = load_workspace_repo(target_workspace_path)?
+    .workspace
+    .workspace_name()
+    .to_owned();
+  let target_wc = loaded
+    .repo
+    .view()
+    .get_wc_commit_id(&target_name)
+    .map(|id| loaded.repo.store().get_commit(id))
+    .transpose()
+    .map_err(|e| JjError::IoError(format!("Failed to load target working copy: {}", e)))?
+    .ok_or_else(|| JjError::IoError("Target workspace has no working-copy commit".to_string()))?;
+  let target_history = evaluate_revset(&loaded, &format!("::{}", target_wc.id().hex()))?;
+  if target_history.containing_fn()(commit.id()).unwrap_or(false) {
+    return Err(JjError::IoError(
+      "Commit is already in the target workspace's history".to_string(),
+    ));
+  }
+
+  let parent_tree = block_on(commit.parent_tree(loaded.repo.as_ref()))
+    .map_err(|e| JjError::IoError(format!("Failed to load parent tree: {}", e)))?;
+  let new_tree = block_on(MergedTree::merge(Merge::from_diffs(
+    (target_wc.tree(), target_wc.conflict_label()),
+    vec![Diff::new(
+      (
+        parent_tree,
+        format!("{} (parents)", commit.conflict_label()),
+      ),
+      (commit.tree(), commit.conflict_label()),
+    )],
+  )))
+  .map_err(|e| JjError::IoError(format!("Failed to merge commit into target: {}", e)))?;
+
+  let mut tx = loaded.repo.start_transaction();
+  let new_target_wc = block_on(
+    tx.repo_mut()
+      .rewrite_commit(&target_wc)
+      .set_tree(new_tree)
+      .write(),
+  )
+  .map_err(|e| JjError::IoError(format!("Failed to rewrite target working copy: {}", e)))?;
+  block_on(tx.repo_mut().edit(target_name, &new_target_wc))
+    .map_err(|e| JjError::IoError(format!("Failed to update target working copy: {}", e)))?;
+  tx.repo_mut().record_abandoned_commit(&commit);
+  block_on(tx.repo_mut().rebase_descendants())
+    .map_err(|e| JjError::IoError(format!("Failed to rebase descendants: {}", e)))?;
+  let _ = git::export_refs(tx.repo_mut());
+  block_on(tx.commit("move commit to workspace"))
+    .map_err(|e| JjError::IoError(format!("Failed to commit move: {}", e)))?;
+
+  let repo_path =
+    derive_repo_path_from_workspace(workspace_path).unwrap_or_else(|| workspace_path.to_string());
+  let _ = reconcile_all_workspaces_after_rewrite(&repo_path, None);
+  Ok(())
 }
 
 #[derive(Debug, Clone)]
