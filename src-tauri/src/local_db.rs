@@ -232,6 +232,12 @@ impl<'a> RepoStateScope<'a> {
       }
     }
   }
+
+  /// A remote scope holds review state only: its workspaces live on the
+  /// remote host, so no local `workspaces` row exists for them to reference.
+  pub fn enforces_foreign_keys(&self) -> bool {
+    matches!(self, Self::Local(_))
+  }
 }
 
 fn resolve_db_path(repo_arg: &str) -> Result<PathBuf, String> {
@@ -895,8 +901,9 @@ fn get_connection(repo_path: &str) -> Result<Connection, String> {
 
   let db_path = resolve_db_path(repo_path)?;
   let conn = Connection::open(db_path).map_err(|e| format!("Failed to open local db: {}", e))?;
+  let enforce_foreign_keys = RepoStateScope::parse(repo_path).enforces_foreign_keys();
   conn
-    .pragma_update(None, "foreign_keys", true)
+    .pragma_update(None, "foreign_keys", enforce_foreign_keys)
     .map_err(|e| format!("Failed to enable foreign key enforcement: {}", e))?;
   // Multiple treq instances/windows can share this db file (see
   // `upsert_instance_registry`). WAL lets readers and a writer proceed
@@ -2493,6 +2500,12 @@ mod tests {
       .db_path(Some(app_data.path()))
       .unwrap();
     assert_ne!(path, other);
+  }
+
+  #[test]
+  fn enforces_foreign_keys_only_for_local_scope() {
+    assert!(RepoStateScope::Local("/srv").enforces_foreign_keys());
+    assert!(!RepoStateScope::Remote("ssh:ep:gen0:/srv").enforces_foreign_keys());
   }
 
   #[test]
