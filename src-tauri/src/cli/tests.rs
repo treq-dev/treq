@@ -794,6 +794,40 @@ fn describe_commit_allows_missing_idempotency_key_at_cli_boundary() {
   .unwrap();
 }
 
+fn create_workspace_metadata(pairs: &[(&str, &str)]) -> Result<Option<String>, String> {
+  let mut all = vec![
+    ("action", "create"),
+    ("repo", "/tmp/r"),
+    ("value", "feat"),
+    ("idempotency-key", "k1"),
+  ];
+  all.extend_from_slice(pairs);
+  match parse_remote_command_request("workspace", &remote_matches(&all))? {
+    crate::core::remote::TreqCommandRequest::CreateWorkspace { metadata, .. } => Ok(metadata),
+    other => panic!("unexpected request {other:?}"),
+  }
+}
+
+#[test]
+fn workspace_create_applies_the_title_flag() {
+  let metadata = create_workspace_metadata(&[
+    ("title", "My title"),
+    ("metadata", r#"{"description":"d"}"#),
+  ])
+  .unwrap();
+  let parsed = crate::core::workspaces::parse_workspace_metadata(metadata.as_deref());
+  assert_eq!(parsed.title.as_deref(), Some("My title"));
+  assert_eq!(parsed.description.as_deref(), Some("d"));
+}
+
+#[test]
+fn workspace_create_rejects_invalid_metadata_json() {
+  for bad in ["not json", "[1]"] {
+    let error = create_workspace_metadata(&[("metadata", bad)]).unwrap_err();
+    assert!(error.starts_with("invalid_arguments:"), "{error}");
+  }
+}
+
 /// One sample of every typed remote command, used to check the wire format
 /// end to end: `cli_args` must only emit flags the remote CLI declares, and
 /// parsing those args back must give the same request.
