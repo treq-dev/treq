@@ -81,6 +81,7 @@ use jj_lib::merged_tree::MergedTree;
 use jj_lib::merged_tree_builder::MergedTreeBuilder;
 use jj_lib::object_id::{HexPrefix, ObjectId};
 use jj_lib::op_store::{OperationId, RefTarget, RemoteRef};
+use jj_lib::operation::Operation;
 use jj_lib::ref_name::{RefName, RemoteName, RemoteRefSymbol, WorkspaceNameBuf};
 use jj_lib::refs::{classify_ref_push_action, LocalAndRemoteRef, RefPushAction};
 use jj_lib::repo::{MutableRepo, ReadonlyRepo, Repo as _, StoreFactories};
@@ -165,7 +166,14 @@ struct LoadedWorkspaceRepo {
   workspace: Workspace,
   repo: Arc<ReadonlyRepo>,
   path_converter: RepoPathUiConverter,
+  /// Branch Git HEAD was attached to when a colocated home repo was loaded.
+  /// Exporting a moved bookmark detaches HEAD, so this is the only record of
+  /// which branch to put it back on after a rewrite.
+  home_git_head_branch: Option<String>,
 }
+
+/// Description of an operation that only exports jj bookmarks to Git refs.
+const GIT_REFS_EXPORT_OPERATION: &str = "export git refs";
 
 struct SilentGitCallback;
 
@@ -311,11 +319,20 @@ fn load_workspace_repo(workspace_path: &str) -> Result<LoadedWorkspaceRepo, JjEr
     base: workspace_root.to_path_buf(),
   };
 
+  let home_git_head_branch = if repo_path_opt.is_none() {
+    read_git_head_branch(workspace_path)
+      .ok()
+      .filter(|branch| branch != "HEAD")
+  } else {
+    None
+  };
+
   Ok(LoadedWorkspaceRepo {
     settings,
     workspace,
     repo,
     path_converter,
+    home_git_head_branch,
   })
 }
 
@@ -2954,12 +2971,7 @@ pub fn jj_undo_operation(workspace_path: &str, operation_id: &str) -> Result<Str
   let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
   let requested = OperationId::try_from_hex(operation_id)
     .ok_or_else(|| JjError::IoError("Invalid operation id".to_string()))?;
-  if loaded.repo.op_id() != &requested {
-    return Err(JjError::IoError(
-      "Cannot undo: the repository has changed since this action".to_string(),
-    ));
-  }
-  let operation = loaded.repo.operation().clone();
+  let operation = undo_target_operation(&loaded.repo, &requested)?;
   let parents = block_on(operation.parents())
     .map_err(|e| JjError::IoError(format!("Failed to load operation parents: {}", e)))?;
   if parents.len() != 1 {
@@ -2979,6 +2991,27 @@ pub fn jj_undo_operation(workspace_path: &str, operation_id: &str) -> Result<Str
     .map_err(|e| JjError::IoError(format!("Failed to commit undo: {}", e)))?;
   update_workspace_after_history_edit(&mut loaded, &new_repo, None, CheckoutMode::Immediate)?;
   Ok(new_repo.op_id().hex())
+}
+
+/// The operation `requested` names, when nothing but Git ref exports (which
+/// [`sync_home_git_head_to_wc_parent`] records after a home rewrite) follow it.
+fn undo_target_operation(
+  repo: &Arc<ReadonlyRepo>,
+  requested: &OperationId,
+) -> Result<Operation, JjError> {
+  let changed =
+    || JjError::IoError("Cannot undo: the repository has changed since this action".to_string());
+  let mut operation = repo.operation().clone();
+  while operation.id() != requested {
+    if operation.metadata().description != GIT_REFS_EXPORT_OPERATION {
+      return Err(changed());
+    }
+    let parents = block_on(operation.parents())
+      .map_err(|e| JjError::IoError(format!("Failed to load operation parents: {}", e)))?;
+    let [parent] = <[Operation; 1]>::try_from(parents).map_err(|_| changed())?;
+    operation = parent;
+  }
+  Ok(operation)
 }
 
 /// Undo the latest commit in a workspace's own lineage.
@@ -3668,7 +3701,11 @@ pub fn reconcile_all_workspaces_after_rewrite(
       }
     };
 
-    if let Err(e) = reconcile_single_workspace(&ws_path) {
+    let result = reconcile_single_workspace(&ws_path);
+    if ws_name_str == home_ws_name {
+      sync_home_git_head_to_wc_parent(&ws_path, None);
+    }
+    if let Err(e) = result {
       // Log but continue — one bad workspace must not block the rest.
       tracing::warn!(
         "[treq] Warning: failed to reconcile workspace '{}' at '{}': {}",
@@ -3963,6 +4000,10 @@ pub fn jj_sync_working_copy_if_safe(
   }
 
   let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
+  if derive_repo_path_from_workspace(workspace_path).is_none() {
+    // Moving the bookmark detached Git HEAD; `@` is joining `branch_name`.
+    loaded.home_git_head_branch = Some(branch_name.to_string());
+  }
   let workspace_name = loaded.workspace.workspace_name().to_owned();
   let destination = resolve_commit_by_revision(&loaded, branch_name)?;
   let old_wc_commit = get_workspace_wc_commit(&loaded)?;
@@ -4949,7 +4990,7 @@ pub fn jj_edit_bookmark(repo_path: &str, bookmark_name: &str) -> Result<String, 
 
   // Home repo only: a workspace dir has no .git of its own.
   if derive_repo_path_from_workspace(repo_path).is_none() {
-    attach_git_head_to_branch(repo_path, bookmark_name);
+    sync_home_git_head_to_wc_parent(repo_path, Some(bookmark_name));
   }
 
   Ok(format!("Switched to {}", bookmark_name))
@@ -5195,17 +5236,11 @@ pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError>
     reconcile_all_workspaces_after_rewrite(reconcile_repo_path, Some(workspace_name.as_str()));
 
   // For home repos, keep Git HEAD symbolic to the active branch (avoid detached HEAD after jj commit).
-  if repo_path_opt.is_none() && branch != "HEAD" {
-    if let Err(e) = set_git_head_branch_with_gix(workspace_path, &branch) {
-      tracing::warn!(
-        "Warning: Failed to set git HEAD to branch '{}': {}",
-        branch,
-        e
-      );
-    }
-    if let Err(e) = reset_git_index_to_head_with_gix(workspace_path) {
-      tracing::warn!("Warning: Failed to reset git index to HEAD: {}", e);
-    }
+  if repo_path_opt.is_none() {
+    sync_home_git_head_to_wc_parent(
+      workspace_path,
+      Some(branch.as_str()).filter(|b| *b != "HEAD"),
+    );
   }
 
   Ok(format!("Committed successfully to branch '{}'", branch))
@@ -5259,29 +5294,127 @@ fn read_origin_head_default_branch(repo_path: &str) -> Option<String> {
   Some(trimmed.strip_prefix(prefix)?.to_string())
 }
 
-/// Points git HEAD at `refs/heads/<branch>` and resets the index to it, so a
-/// colocated home repo stays on the branch jj just moved to. Best effort.
-fn attach_git_head_to_branch(repo_path: &str, branch: &str) {
-  if let Err(e) = set_git_head_branch_with_gix(repo_path, branch) {
-    tracing::warn!(
-      "Warning: Failed to set git HEAD to branch '{}': {}",
-      branch,
-      e
-    );
-    return;
-  }
-  if let Err(e) = reset_git_index_to_head_with_gix(repo_path) {
-    tracing::warn!("Warning: Failed to reset git index to HEAD: {}", e);
+/// Moves colocated Git HEAD to the home `@-` after jj rewrote history. Best effort.
+///
+/// Git HEAD is the home repo's source of truth: [`reconcile_colocated_home_repo`]
+/// checks `@` out onto HEAD whenever the two differ, without touching disk. A
+/// HEAD left on a pre-rewrite commit would therefore turn every file the
+/// rewrite changed into a working-copy change.
+///
+/// Exports jj's bookmarks first so the branch refs are current, then attaches
+/// HEAD to a branch at `@-`: the one HEAD is on, else `preferred_branch` (HEAD's
+/// branch before the rewrite detached it), else the only local branch there.
+/// With no such branch HEAD is detached at `@-`. The index is reset only when
+/// HEAD's commit changes, so staged state survives a no-op. A HEAD that Git
+/// moved since jj last imported it is left alone.
+fn sync_home_git_head_to_wc_parent(repo_path: &str, preferred_branch: Option<&str>) {
+  if let Err(e) = sync_home_git_head_to_wc_parent_inner(repo_path, preferred_branch) {
+    tracing::warn!("Warning: Failed to sync git HEAD to the working-copy parent: {e}");
   }
 }
 
-fn export_git_refs(workspace_path: &str) -> Result<(), JjError> {
-  let loaded = load_workspace_repo(workspace_path)?;
+fn sync_home_git_head_to_wc_parent_inner(
+  repo_path: &str,
+  preferred_branch: Option<&str>,
+) -> Result<(), String> {
+  if derive_repo_path_from_workspace(repo_path).is_some()
+    || !Path::new(repo_path).join(".git").exists()
+  {
+    return Ok(());
+  }
+  let attached_branch = read_git_head_branch(repo_path)
+    .ok()
+    .filter(|branch| branch != "HEAD");
+
+  let loaded = load_workspace_repo(repo_path).map_err(|e| e.to_string())?;
+  let _git_lock = FileLock::lock(loaded.workspace.repo_path().join("git_import_export.lock"))
+    .map_err(|e| format!("Failed to lock Git import/export: {e}"))?;
+  let loaded = load_workspace_repo(repo_path).map_err(|e| e.to_string())?;
+  let Some(wc_commit) = get_workspace_wc_commit(&loaded).map_err(|e| e.to_string())? else {
+    return Ok(());
+  };
+  let [parent_id] = wc_commit.parent_ids() else {
+    return Ok(());
+  };
+  let parent_hex = parent_id.hex();
+  let wc_hex = wc_commit.id().hex();
+
+  let head_before = gix::open(repo_path)
+    .ok()
+    .and_then(|repo| repo.head_id().ok().map(|id| id.to_hex().to_string()));
+  let recorded_head = loaded.repo.view().git_head().as_normal().map(|id| id.hex());
+  if head_before.is_some() && recorded_head.is_some() && head_before != recorded_head {
+    // Git moved HEAD since jj last read it (a terminal `git switch`/`commit`).
+    // That move wins; the next read reconciles `@` onto it.
+    return Ok(());
+  }
+
   let mut tx = loaded.repo.start_transaction();
-  git::export_refs(tx.repo_mut())
-    .map_err(|e| JjError::IoError(format!("Failed to export refs: {}", e)))?;
-  block_on(tx.commit("export git refs"))
-    .map_err(|e| JjError::IoError(format!("Failed to commit ref export: {}", e)))?;
+  git::export_refs(tx.repo_mut()).map_err(|e| format!("Failed to export refs: {e}"))?;
+  let known_branches: Vec<&str> = [attached_branch.as_deref(), preferred_branch]
+    .into_iter()
+    .flatten()
+    .collect();
+  let known_branch_at = |commit_hex: &str| {
+    known_branches
+      .iter()
+      .find(|branch| {
+        git_local_branch_commit_hex(repo_path, branch).is_some_and(|tip| tip == commit_hex)
+      })
+      .map(|branch| branch.to_string())
+  };
+  // `@` can be the branch commit itself (a working copy synced by editing the
+  // bookmark). HEAD then goes on that branch; the next read starts a fresh `@`
+  // on top of it without touching disk.
+  let (branch, head_hex) = match known_branch_at(&parent_hex) {
+    Some(branch) => (Some(branch), &parent_hex),
+    None => match known_branch_at(&wc_hex) {
+      Some(branch) => (Some(branch), &wc_hex),
+      None => (
+        find_unambiguous_local_branch_at_commit(repo_path, &parent_hex),
+        &parent_hex,
+      ),
+    },
+  };
+  match &branch {
+    Some(branch) => set_git_head_branch_with_gix(repo_path, branch)?,
+    None if head_before.as_deref() != Some(head_hex.as_str()) => {
+      set_git_head_detached_with_gix(repo_path, head_hex)?
+    }
+    None => {}
+  }
+  if head_before.as_deref() != Some(head_hex.as_str()) {
+    reset_git_index_to_head_with_gix(repo_path)?;
+  }
+
+  // Record the new HEAD in the same operation, so the next read has nothing
+  // to import and an Undo of the rewrite still sees it as the latest action.
+  block_on(git::import_head(tx.repo_mut())).map_err(|e| format!("Failed to import HEAD: {e}"))?;
+  if tx.repo().has_changes() {
+    block_on(tx.commit(GIT_REFS_EXPORT_OPERATION))
+      .map_err(|e| format!("Failed to commit export: {e}"))?;
+  }
+  Ok(())
+}
+
+fn set_git_head_detached_with_gix(repo_path: &str, commit_hex: &str) -> Result<(), String> {
+  let repo = gix::open(repo_path).map_err(|e| format!("Failed to open git repo with gix: {e}"))?;
+  let id = gix::ObjectId::from_hex(commit_hex.as_bytes())
+    .map_err(|e| format!("Invalid commit id {commit_hex}: {e}"))?;
+  let head_name: gix::refs::FullName = "HEAD"
+    .try_into()
+    .map_err(|e| format!("Invalid HEAD ref name: {e}"))?;
+  repo
+    .edit_reference(RefEdit {
+      change: Change::Update {
+        log: Default::default(),
+        expected: PreviousValue::Any,
+        new: Target::Object(id),
+      },
+      name: head_name,
+      deref: false,
+    })
+    .map_err(|e| format!("Failed to detach HEAD: {e}"))?;
   Ok(())
 }
 
@@ -5535,10 +5668,7 @@ pub fn jj_split(
 
   // Home repo only: move the git branch to the new commit and keep HEAD on it.
   if repo_path.is_none() {
-    if let Err(e) = export_git_refs(workspace_path) {
-      tracing::warn!("Warning: Failed to export refs to git: {}", e);
-    }
-    attach_git_head_to_branch(workspace_path, &branch);
+    sync_home_git_head_to_wc_parent(workspace_path, Some(&branch));
   }
 
   Ok(format!("Committed successfully to branch '{}'", branch))
@@ -7502,12 +7632,7 @@ pub fn jj_rebase_home_repo_branch(
   // Rebase all commits unique to current branch onto target
   let revset = format!("({target_sym}..{current_sym}) ~ empty()");
 
-  let result = jj_rebase_with_revset(repo_path, &revset, target_branch, current_branch, "git")?;
-  // Exporting the moved bookmark detaches Git HEAD at the pre-rebase commit. Left
-  // there, the next HEAD import checks `@` back out onto it and every file the
-  // target changed shows up as a working-copy change.
-  attach_git_head_to_branch(repo_path, current_branch);
-  Ok(result)
+  jj_rebase_with_revset(repo_path, &revset, target_branch, current_branch, "git")
 }
 
 /// Dry-run a home-repo rebase: check whether rebasing `current_branch` onto `target_branch`
@@ -8072,6 +8197,9 @@ fn update_workspace_after_history_edit(
   )
   .map_err(|e| JjError::IoError(format!("Failed to update working copy: {}", e)))?;
   loaded.repo = Arc::clone(new_repo);
+  if repo_path == workspace_root {
+    sync_home_git_head_to_wc_parent(&workspace_root, loaded.home_git_head_branch.as_deref());
+  }
 
   // Reconcile every other workspace whose WC commit was rewritten by rebase_descendants.
   let _ = reconcile_all_workspaces_after_rewrite(&repo_path, Some(&primary_workspace_name));
