@@ -1,7 +1,8 @@
 // @include-parallel
 import userEvent from "@testing-library/user-event";
+import { invoke } from "@tauri-apps/api/core";
 import * as React from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "../../src/components/Dashboard";
 import { getWorkspaces } from "../../src/lib/api";
 import { render, screen, waitFor, within } from "../test-utils";
@@ -10,11 +11,13 @@ import { createTestRepo, openRepo } from "../utils";
 async function stackFromHome(
   user: ReturnType<typeof userEvent.setup>,
   branchName: string,
+  onDialogOpen?: () => void,
 ) {
   await user.click(await screen.findByTestId("home-repo-row"));
   await screen.findByTestId("show-workspace-header");
   await user.click(await screen.findByRole("button", { name: "Stack" }));
   const dialog = await screen.findByTestId("modal");
+  onDialogOpen?.();
   await user.type(
     await within(dialog).findByLabelText("Branch Name"),
     branchName,
@@ -47,6 +50,35 @@ describe("Stack from the home repo", { timeout: 15_000 }, () => {
     const branches = (await getWorkspaces(repoPath)).map((w) => w.branch_name);
     expect(branches).toEqual(["feat/first"]);
     expect(branches).not.toContain(defaultBranch);
+  });
+
+  it("stacks on the home branch when Stack is clicked before that branch has loaded", async () => {
+    const originalInvoke = vi.mocked(invoke).getMockImplementation();
+    expect(originalInvoke).toBeTruthy();
+    let releaseBranch: (() => void) | undefined;
+    const branchGate = new Promise<void>((resolve) => {
+      releaseBranch = resolve;
+    });
+    const toHold = new Set([
+      "get_repo_current_branch",
+      "get_repo_default_branch",
+    ]);
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (toHold.delete(cmd)) await branchGate;
+      return originalInvoke!(cmd, args);
+    });
+
+    try {
+      render(<Dashboard />);
+      await stackFromHome(user, "feat/first", () => releaseBranch?.());
+    } finally {
+      releaseBranch?.();
+      vi.mocked(invoke).mockImplementation(originalInvoke!);
+    }
+
+    const workspaces = await getWorkspaces(repoPath);
+    expect(workspaces.map((w) => w.branch_name)).toEqual(["feat/first"]);
+    expect(workspaces[0].target_branch).toBe(defaultBranch);
   });
 
   it("stacks a second workspace from home without an already-registered error", async () => {
