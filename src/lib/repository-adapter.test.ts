@@ -31,6 +31,7 @@ import {
 } from "./remote-dispatch";
 import { transportCreateCommit } from "./repository-adapter";
 import { remoteActionKeys } from "./remote-idempotency";
+import { transportResolveCommit } from "./repository-adapter-mutations";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -363,5 +364,32 @@ describe("transportCreateCommit", () => {
       transportCreateCommit("/repo", null, "msg", local),
     ).resolves.toBe("local-commit");
     expect(dispatchMutationOverSsh).not.toHaveBeenCalled();
+  });
+});
+
+describe("transportResolveCommit", () => {
+  it("returns the VM's result, including remaining conflicts", async () => {
+    const result = {
+      success: false,
+      message: "Conflicts remain",
+      change_id: "qpvuntsm",
+      remaining_conflicts: ["a.rs"],
+    };
+    vi.mocked(dispatchMutationOverSsh).mockResolvedValueOnce({
+      status: "applied",
+      value: result,
+    });
+    await expect(
+      transportResolveCommit(ROOT, "qpvuntsm", ["1"], vi.fn()),
+    ).resolves.toEqual(result);
+  });
+
+  it("does not claim zero remaining conflicts after an already-applied reconnect", async () => {
+    vi.mocked(dispatchMutationOverSsh).mockResolvedValueOnce({
+      status: "already_applied",
+    });
+    await expect(
+      transportResolveCommit(ROOT, "qpvuntsm", ["1"], vi.fn()),
+    ).rejects.toThrow(/ambiguous/);
   });
 });
