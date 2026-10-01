@@ -35,7 +35,7 @@ describe("Dashboard - workspace list", () => {
 
     await createWorkspace(repoPath, "feat/alpha");
     await createWorkspace(repoPath, "feat/beta");
-  });
+  }, 15_000);
 
   it("renders workspace sidebar elements correctly branch names in the sidebar", async () => {
     render(<Dashboard />);

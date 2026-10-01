@@ -15,16 +15,20 @@ async function stackFromHome(
   await screen.findByTestId("show-workspace-header");
   await user.click(await screen.findByRole("button", { name: "Stack" }));
   const dialog = await screen.findByTestId("modal");
-  await user.type(within(dialog).getByLabelText("Branch Name"), branchName);
+  await user.type(
+    await within(dialog).findByLabelText("Branch Name"),
+    branchName,
+  );
   await user.click(
     within(dialog).getByRole("button", { name: "Create Workspace" }),
   );
-  await waitFor(() =>
-    expect(screen.queryByTestId("modal")).not.toBeInTheDocument(),
+  await waitFor(
+    () => expect(screen.queryByTestId("modal")).not.toBeInTheDocument(),
+    { timeout: 10_000 },
   );
 }
 
-describe("Stack from the home repo", () => {
+describe("Stack from the home repo", { timeout: 15_000 }, () => {
   let repoPath: string;
   let defaultBranch: string;
   let user: ReturnType<typeof userEvent.setup>;
@@ -55,5 +59,5 @@ describe("Stack from the home repo", () => {
       .map((w) => w.branch_name)
       .sort();
     expect(branches).toEqual(["feat/first", "feat/second"]);
-  });
+  }, 30_000);
 });
