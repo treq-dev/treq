@@ -6,15 +6,14 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://**" }, { "url": "http://**" }]
+      "allow": [
+        { "url": "https://treq.dev/sign-in*" },
+        { "url": "http://localhost:3001/sign-in*" }
+      ]
     },
-    "dialog:default",
-    "dialog:allow-open",
     "log:default",
-    "deep-link:default",
-    "keystore:default"
+    "deep-link:default"
   ]
 }
