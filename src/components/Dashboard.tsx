@@ -3530,7 +3530,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
               setPromptHistoryFocusId(null);
               setShowPromptHistory(true);
             }}
-            onOpenStash={() => setShowStashModal(true)}
+            // Hidden for remote repositories until the stash modal is routed.
+            onOpenStash={
+              isRemoteActive ? undefined : () => setShowStashModal(true)
+            }
             onCreateShellTerminal={() =>
               terminalPaneRef.current?.createShellSession()
             }

@@ -48,7 +48,7 @@ export function activeForPath(repoPath: string): SshActiveRepository | null {
   return active as SshActiveRepository;
 }
 
-function trimTrailingSlashes(path: string): string {
+export function trimTrailingSlashes(path: string): string {
   return path.length > 1 ? path.replace(/\/+$/, "") : path;
 }
 
@@ -280,6 +280,19 @@ export async function transportListRepoBranches<T>(
   if (!repo) return local();
   return remoteDispatch<T>(repo, {
     kind: "ListBranches",
+    repo: repo.canonicalPath,
+  });
+}
+
+/** GitHub owner/name of the repository's origin, read where the repo lives. */
+export async function transportGetGitRemoteInfo<T>(
+  repoPath: string,
+  local: () => Promise<T>,
+): Promise<T> {
+  const repo = activeForPath(repoPath);
+  if (!repo) return local();
+  return remoteDispatch<T>(repo, {
+    kind: "GitRemoteInfo",
     repo: repo.canonicalPath,
   });
 }
