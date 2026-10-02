@@ -35,14 +35,20 @@ const { queueState, repoState, mockGetGitRemoteUrl, mockSetEnabled, auth } =
     },
   }));
 
-vi.mock("../../../src/lib/features", () => ({
-  FEATURES: {
-    pro: true,
-    stripePayments: false,
-    emailSignup: false,
-    mergeQueue: true,
-  },
-}));
+vi.mock("../../../src/lib/features", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../src/lib/features")>();
+  return {
+    ...actual,
+    FEATURES: {
+      ...actual.FEATURES,
+      pro: true,
+      stripePayments: false,
+      emailSignup: false,
+      mergeQueue: true,
+    },
+  };
+});
 
 vi.mock("../../../src/stores/authStore", async (importOriginal) => {
   const actual =

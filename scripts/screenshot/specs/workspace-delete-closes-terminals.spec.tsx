@@ -11,10 +11,11 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import {
 	createTestRepo,
 	findSidebarBranchElement,
+  findSidebarWorkspaceRow,
 	openRepo,
 } from "../../../test/utils";
 import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import { captureDocument } from "../capture";
 
@@ -39,7 +40,7 @@ it("deleting a workspace closes its shell and agent terminals", async () => {
 
 	// Open an agent terminal and a shell terminal in this workspace.
 	await user.click(
-		await screen.findByRole("button", { name: "New agent terminal" }),
+		within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", { name: "Start agent" }),
 	);
 	await waitFor(() => {
 		expect(
@@ -48,7 +49,7 @@ it("deleting a workspace closes its shell and agent terminals", async () => {
 	});
 
 	await user.click(
-		await screen.findByRole("button", { name: "New shell terminal" }),
+		within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", { name: "Open shell" }),
 	);
 	await waitFor(() => {
 		expect(

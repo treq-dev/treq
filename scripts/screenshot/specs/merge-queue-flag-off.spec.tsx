@@ -23,14 +23,20 @@ const { rpcCalls, mockGetGitRemoteUrl } = vi.hoisted(() => ({
 	mockGetGitRemoteUrl: vi.fn(),
 }));
 
-vi.mock("../../../src/lib/features", () => ({
-	FEATURES: {
-		pro: true,
-		stripePayments: false,
-		emailSignup: false,
-		mergeQueue: false,
-	},
-}));
+vi.mock("../../../src/lib/features", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../../src/lib/features")>();
+	return {
+		...actual,
+		FEATURES: {
+			...actual.FEATURES,
+			pro: true,
+			stripePayments: false,
+			emailSignup: false,
+			mergeQueue: false,
+		},
+	};
+});
 
 vi.mock("../../../src/lib/supabase", () => ({
 	supabase: {

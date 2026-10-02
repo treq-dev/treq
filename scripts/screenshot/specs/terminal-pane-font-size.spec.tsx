@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import {
   createTestRepo,
   findSidebarBranchElement,
+  findSidebarWorkspaceRow,
   openRepo,
 } from "../../../test/utils";
 import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
@@ -27,9 +28,13 @@ it("renders the terminal pane at the default 14px font size", async () => {
   render(<Dashboard />);
 
   await user.click(await findSidebarBranchElement(workspace.branch_name));
-  await screen.findByText(/Terminals/i);
+  await screen.findByTestId("show-workspace-header");
 
-  await user.click(await screen.findByLabelText("New shell terminal"));
+  await user.click(
+    within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", {
+      name: "Open shell",
+    }),
+  );
 
   const terminalPanel = await waitFor(() => {
     const el = document.querySelector('[data-terminal-id^="shell-"]');

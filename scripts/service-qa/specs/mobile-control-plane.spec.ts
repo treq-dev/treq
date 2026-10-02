@@ -264,3 +264,45 @@ it("issueCertificate rejects an unregistered key id, matching the connect flow's
     details: { httpStatus: issue.status, body: issue.json },
   });
 }, 60_000);
+
+it("a deleted managed instance can be recreated with a fresh identity", async () => {
+  const { accessToken } = await signedInUser();
+  const ensure = () =>
+    invoke("remote-instance", accessToken, "ensure", {
+      idempotency_key: `mobile-qa-${crypto.randomUUID()}`,
+    });
+  const instanceOf = (res: { json: Record<string, unknown> }) =>
+    res.json.instance as { instance_id: string; endpoint_id: string; status: string } | null;
+
+  const first = instanceOf(await ensure());
+  const deleteKey = `mobile-qa-${crypto.randomUUID()}`;
+  const deleted = await invoke("remote-instance", accessToken, "delete", { idempotency_key: deleteKey });
+  expect(deleted.status).toBe(200);
+  const replay = await invoke("remote-instance", accessToken, "delete", { idempotency_key: deleteKey });
+  expect(replay.status).toBe(200);
+  expect(replay.json.operation_id).toBe(deleted.json.operation_id);
+  const afterDelete = await invoke("remote-instance", accessToken, "status");
+  expect(afterDelete.json.instance).toBeNull();
+
+  const recreated = await ensure();
+  expect(recreated.status).toBe(200);
+  const second = instanceOf(recreated);
+  expect(second?.status).toBe("ready");
+  expect(second?.instance_id).not.toBe(first?.instance_id);
+  expect(second?.endpoint_id).not.toBe(first?.endpoint_id);
+  const again = instanceOf(await ensure());
+  expect(again?.instance_id).toBe(second?.instance_id);
+
+  await invoke("remote-instance", accessToken, "delete", {
+    idempotency_key: `mobile-qa-${crypto.randomUUID()}`,
+  });
+
+  await recordOutcome("mobile-control-plane-04-recreate-after-delete", {
+    expectations: [
+      "After delete, status reports no instance and a replayed delete returns the stored operation.",
+      "ensure after delete creates a ready instance with a new instance id and endpoint id.",
+      "A further ensure reuses the recreated instance instead of creating a second one.",
+    ],
+    details: { first, second, again },
+  });
+}, 60_000);

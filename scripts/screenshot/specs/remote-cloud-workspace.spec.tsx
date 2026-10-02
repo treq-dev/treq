@@ -91,6 +91,24 @@ vi.mock("../../../src/lib/remote-dispatch", async (importOriginal) => {
   };
 });
 
+// Managed SSH authenticates with a key from the user's ~/.ssh. Stub the two
+// reads so the flow doesn't depend on the machine running the spec.
+vi.mock("../../../src/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/lib/api")>();
+  return {
+    ...actual,
+    listLocalSshIdentities: vi.fn(async () => [
+      {
+        reference: "/home/qa/.ssh/id_ed25519.pub",
+        label: "id_ed25519",
+        fingerprint_sha256: "SHA256:qa",
+        algorithm: "ssh-ed25519",
+      },
+    ]),
+    readLocalSshPublicKey: vi.fn(async () => "ssh-ed25519 AAAAqa qa@treq"),
+  };
+});
+
 vi.mock("../../../src/stores/authStore", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../../src/stores/authStore")>();
@@ -112,6 +130,23 @@ vi.mock("../../../src/lib/supabase", () => ({
           server.actions.push(body.action);
           if (body.action === "status") {
             return { data: server.status, error: null };
+          }
+          if (body.action === "register_client_key") {
+            return {
+              data: {
+                operation_id: "op-key",
+                status: "succeeded",
+                key: {
+                  id: "key-qa",
+                  algorithm: "ssh-ed25519",
+                  fingerprint_sha256: "SHA256:qa",
+                  comment: "treq-desktop",
+                  created_at: "2026-09-26T00:00:00Z",
+                  revoked_at: null,
+                },
+              },
+              error: null,
+            };
           }
           if (body.action === "ensure" && server.nextEnsure === "fail") {
             // The control plane records the failed attempt before replying.

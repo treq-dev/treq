@@ -1,5 +1,6 @@
 import { expect } from "vitest";
-import { screen, waitFor } from "../../test/test-utils";
+import { screen, waitFor, within } from "../../test/test-utils";
+import { findSidebarWorkspaceRow } from "../../test/utils";
 import { setRepoSetting } from "../../src/lib/api";
 
 type UserEvent = {
@@ -85,28 +86,29 @@ function tuiForHeader(text: string): string | null {
   return null;
 }
 
-/** Open Claude, Codex, and Cursor agent terminals via the real sidebar control. */
+/**
+ * Open Claude, Codex, and Cursor agent terminals with the workspace row's
+ * "Start agent" sidebar button, which starts the repo's default agent.
+ */
 export async function openMarketingAgentTerminals(
   user: UserEvent,
   repoPath: string,
+  branch: string,
 ): Promise<void> {
   const agents = ["claude", "codex", "cursor"] as const;
-  for (const agent of agents) {
+  for (const [index, agent] of agents.entries()) {
     await setRepoSetting(repoPath, "default_agent", agent);
-    await user.click(await screen.findByLabelText("New agent terminal"));
+    await user.click(
+      within(await findSidebarWorkspaceRow(branch)).getByRole("button", {
+        name: "Start agent",
+      }),
+    );
     await waitFor(() => {
-      const items = document.querySelectorAll(
-        '[data-testid^="terminal-session-item-"]',
-      );
-      expect(items.length).toBeGreaterThanOrEqual(agents.indexOf(agent) + 1);
+      expect(
+        document.querySelectorAll('[data-terminal-id^="agent-"]').length,
+      ).toBe(index + 1);
     });
   }
-
-  await waitFor(() => {
-    expect(
-      document.querySelectorAll("[data-terminal-id]").length,
-    ).toBeGreaterThanOrEqual(3);
-  });
 }
 
 export function expandMarketingTerminalPane(): void {
