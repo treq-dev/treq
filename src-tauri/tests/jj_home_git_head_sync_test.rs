@@ -100,6 +100,24 @@ fn commit() {
   assert!(assert_git_head_follows_wc_parent(&repo, Some("feature")).is_empty());
 }
 
+/// A commit made before anything has read the home repo: jj has not imported
+/// the git branch yet, so the commit must import it before moving it.
+#[test]
+fn commit_before_first_read() {
+  let repo = TestRepo::new().expect("create repo");
+  let main = repo.default_branch().to_string();
+  for i in 0..2 {
+    TestRepo::write_workspace_file(&repo.repo_path, &format!("c{i}.txt"), "c\n").expect("write");
+    core::commit_repo(&repo.repo_path, &format!("commit {i}")).expect("commit");
+    assert_eq!(
+      git(&repo, &["log", "-1", "--format=%s", &main]),
+      format!("commit {i}"),
+      "the git branch should advance with the commit"
+    );
+    assert!(assert_git_head_follows_wc_parent(&repo, Some(&main)).is_empty());
+  }
+}
+
 #[test]
 fn split() {
   let (repo, _) = home_on_feature();

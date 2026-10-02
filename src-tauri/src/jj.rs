@@ -5047,7 +5047,7 @@ pub fn jj_working_copy_commit_hex(workspace_path: &str) -> Option<String> {
 /// the home workspace WC under the jj root while the branch bookmark still tracks the real tip;
 /// rewriting that WC can yield a root-only parent and truncate history in the log. We stack the
 /// home WC on the branch tip before snapshotting when needed.
-// home-head-test: commit, commit_drops_autosave_ancestors
+// home-head-test: commit, commit_drops_autosave_ancestors, commit_before_first_read
 pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError> {
   let repo_path_opt = derive_repo_path_from_workspace(workspace_path);
 
@@ -5064,6 +5064,11 @@ pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError>
   } else {
     resolve_home_repo_branch(workspace_path)?
   };
+  if repo_path_opt.is_none() {
+    // Import Git HEAD and refs first, as every home read does. Committing onto
+    // a branch jj has not imported leaves its Git ref behind, unexportable.
+    reconcile_colocated_home_repo(workspace_path)?;
+  }
 
   let settings_path = repo_path_opt.as_deref().unwrap_or(workspace_path);
   let settings = create_user_settings(settings_path)?;
