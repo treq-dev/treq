@@ -223,7 +223,7 @@ fn resolve_bookmark_conflict_onto_target() {
 #[test]
 fn new_on_other_branch() {
   let (repo, main) = home_on_feature();
-  jj::jj_new_with_parents(&repo.repo_path, &[main.clone()]).expect("new");
+  jj::jj_new_with_parents(&repo.repo_path, std::slice::from_ref(&main)).expect("new");
   assert!(assert_git_head_follows_wc_parent(&repo, Some(&main)).is_empty());
 }
 
