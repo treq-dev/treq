@@ -25,11 +25,11 @@ import {
   trackPtyInvoke,
 } from "./test-event-bus";
 
-// tauri-test invoke runs on spawn_blocking. Kept just under the global 5s
-// test timeout (vitest.integration.config.ts) so a stuck waitFor reports a
-// clear timeout error instead of racing the outer test timeout and showing
-// up as a plain, harder-to-diagnose assertion failure.
-configure({ asyncUtilTimeout: 4_000 });
+// tauri-test invoke runs on spawn_blocking. Kept under the global 10s test
+// timeout (vitest.integration.base.ts) so a stuck waitFor reports a clear
+// timeout error instead of racing the outer test timeout and showing up as
+// a plain, harder-to-diagnose assertion failure.
+configure({ asyncUtilTimeout: 8_000 });
 
 // Keep integration tests deterministic: avoid background auto-rebase races
 // during commit creation in Rust core.

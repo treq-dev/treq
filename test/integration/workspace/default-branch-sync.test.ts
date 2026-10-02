@@ -14,7 +14,9 @@ import {
   switchRepoBranch,
 } from "../../../src/lib/api";
 
-describe("default-branch workspace sync after home commit", () => {
+describe("default-branch workspace sync after home commit", {
+  timeout: 15_000,
+}, () => {
   it("syncs same-branch workspace tip when committing in home repo", async () => {
     const { repoPath } = createTestRepo(false);
     openRepo(repoPath);

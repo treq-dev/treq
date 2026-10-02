@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
 	createTestRepo,
+	notifyWorkspaceChanged,
 	openRepo,
 	resolveWorkspacePath,
 	writeWorkspaceFile,
@@ -65,6 +66,7 @@ it("captures the header sync indicator before and after committing from the Chan
 	);
 
 	await user.click(await screen.findByRole("tab", { name: /Changes/ }));
+	notifyWorkspaceChanged(workspace.id);
 	await screen.findAllByText("sync-indicator.txt");
 
 	await captureDocument(document, {
@@ -94,9 +96,13 @@ it("captures the header sync indicator before and after committing from the Chan
 		],
 	});
 
-	await waitFor(() => {
-		expect(screen.queryByText("Commit created")).not.toBeInTheDocument();
-	});
+	// Toasts stay up for 5s.
+	await waitFor(
+		() => {
+			expect(screen.queryByText("Commit created")).not.toBeInTheDocument();
+		},
+		{ timeout: 7000 },
+	);
 
 	await captureDocument(document, {
 		name: "header-sync-indicator-03-ahead-button-styling",

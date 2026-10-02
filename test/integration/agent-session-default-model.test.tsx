@@ -31,10 +31,12 @@ describe("agent session default model", () => {
       await screen.findByRole("heading", { name: "Start a new agent session" })
     ).closest('[data-testid="modal"]') as HTMLElement;
     await user.type(
-      within(dialog).getByPlaceholderText("Describe a task..."),
+      await within(dialog).findByPlaceholderText("Describe a task..."),
       PROMPT,
     );
-    await user.click(within(dialog).getByRole("button", { name: /^edit$/i }));
+    await user.click(
+      await within(dialog).findByRole("button", { name: /^edit$/i }),
+    );
 
     let sessionId: number | undefined;
     await waitFor(async () => {

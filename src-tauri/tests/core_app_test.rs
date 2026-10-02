@@ -440,3 +440,15 @@ fn ensure_workspace_rebased_errors_but_preserves_on_truly_missing_bookmark() {
     .is_some();
   assert!(still_exists, "workspace row must not be auto-deleted");
 }
+
+#[test]
+fn init_restores_required_gitignore_entries_when_reopening_an_initialized_repo() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+  let gitignore_path = Path::new(&repo.repo_path).join(".gitignore");
+  fs::remove_file(&gitignore_path).expect("remove .gitignore");
+
+  assert_eq!(treq_lib::core::init(&repo.repo_path), Ok(true));
+
+  let gitignore = fs::read_to_string(&gitignore_path).expect("read .gitignore");
+  assert_eq!(gitignore, ".jj/\n.treq/\n");
+}

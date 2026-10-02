@@ -10,9 +10,10 @@ import { listen } from "@tauri-apps/api/event";
 import {
   createTestRepo,
   findSidebarBranchElement,
+  findSidebarWorkspaceRow,
   openRepo,
 } from "../../../test/utils";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import { createWorkspace } from "../../../src/lib/api";
 import { TREQ_SEND_EVENT } from "../../../src/lib/treqSend";
@@ -57,7 +58,10 @@ it("captures attachment review comments in the send lightbox", async () => {
   await user.click(await findSidebarBranchElement("feat/send-review"));
   await screen.findByTestId("workspace-terminal-pane");
   await user.click(
-    await screen.findByRole("button", { name: "New agent terminal" }),
+    within(await findSidebarWorkspaceRow("feat/send-review")).getByRole(
+      "button",
+      { name: "Start agent" },
+    ),
   );
 
   const terminalEl = await waitFor(() => {
