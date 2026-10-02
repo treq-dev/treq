@@ -12,6 +12,7 @@ fn parallel_commits_on_one_workspace_do_not_diverge() {
   let repo = TestRepo::new().unwrap();
   let ws = repo.create_workspace_simple("parw1").unwrap();
   let path = repo.workspace_full_path(&ws);
+  let base = TestRepo::jj_commit_ids_in_revset(&path, "@-").unwrap();
   TestRepo::write_workspace_file(&path, "a.txt", "a\n").unwrap();
 
   let children: Vec<_> = (0..5)
@@ -28,19 +29,46 @@ fn parallel_commits_on_one_workspace_do_not_diverge() {
       Command::new(env!("CARGO_BIN_EXE_treq"))
         .args(args)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap()
     })
     .collect();
-  for mut child in children {
-    child.wait().unwrap();
+  let mut succeeded = 0;
+  for child in children {
+    let out = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // A losing process sees a clean working copy; with an empty-commit guard it
+    // fails with "nothing to commit", otherwise it is a no-op.
+    if out.status.success() {
+      succeeded += 1;
+    } else {
+      assert!(
+        stderr.contains("nothing to commit"),
+        "unexpected failure: {stderr}"
+      );
+    }
   }
+  assert!(succeeded >= 1, "no commits create call succeeded");
 
   let all = TestRepo::jj_change_ids_in_revset(&path, "all()").unwrap();
   let unique: std::collections::HashSet<_> = all.iter().collect();
   assert_eq!(all.len(), unique.len(), "divergent change ids: {all:?}");
   let tips = TestRepo::jj_commit_ids_in_revset(&path, "parw1").unwrap();
   assert_eq!(tips.len(), 1, "bookmark is conflicted: {tips:?}");
+  let new = TestRepo::jj_log_entries(&path, &format!("{}..parw1", base[0]), 10).unwrap();
+  assert!(
+    new.len() == 1 && !new[0].is_empty,
+    "expected one commit: {new:?}"
+  );
+  assert_eq!(
+    TestRepo::jj_commit_ids_in_revset(&path, "parw1-").unwrap(),
+    base
+  );
+  let files = TestRepo::jj_files_at_revision(&path, "parw1").unwrap();
+  assert!(
+    files.iter().any(|f| f == "a.txt"),
+    "a.txt not committed: {files:?}"
+  );
 }
