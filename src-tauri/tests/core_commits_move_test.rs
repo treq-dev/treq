@@ -65,3 +65,26 @@ fn move_commit_into_its_own_workspace_is_refused() {
     "moved.txt"
   ));
 }
+
+#[test]
+fn move_refuses_foreign_or_conflicting_commits_without_changes() {
+  let repo = TestRepo::new().unwrap();
+  let (a, a_path, a_change) = source_with_commit(&repo);
+  let b = repo.create_workspace_simple("feat/move-dst").unwrap();
+  let b_path = repo.workspace_full_path(&b);
+  TestRepo::write_workspace_file(&b_path, "moved.txt", "target\n").unwrap();
+  treq_lib::jj::jj_get_changed_files(&b_path).unwrap();
+  let c = repo.create_workspace_with_commit("feat/move-c", "c.txt", "c\n", None);
+  let c_path = repo.workspace_full_path(&c.unwrap());
+  let c_change = TestRepo::jj_change_id(&c_path, "@-").unwrap();
+  let logs = || [&a_path, &b_path, &c_path].map(|p| TestRepo::jj_log_descriptions(p, "::@", None));
+  let before = logs();
+  let mv =
+    |id: &str| treq_lib::core::move_commit_to_existing_workspace(&repo.repo_path, a.id, id, b.id);
+
+  assert!(mv(&c_change).unwrap_err().contains("not in this workspace"));
+  assert!(mv(&a_change).unwrap_err().contains("conflicts with target"));
+  assert_eq!(logs(), before);
+  let b_file = std::fs::read_to_string(std::path::Path::new(&b_path).join("moved.txt"));
+  assert_eq!(b_file.unwrap(), "target\n");
+}

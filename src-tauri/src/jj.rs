@@ -2777,6 +2777,9 @@ pub fn squash_commit_to_workspace(
     )],
   )))
   .map_err(|e| JjError::IoError(format!("Failed to merge commit into target: {}", e)))?;
+  if new_tree.has_conflict() {
+    return Err(JjError::IoError("Commit conflicts with target".into()));
+  }
 
   let mut tx = loaded.repo.start_transaction();
   let new_target_wc = block_on(
@@ -2786,7 +2789,7 @@ pub fn squash_commit_to_workspace(
       .write(),
   )
   .map_err(|e| JjError::IoError(format!("Failed to rewrite target working copy: {}", e)))?;
-  block_on(tx.repo_mut().edit(target_name, &new_target_wc))
+  block_on(tx.repo_mut().edit(target_name.clone(), &new_target_wc))
     .map_err(|e| JjError::IoError(format!("Failed to update target working copy: {}", e)))?;
   tx.repo_mut().record_abandoned_commit(&commit);
   block_on(tx.repo_mut().rebase_descendants())
@@ -2797,8 +2800,9 @@ pub fn squash_commit_to_workspace(
 
   let repo_path =
     derive_repo_path_from_workspace(workspace_path).unwrap_or_else(|| workspace_path.to_string());
-  let _ = reconcile_all_workspaces_after_rewrite(&repo_path, None);
-  Ok(())
+  let _ = reconcile_all_workspaces_after_rewrite(&repo_path, Some(target_name.as_str()));
+  update_stale_workspace(target_workspace_path)
+    .map_err(|e| JjError::IoError(format!("Failed to update target working copy: {e}")))
 }
 
 #[derive(Debug, Clone)]
