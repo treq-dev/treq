@@ -1,6 +1,7 @@
 import type { Session, User } from "@supabase/supabase-js";
 import { create } from "zustand";
 import { getSetting, setSetting } from "../lib/api";
+import { remoteCutOffManaged } from "../lib/api-extra";
 import {
   SUPABASE_ANON_KEY,
   SUPABASE_URL,
@@ -55,6 +56,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await openUrl(`${WEB_URL}/sign-in?source=desktop`);
   },
   signOut: async () => {
+    // Signing out ends the authorization behind managed SSH access, so
+    // open managed connections and PTYs are cut off, not left running.
+    try {
+      await remoteCutOffManaged();
+    } catch {
+      // No native pool (e.g. a web preview); nothing to cut off.
+    }
     await supabase.auth.signOut();
     set({ user: null, session: null, subscription: null });
     await persistSession(null);

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import {
 	commitWorkspaceFile,
 	createTestRepo,
+	notifyWorkspaceChanged,
 	openRepo,
 } from "../../../test/utils";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
@@ -64,6 +65,7 @@ it("captures editing an existing commit's description from the Commits tab", asy
 	);
 
 	await user.click(await screen.findByRole("tab", { name: /^Commits/ }));
+	notifyWorkspaceChanged(workspace.id);
 	await screen.findByText("Workspace commit 2");
 	const commitRow = await screen.findByText("Original description");
 

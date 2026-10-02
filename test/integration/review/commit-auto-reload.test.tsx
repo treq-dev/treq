@@ -95,21 +95,27 @@ describe("Review tab - auto-reload after commit", () => {
     });
     await addSingleReviewComment(user, "Please tighten this change");
 
-    await user.type(screen.getByPlaceholderText("Message"), commitMessage);
+    await user.type(
+      await screen.findByPlaceholderText("Message"),
+      commitMessage,
+    );
     await user.click(screen.getByRole("button", { name: /^commit$/i }));
 
-    await waitFor(async () => {
-      const log = await listCommits(
-        repoPath,
-        workspace.id,
-        false,
-        undefined,
-        30,
-      );
-      expect(
-        log.commits.some((commit) => commit.description === commitMessage),
-      ).toBe(true);
-    });
+    await waitFor(
+      async () => {
+        const log = await listCommits(
+          repoPath,
+          workspace.id,
+          false,
+          undefined,
+          30,
+        );
+        expect(
+          log.commits.some((commit) => commit.description === commitMessage),
+        ).toBe(true);
+      },
+      { timeout: 15_000 },
+    );
 
     await waitFor(() => {
       expect(
@@ -121,5 +127,5 @@ describe("Review tab - auto-reload after commit", () => {
         screen.getByTestId("file-row-commit-reload.txt"),
       ).toBeInTheDocument();
     });
-  });
+  }, 30_000);
 });

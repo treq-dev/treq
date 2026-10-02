@@ -225,7 +225,7 @@ it("starts an agent session in the Linear issue's workspace on submit", async ()
         screen.queryByRole("heading", { name: "Start a new agent session" }),
       ).not.toBeInTheDocument(),
     );
-    expect(mockLinearKickoff).toHaveBeenCalledWith(repoPath, "issue-3", false);
+    expect(mockLinearKickoff).toHaveBeenCalledWith(repoPath, "issue-3");
     await waitFor(async () => {
       const sessions = await getSessions(repoPath);
       expect(sessions).toHaveLength(1);

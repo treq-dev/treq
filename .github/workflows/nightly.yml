@@ -251,6 +251,14 @@ jobs:
       - name: Build unsigned debug app bundle (simulator)
         run: npm run mobile:ios:build -- --debug --target aarch64-sim
 
+      # The keystore/biometric plugins need NSFaceIDUsageDescription, which
+      # the CLI merges in from src-tauri/Info.ios.plist at build time.
+      - name: Assert Face ID usage string is in the built Info.plist
+        run: |
+          plist=$(find src-tauri/gen/apple/build -path '*.app/Info.plist' | head -n 1)
+          test -n "$plist"
+          plutil -extract NSFaceIDUsageDescription raw "$plist"
+
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:

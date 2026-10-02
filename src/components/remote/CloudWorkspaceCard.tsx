@@ -132,7 +132,12 @@ export function CloudWorkspaceCard({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const instanceRecord = instanceStatus?.instance ?? null;
-  const instance = instanceRecord?.provider_resource_id ? instanceRecord : null;
+  // A deleted instance keeps its provider resource id, but there is nothing
+  // left to manage: show the create flow instead.
+  const instance =
+    instanceRecord?.provider_resource_id && instanceRecord.status !== "deleted"
+      ? instanceRecord
+      : null;
   const creationRetry =
     instanceRecord?.status === "failed" && !instanceRecord.provider_resource_id;
   const endpoint = instanceStatus?.endpoint ?? null;

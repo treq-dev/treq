@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import {
 	createTestRepo,
 	findSidebarBranchElement,
+  findSidebarWorkspaceRow,
 	openRepo,
 } from "../../../test/utils";
 import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
@@ -35,13 +36,13 @@ it("double-clicking a halfway-scrolled terminal scrolls it fully into view", asy
 
 	// Three terminals at 40% min-width each forces horizontal overflow.
 	await user.click(
-		await screen.findByRole("button", { name: "New agent terminal" }),
+		within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", { name: "Start agent" }),
 	);
 	await user.click(
-		await screen.findByRole("button", { name: "New shell terminal" }),
+		within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", { name: "Open shell" }),
 	);
 	await user.click(
-		await screen.findByRole("button", { name: "New shell terminal" }),
+		within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", { name: "Open shell" }),
 	);
 
 	const shellPanels = await waitFor(() => {
