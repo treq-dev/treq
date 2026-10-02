@@ -1,4 +1,4 @@
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 use tauri_plugin_cli::Matches;
 
@@ -196,8 +196,8 @@ fn validate_add_target(
   end_line: i64,
   side: Option<&str>,
 ) -> Result<(), String> {
-  // The file on disk the new-side lines refer to.
-  let anchored = match target_type {
+  // The directory `--file` is relative to.
+  let root = match target_type {
     DEFAULT_TARGET_TYPE => {
       let id = target_id.trim().parse::<i64>().ok().filter(|id| *id > 0);
       let id = id.ok_or_else(|| {
@@ -205,23 +205,9 @@ fn validate_add_target(
       })?;
       let workspace_dir = core::changes::resolve_workspace_dir(repo_path, Some(id))
         .map_err(|_| format!("workspace_not_found: workspace {id} not found"))?;
-      Path::new(&workspace_dir).join(file)
+      PathBuf::from(workspace_dir)
     }
-    "file_browser_file" => {
-      let inside_repo = match (
-        Path::new(target_id).canonicalize(),
-        Path::new(repo_path).canonicalize(),
-      ) {
-        (Ok(target), Ok(repo)) => target.is_file() && target.starts_with(repo),
-        _ => false,
-      };
-      if !inside_repo {
-        return Err(format!(
-          "invalid_arguments: --target-id '{target_id}' is not a file in the repository"
-        ));
-      }
-      Path::new(target_id).to_path_buf()
-    }
+    "file_browser_file" => PathBuf::from(repo_path),
     other => {
       return Err(format!(
         "invalid_arguments: unknown --target-type '{other}'. Expected one of: {}",
@@ -238,11 +224,26 @@ fn validate_add_target(
       "invalid_arguments: --file must be a relative path inside the repository, got '{file}'"
     ));
   }
+  // Canonicalize so a symlink cannot point the line check outside the root.
+  let resolved = match (root.join(relative).canonicalize(), root.canonicalize()) {
+    (Ok(path), Ok(root)) if path.starts_with(&root) && path.is_file() => Some(path),
+    _ => None,
+  };
+  if target_type == "file_browser_file"
+    && (resolved.is_none() || resolved != Path::new(target_id).canonicalize().ok())
+  {
+    return Err(format!(
+      "invalid_arguments: --target-id '{target_id}' must be the repository file --file '{file}' names"
+    ));
+  }
   if side == Some("old") {
     return Ok(());
   }
-  let content = std::fs::read(anchored)
-    .map_err(|_| format!("invalid_arguments: --file '{file}' does not exist"))?;
+  let content = resolved
+    .and_then(|path| std::fs::read(path).ok())
+    .ok_or_else(|| {
+      format!("invalid_arguments: --file '{file}' does not exist in the repository")
+    })?;
   let line_count = String::from_utf8_lossy(&content).lines().count();
   if end_line as usize > line_count {
     return Err(format!(
@@ -344,6 +345,15 @@ mod tests {
     std::fs::write(dir.path().join("b.rs"), "1\n").unwrap();
     let b = dir.path().join("b.rs");
     let b = b.to_str().unwrap();
+    std::fs::write(dir.path().join("big.rs"), "1\n2\n3\n").unwrap();
+    let big = dir.path().join("big.rs");
+    let big = big.to_str().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("o.rs"), "1\n2\n3\n4\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(outside.path().join("o.rs"), workspace.join("link.rs")).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(outside.path(), workspace.join("dir")).unwrap();
     let check = |target_type: &str, target_id: &str, file: &str, end: i64, side: Option<&str>| {
       validate_add_target(repo, target_type, target_id, file, end, side)
     };
@@ -361,6 +371,10 @@ mod tests {
       (DEFAULT_TARGET_TYPE, id.as_str(), "a.rs", 4),
       ("file_browser_file", "/etc/passwd", "b.rs", 1),
       ("file_browser_file", b, "b.rs", 2),
+      ("file_browser_file", big, "b.rs", 3),
+      ("file_browser_file", b, "missing.rs", 1),
+      (DEFAULT_TARGET_TYPE, id.as_str(), "link.rs", 1),
+      (DEFAULT_TARGET_TYPE, id.as_str(), "dir/o.rs", 1),
     ] {
       assert!(
         check(target_type, target_id, file, end, None).is_err(),
