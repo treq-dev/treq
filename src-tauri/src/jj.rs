@@ -5434,7 +5434,6 @@ pub fn jj_split(
   };
   let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
   let workspace_name = loaded.workspace.workspace_name().to_owned();
-  let old_wc_commit = get_workspace_wc_commit(&loaded)?;
 
   let (wc_commit_id, current_tree) =
     if let Some((wc_id, tree)) = snapshot_working_copy_tree(&mut loaded, workspace_path)? {
@@ -5468,13 +5467,19 @@ pub fn jj_split(
       .diff_stream(&current_tree, &diff_matcher)
       .collect::<Vec<_>>(),
   );
+  let mut matched = vec![false; file_paths.len()];
   for entry in diff_entries {
     let path_str = entry.path.as_internal_file_string().to_string();
-    let selected = file_paths.iter().any(|p| {
-      path_str == *p
+    let mut selected = false;
+    for (p, hit) in file_paths.iter().zip(matched.iter_mut()) {
+      if path_str == *p
         || path_str.starts_with(&format!("{}/", p.trim_end_matches('/')))
         || p.starts_with(&format!("{}/", path_str))
-    });
+      {
+        *hit = true;
+        selected = true;
+      }
+    }
     if !selected {
       continue;
     }
@@ -5482,6 +5487,12 @@ pub fn jj_split(
       .values
       .map_err(|e| JjError::IoError(format!("Failed to read split diff entry: {}", e)))?;
     selected_tree_builder.set_or_remove(entry.path, values.after);
+  }
+  if let Some((missing, _)) = file_paths.iter().zip(&matched).find(|(_, hit)| !**hit) {
+    return Err(JjError::IoError(format!(
+      "invalid_arguments: '{}' has no changes in the working copy",
+      missing
+    )));
   }
   let selected_tree = block_on(selected_tree_builder.write_tree())
     .map_err(|e| JjError::IoError(format!("Failed to write selected split tree: {}", e)))?;
@@ -5492,9 +5503,11 @@ pub fn jj_split(
   first_builder.set_description(message);
   let first_commit = block_on(first_builder.write(tx.repo_mut()))
     .map_err(|e| JjError::IoError(format!("Failed to write selected split commit: {}", e)))?;
+  // Like `jj split`: the first half keeps the change id; the remainder gets a new one.
   let mut second_builder = tx.repo_mut().rewrite_commit(&wc_commit).detach();
   second_builder.set_parents(vec![first_commit.id().clone()]);
   second_builder.set_tree(current_tree);
+  second_builder.generate_new_change_id();
   let second_commit = block_on(second_builder.write(tx.repo_mut()))
     .map_err(|e| JjError::IoError(format!("Failed to write remaining split commit: {}", e)))?;
 
@@ -5524,12 +5537,8 @@ pub fn jj_split(
   let _ = git::export_refs(tx.repo_mut());
   let new_repo = block_on(tx.commit("split working copy"))
     .map_err(|e| JjError::IoError(format!("Failed to commit split transaction: {}", e)))?;
-  update_workspace_after_history_edit(
-    &mut loaded,
-    &new_repo,
-    old_wc_commit.as_ref(),
-    CheckoutMode::Immediate,
-  )?;
+  // No old tree: the snapshot already moved tree_state, so a check would hit ConcurrentCheckout.
+  update_workspace_after_history_edit(&mut loaded, &new_repo, None, CheckoutMode::Immediate)?;
 
   // Set the bookmark to point at @- (critical - same as jj_commit)
   jj_set_bookmark(workspace_path, &branch, "@-")
