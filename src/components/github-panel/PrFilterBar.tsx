@@ -55,21 +55,19 @@ interface PrFilterProps {
   onChange: (filters: PrFilters) => void;
 }
 
-/** Free-text search over the loaded PRs. */
+/** Free-text search over the loaded PRs; sized to sit in the list toolbar. */
 export function PrSearchBar({ filters, onChange }: PrFilterProps) {
   return (
-    <div className="px-4 pb-2 shrink-0">
-      <div className="relative">
-        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-        <input
-          type="search"
-          aria-label="Search pull requests"
-          placeholder="Search pull requests"
-          value={filters.query}
-          onChange={(e) => onChange({ ...filters, query: e.target.value })}
-          className="h-7 w-full rounded-md border border-input bg-background pl-7 pr-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        />
-      </div>
+    <div className="relative flex-1 min-w-[10rem] max-w-xs">
+      <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+      <input
+        type="search"
+        aria-label="Search pull requests"
+        placeholder="Search PRs"
+        value={filters.query}
+        onChange={(e) => onChange({ ...filters, query: e.target.value })}
+        className="h-7 w-full rounded-md border border-input bg-background pl-7 pr-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
     </div>
   );
 }

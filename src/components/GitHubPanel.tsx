@@ -286,18 +286,21 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
         </div>
 
         {isListTab && (
-          <div className="flex items-center gap-2 px-4 pb-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 px-4 pb-2 shrink-0">
             <StateFilterButtons
               options={activeTab === "prs" ? PR_FILTERS : ISSUE_FILTERS}
               value={currentFilter}
               onChange={handleFilterChange}
             />
             {activeTab === "prs" && (
-              <PrFilterMenu
-                prs={prs}
-                filters={prFilters}
-                onChange={setPrFilters}
-              />
+              <>
+                <PrFilterMenu
+                  prs={prs}
+                  filters={prFilters}
+                  onChange={setPrFilters}
+                />
+                <PrSearchBar filters={prFilters} onChange={setPrFilters} />
+              </>
             )}
             <div className="flex-1" />
             <Button
@@ -320,10 +323,6 @@ export const GitHubPanel: React.FC<GitHubPanelProps> = ({
               </Button>
             )}
           </div>
-        )}
-
-        {activeTab === "prs" && remoteInfo && (
-          <PrSearchBar filters={prFilters} onChange={setPrFilters} />
         )}
 
         {activeTab === "merge-queue" &&

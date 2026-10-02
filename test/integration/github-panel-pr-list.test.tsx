@@ -107,12 +107,13 @@ describe("GitHubPanel pull request list", () => {
     expect(screen.queryByText("Fix login")).not.toBeInTheDocument();
   });
 
-  it("places the Filters button right of the state filters, above the search bar", async () => {
+  it("puts the Filters button and search input on the state filters row", async () => {
     render(<GitHubPanel repoPath="/tmp/repo" />);
 
     const all = await screen.findByRole("button", { name: "All" });
-    const filters = screen.getByRole("button", { name: /^filters/i });
-    const search = screen.getByRole("searchbox", {
+    const row = all.parentElement!.parentElement!;
+    const filters = within(row).getByRole("button", { name: /^filters/i });
+    const search = within(row).getByRole("searchbox", {
       name: /search pull requests/i,
     });
     expect(all.compareDocumentPosition(filters)).toBe(

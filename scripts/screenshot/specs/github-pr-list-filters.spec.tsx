@@ -102,7 +102,7 @@ it("shows authors, filters the PR list, and opens New in a modal", async () => {
     name: "github-pr-list-filters-01-authors",
     expectations: [
       "Each PR row's second line shows the author login (octocat or hubot) after the state chip.",
-      "A Filters button sits right of the Draft/Open/Closed/All bar; a full-width search box is on the row below.",
+      "Draft/Open/Closed/All, a Filters button, then a ~20rem search box (same height as Filters) share one row, with Refresh and New at the right.",
     ],
   });
 
