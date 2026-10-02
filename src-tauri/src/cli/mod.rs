@@ -294,6 +294,25 @@ fn absolute_repo_arg(repo: &str) -> String {
   normalized.to_string_lossy().to_string()
 }
 
+/// Validates `--metadata` as a JSON object and folds `--title` into it.
+fn create_workspace_metadata(
+  metadata: Option<String>,
+  title: Option<String>,
+) -> Result<Option<String>, String> {
+  let Some(raw) = metadata.as_deref() else {
+    return Ok(title.map(|title| serde_json::json!({ "title": title }).to_string()));
+  };
+  let mut object = match serde_json::from_str::<serde_json::Value>(raw) {
+    Ok(serde_json::Value::Object(object)) => object,
+    _ => return Err("invalid_arguments: --metadata must be a JSON object".to_string()),
+  };
+  let Some(title) = title else {
+    return Ok(metadata);
+  };
+  object.insert("title".to_string(), serde_json::Value::String(title));
+  Ok(Some(serde_json::Value::Object(object).to_string()))
+}
+
 pub(crate) fn parse_remote_command_request(
   command: &str,
   matches: &Matches,
@@ -364,7 +383,10 @@ pub(crate) fn parse_remote_command_request(
       repo,
       branch_name: require_value("branch name")?,
       source_branch: target,
-      metadata: get_arg_value(matches, "metadata"),
+      metadata: create_workspace_metadata(
+        get_arg_value(matches, "metadata"),
+        get_arg_value(matches, "title"),
+      )?,
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
     ("workspace", "rename") => Ok(TreqCommandRequest::RenameWorkspace {

@@ -327,7 +327,7 @@
             {
               "name": "title",
               "takesValue": true,
-              "description": "New workspace title for update"
+              "description": "Workspace title for create and update"
             },
             {
               "name": "metadata",
