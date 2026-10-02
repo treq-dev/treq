@@ -61,11 +61,17 @@ function useWorkspacesWithoutOpenPr(repoPath: string) {
   const { data: prStatuses } = useSWR(cachedPrStatusesKey(repoPath), () =>
     listCachedPrStatuses(repoPath),
   );
-  const { data: defaultBranch } = useSWR(
+  const { data: defaultBranch, error: defaultBranchError } = useSWR(
     ["repo-default-branch", repoPath],
     () => getRepoDefaultBranch(repoPath),
   );
-  if (!workspaces || !prStatuses) return { defaultBranch, workspaces: null };
+  // Wait for the default branch so its workspace is never listed. If it
+  // can't be read, list everything and let the user type the base.
+  const defaultBranchSettled =
+    defaultBranch !== undefined || defaultBranchError !== undefined;
+  if (!workspaces || !prStatuses || !defaultBranchSettled) {
+    return { defaultBranch, workspaces: null };
+  }
   return {
     defaultBranch,
     workspaces: workspaces.filter(

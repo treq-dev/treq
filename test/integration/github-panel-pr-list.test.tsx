@@ -298,20 +298,58 @@ describe("GitHubPanel pull request list", () => {
     );
   });
 
-  it("fills a workspace's base once the repo default branch loads", async () => {
+  it("lists workspaces only once the repo default branch is known", async () => {
     let resolveDefaultBranch!: (branch: string) => void;
     api.getRepoDefaultBranch.mockImplementationOnce(
       () => new Promise<string>((resolve) => (resolveDefaultBranch = resolve)),
     );
+    const workspace = (id: number, branch: string, title: string) => ({
+      id,
+      repo_path: "/tmp/repo",
+      workspace_name: branch,
+      workspace_path: `/tmp/ws/${id}`,
+      branch_name: branch,
+      created_at: "2026-01-01T00:00:00Z",
+      target_branch: null,
+      title,
+    });
+    api.getWorkspaces.mockResolvedValue([
+      workspace(1, "trunk", "Home"),
+      workspace(2, "feat/no-pr", "No PR yet"),
+    ]);
+
+    render(<GitHubPanel repoPath="/tmp/repo" />);
+    await user.click(screen.getByRole("button", { name: /new/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    await expect(
+      within(dialog).findByRole("radio", { name: /home/i }),
+    ).rejects.toThrow();
+    expect(within(dialog).getByText("Loading workspaces…")).toBeVisible();
+
+    resolveDefaultBranch("trunk");
+    await user.click(
+      await within(dialog).findByRole("radio", { name: /no pr yet/i }),
+    );
+    expect(
+      within(dialog).queryByRole("radio", { name: /home/i }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Base branch")).toHaveValue("trunk");
+  });
+
+  it("lists workspaces when the repo default branch cannot be read", async () => {
+    api.getRepoDefaultBranch.mockImplementationOnce(() =>
+      Promise.reject(new Error("no default branch")),
+    );
     api.getWorkspaces.mockResolvedValue([
       {
-        id: 3,
+        id: 2,
         repo_path: "/tmp/repo",
         workspace_name: "feat/no-pr",
-        workspace_path: "/tmp/ws/3",
+        workspace_path: "/tmp/ws/2",
         branch_name: "feat/no-pr",
         created_at: "2026-01-01T00:00:00Z",
-        target_branch: null,
+        target_branch: "main",
         title: "No PR yet",
       },
     ]);
@@ -319,14 +357,11 @@ describe("GitHubPanel pull request list", () => {
     render(<GitHubPanel repoPath="/tmp/repo" />);
     await user.click(screen.getByRole("button", { name: /new/i }));
     const dialog = await screen.findByRole("dialog");
+
     await user.click(
       await within(dialog).findByRole("radio", { name: /no pr yet/i }),
     );
-
-    resolveDefaultBranch("trunk");
-    await waitFor(() =>
-      expect(within(dialog).getByLabelText("Base branch")).toHaveValue("trunk"),
-    );
+    expect(within(dialog).getByLabelText("Base branch")).toHaveValue("main");
   });
 
   it("prefills the new pull request base with the repo default branch", async () => {
