@@ -5606,11 +5606,10 @@ fn jj_rebase_workspace_bookmark_onto_with_checkout_mode(
   let target_commit = resolve_commit_by_revision(&loaded, &target_revision)?;
   let mut lineage_base = target_commit.id().hex();
   if let Some(old_target) = old_target_branch.filter(|old| *old != target_branch) {
-    let old_commit = resolve_branch_revision_for_rebase(workspace_path, old_target)
-      .and_then(|revision| resolve_commit_by_revision(&loaded, &revision));
-    if let Ok(old_commit) = old_commit {
-      lineage_base = format!("({lineage_base} | {})", old_commit.id().hex());
-    }
+    // Without the old parent's tip the rebase would drag its commits along.
+    let old_revision = resolve_branch_revision_for_rebase(workspace_path, old_target)?;
+    let old_commit = resolve_commit_by_revision(&loaded, &old_revision)?;
+    lineage_base = format!("({lineage_base} | {})", old_commit.id().hex());
   }
 
   // Select the complete ancestry that belongs to this bookmark, stopping at
@@ -9840,6 +9839,23 @@ mod tests {
       resolved_commit.id().hex(),
       expected.id().hex(),
       "helper should resolve to the bookmark tip commit"
+    );
+  }
+
+  #[test]
+  fn retarget_fails_when_old_target_bookmark_is_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    jj_set_bookmark(repo_path, "feat/target", "@").expect("set target bookmark");
+    jj_set_bookmark(repo_path, "feat/ws", "@").expect("set workspace bookmark");
+
+    let result =
+      jj_retarget_workspace_bookmark(repo_path, "feat/ws", "feat/target", Some("feat/gone"));
+
+    assert!(
+      result.is_err(),
+      "unresolvable old target must fail: {result:?}"
     );
   }
 
