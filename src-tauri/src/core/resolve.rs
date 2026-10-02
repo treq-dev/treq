@@ -444,6 +444,7 @@ fn cleanup_resolve_workspace(
 }
 
 /// Apply side picks and/or file replacements, then finalize (cleanup) when clean.
+// home-head-test: resolve_workspace_conflict
 pub fn resolve_commit(
   repo_path: &str,
   revision: &str,
