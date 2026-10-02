@@ -932,7 +932,15 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       title: Some("Title".into()),
       description: Some("desc".into()),
     },
+    R::SwitchRepoBranch {
+      repo: repo(),
+      bookmark: "feat-a".into(),
+    },
     R::DeleteWorkspace {
+      repo: repo(),
+      workspace: "1".into(),
+    },
+    R::ArchiveWorkspace {
       repo: repo(),
       workspace: "1".into(),
     },
@@ -955,6 +963,24 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       repo: repo(),
       workspace: Some("1".into()),
       path: "a.rs".into(),
+    },
+    R::SnapshotWorkingCopy {
+      repo: repo(),
+      workspace: Some("1".into()),
+    },
+    R::RestoreAll {
+      repo: repo(),
+      workspace: None,
+    },
+    R::RestoreSnapshot {
+      repo: repo(),
+      workspace: Some("1".into()),
+      snapshot_id: "0a1b".into(),
+    },
+    R::StashWorkspaceChanges {
+      repo: repo(),
+      workspace: Some("1".into()),
+      idempotency_key: key(),
     },
     R::PatchFile {
       repo: repo(),
@@ -992,7 +1018,23 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       target_workspace: "2".into(),
       idempotency_key: key(),
     },
+    R::UndoOperation {
+      repo: repo(),
+      workspace: Some("1".into()),
+      operation_id: "0a1b".into(),
+    },
+    R::UndoCommit {
+      repo: repo(),
+      workspace: "1".into(),
+      commit: "abc".into(),
+    },
     R::AbandonCommit {
+      repo: repo(),
+      workspace: "1".into(),
+      commit: "abc".into(),
+      idempotency_key: key(),
+    },
+    R::RevertCommit {
       repo: repo(),
       workspace: "1".into(),
       commit: "abc".into(),
@@ -1005,6 +1047,11 @@ fn every_typed_remote_request() -> Vec<crate::core::remote::TreqCommandRequest> 
       idempotency_key: key(),
     },
     R::GitFetch { repo: repo() },
+    R::PullWorkspace {
+      repo: repo(),
+      workspace: Some("1".into()),
+    },
+    R::GitRemoteInfo { repo: repo() },
     R::GitBookmarkTrack {
       repo: repo(),
       bookmark: "main".into(),
