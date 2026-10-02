@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import {
 	commitWorkspaceFile,
 	createTestRepo,
+	notifyWorkspaceChanged,
 	openRepo,
 	resolveWorkspacePath,
 	writeWorkspaceFile,
@@ -60,12 +61,13 @@ it("collapses the Committed section automatically after a commit", async () => {
 	);
 
 	await user.click(await screen.findByRole("tab", { name: /Changes/ }));
+	notifyWorkspaceChanged(workspace.id);
 	await screen.findAllByText("new-change.txt");
 	await screen.findAllByText("already-committed.txt");
 
 	const findCommittedToggle = () =>
 		screen
-			.getAllByRole("button", { name: "Committed" })
+			.getAllByRole("button", { name: /^Committed/ })
 			.find(
 				(button) =>
 					button.querySelector("svg.lucide-chevron-down") ||

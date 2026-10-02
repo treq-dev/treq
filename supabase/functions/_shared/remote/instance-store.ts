@@ -118,6 +118,9 @@ export async function completeOperation(
   if (error) throw new Error(`failed to complete operation: ${error.message}`);
 }
 
+// The owner's one live instance. Deleted rows are kept for history (a user
+// may have several) and are never returned, so after a delete the owner has
+// no instance and `ensure` creates a new row.
 export async function getInstanceForOwner(
   supabase: SupabaseClient,
   ownerUserId: string,
@@ -126,6 +129,7 @@ export async function getInstanceForOwner(
     .from("remote_instances")
     .select("*")
     .eq("owner_user_id", ownerUserId)
+    .neq("status", "deleted")
     .maybeSingle();
   if (error) throw new Error(`failed to read instance: ${error.message}`);
   return data as InstanceRow | null;

@@ -79,12 +79,16 @@ export function renewalDelayMs(
 }
 
 interface FunctionsErrorLike {
+  status?: number;
   context?: { status?: number };
   message?: string;
 }
 
+/** Reads the HTTP status from a `RemoteFunctionError` (what the
+ * control-plane client throws) or a raw supabase-js `FunctionsHttpError`. */
 function statusOf(error: unknown): number | undefined {
   const err = error as FunctionsErrorLike;
+  if (typeof err?.status === "number") return err.status;
   return typeof err?.context?.status === "number"
     ? err.context.status
     : undefined;
@@ -106,7 +110,12 @@ function messageOf(error: unknown): string {
 export function classifyRenewalError(error: unknown): "retry" | CutoffReason {
   const status = statusOf(error);
   if (status === 401) return "session_ended";
-  if (status === 404) return "instance_inaccessible";
+  if (status === 404) {
+    // "Key does not belong to this user": the key row is gone.
+    return messageOf(error).includes("key does not belong")
+      ? "key_revoked"
+      : "instance_inaccessible";
+  }
   if (status === 409) {
     return messageOf(error).includes("revoked")
       ? "key_revoked"

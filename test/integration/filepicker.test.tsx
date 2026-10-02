@@ -94,7 +94,8 @@ describe("FilePicker integration", () => {
     const input = await openFilePicker();
     await user.type(input, query);
 
-    await screen.findByText(expectedFile);
+    const picker = within(screen.getByTestId("modal"));
+    await picker.findByText(expectedFile);
   });
 });
 

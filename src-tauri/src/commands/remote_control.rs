@@ -205,6 +205,30 @@ pub async fn remote_force_cutoff(
   Ok(())
 }
 
+/// Cuts off every managed endpoint on sign-out (PRD "Hard cutoff on
+/// revocation or expiry": the Supabase session ended). Tears down pooled
+/// managed connections and their PTY sessions, emits `remote://cutoff` for
+/// each, and refuses new managed connections until the user signs in again.
+#[tauri::command]
+pub async fn remote_cut_off_managed(
+  app: tauri::AppHandle,
+  state: State<'_, RemoteExecState>,
+  pty_state: State<'_, crate::commands::remote_pty_commands::RemotePtyState>,
+) -> Result<(), String> {
+  let reason = CutoffReasonDto::SessionEnded;
+  for endpoint_id in state.0.cut_off_managed(reason.into()).await {
+    pty_state.0.close_all_for_endpoint(&endpoint_id).await;
+    let _ = app.emit(
+      REMOTE_CUTOFF_EVENT,
+      RemoteCutoffEvent {
+        endpoint_id,
+        reason,
+      },
+    );
+  }
+  Ok(())
+}
+
 /// Clears a previously forced cutoff after the user reauthenticates and a
 /// fresh certificate is issued through the normal registration and issuance
 /// flow (PRD "The user regains access only by reauthenticating and obtaining

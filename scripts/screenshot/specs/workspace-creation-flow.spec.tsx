@@ -118,11 +118,13 @@ it("captures the workspace creation flow from the home repo", async () => {
 
   await user.clear(branchInput);
   await user.type(branchInput, EXISTING_BRANCH);
-  await within(dialog).findByText("Branch already exists locally");
+  await within(dialog).findByText(
+    `A workspace for ${EXISTING_BRANCH} already exists`,
+  );
   await captureDocument(document, {
     name: "workspace-creation-flow-05-branch-exists",
     expectations: [
-      "Inside the stack card's new-workspace row, yellow text reads 'Branch already exists locally' under the input, with a yellow alert icon in the input.",
+      `Inside the stack card's new-workspace row, red text reads 'A workspace for ${EXISTING_BRANCH} already exists' under the input.`,
     ],
   });
 
@@ -131,7 +133,7 @@ it("captures the workspace creation flow from the home repo", async () => {
   await within(dialog).findByText("Stack a new Workspace");
   await waitFor(() =>
     expect(
-      within(dialog).queryByText("Branch already exists locally"),
+      within(dialog).queryByTestId("branch-name-error"),
     ).not.toBeInTheDocument(),
   );
   await user.click(submit);

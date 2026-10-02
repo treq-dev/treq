@@ -1,10 +1,20 @@
 import * as React from "react";
 import { it } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { createTestRepo, openRepo, writeRepoFile } from "../../../test/utils";
+import {
+	createTestRepo,
+	openRepo,
+	resolveWorkspacePath,
+	writeRepoFile,
+} from "../../../test/utils";
 import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
-import { createWorkspace, trustRepo } from "../../../src/lib/api";
+import {
+  createWorkspace,
+  getWorkspaces,
+  runWorkflowJob,
+  trustRepo,
+} from "../../../src/lib/api";
 import { captureDocument } from "../capture";
 
 const LOGGING_WORKFLOW = `
@@ -24,27 +34,26 @@ jobs:
 it("captures the OTel logs tab, chart, selection and templates menu", async () => {
 	const { repoPath } = createTestRepo(false);
 	openRepo(repoPath);
-	await createWorkspace(repoPath, "feat/logs");
+	const workspaceId = await createWorkspace(repoPath, "feat/logs");
 	await writeRepoFile(repoPath, ".treq/workflows/ci.yaml", LOGGING_WORKFLOW);
 	await trustRepo(repoPath);
+	// Seed log rows by running the check in the workspace. Checks run from a
+	// PR's Checks tab in the app; running one is setup here, not the subject.
+	const workspace = (await getWorkspaces(repoPath)).find(
+		(candidate) => candidate.id === workspaceId,
+	);
+	if (!workspace) throw new Error("feat/logs workspace not found");
+	await runWorkflowJob(
+		repoPath,
+		"ci.yaml",
+		"build",
+		workspaceId,
+		resolveWorkspacePath(repoPath, workspace.workspace_path),
+	);
 
 	const user = userEvent.setup();
 	render(<Dashboard />);
 
-	const sidebar = document.querySelector(
-		`.${CSS.escape("group/sidebar")}`,
-	) as HTMLElement;
-	await waitFor(() => {
-		if (within(sidebar).queryAllByText("feat/logs").length === 0) {
-			throw new Error("workspace not in sidebar yet");
-		}
-	});
-	await user.click(within(sidebar).getAllByText("feat/logs")[0]);
-	await user.click(await screen.findByRole("tab", { name: /^Checks/ }));
-	await user.click(await screen.findByRole("button", { name: /Run Build Job/i }));
-	await screen.findByTestId("run-history-item");
-
-	await user.click(within(sidebar).getAllByText(/^branch-/)[0]);
 	await user.click(await screen.findByRole("tab", { name: /^Logs/ }));
 	await screen.findByText("Compiling treq v0.1.3");
 	await screen.findByTestId("logs-timeseries-chart");

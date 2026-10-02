@@ -1280,6 +1280,56 @@ mod structured_errors {
   }
 }
 
+mod repo_arg_resolution {
+  use super::*;
+
+  fn parsed_repo(repo: &str) -> String {
+    match parse_remote_command_request(
+      "changes",
+      &remote_matches(&[("action", "list"), ("repo", repo)]),
+    )
+    .unwrap()
+    {
+      crate::core::remote::TreqCommandRequest::ListChanges { repo, .. } => repo,
+      other => panic!("unexpected request {other:?}"),
+    }
+  }
+
+  #[test]
+  fn a_workspace_path_resolves_to_its_home_repo() {
+    assert_eq!(parsed_repo("/srv/r/.treq/workspaces/feat-a"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/r/.treq/workspaces/feat-a/src"), "/srv/r");
+  }
+
+  #[test]
+  fn repo_paths_are_absolute_without_dots_or_trailing_slashes() {
+    assert_eq!(parsed_repo("/srv/r"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/r/"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/./x/../r"), "/srv/r");
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(parsed_repo("."), cwd.to_str().unwrap());
+  }
+
+  #[test]
+  fn a_clone_destination_inside_a_workspace_is_kept() {
+    let request = parse_remote_command_request(
+      "repo",
+      &remote_matches(&[
+        ("action", "clone"),
+        ("repo", "/srv/r/.treq/workspaces/feat-a/vendor/"),
+        ("value", "git@ex:x.git"),
+        ("idempotency-key", "k1"),
+      ]),
+    )
+    .unwrap();
+    assert!(matches!(
+      request,
+      crate::core::remote::TreqCommandRequest::CloneRepo { destination, .. }
+        if destination == "/srv/r/.treq/workspaces/feat-a/vendor"
+    ));
+  }
+}
+
 mod help_text {
   use super::*;
   use crate::cli::args::subcommand_help;

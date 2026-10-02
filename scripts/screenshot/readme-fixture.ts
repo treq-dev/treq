@@ -5,11 +5,6 @@
  *
  * Builds a lorem-ipsum event-bus repo: stacked workspaces with GitHub PRs,
  * mixed CI, nested directories, and a real conflict under packages/web.
- *
- * Avoid committing on the home repo before creating workspaces — that can leave
- * the default-branch bookmark conflicted, and Review then fails to resolve the
- * target revset (see JJ "Name … is conflicted" toast). Seed files are committed
- * on main first, then workspaces are created from that clean bookmark.
  */
 import path from "node:path";
 import {
@@ -279,12 +274,17 @@ export async function seedReadmeMarketingRepo(): Promise<MarketingFixture> {
   );
 
   // Diverge the parent after the child forked so rebase produces a real
-  // conflict under packages/web/src/pages.
-  await commitWorkspaceFile(
-    repoPath,
-    { id: parent.id, path: parent.workspace_path },
+  // conflict under packages/web/src/pages. Both sides rewrite the same lines
+  // of Home.tsx, so the file is overwritten here, not appended to.
+  writeWorkspaceFile(
+    resolveWorkspacePath(repoPath, parent.workspace_path),
     "packages/web/src/pages/Home.tsx",
     HOME_PARENT_LATER,
+    false,
+  );
+  await createCommit(
+    repoPath,
+    parent.id,
     "fix: clarify home copy for ingest owners",
   );
   await checkAndRebaseWorkspaces(

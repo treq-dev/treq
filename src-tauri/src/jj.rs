@@ -537,34 +537,37 @@ fn evaluate_revset<'a>(
     .map_err(|e| JjError::IoError(format!("Failed to evaluate revset '{}': {}", revset_str, e)))
 }
 
+/// Snapshots the working copy into its working-copy commit, as the jj CLI
+/// does before every command, and returns that commit and its tree.
+/// `loaded.repo` moves to the snapshot operation when the tree changed.
+///
+/// The saved working-copy state and the commit must advance together. Saving
+/// the snapshotted state while the commit keeps its older tree makes the
+/// working copy look stale after the next operation that does not touch it
+/// (a HEAD or refs import), and stale recovery then checks out the older tree
+/// and deletes every file only the snapshot had seen.
 fn snapshot_working_copy_tree(
   loaded: &mut LoadedWorkspaceRepo,
   workspace_path: &str,
 ) -> Result<Option<(jj_lib::backend::CommitId, MergedTree)>, JjError> {
-  let workspace_name = loaded.workspace.workspace_name().to_owned();
+  let ignore_root =
+    derive_repo_path_from_workspace(workspace_path).unwrap_or_else(|| workspace_path.to_string());
+  snapshot_loaded_working_copy_inner(loaded, &ignore_root)?;
+
   let Some(wc_commit_id) = loaded
     .repo
     .view()
-    .get_wc_commit_id(&workspace_name)
+    .get_wc_commit_id(loaded.workspace.workspace_name())
     .cloned()
   else {
     return Ok(None);
   };
-
-  let ignore_root =
-    derive_repo_path_from_workspace(workspace_path).unwrap_or_else(|| workspace_path.to_string());
-  let matcher = repo_root_matcher();
-  let opts = snapshot_options_for_all_paths(&ignore_root, &matcher);
-  let mut locked_ws = loaded
-    .workspace
-    .start_working_copy_mutation()
-    .map_err(|e| JjError::IoError(format!("Failed to lock working copy: {}", e)))?;
-  let (tree, _stats) = block_on(locked_ws.locked_wc().snapshot(&opts))
-    .map_err(|e| JjError::IoError(format!("Failed to snapshot working copy: {}", e)))?;
-  block_on(locked_ws.finish(loaded.repo.op_id().clone()))
-    .map_err(|e| JjError::IoError(format!("Failed to finish working copy snapshot: {}", e)))?;
-
-  Ok(Some((wc_commit_id, tree)))
+  let wc_commit = loaded
+    .repo
+    .store()
+    .get_commit(&wc_commit_id)
+    .map_err(|e| JjError::IoError(format!("Failed to load working-copy commit: {e}")))?;
+  Ok(Some((wc_commit_id, wc_commit.tree())))
 }
 
 fn count_lines(content: &[u8]) -> u32 {
@@ -5007,18 +5010,17 @@ pub fn jj_commit(workspace_path: &str, message: &str) -> Result<String, JjError>
     resolve_home_repo_branch(workspace_path)?
   };
 
-  let settings_path = repo_path_opt.as_deref().unwrap_or(workspace_path);
-  let settings = create_user_settings(settings_path)?;
-  let mut workspace = Workspace::load(
-    &settings,
-    Path::new(workspace_path),
-    &StoreFactories::default(),
-    &default_working_copy_factories(),
-  )
-  .map_err(|e| JjError::IoError(format!("Failed to load workspace: {}", e)))?;
-
-  let mut repo = block_on(workspace.repo_loader().load_at_head())
-    .map_err(|e| JjError::IoError(format!("Failed to load repo: {}", e)))?;
+  // Import git refs first, as jj does at the start of every command in a colocated
+  // repo. If jj's record of a git ref is stale (never imported, or moved by git),
+  // the export after this commit is refused and the next import conflicts the bookmark.
+  let mut loaded = load_workspace_repo(workspace_path)?;
+  import_remaining_git_refs(&mut loaded)?;
+  let LoadedWorkspaceRepo {
+    settings,
+    mut workspace,
+    mut repo,
+    ..
+  } = loaded;
 
   let workspace_name: WorkspaceNameBuf = workspace.workspace_name().to_owned();
 
@@ -5432,7 +5434,6 @@ pub fn jj_split(
   };
   let mut loaded = load_workspace_repo_for_history_edit(workspace_path)?;
   let workspace_name = loaded.workspace.workspace_name().to_owned();
-  let old_wc_commit = get_workspace_wc_commit(&loaded)?;
 
   let (wc_commit_id, current_tree) =
     if let Some((wc_id, tree)) = snapshot_working_copy_tree(&mut loaded, workspace_path)? {
@@ -5466,13 +5467,19 @@ pub fn jj_split(
       .diff_stream(&current_tree, &diff_matcher)
       .collect::<Vec<_>>(),
   );
+  let mut matched = vec![false; file_paths.len()];
   for entry in diff_entries {
     let path_str = entry.path.as_internal_file_string().to_string();
-    let selected = file_paths.iter().any(|p| {
-      path_str == *p
+    let mut selected = false;
+    for (p, hit) in file_paths.iter().zip(matched.iter_mut()) {
+      if path_str == *p
         || path_str.starts_with(&format!("{}/", p.trim_end_matches('/')))
         || p.starts_with(&format!("{}/", path_str))
-    });
+      {
+        *hit = true;
+        selected = true;
+      }
+    }
     if !selected {
       continue;
     }
@@ -5480,6 +5487,12 @@ pub fn jj_split(
       .values
       .map_err(|e| JjError::IoError(format!("Failed to read split diff entry: {}", e)))?;
     selected_tree_builder.set_or_remove(entry.path, values.after);
+  }
+  if let Some((missing, _)) = file_paths.iter().zip(&matched).find(|(_, hit)| !**hit) {
+    return Err(JjError::IoError(format!(
+      "invalid_arguments: '{}' has no changes in the working copy",
+      missing
+    )));
   }
   let selected_tree = block_on(selected_tree_builder.write_tree())
     .map_err(|e| JjError::IoError(format!("Failed to write selected split tree: {}", e)))?;
@@ -5490,9 +5503,11 @@ pub fn jj_split(
   first_builder.set_description(message);
   let first_commit = block_on(first_builder.write(tx.repo_mut()))
     .map_err(|e| JjError::IoError(format!("Failed to write selected split commit: {}", e)))?;
+  // Like `jj split`: the first half keeps the change id; the remainder gets a new one.
   let mut second_builder = tx.repo_mut().rewrite_commit(&wc_commit).detach();
   second_builder.set_parents(vec![first_commit.id().clone()]);
   second_builder.set_tree(current_tree);
+  second_builder.generate_new_change_id();
   let second_commit = block_on(second_builder.write(tx.repo_mut()))
     .map_err(|e| JjError::IoError(format!("Failed to write remaining split commit: {}", e)))?;
 
@@ -5522,12 +5537,8 @@ pub fn jj_split(
   let _ = git::export_refs(tx.repo_mut());
   let new_repo = block_on(tx.commit("split working copy"))
     .map_err(|e| JjError::IoError(format!("Failed to commit split transaction: {}", e)))?;
-  update_workspace_after_history_edit(
-    &mut loaded,
-    &new_repo,
-    old_wc_commit.as_ref(),
-    CheckoutMode::Immediate,
-  )?;
+  // No old tree: the snapshot already moved tree_state, so a check would hit ConcurrentCheckout.
+  update_workspace_after_history_edit(&mut loaded, &new_repo, None, CheckoutMode::Immediate)?;
 
   // Set the bookmark to point at @- (critical - same as jj_commit)
   jj_set_bookmark(workspace_path, &branch, "@-")
@@ -9356,6 +9367,35 @@ mod tests {
     assert_eq!(
       read_git_head_branch(repo_path).expect("read HEAD"),
       "feature"
+    );
+  }
+
+  #[test]
+  fn snapshot_read_keeps_new_files_when_a_later_operation_marks_the_working_copy_stale() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    jj_git_init_colocated(repo_path).expect("init colocated repo");
+    fs::write(temp.path().join(".gitignore"), ".jj/\n.treq/\n").expect("write gitignore");
+
+    // Reads such as jj_get_log and get_conflicted_files snapshot this way.
+    let mut loaded = load_workspace_repo(repo_path).expect("load repo");
+    snapshot_working_copy_tree(&mut loaded, repo_path).expect("snapshot");
+
+    // A later operation that leaves the working copy alone, like the HEAD and
+    // refs imports those reads run.
+    let loaded = load_workspace_repo(repo_path).expect("reload repo");
+    let root_id = loaded.repo.store().root_commit_id().clone();
+    let mut tx = loaded.repo.start_transaction();
+    tx.repo_mut()
+      .set_local_bookmark_target(RefName::new("marker"), RefTarget::normal(root_id));
+    block_on(tx.commit("unrelated operation")).expect("commit operation");
+
+    // The stale-working-copy recovery get_conflicted_files runs.
+    update_stale_workspace(repo_path).expect("update stale working copy");
+
+    assert!(
+      temp.path().join(".gitignore").exists(),
+      "stale recovery after a snapshot read must not delete a new file"
     );
   }
 

@@ -5,9 +5,10 @@ import { listen } from "@tauri-apps/api/event";
 import {
   createTestRepo,
   findSidebarBranchElement,
+  findSidebarWorkspaceRow,
   openRepo,
 } from "../../../test/utils";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import { createWorkspace } from "../../../src/lib/api";
 import { TREQ_SEND_EVENT } from "../../../src/lib/treqSend";
@@ -62,7 +63,7 @@ it("captures treq send attachment thumbs and lightbox carousel previews", async 
   await user.click(await findSidebarBranchElement("feat/treq-send"));
   await screen.findByTestId("workspace-terminal-pane");
   await user.click(
-    await screen.findByRole("button", { name: "New shell terminal" }),
+    within(await findSidebarWorkspaceRow("feat/treq-send")).getByRole("button", { name: "Open shell" }),
   );
 
   await waitFor(() => {

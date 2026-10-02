@@ -276,6 +276,24 @@ fn require_idempotency_key(key: Option<String>) -> Result<String, String> {
     .ok_or_else(|| "invalid_arguments: --idempotency-key is required".to_string())
 }
 
+/// `--repo` as an absolute path with `.`, `..` and trailing slashes resolved
+/// lexically. Symlinks are kept, so an already-absolute path, and the DB keys
+/// stored under it, stay as they are.
+fn absolute_repo_arg(repo: &str) -> String {
+  let absolute = std::path::absolute(repo).unwrap_or_else(|_| repo.into());
+  let mut normalized = std::path::PathBuf::new();
+  for component in absolute.components() {
+    match component {
+      std::path::Component::CurDir => {}
+      std::path::Component::ParentDir => {
+        normalized.pop();
+      }
+      other => normalized.push(other),
+    }
+  }
+  normalized.to_string_lossy().to_string()
+}
+
 pub(crate) fn parse_remote_command_request(
   command: &str,
   matches: &Matches,
@@ -283,7 +301,14 @@ pub(crate) fn parse_remote_command_request(
   use crate::core::remote::{FileRevision, TreqCommandRequest};
   let action =
     get_arg_value(matches, "action").ok_or_else(|| format!("{command} action is required"))?;
-  let repo = get_arg_value(matches, "repo").ok_or_else(|| "--repo is required".to_string())?;
+  let repo = absolute_repo_arg(
+    &get_arg_value(matches, "repo").ok_or_else(|| "--repo is required".to_string())?,
+  );
+  // A workspace path means its home repo (no stray local.db in the workspace).
+  let repo = match (command, action.as_str()) {
+    ("repo", "init" | "clone" | "usage") => repo,
+    _ => crate::jj::derive_repo_path_from_workspace(&repo).unwrap_or(repo),
+  };
   let workspace = get_arg_value(matches, "workspace");
   let path = get_arg_value(matches, "path");
   let target = get_arg_value(matches, "target");
