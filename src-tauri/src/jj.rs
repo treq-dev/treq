@@ -1478,9 +1478,14 @@ fn is_interrupted_workspace_init(
   name: &str,
   workspace_dir: &Path,
 ) -> Result<bool, JjError> {
-  let only_jj = fs::read_dir(workspace_dir)
-    .map(|entries| entries.flatten().all(|entry| entry.file_name() == ".jj"))
-    .unwrap_or(true);
+  let only_jj = match fs::read_dir(workspace_dir) {
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+    entries => entries
+      .and_then(|entries| entries.collect::<std::io::Result<Vec<_>>>())
+      .map_err(|e| JjError::IoError(format!("Failed to read workspace dir: {}", e)))?
+      .iter()
+      .all(|entry| entry.file_name() == ".jj"),
+  };
   if !only_jj {
     return Ok(false);
   }
@@ -9081,6 +9086,15 @@ mod tests {
       .status()
       .expect("git init should run");
     assert!(status.success(), "git init should succeed");
+  }
+
+  #[test]
+  fn interrupted_workspace_check_fails_closed_on_unreadable_dir() {
+    let temp = TempDir::new().expect("tempdir");
+    init_jj_repo(&temp);
+    let not_a_dir = temp.path().join(".git").join("HEAD");
+    let repo = temp.path().to_str().expect("utf8");
+    assert!(is_interrupted_workspace_init(repo, "x", &not_a_dir).is_err());
   }
 
   fn init_jj_repo(temp: &TempDir) {

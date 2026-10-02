@@ -773,9 +773,7 @@ pub fn create_workspace_with_symlinked_dirs(
   };
 
   let new_branch: bool = !branch_exists || resolved_source_branch.as_deref() == Some(&remote_ref);
-  let prior_bookmark = branch_exists
-    .then(|| jj::jj_get_commit_id(repo_path, branch_name).ok())
-    .flatten();
+  let prior_bookmark = branch_exists.then(|| jj::jj_get_commit_id(repo_path, branch_name));
   let workspace_name = jj::create_workspace(
     repo_path,
     branch_name,
@@ -931,10 +929,10 @@ pub fn create_workspace_with_symlinked_dirs(
 
   if result.is_err() {
     // jj::create_workspace pointed the bookmark at the new working copy; put it back.
-    let restored = match (branch_exists, &prior_bookmark) {
-      (false, _) => jj::jj_delete_bookmark(repo_path, branch_name),
-      (true, Some(commit)) => jj::jj_set_bookmark(repo_path, branch_name, commit),
-      (true, None) => Ok(()),
+    let restored = match prior_bookmark {
+      None => jj::jj_delete_bookmark(repo_path, branch_name),
+      Some(Ok(commit)) => jj::jj_set_bookmark(repo_path, branch_name, &commit),
+      Some(Err(e)) => Err(e),
     };
     if let Err(e) = restored {
       tracing::warn!(
@@ -1823,6 +1821,40 @@ mod tests {
       crate::jj::jj_get_commit_id(&repo_path, "fix/existing").expect("bookmark kept"),
       before
     );
+  }
+
+  #[test]
+  fn create_workspace_rollback_warns_when_conflicted_bookmark_cannot_be_restored() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    fs::write(temp.path().join("tracked.txt"), "tracked").expect("write tracked file");
+    for args in [
+      vec!["commit", "-m", "add tracked file"],
+      vec!["bookmark", "set", "fix/conflicted", "-r", "@-"],
+      vec!["bookmark", "set", "fix/conflicted", "-r", "@"],
+      vec!["--at-op", "@-", "bookmark", "forget", "fix/conflicted"],
+    ] {
+      let status = Command::new("jj")
+        .current_dir(temp.path())
+        .args(&args)
+        .status();
+      assert!(status.expect("jj").success(), "jj {:?}", args);
+    }
+    let log = std::sync::Arc::new(fs::File::create(temp.path().join("log")).expect("log"));
+    let _g = tracing::subscriber::set_default(tracing_subscriber::fmt().with_writer(log).finish());
+    super::create_workspace_with_symlinked_dirs(
+      &repo_path,
+      "fix/conflicted",
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(vec!["tracked.txt".to_string()]),
+    )
+    .expect_err("symlink over a tracked file must fail");
+    let log = fs::read_to_string(temp.path().join("log")).expect("read log");
+    assert!(log.contains("restore bookmark fix/conflicted"), "{log}");
   }
 
   #[test]
