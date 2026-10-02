@@ -4152,8 +4152,25 @@ pub fn commit_workspace_with_auto_push<T>(
 where
   T: Into<Option<i64>>,
 {
-  let workspace_id = workspace_id.into();
-  let result = commit_workspace(repo_path, workspace_id, message)?;
+  commit_with_auto_push(repo_path, workspace_id.into(), message, false)
+}
+
+/// `commit_workspace_changes` followed by the auto-push.
+pub fn commit_workspace_changes_with_auto_push(
+  repo_path: &str,
+  workspace_id: Option<i64>,
+  message: &str,
+) -> Result<String, String> {
+  commit_with_auto_push(repo_path, workspace_id, message, true)
+}
+
+fn commit_with_auto_push(
+  repo_path: &str,
+  workspace_id: Option<i64>,
+  message: &str,
+  require_changes: bool,
+) -> Result<String, String> {
+  let result = commit_workspace_locked(repo_path, workspace_id, message, require_changes)?;
 
   if resolve_auto_push(repo_path) {
     push_workspace_to_remote(repo_path, workspace_id)?;
@@ -4161,6 +4178,9 @@ where
 
   Ok(result)
 }
+
+/// Error from a `require_changes` commit whose working copy has no changes.
+pub const NOTHING_TO_COMMIT: &str = "nothing to commit in the working copy";
 
 pub fn commit_workspace<T>(
   repo_path: &str,
@@ -4170,7 +4190,25 @@ pub fn commit_workspace<T>(
 where
   T: Into<Option<i64>>,
 {
-  let workspace_id = workspace_id.into();
+  commit_workspace_locked(repo_path, workspace_id.into(), message, false)
+}
+
+/// Like `commit_workspace`, but fails with `NOTHING_TO_COMMIT` when the working
+/// copy is clean.
+pub fn commit_workspace_changes(
+  repo_path: &str,
+  workspace_id: Option<i64>,
+  message: &str,
+) -> Result<String, String> {
+  commit_workspace_locked(repo_path, workspace_id, message, true)
+}
+
+fn commit_workspace_locked(
+  repo_path: &str,
+  workspace_id: Option<i64>,
+  message: &str,
+  require_changes: bool,
+) -> Result<String, String> {
   let repo_commit_lock = commit_lock_for_repo(repo_path);
   let _repo_commit_guard = repo_commit_lock.lock_or_recover();
   let workspace_root = resolve_workspace_root(repo_path, workspace_id)?;
@@ -4190,6 +4228,15 @@ where
     (branch, target_branch)
   };
 
+  // Checked under the commit lock: a check made before it races with a
+  // concurrent commit that empties the working copy first.
+  if require_changes
+    && jj::jj_get_changed_files(&workspace_root)
+      .map_err(|e| format!("Failed to list changed files: {}", e))?
+      .is_empty()
+  {
+    return Err(NOTHING_TO_COMMIT.to_string());
+  }
   let result = jj::jj_commit(&workspace_root, message)
     .map_err(|e| format!("Failed to create commit: {}", e))?;
   // Check-pass autosaves are checkpoints. Fold them away once the user commits.

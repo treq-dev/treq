@@ -2157,12 +2157,13 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
           return Err("invalid_arguments: commit message must not be blank".to_string());
         }
         let id = workspace_id(workspace.as_ref())?;
-        if crate::core::list_changed_files(&repo, id)?.is_empty() {
-          return Err("invalid_arguments: nothing to commit in the working copy".to_string());
-        }
-        json(crate::core::workspaces::commit_workspace_with_auto_push(
-          &repo, id, &message,
-        ))
+        let committed =
+          crate::core::workspaces::commit_workspace_changes_with_auto_push(&repo, id, &message)
+            .map_err(|e| match e.as_str() {
+              crate::core::NOTHING_TO_COMMIT => format!("invalid_arguments: {e}"),
+              _ => e,
+            });
+        json(committed)
       },
     ),
     TreqCommandRequest::DescribeCommit {
@@ -3686,6 +3687,47 @@ mod tests {
       error.starts_with("invalid_arguments:") && error.contains("message"),
       "{error}"
     );
+  }
+
+  #[test]
+  fn concurrent_creates_commit_one_dirty_working_copy_once() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo = repo_dir.path().to_str().unwrap().to_string();
+    execute_local_request(TreqCommandRequest::InitRepo {
+      repo: repo.clone(),
+      idempotency_key: "init-1".into(),
+    })
+    .unwrap();
+    std::fs::write(repo_dir.path().join("a.txt"), "a\n").unwrap();
+
+    let start = std::sync::Barrier::new(5);
+    let results: Vec<_> = std::thread::scope(|scope| {
+      let handles: Vec<_> = (0..5)
+        .map(|i| {
+          let (repo, start) = (repo.clone(), &start);
+          scope.spawn(move || {
+            start.wait();
+            execute_local_request(TreqCommandRequest::CreateCommit {
+              repo,
+              workspace: None,
+              message: format!("parallel {i}"),
+              base_change_id: None,
+              idempotency_key: format!("par-{i}"),
+            })
+          })
+        })
+        .collect();
+      handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    assert_eq!(
+      results.iter().filter(|r| r.is_ok()).count(),
+      1,
+      "{results:?}"
+    );
+    for error in results.iter().filter_map(|r| r.as_ref().err()) {
+      assert!(error.contains("nothing to commit"), "{error}");
+    }
   }
 
   #[test]
