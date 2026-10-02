@@ -28,6 +28,12 @@ function FilterSelect({
   options: { label: string; value: string }[];
   onChange: (value: string) => void;
 }) {
+  // Keep a selection the loaded PRs no longer have (e.g. after switching
+  // state), so the select still shows the filter that is hiding the list.
+  const shown =
+    value && !options.some((o) => o.value === value)
+      ? [...options, { label: value, value }]
+      : options;
   return (
     <div className="flex flex-col gap-1 min-w-0">
       <span className="text-sm text-muted-foreground">{label}</span>
@@ -38,7 +44,7 @@ function FilterSelect({
         className="h-8 w-full min-w-0 rounded-sm border border-input bg-background px-2 text-base"
       >
         <option value="">Any</option>
-        {options.map((o) => (
+        {shown.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
           </option>

@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
   ghCreatePr: vi.fn(),
   pushWorkspaceToRemote: vi.fn(),
   listCachedPrStatuses: vi.fn(),
+  getRepoDefaultBranch: vi.fn(),
 }));
 
 vi.mock("../../src/hooks/useMergeQueueStatus", () => ({
@@ -32,13 +33,18 @@ vi.mock("../../src/hooks/useMergeQueueStatus", () => ({
   useMergeQueueEnabled: () => ({ data: false, isLoading: false }),
   useDequeueBranches: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock("../../src/lib/api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/api")>()),
-  ghListPrs: api.ghListPrs,
-  getWorkspaces: api.getWorkspaces,
-  ghCreatePr: api.ghCreatePr,
-  pushWorkspaceToRemote: api.pushWorkspaceToRemote,
-}));
+vi.mock("../../src/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/lib/api")>();
+  api.getRepoDefaultBranch.mockImplementation(actual.getRepoDefaultBranch);
+  return {
+    ...actual,
+    ghListPrs: api.ghListPrs,
+    getWorkspaces: api.getWorkspaces,
+    ghCreatePr: api.ghCreatePr,
+    pushWorkspaceToRemote: api.pushWorkspaceToRemote,
+    getRepoDefaultBranch: api.getRepoDefaultBranch,
+  };
+});
 vi.mock("../../src/lib/api-pr-status", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api-pr-status")>()),
   listCachedPrStatuses: api.listCachedPrStatuses,
@@ -171,6 +177,32 @@ describe("GitHubPanel pull request list", () => {
     expect(screen.getByText("Bob bug")).toBeVisible();
   });
 
+  it("keeps showing a selected filter value no loaded pull request has", async () => {
+    api.ghListPrs.mockImplementation(async (_repo: string, state: string) => ({
+      items:
+        state === "closed"
+          ? [makePr(2, "Alice closed")]
+          : [{ ...makePr(1, "Bob open"), author: { login: "bob" } }],
+      hasMore: false,
+    }));
+
+    render(<GitHubPanel repoPath="/tmp/repo" />);
+    await screen.findByText("Bob open");
+    await user.click(screen.getByRole("button", { name: /^filters/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Author" }),
+      "bob",
+    );
+    await user.click(screen.getByRole("button", { name: /^filters/i }));
+
+    await user.click(screen.getByRole("button", { name: "Closed" }));
+    expect(
+      await screen.findByText("No loaded pull requests match the filters."),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /^filters/i }));
+    expect(screen.getByRole("combobox", { name: "Author" })).toHaveValue("bob");
+  });
+
   it("filters pull requests by stack level", async () => {
     api.ghListPrs.mockResolvedValue({
       items: [
@@ -263,6 +295,37 @@ describe("GitHubPanel pull request list", () => {
     expect(api.pushWorkspaceToRemote).toHaveBeenCalledWith("/tmp/repo", 3);
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("fills a workspace's base once the repo default branch loads", async () => {
+    let resolveDefaultBranch!: (branch: string) => void;
+    api.getRepoDefaultBranch.mockImplementationOnce(
+      () => new Promise<string>((resolve) => (resolveDefaultBranch = resolve)),
+    );
+    api.getWorkspaces.mockResolvedValue([
+      {
+        id: 3,
+        repo_path: "/tmp/repo",
+        workspace_name: "feat/no-pr",
+        workspace_path: "/tmp/ws/3",
+        branch_name: "feat/no-pr",
+        created_at: "2026-01-01T00:00:00Z",
+        target_branch: null,
+        title: "No PR yet",
+      },
+    ]);
+
+    render(<GitHubPanel repoPath="/tmp/repo" />);
+    await user.click(screen.getByRole("button", { name: /new/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      await within(dialog).findByRole("radio", { name: /no pr yet/i }),
+    );
+
+    resolveDefaultBranch("trunk");
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText("Base branch")).toHaveValue("trunk"),
     );
   });
 

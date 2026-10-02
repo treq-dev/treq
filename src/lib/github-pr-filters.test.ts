@@ -47,6 +47,15 @@ describe("prStackLevels", () => {
     expect(levels.get(4)).toBe(1);
   });
 
+  it("does not stack PRs on a fork PR opened from the base branch", () => {
+    const levels = prStackLevels([
+      pr(1, { head_ref_name: "main", base_ref_name: "main" }),
+      pr(2, { head_ref_name: "a", base_ref_name: "main" }),
+    ]);
+    expect(levels.get(1)).toBe(1);
+    expect(levels.get(2)).toBe(1);
+  });
+
   it("terminates on a cycle", () => {
     const levels = prStackLevels([
       pr(1, { head_ref_name: "a", base_ref_name: "b" }),

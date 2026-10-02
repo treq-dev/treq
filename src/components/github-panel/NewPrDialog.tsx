@@ -3,6 +3,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { useCreateWorkspacePr } from "../../hooks/useCreateWorkspacePr";
 import { cachedPrStatusesKey } from "../../hooks/useMergeQueueStatus";
+import { useRepositoryCacheKey } from "../../lib/active-repository-context";
 import {
   getRepoDefaultBranch,
   getWorkspaces,
@@ -53,7 +54,8 @@ export function NewPrDialog(props: NewPrDialogProps) {
 
 /** Workspaces that can take a new PR: not archived, not the default branch, no open PR. */
 function useWorkspacesWithoutOpenPr(repoPath: string) {
-  const { data: workspaces } = useSWR(["gh-new-pr-workspaces", repoPath], () =>
+  const repoCacheKey = useRepositoryCacheKey(repoPath);
+  const { data: workspaces } = useSWR(["workspaces", repoCacheKey], () =>
     getWorkspaces(repoPath),
   );
   const { data: prStatuses } = useSWR(cachedPrStatusesKey(repoPath), () =>
@@ -169,7 +171,10 @@ function WorkspacePrFields({
     deriveConventionalPrTitle(workspace.title ?? "", workspace.branch_name),
   );
   const [body, setBody] = useState(workspace.description ?? "");
-  const [base, setBase] = useState(defaultBase);
+  // null until the user edits it, so the field follows the repo's default
+  // branch if that loads after the workspace is picked.
+  const [editedBase, setEditedBase] = useState<string | null>(null);
+  const base = editedBase ?? defaultBase;
   const [prType, setPrType] = useState<PrType>("ready");
   const { createPr, isPending } = useCreateWorkspacePr(repoPath, workspace.id);
 
@@ -201,7 +206,7 @@ function WorkspacePrFields({
         placeholder="Base branch"
         aria-label="Base branch"
         value={base}
-        onChange={(e) => setBase(e.target.value)}
+        onChange={(e) => setEditedBase(e.target.value)}
         className="text-base font-mono"
       />
       <Textarea

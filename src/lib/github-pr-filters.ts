@@ -31,7 +31,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Stack level per PR: 1 at the bottom, +1 for each listed PR below it. */
 export function prStackLevels(prs: GhPullRequest[]): Map<number, number> {
   const byHead = new Map<string, GhPullRequest>();
-  for (const pr of prs) byHead.set(pr.head_ref_name, pr);
+  for (const pr of prs) {
+    // A fork PR from its own `main` into `main` is not a stack parent of
+    // every other PR into `main`.
+    if (pr.head_ref_name !== pr.base_ref_name) byHead.set(pr.head_ref_name, pr);
+  }
   const levels = new Map<number, number>();
   for (const pr of prs) {
     const seen = new Set<number>();
