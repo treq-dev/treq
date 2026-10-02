@@ -221,6 +221,16 @@ jobs:
           jj --version
           gh --version
 
+      # Integration suite time varies about 1.8x between hosted runners for
+      # the same commit. Log the hardware so a slow run can be told apart
+      # from a code regression.
+      - name: Runner hardware
+        if: matrix.task == 'test:integration'
+        run: |
+          nproc
+          grep -m1 'model name' /proc/cpuinfo || true
+          free -m
+
       - name: Install dependencies
         run: npm ci
 

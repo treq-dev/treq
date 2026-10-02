@@ -12,8 +12,9 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { create } from "zustand";
-import { remoteClearCutoff } from "../lib/api-extra";
+import { remoteClearCutoff, remoteCutOffManaged } from "../lib/api-extra";
 import type { CutoffReason } from "../lib/remote-cert-lifecycle";
+import { supabase } from "../lib/supabase";
 
 export const REMOTE_CUTOFF_EVENT = "remote://cutoff";
 
@@ -43,6 +44,21 @@ interface RemoteCutoffState {
   clearCutoff: (endpointId: string) => Promise<void>;
 }
 
+let signOutWatch: { unsubscribe: () => void } | null = null;
+
+/** A session that ends without `authStore.signOut` (expired refresh token,
+ * sign-out in another tab) still cuts off managed endpoints. The Rust side
+ * emits `remote://cutoff` for each, which this store records. */
+function watchSignOut() {
+  if (signOutWatch) return;
+  signOutWatch = supabase.auth.onAuthStateChange((event) => {
+    if (event !== "SIGNED_OUT") return;
+    void Promise.resolve()
+      .then(remoteCutOffManaged)
+      .catch(() => undefined);
+  }).data.subscription;
+}
+
 export const useRemoteCutoffStore = create<RemoteCutoffState>((set, get) => {
   const handleCutoffEvent = (event: { payload: RemoteCutoffEventPayload }) => {
     set((state) => ({
@@ -66,6 +82,7 @@ export const useRemoteCutoffStore = create<RemoteCutoffState>((set, get) => {
     unlisten: null,
     starting: null,
     startListening: async () => {
+      watchSignOut();
       if (get().unlisten) return;
       const inFlight = get().starting;
       if (inFlight) return inFlight;
@@ -76,6 +93,8 @@ export const useRemoteCutoffStore = create<RemoteCutoffState>((set, get) => {
     },
     stopListening: () => {
       get().unlisten?.();
+      signOutWatch?.unsubscribe();
+      signOutWatch = null;
       set({ unlisten: null, starting: null });
     },
     recordCutoff: (endpointId, reason) => {

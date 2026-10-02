@@ -6,12 +6,13 @@ import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
 	createTestRepo,
+	getOriginUrl,
 	findSidebarBranchElement,
 	openRepo,
 	resolveWorkspacePath,
 	writeWorkspaceFile,
 } from "../../../test/utils";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { act, render, screen, waitFor } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import {
 	createCommit,
@@ -19,19 +20,21 @@ import {
 	getWorkspaces,
 	pushWorkspaceToRemote,
 } from "../../../src/lib/api";
+import { invalidateQueries } from "../../../src/lib/swr-cache";
 import { captureDocument } from "../capture";
 
 const BRANCH_NAME = "feat/sync-remote-conflict";
 
 /** Commit on a branch in the bare remote without touching the local repo. */
 function remoteCommitOnBranch(
+	repoPath: string,
 	tempDirPath: string,
 	branchName: string,
 	relativePath: string,
 	content: string,
 	message: string,
 ) {
-	const remotePath = path.join(tempDirPath, "remote.git");
+	const remotePath = getOriginUrl(repoPath);
 	const clonePath = path.join(tempDirPath, "remote_clone_branch");
 	if (fs.existsSync(clonePath)) {
 		fs.rmSync(clonePath, { recursive: true, force: true });
@@ -101,6 +104,7 @@ it("captures Sync completing while remote conflicts remain for local resolve", a
 	await createCommit(repoPath, workspaceId, "local edit");
 
 	remoteCommitOnBranch(
+		repoPath,
 		tempDirPath,
 		BRANCH_NAME,
 		"shared.txt",
@@ -116,8 +120,14 @@ it("captures Sync completing while remote conflicts remain for local resolve", a
 
 	// Opening the workspace fetches/auto-rebases divergent remote tips, which
 	// materializes same-file conflicts onto the bookmark for local resolve.
+	// The status queries pick that up on their next poll, which tests turn
+	// off, so revalidate them while waiting.
 	await waitFor(
-		() => {
+		async () => {
+			await act(async () => {
+				await invalidateQueries(["workspace-status"]);
+				await invalidateQueries(["workspace-statuses"]);
+			});
 			expect(screen.getByRole("alert")).toHaveTextContent(
 				/1 conflict detected/i,
 			);
@@ -125,7 +135,7 @@ it("captures Sync completing while remote conflicts remain for local resolve", a
 				screen.getByTestId(`workspace-conflict-indicator-${workspaceId}`),
 			).toBeInTheDocument();
 		},
-		{ timeout: 20000 },
+		{ timeout: 20000, interval: 1000 },
 	);
 
 	// Sync control remains available (ahead of remote after bookmark advance).
