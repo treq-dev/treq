@@ -37,12 +37,12 @@ process.env.TREQ_DISABLE_AUTO_REBASE = "1";
 // Skip startup auto-update curl checks (spawn_blocking contention under CI).
 process.env.TREQ_DISABLE_AUTO_UPDATE = "1";
 
-const testDbPath = path.join(
+// One app data dir (and so one app treq.db) per worker process.
+const testAppDataDir = path.join(
   os.tmpdir(),
-  `treq-integration-${process.pid}-${randomUUID()}.db`,
+  `treq-integration-${process.pid}-${randomUUID()}`,
 );
-process.env.TREQ_APP_DB_PATH = testDbPath;
-process.env.TREQ_APP_DATA_DIR = path.dirname(testDbPath);
+process.env.TREQ_APP_DATA_DIR = testAppDataDir;
 
 const require = createRequire(import.meta.url);
 const tauriTest = require("../src-tauri/target") as {
@@ -128,7 +128,7 @@ afterEach(() => {
 
 afterAll(() => {
   try {
-    if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+    fs.rmSync(testAppDataDir, { recursive: true, force: true });
   } catch {
     // ignore
   }

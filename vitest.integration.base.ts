@@ -12,7 +12,7 @@ export const integrationBaseTest: ViteUserConfig["test"] = {
   setupFiles: ["./test/setup.integration.ts"],
   globals: true,
   // Per-repo `local.db` lives under each `createTestRepo` temp dir. The
-  // app-level DB (`TREQ_APP_DB_PATH` / napi `OnceLock`) is process-global,
+  // app-level DB (`TREQ_APP_DATA_DIR` / napi `OnceLock`) is process-global,
   // so every project still needs one process per file ("forks", not
   // "threads") -- otherwise files sharing a worker process would share an
   // app.db.

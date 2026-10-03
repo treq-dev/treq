@@ -506,6 +506,7 @@ pub fn persist_app_index_setting(db: &crate::db::Database) -> Result<(), String>
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::core::AppDataDirGuard;
   use tempfile::TempDir;
 
   fn sample_files() -> Vec<(String, Vec<u8>)> {
@@ -545,22 +546,6 @@ mod tests {
           raw_url: Some("https://example.test/notes.txt".to_string()),
         },
       ],
-    }
-  }
-
-  /// Points this test thread's app data dir at `dir` until dropped.
-  struct AppDataDirGuard;
-
-  impl AppDataDirGuard {
-    fn set(dir: &Path) -> Self {
-      crate::core::TEST_APP_DATA_DIR.with(|d| *d.borrow_mut() = Some(dir.to_path_buf()));
-      Self
-    }
-  }
-
-  impl Drop for AppDataDirGuard {
-    fn drop(&mut self) {
-      crate::core::TEST_APP_DATA_DIR.with(|d| *d.borrow_mut() = None);
     }
   }
 

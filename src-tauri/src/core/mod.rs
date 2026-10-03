@@ -70,24 +70,19 @@ pub fn resolve_conflict_marker_style(db: &std::sync::Mutex<crate::db::Database>)
   resolve_conflict_marker_style_from_db(&db.lock_or_recover())
 }
 
+/// File name of the app database inside the app data dir.
+pub const APP_DB_FILE_NAME: &str = "treq.db";
+
+/// The app database inside the app data dir, falling back to `<repo>/.treq/treq.db`.
 pub fn resolve_app_db_path(repo_path: &str) -> PathBuf {
   resolve_app_db_path_with(repo_path, |key| std::env::var(key).ok())
 }
 
 /// `resolve_app_db_path` reading env vars through `env`, so tests need not mutate the process env.
 fn resolve_app_db_path_with(repo_path: &str, env: impl Fn(&str) -> Option<String>) -> PathBuf {
-  if let Some(explicit_db_path) = env("TREQ_APP_DB_PATH") {
-    let trimmed = explicit_db_path.trim();
-    if !trimmed.is_empty() {
-      return PathBuf::from(trimmed);
-    }
-  }
-
-  if let Some(app_data_dir) = app_data_dir_with(env) {
-    return app_data_dir.join("treq.db");
-  }
-
-  Path::new(repo_path).join(".treq").join("treq.db")
+  app_data_dir_with(env)
+    .unwrap_or_else(|| Path::new(repo_path).join(".treq"))
+    .join(APP_DB_FILE_NAME)
 }
 
 #[cfg(test)]
@@ -95,6 +90,25 @@ thread_local! {
   /// Per-thread app data dir for tests; the env var would leak across parallel tests.
   pub(crate) static TEST_APP_DATA_DIR: std::cell::RefCell<Option<PathBuf>> =
     const { std::cell::RefCell::new(None) };
+}
+
+/// Points this test thread's app data dir at `dir` until dropped.
+#[cfg(test)]
+pub(crate) struct AppDataDirGuard;
+
+#[cfg(test)]
+impl AppDataDirGuard {
+  pub(crate) fn set(dir: &Path) -> Self {
+    TEST_APP_DATA_DIR.with(|d| *d.borrow_mut() = Some(dir.to_path_buf()));
+    Self
+  }
+}
+
+#[cfg(test)]
+impl Drop for AppDataDirGuard {
+  fn drop(&mut self) {
+    TEST_APP_DATA_DIR.with(|d| *d.borrow_mut() = None);
+  }
 }
 
 /// The app data dir from `TREQ_APP_DATA_DIR`, or a test's per-thread override.
@@ -119,22 +133,16 @@ mod tests {
   use std::path::Path;
 
   #[test]
-  fn resolve_app_db_path_prefers_explicit_db_path() {
-    let env = |key: &str| match key {
-      "TREQ_APP_DB_PATH" => Some("/tmp/explicit-treq.db".to_string()),
-      "TREQ_APP_DATA_DIR" => Some("/tmp/ignored-dir".to_string()),
-      _ => None,
-    };
-
-    let resolved = resolve_app_db_path_with("/repo/path", env);
-    assert_eq!(resolved.to_string_lossy(), "/tmp/explicit-treq.db");
-  }
-
-  #[test]
-  fn resolve_app_db_path_falls_back_to_app_data_dir() {
+  fn resolve_app_db_path_uses_app_data_dir() {
     let env = |key: &str| (key == "TREQ_APP_DATA_DIR").then(|| "/tmp/app-data".to_string());
 
     let resolved = resolve_app_db_path_with("/repo/path", env);
     assert_eq!(resolved, Path::new("/tmp/app-data").join("treq.db"));
+  }
+
+  #[test]
+  fn resolve_app_db_path_falls_back_to_repo_dir() {
+    let resolved = resolve_app_db_path_with("/repo/path", |_| None);
+    assert_eq!(resolved, Path::new("/repo/path/.treq/treq.db"));
   }
 }
