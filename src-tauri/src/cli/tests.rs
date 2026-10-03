@@ -1172,6 +1172,15 @@ mod commit_outcomes {
   }
 
   #[test]
+  fn refuses_a_whitespace_only_message() {
+    let repo = TestRepo::new().unwrap();
+    let ws = repo.create_workspace_simple("feat/blank").unwrap();
+    TestRepo::write_workspace_file(&repo.workspace_full_path(&ws), "a.txt", "a\n").unwrap();
+    let err = commit_workspace_for_cli(&repo.repo_path, &ws, "   ", false).unwrap_err();
+    assert!(err.contains("message"), "{err}");
+  }
+
+  #[test]
   fn a_failed_push_says_the_commit_landed() {
     let repo = TestRepo::new().unwrap();
     let ws = repo.create_workspace_simple("feat/push").unwrap();
