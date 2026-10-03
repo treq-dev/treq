@@ -2679,6 +2679,26 @@ fn clone_repo_local(repo_url: &str, destination: &str) -> Result<RepositoryInspe
   let (mut checkout, _) = prepare
     .fetch_then_checkout(gix::progress::Discard, &interrupt)
     .map_err(|e| clone_err(&e))?;
+  // A remote HEAD naming a missing branch leaves nothing to check out. An
+  // empty remote (no branches at all) still clones, as `git clone` does.
+  let repo = checkout.repo();
+  let head = repo.head().map_err(|e| clone_err(&e))?;
+  let has_branches = repo
+    .references()
+    .map_err(|e| clone_err(&e))?
+    .prefixed("refs/remotes/")
+    .map_err(|e| clone_err(&e))?
+    .filter_map(Result::ok)
+    .any(|r| !r.name().as_bstr().ends_with(b"/HEAD"));
+  if head.is_unborn() && has_branches {
+    let branch = head
+      .referent_name()
+      .map(|name| name.shorten().to_string())
+      .unwrap_or_default();
+    return Err(format!(
+      "git_command_failed: remote HEAD points at branch '{branch}', which does not exist"
+    ));
+  }
   checkout
     .main_worktree(gix::progress::Discard, &interrupt)
     .map_err(|e| clone_err(&e))?;
@@ -3260,6 +3280,57 @@ mod tests {
       "main"
     );
     assert!(repo.find_remote("origin").is_ok());
+  }
+
+  #[test]
+  fn clone_repo_local_fails_when_remote_head_branch_is_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    for args in [
+      &["init", "-b", "main"][..],
+      &[
+        "-c",
+        "user.name=T",
+        "-c",
+        "user.email=t@e.x",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "init",
+      ],
+      &["symbolic-ref", "HEAD", "refs/heads/missing"],
+    ] {
+      let status = Command::new("git")
+        .current_dir(&source)
+        .args(args)
+        .status()
+        .unwrap();
+      assert!(status.success(), "git {args:?}");
+    }
+
+    let destination = dir.path().join("clone");
+    let error =
+      clone_repo_local(source.to_str().unwrap(), destination.to_str().unwrap()).unwrap_err();
+    assert!(error.contains("missing"), "{error}");
+    assert!(!destination.exists());
+  }
+
+  #[test]
+  fn clone_repo_local_clones_an_empty_remote() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    let status = Command::new("git")
+      .current_dir(&source)
+      .args(["init", "-b", "main"])
+      .status()
+      .unwrap();
+    assert!(status.success());
+
+    let destination = dir.path().join("clone");
+    clone_repo_local(source.to_str().unwrap(), destination.to_str().unwrap()).unwrap();
+    assert!(gix::open(&destination).is_ok());
   }
 
   #[test]
