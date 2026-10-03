@@ -18,7 +18,13 @@ import {
   ZOOM_STEP,
   useZoomSettingsStore,
 } from "../stores/zoomSettingsStore";
-import { getSetting, setSetting } from "../lib/api";
+import {
+  getAppSetupScriptStatus,
+  getSetting,
+  runAppSetupScript,
+  saveAppSetupScript,
+  setSetting,
+} from "../lib/api";
 import {
   AccountSettings,
   type CloudWorkspaceControls,
@@ -41,6 +47,7 @@ import { Slider } from "./ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { useToast } from "./ui/toast";
 import { AgentOptions } from "./AgentOptions";
+import { AppSetupScriptSettings } from "./AppSetupScriptSettings";
 
 type TabValue =
   | "application"
@@ -69,6 +76,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [conflictDraft, setConflictDraft] = useState<string | null>(null);
   const [fontDraft, setFontDraft] = useState<number | null>(null);
   const [zoomDraft, setZoomDraft] = useState<number | null>(null);
+  const [setupScriptDraft, setSetupScriptDraft] = useState<string | null>(null);
+  const [alwaysRunDraft, setAlwaysRunDraft] = useState<boolean | null>(null);
   const [savingRepository, setSavingRepository] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const repositorySettingsRef = useRef<RepositorySettingsContentHandle>(null);
@@ -104,6 +113,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     ["setting", "conflict_marker_style"],
     () => getSetting("conflict_marker_style"),
   );
+  const { data: setupScriptStatus, mutate: mutateSetupScriptStatus } = useSWR(
+    "app-setup-script-status",
+    getAppSetupScriptStatus,
+    // Poll while the script runs in the background.
+    { refreshInterval: (status) => (status?.running ? 1000 : 0) },
+  );
+  const setupScript = setupScriptDraft ?? setupScriptStatus?.script ?? "";
+  const setupScriptAlwaysRun =
+    alwaysRunDraft ?? setupScriptStatus?.always_run ?? false;
   const defaultModel = modelDraft ?? savedModel ?? "";
   const defaultAgent = agentDraft ?? savedAgent ?? "";
   const conflictMarkerStyle = conflictDraft ?? savedConflict ?? "git";
@@ -123,12 +141,30 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       await setSetting("conflict_marker_style", conflictMarkerStyle);
       await setFontSize(localFontSize);
       await setZoom(localZoom);
+      // Unedited, `setupScript` may be the "" fallback of an unloaded status.
+      if (setupScriptDraft !== null || alwaysRunDraft !== null) {
+        await saveAppSetupScript(setupScript, setupScriptAlwaysRun);
+        await mutateSetupScriptStatus();
+      }
 
       addToast({
         title: "Settings Saved",
         description: "Application settings updated successfully",
         type: "success",
       });
+    } catch (error) {
+      addToast({
+        title: "Error",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
+
+  const handleRunSetupScript = async () => {
+    try {
+      await runAppSetupScript();
+      await mutateSetupScriptStatus();
     } catch (error) {
       addToast({
         title: "Error",
@@ -357,6 +393,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         rebase. Git Diff3 is compatible with most editors.
                       </p>
                     </div>
+
+                    <AppSetupScriptSettings
+                      script={setupScript}
+                      alwaysRun={setupScriptAlwaysRun}
+                      status={setupScriptStatus}
+                      onScriptChange={setSetupScriptDraft}
+                      onAlwaysRunChange={setAlwaysRunDraft}
+                      onRun={handleRunSetupScript}
+                    />
 
                     <div>
                       <Label>Updates</Label>
