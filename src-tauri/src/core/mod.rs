@@ -27,6 +27,7 @@ pub mod remote_ssh_ws_stream;
 pub mod repo;
 pub mod resolve;
 pub mod sessions;
+pub mod shell_step;
 pub mod skills;
 pub mod stash;
 pub mod submodules;
@@ -71,22 +72,22 @@ pub fn resolve_conflict_marker_style(db: &std::sync::Mutex<crate::db::Database>)
   resolve_conflict_marker_style_from_db(&db.lock_or_recover())
 }
 
+/// The app DB path from `TREQ_APP_DB_PATH`, else `treq.db` in
+/// `TREQ_APP_DATA_DIR`. Blank values count as unset.
+pub fn app_db_path_from_env() -> Option<PathBuf> {
+  let var = |name| {
+    std::env::var(name)
+      .ok()
+      .map(|value| value.trim().to_string())
+      .filter(|value| !value.is_empty())
+  };
+  var("TREQ_APP_DB_PATH")
+    .map(PathBuf::from)
+    .or_else(|| var("TREQ_APP_DATA_DIR").map(|dir| Path::new(&dir).join("treq.db")))
+}
+
 pub fn resolve_app_db_path(repo_path: &str) -> PathBuf {
-  if let Ok(explicit_db_path) = std::env::var("TREQ_APP_DB_PATH") {
-    let trimmed = explicit_db_path.trim();
-    if !trimmed.is_empty() {
-      return PathBuf::from(trimmed);
-    }
-  }
-
-  if let Ok(app_data_dir) = std::env::var("TREQ_APP_DATA_DIR") {
-    let trimmed = app_data_dir.trim();
-    if !trimmed.is_empty() {
-      return Path::new(trimmed).join("treq.db");
-    }
-  }
-
-  Path::new(repo_path).join(".treq").join("treq.db")
+  app_db_path_from_env().unwrap_or_else(|| Path::new(repo_path).join(".treq").join("treq.db"))
 }
 
 #[cfg(test)]

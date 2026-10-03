@@ -113,7 +113,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     ["setting", "conflict_marker_style"],
     () => getSetting("conflict_marker_style"),
   );
-  const { data: setupScriptStatus, mutate: mutateSetupScriptStatus } = useSWR(
+  const {
+    data: setupScriptStatus,
+    error: setupScriptError,
+    mutate: mutateSetupScriptStatus,
+  } = useSWR(
     "app-setup-script-status",
     getAppSetupScriptStatus,
     // Poll while the script runs in the background.
@@ -398,6 +402,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       script={setupScript}
                       alwaysRun={setupScriptAlwaysRun}
                       status={setupScriptStatus}
+                      loadError={
+                        setupScriptError ? String(setupScriptError) : undefined
+                      }
                       onScriptChange={setSetupScriptDraft}
                       onAlwaysRunChange={setAlwaysRunDraft}
                       onRun={handleRunSetupScript}

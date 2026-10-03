@@ -475,13 +475,12 @@ fn kickoff_background_loop(inner: Arc<KickoffPollerInner>) {
   }
 }
 
-/// Opens the app database from `TREQ_APP_DB_PATH` for poller threads, which
+/// Opens the app database from the environment for poller threads, which
 /// run outside Tauri's managed state.
 pub fn open_app_db() -> Result<crate::db::Database, String> {
   let db_path =
-    std::env::var("TREQ_APP_DB_PATH").map_err(|_| "TREQ_APP_DB_PATH not set".to_string())?;
-  crate::db::Database::new(std::path::PathBuf::from(db_path))
-    .map_err(|e| format!("Failed to open database: {e}"))
+    crate::core::app_db_path_from_env().ok_or_else(|| "TREQ_APP_DB_PATH not set".to_string())?;
+  crate::db::Database::new(db_path).map_err(|e| format!("Failed to open database: {e}"))
 }
 
 fn poll_tracker_kickoff(provider: TrackerProvider, repo_path: &str) -> Result<(), String> {
