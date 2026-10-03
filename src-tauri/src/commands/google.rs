@@ -1,7 +1,6 @@
 use crate::core::feature_preview::PreviewFeature;
 use crate::google::{
-  DriveFile, GoogleConnectionStatus, GoogleSource, GoogleTask, GoogleTaskList, PreparedDocReview,
-  TaskInput,
+  DriveFile, GoogleConnectionStatus, GoogleSource, GoogleTask, GoogleTaskList, TaskInput,
 };
 use crate::lock_ext::LockExt;
 use crate::AppState;
@@ -164,8 +163,8 @@ pub async fn google_prepare_doc_review(
   state: State<'_, AppState>,
   repo_path: String,
   file_id: String,
-) -> Result<PreparedDocReview, String> {
-  crate::google::prepare_doc_review(&source_for(&state)?, &repo_path, &file_id).await
+) -> Result<crate::core::google_review::PreparedDocReview, String> {
+  crate::core::google_review::prepare_doc_review(&source_for(&state)?, &repo_path, &file_id).await
 }
 
 /// Posts the agent's open comments to the Drive file and resolves them.
@@ -174,6 +173,6 @@ pub async fn google_post_review_comments(
   state: State<'_, AppState>,
   repo_path: String,
   file_id: String,
-) -> Result<crate::google::PostCommentsResult, String> {
-  crate::google::post_review_comments(&source_for(&state)?, &repo_path, &file_id).await
+) -> Result<crate::core::google_review::PostCommentsResult, String> {
+  crate::core::google_review::post_review_comments(&source_for(&state)?, &repo_path, &file_id).await
 }
