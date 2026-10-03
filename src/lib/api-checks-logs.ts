@@ -76,6 +76,22 @@ export const rerunWorkspaceSetupScript = (
     workspacePath,
   });
 
+export const getRunLogs = (
+  repoPath: string,
+  runId: number,
+  jobId: string,
+): Promise<LogRecordView[]> =>
+  invoke("get_run_logs", {
+    repoPath,
+    runId,
+    jobId,
+    levels: null,
+    search: null,
+    stepIndex: null,
+    limit: null,
+    offset: null,
+  });
+
 export const getRepoLogs = (
   repoPath: string,
   options?: {

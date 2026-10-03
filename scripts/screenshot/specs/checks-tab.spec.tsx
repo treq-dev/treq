@@ -10,7 +10,7 @@ import { it, vi } from "vitest";
 import { GitHubPanel } from "../../../src/components/GitHubPanel";
 import { createWorkspace } from "../../../src/lib/api";
 import type { GhPullRequest } from "../../../src/lib/api-types";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { createTestRepo, writeRepoFile } from "../../../test/utils";
 import { captureDocument } from "../capture";
 
@@ -149,6 +149,19 @@ it("captures the Treq checks trust gate and step pass/fail results", async () =>
       'Under "Greet Job", both "Say hello" and "Say world" have green checkmark icons.',
       'Under "Verify Job", "Failing check" has a red X icon.',
       '"Never runs" (the step after the failing one) still shows a grey neutral dot, skipped by fail-fast.',
+    ],
+  });
+
+  // Expand the past run to read its recorded logs.
+  const runRow = await screen.findByTestId("run-history-item");
+  await user.click(within(runRow).getByRole("button", { name: /Run #/ }));
+  await within(runRow).findByText(/hello\s+world/, { selector: "pre" });
+  await captureDocument(document, {
+    name: "checks-tab-04-run-history-logs",
+    expectations: [
+      'Under "Run history", the run row is expanded (down chevron) with a red X run status.',
+      'The "greet" job shows a grey log block containing "hello" and "world" lines.',
+      'The "verify" job appears below with a red X and its own log block.',
     ],
   });
 }, 90000);

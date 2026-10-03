@@ -4,6 +4,8 @@ import { invalidateQueries } from "../lib/swr-cache";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   CircleDot,
   Loader2,
   Play,
@@ -12,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import {
+  getRunLogs,
   getWorkspaceSetupStatus,
   isRepoTrusted,
   listWorkflowRuns,
@@ -21,7 +24,12 @@ import {
   runWorkflowJob,
   trustRepo,
 } from "../lib/api";
-import type { JobResult, RunSummary, WorkflowInfo } from "../lib/api-types";
+import type {
+  JobResult,
+  RunJobSummary,
+  RunSummary,
+  WorkflowInfo,
+} from "../lib/api-types";
 interface Props {
   repoPath: string;
   workspaceId: number;
@@ -392,23 +400,91 @@ function WorkflowCard({
           </div>
           <div className="divide-y">
             {runs.map((run) => (
-              <div
-                key={run.id}
-                data-testid="run-history-item"
-                className="flex items-center justify-between px-4 py-2 text-sm"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <RunStatusIcon status={run.status} />
-                  <span className="font-mono text-xs">#{run.id}</span>
-                  <span className="text-muted-foreground text-xs">
-                    {formatRunTime(run.started_at)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1"></div>
-              </div>
+              <RunHistoryItem key={run.id} run={run} repoPath={repoPath} />
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function RunHistoryItem({
+  run,
+  repoPath,
+}: {
+  run: RunSummary;
+  repoPath: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const Chevron = open ? ChevronDown : ChevronRight;
+  return (
+    <div data-testid="run-history-item">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`Run #${run.id}`}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-muted/50"
+      >
+        <Chevron className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <RunStatusIcon status={run.status} />
+        <span className="font-mono text-xs">#{run.id}</span>
+        <span className="text-muted-foreground text-xs">
+          {formatRunTime(run.started_at)}
+        </span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 px-4 pb-3">
+          {run.jobs.map((job) => (
+            <RunJobLogs
+              key={job.job_id}
+              runId={run.id}
+              job={job}
+              repoPath={repoPath}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RunJobLogs({
+  runId,
+  job,
+  repoPath,
+}: {
+  runId: number;
+  job: RunJobSummary;
+  repoPath: string;
+}) {
+  const { data: logs, error } = useSWR(
+    job.has_logs ? ["run-logs", repoPath, runId, job.job_id] : null,
+    () => getRunLogs(repoPath, runId, job.job_id),
+  );
+  return (
+    <div data-testid="run-job-logs">
+      <div className="mb-1 flex items-center gap-2 text-xs font-medium">
+        <RunStatusIcon status={job.status} />
+        {job.job_id}
+      </div>
+      {!job.has_logs ? (
+        <div className="text-xs text-muted-foreground">No logs recorded.</div>
+      ) : error ? (
+        <div className="text-xs text-destructive">{String(error)}</div>
+      ) : !logs ? (
+        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+      ) : (
+        <pre className="max-h-64 overflow-auto rounded bg-muted p-2 font-mono text-xs whitespace-pre-wrap">
+          {logs.length === 0
+            ? "(empty)"
+            : logs
+                .map((l) =>
+                  l.stream === "stderr" ? `[stderr] ${l.body}` : l.body,
+                )
+                .join("\n")}
+        </pre>
       )}
     </div>
   );
