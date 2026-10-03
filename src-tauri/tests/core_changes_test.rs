@@ -773,3 +773,44 @@ fn get_file_lines_reads_parent_revision_in_home_repo() {
     .expect("read parent revision in home repo");
   assert_eq!(parent.lines, vec!["committed".to_string()]);
 }
+
+#[test]
+fn get_file_lines_reads_conflicted_parent_with_markers() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+  let workspace = repo
+    .create_workspace_with_commit(
+      "feat/conflicted-parent",
+      "shared.txt",
+      "workspace side\n",
+      None,
+    )
+    .expect("create workspace with commit");
+  let ws_dir = repo.workspace_full_path(&workspace);
+  let ws_change_id = get_change_id(&ws_dir, "@-").expect("workspace change id");
+
+  repo
+    .create_file("shared.txt", "main side\n")
+    .expect("write main shared.txt");
+  treq_lib::jj::jj_commit(&repo.repo_path, "main commit").expect("commit main");
+  let main_change_id = get_change_id(&repo.repo_path, "@-").expect("main change id");
+
+  TestRepo::jj_new(&ws_dir, &[&ws_change_id, &main_change_id]).expect("conflicted merge");
+  TestRepo::jj_new(&ws_dir, &["@"]).expect("child of conflicted merge");
+
+  let parent = treq_lib::core::changes::get_file_lines(
+    &repo.repo_path,
+    Some(workspace.id),
+    "shared.txt",
+    true,
+    1,
+    50,
+  )
+  .expect("read conflicted parent revision");
+  assert!(
+    parent.lines.iter().any(|line| line.starts_with("<<<<<<<")),
+    "expected conflict markers, got {:?}",
+    parent.lines
+  );
+  assert!(parent.lines.contains(&"workspace side".to_string()));
+  assert!(parent.lines.contains(&"main side".to_string()));
+}

@@ -4185,14 +4185,22 @@ pub fn jj_get_file_lines(
       &ConflictLabels::unlabeled(),
     ))
     .map_err(|e| JjError::IoError(format!("Failed to materialize parent value: {}", e)))?;
-    let MaterializedTreeValue::File(mut file) = materialized else {
-      return Err(JjError::IoError(format!(
-        "Path '{}' not found in parent",
-        file_path
-      )));
+    let bytes = match materialized {
+      MaterializedTreeValue::File(mut file) => block_on(file.read_all(&repo_path))
+        .map_err(|e| JjError::IoError(format!("Failed to read file: {}", e)))?,
+      other => {
+        let merge_options = MergeOptions::from_settings(&loaded.settings)
+          .map_err(|e| JjError::IoError(format!("Failed to load merge options: {}", e)))?;
+        // Git markers, as `treq changes diff` renders the same file.
+        block_on(materialized_value_to_bytes(
+          &repo_path,
+          other,
+          ConflictMarkerStyle::Git,
+          Some(&merge_options),
+        ))
+        .ok_or_else(|| JjError::IoError(format!("Path '{}' not found in parent", file_path)))?
+      }
     };
-    let bytes = block_on(file.read_all(&repo_path))
-      .map_err(|e| JjError::IoError(format!("Failed to read file: {}", e)))?;
     String::from_utf8_lossy(&bytes).to_string()
   } else {
     // Read file from working directory
