@@ -140,8 +140,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       await setSetting("conflict_marker_style", conflictMarkerStyle);
       await setFontSize(localFontSize);
       await setZoom(localZoom);
-      await saveAppSetupScript(setupScript, setupScriptAlwaysRun);
-      await mutateSetupScriptStatus();
+      // Unedited, `setupScript` may be the "" fallback of an unloaded status.
+      if (setupScriptDraft !== null || alwaysRunDraft !== null) {
+        await saveAppSetupScript(setupScript, setupScriptAlwaysRun);
+        await mutateSetupScriptStatus();
+      }
 
       addToast({
         title: "Settings Saved",
