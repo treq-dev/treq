@@ -2,9 +2,6 @@
 //! and run it in shells with no display server.
 #![cfg(desktop)]
 
-mod e2e_test_helpers;
-
-use e2e_test_helpers::{JjVerifier, TestRepo};
 use std::process::{Command, Output};
 
 fn treq(cwd: &std::path::Path, args: &[&str]) -> Output {
@@ -55,28 +52,4 @@ fn failing_command_exits_non_zero_without_a_display() {
   let out = treq(dir.path(), &["st"]);
   assert_eq!(out.status.code(), Some(1), "{out:?}");
   assert!(String::from_utf8_lossy(&out.stderr).contains("Not inside a"));
-}
-
-#[test]
-fn add_refuses_a_workspace_on_the_default_branch() {
-  let repo = TestRepo::new().unwrap();
-  let trunk = repo.default_branch().to_string();
-  let before = JjVerifier::get_bookmark_commit_id(&repo.repo_path, &trunk).unwrap();
-
-  let out = treq(std::path::Path::new(&repo.repo_path), &["add", &trunk]);
-
-  assert_eq!(out.status.code(), Some(1), "{out:?}");
-  assert!(
-    String::from_utf8_lossy(&out.stderr).contains("default branch"),
-    "{out:?}"
-  );
-  assert_eq!(
-    JjVerifier::get_bookmark_commit_id(&repo.repo_path, &trunk).unwrap(),
-    before,
-    "the default branch bookmark must not move"
-  );
-  assert_eq!(
-    JjVerifier::list_workspaces(&repo.repo_path).unwrap(),
-    vec!["default".to_string()]
-  );
 }

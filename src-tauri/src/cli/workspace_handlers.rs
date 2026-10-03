@@ -98,14 +98,6 @@ pub(super) fn handle_workspace_add(matches: &Matches) -> bool {
     return false;
   }
 
-  // A workspace bookmark follows its working copy, so this would move trunk.
-  if branch_name == default_branch_or_empty(&repo_path) {
-    super::log_cli_error(&format!(
-      "Error: invalid_arguments: '{branch_name}' is the repo's default branch; the home repo already works on it"
-    ));
-    return false;
-  }
-
   // Same settings the app applies when it creates a workspace.
   let included_copy_files = Database::new(core::resolve_app_db_path(&repo_path))
     .ok()
