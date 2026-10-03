@@ -86,3 +86,49 @@ fn sync_after_commit_keeps_working_copy_and_pushes_real_commit() {
     "remote tip should be the real commit, not an empty working-copy commit"
   );
 }
+
+/// Same flow, but the workspace is cloned from a branch that already exists on
+/// the remote, and sync runs twice to catch drift on a second round.
+#[test]
+fn sync_after_commit_on_remote_cloned_branch_keeps_working_copy() {
+  let branch = "feature-remote";
+  let repo = TestRepo::with_remote().expect("Failed to create test repo with remote");
+  repo
+    .remote_commit_on_branch(branch, "remote-only.txt", "remote\n", "Remote-only commit")
+    .expect("Failed to advance remote branch");
+  treq_lib::jj::jj_git_fetch(&repo.repo_path).expect("Failed to fetch");
+  let workspace = repo
+    .create_workspace_simple(branch)
+    .expect("Failed to clone remote branch into workspace");
+  let workspace_path = repo.workspace_full_path(&workspace);
+  let ws = workspace_path.as_str();
+
+  TestRepo::write_workspace_file(ws, "synced.txt", "content\n").expect("Failed to write file");
+  treq_lib::core::commit_workspace(&repo.repo_path, workspace.id, "Real commit")
+    .expect("Failed to commit");
+
+  let bookmark_after_commit = treq_lib::jj::jj_get_commit_id(ws, branch).expect("bookmark");
+  let wc_after_commit = treq_lib::jj::jj_get_commit_id(ws, "@").expect("@");
+  assert_ne!(bookmark_after_commit, wc_after_commit);
+
+  for round in 0..2 {
+    treq_lib::core::pull_workspace_from_remote(&repo.repo_path, Some(workspace.id), "git")
+      .expect("Pull should succeed");
+    treq_lib::core::push_workspace_to_remote(&repo.repo_path, Some(workspace.id))
+      .expect("Push should succeed");
+
+    let bookmark = treq_lib::jj::jj_get_commit_id(ws, branch).expect("bookmark");
+    let wc = treq_lib::jj::jj_get_commit_id(ws, "@").expect("@");
+    let wc_parent = treq_lib::jj::jj_get_commit_id(ws, "@-").expect("@-");
+    assert_eq!(bookmark, bookmark_after_commit, "round {round}: bookmark moved");
+    assert_eq!(wc, wc_after_commit, "round {round}: working-copy commit replaced");
+    assert_eq!(wc_parent, bookmark, "round {round}: @ not a child of bookmark");
+
+    let remote_log = TestRepo::run_git(
+      &repo.repo_path,
+      &["log", "--format=%s", "-1", &format!("refs/remotes/origin/{}", branch)],
+    )
+    .expect("Failed to read remote branch log");
+    assert_eq!(remote_log.trim(), "Real commit", "round {round}: remote tip wrong");
+  }
+}
