@@ -1,0 +1,63 @@
+id: home-git-head-history-edit-needs-test
+snapshots:
+  ? |
+    // home-head-test:
+    fn commit(path: &str) {
+      sync_home_git_head_to_wc_parent(path, None);
+    }
+  : labels:
+    - source: |-
+        fn commit(path: &str) {
+          sync_home_git_head_to_wc_parent(path, None);
+        }
+      style: primary
+      start: 19
+      end: 91
+    - source: sync_home_git_head_to_wc_parent
+      style: secondary
+      start: 45
+      end: 76
+    - source: sync_home_git_head_to_wc_parent(path, None)
+      style: secondary
+      start: 45
+      end: 88
+  ? |
+    pub fn jj_describe(path: &str) {
+      let _ = reconcile_all_workspaces_after_rewrite(path, None);
+    }
+  : labels:
+    - source: |-
+        pub fn jj_describe(path: &str) {
+          let _ = reconcile_all_workspaces_after_rewrite(path, None);
+        }
+      style: primary
+      start: 0
+      end: 96
+    - source: reconcile_all_workspaces_after_rewrite
+      style: secondary
+      start: 43
+      end: 81
+    - source: reconcile_all_workspaces_after_rewrite(path, None)
+      style: secondary
+      start: 43
+      end: 93
+  ? |
+    pub fn resolve_commit(path: &str) {
+      let _ = jj::reconcile_all_workspaces_after_rewrite(path, None);
+    }
+  : labels:
+    - source: |-
+        pub fn resolve_commit(path: &str) {
+          let _ = jj::reconcile_all_workspaces_after_rewrite(path, None);
+        }
+      style: primary
+      start: 0
+      end: 103
+    - source: jj::reconcile_all_workspaces_after_rewrite
+      style: secondary
+      start: 46
+      end: 88
+    - source: jj::reconcile_all_workspaces_after_rewrite(path, None)
+      style: secondary
+      start: 46
+      end: 100

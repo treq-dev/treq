@@ -643,7 +643,7 @@ pub fn gh_list_prs_impl(
   }
   args.extend([
     "--json",
-    "number,title,state,url,author,labels,headRefName,baseRefName,createdAt,updatedAt,isDraft",
+    "number,title,state,url,author,labels,headRefName,baseRefName,mergeStateStatus,createdAt,updatedAt,isDraft",
     "--limit",
     fetch_limit.as_str(),
   ]);
@@ -2058,7 +2058,7 @@ echo ok"#,
     let bin_dir = TempDir::new().unwrap();
     let gh_path = write_fake_gh(
       &bin_dir,
-      r#"test "$*" = "pr list --repo owner/repo --state open --draft --json number,title,state,url,author,labels,headRefName,baseRefName,createdAt,updatedAt,isDraft --limit 30" || exit 9
+      r#"test "$*" = "pr list --repo owner/repo --state open --draft --json number,title,state,url,author,labels,headRefName,baseRefName,mergeStateStatus,createdAt,updatedAt,isDraft --limit 30" || exit 9
 echo '[]'"#,
     );
     let page = gh_list_prs_impl(&gh_path, "owner/repo", "draft", 30, 1, "/usr/bin:/bin").unwrap();
@@ -2068,11 +2068,24 @@ echo '[]'"#,
 
   #[test]
   #[cfg(unix)]
+  fn gh_list_prs_includes_merge_state_status() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"case "$*" in *mergeStateStatus*) ;; *) exit 9 ;; esac
+echo '[{"number":3,"title":"T","state":"OPEN","url":"u","author":{"login":"a"},"labels":[],"headRefName":"feat","baseRefName":"main","mergeStateStatus":"DIRTY","createdAt":"c","updatedAt":"u","isDraft":false}]'"#,
+    );
+    let page = gh_list_prs_impl(&gh_path, "owner/repo", "open", 30, 1, "/usr/bin:/bin").unwrap();
+    assert_eq!(page.items[0].merge_state_status.as_deref(), Some("DIRTY"));
+  }
+
+  #[test]
+  #[cfg(unix)]
   fn gh_list_prs_excludes_drafts_when_state_is_open() {
     let bin_dir = TempDir::new().unwrap();
     let gh_path = write_fake_gh(
       &bin_dir,
-      r#"test "$*" = "pr list --repo owner/repo --state open --search draft:false --json number,title,state,url,author,labels,headRefName,baseRefName,createdAt,updatedAt,isDraft --limit 30" || exit 9
+      r#"test "$*" = "pr list --repo owner/repo --state open --search draft:false --json number,title,state,url,author,labels,headRefName,baseRefName,mergeStateStatus,createdAt,updatedAt,isDraft --limit 30" || exit 9
 echo '[]'"#,
     );
     let page = gh_list_prs_impl(&gh_path, "owner/repo", "open", 30, 1, "/usr/bin:/bin").unwrap();

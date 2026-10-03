@@ -639,15 +639,19 @@ pub(super) fn commit_workspace_for_cli(
   message: &str,
   push: bool,
 ) -> Result<Vec<String>, String> {
-  let changed = core::list_changed_files(repo_path, Some(workspace.id))?;
-  if changed.is_empty() {
-    return Err(format!(
-      "nothing to commit in workspace '{}'",
-      workspace.branch_name
-    ));
+  if message.trim().is_empty() {
+    return Err("commit message must not be blank".to_string());
   }
-  let mut lines = vec![core::commit_workspace(repo_path, workspace.id, message)
-    .map_err(|e| format!("failed to create commit: {e}"))?];
+  let mut lines = vec![
+    core::commit_workspace_changes(repo_path, Some(workspace.id), message).map_err(|e| match e
+      .as_str()
+    {
+      core::NOTHING_TO_COMMIT => {
+        format!("nothing to commit in workspace '{}'", workspace.branch_name)
+      }
+      _ => format!("failed to create commit: {e}"),
+    })?,
+  ];
   if push {
     let pushed = core::push_workspace_to_remote(repo_path, Some(workspace.id)).map_err(|e| {
       format!(

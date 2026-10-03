@@ -133,12 +133,9 @@ pub fn read_bytes_from_locator(locator: &str) -> Result<Vec<u8>, String> {
 }
 
 pub fn app_skills_root() -> Result<PathBuf, String> {
-  let dir = std::env::var("TREQ_APP_DATA_DIR")
-    .ok()
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty())
-    .ok_or_else(|| "TREQ_APP_DATA_DIR is not set".to_string())?;
-  Ok(PathBuf::from(dir).join("skills"))
+  let dir =
+    crate::core::app_data_dir().ok_or_else(|| "TREQ_APP_DATA_DIR is not set".to_string())?;
+  Ok(dir.join("skills"))
 }
 
 pub fn repo_skills_root(repo_path: &str) -> PathBuf {
@@ -551,25 +548,19 @@ mod tests {
     }
   }
 
-  struct EnvGuard {
-    key: &'static str,
-    previous: Option<String>,
-  }
+  /// Points this test thread's app data dir at `dir` until dropped.
+  struct AppDataDirGuard;
 
-  impl EnvGuard {
-    fn set(key: &'static str, value: &str) -> Self {
-      let previous = std::env::var(key).ok();
-      std::env::set_var(key, value);
-      Self { key, previous }
+  impl AppDataDirGuard {
+    fn set(dir: &Path) -> Self {
+      crate::core::TEST_APP_DATA_DIR.with(|d| *d.borrow_mut() = Some(dir.to_path_buf()));
+      Self
     }
   }
 
-  impl Drop for EnvGuard {
+  impl Drop for AppDataDirGuard {
     fn drop(&mut self) {
-      match &self.previous {
-        Some(value) => std::env::set_var(self.key, value),
-        None => std::env::remove_var(self.key),
-      }
+      crate::core::TEST_APP_DATA_DIR.with(|d| *d.borrow_mut() = None);
     }
   }
 
@@ -592,7 +583,7 @@ mod tests {
   #[test]
   fn install_skill_files_rejects_checksum_mismatch() {
     let app = TempDir::new().unwrap();
-    let _guard = EnvGuard::set("TREQ_APP_DATA_DIR", app.path().to_str().unwrap());
+    let _guard = AppDataDirGuard::set(app.path());
     let files = sample_files();
     let entry = sample_entry("deadbeef".to_string());
     let err = install_skill_files(&entry, &files, SkillInstallScope::Application, None)
@@ -603,7 +594,7 @@ mod tests {
   #[test]
   fn install_skill_files_records_computed_checksum_when_catalog_omits_it() {
     let app = TempDir::new().unwrap();
-    let _guard = EnvGuard::set("TREQ_APP_DATA_DIR", app.path().to_str().unwrap());
+    let _guard = AppDataDirGuard::set(app.path());
     let files = sample_files();
     let mut entry = sample_entry(skill_checksum(&files));
     entry.checksum = None;
@@ -615,7 +606,7 @@ mod tests {
   #[test]
   fn install_skill_files_writes_application_pack() {
     let app = TempDir::new().unwrap();
-    let _guard = EnvGuard::set("TREQ_APP_DATA_DIR", app.path().to_str().unwrap());
+    let _guard = AppDataDirGuard::set(app.path());
     let files = sample_files();
     let checksum = skill_checksum(&files);
     let entry = sample_entry(checksum.clone());
@@ -637,7 +628,7 @@ mod tests {
   fn install_skill_files_writes_repository_pack() {
     let app = TempDir::new().unwrap();
     let repo = TempDir::new().unwrap();
-    let _guard = EnvGuard::set("TREQ_APP_DATA_DIR", app.path().to_str().unwrap());
+    let _guard = AppDataDirGuard::set(app.path());
     let files = sample_files();
     let entry = sample_entry(skill_checksum(&files));
     install_skill_files(
@@ -664,7 +655,7 @@ mod tests {
   fn set_skill_install_scope_moves_pack() {
     let app = TempDir::new().unwrap();
     let repo = TempDir::new().unwrap();
-    let _guard = EnvGuard::set("TREQ_APP_DATA_DIR", app.path().to_str().unwrap());
+    let _guard = AppDataDirGuard::set(app.path());
     let files = sample_files();
     let entry = sample_entry(skill_checksum(&files));
     install_skill_files(&entry, &files, SkillInstallScope::Application, None).expect("install");
@@ -687,7 +678,7 @@ mod tests {
     let app = TempDir::new().unwrap();
     let repo = TempDir::new().unwrap();
     let workspace = TempDir::new().unwrap();
-    let _guard = EnvGuard::set("TREQ_APP_DATA_DIR", app.path().to_str().unwrap());
+    let _guard = AppDataDirGuard::set(app.path());
     let files = sample_files();
     let entry = sample_entry(skill_checksum(&files));
     install_skill_files(&entry, &files, SkillInstallScope::Application, None).expect("install");
@@ -715,7 +706,7 @@ mod tests {
     let app = TempDir::new().unwrap();
     let repo = TempDir::new().unwrap();
     let workspace = TempDir::new().unwrap();
-    let _guard = EnvGuard::set("TREQ_APP_DATA_DIR", app.path().to_str().unwrap());
+    let _guard = AppDataDirGuard::set(app.path());
     let files = sample_files();
     let entry = sample_entry(skill_checksum(&files));
     install_skill_files(&entry, &files, SkillInstallScope::Application, None).expect("install");
@@ -747,7 +738,7 @@ mod tests {
   #[test]
   fn merge_catalog_marks_installed_skills() {
     let app = TempDir::new().unwrap();
-    let _guard = EnvGuard::set("TREQ_APP_DATA_DIR", app.path().to_str().unwrap());
+    let _guard = AppDataDirGuard::set(app.path());
     let files = sample_files();
     let entry = sample_entry(skill_checksum(&files));
     install_skill_files(&entry, &files, SkillInstallScope::Application, None).expect("install");

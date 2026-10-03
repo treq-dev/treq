@@ -309,6 +309,25 @@ fn absolute_repo_arg(repo: &str) -> String {
   normalized.to_string_lossy().to_string()
 }
 
+/// Validates `--metadata` as a JSON object and folds `--title` into it.
+fn create_workspace_metadata(
+  metadata: Option<String>,
+  title: Option<String>,
+) -> Result<Option<String>, String> {
+  let Some(raw) = metadata.as_deref() else {
+    return Ok(title.map(|title| serde_json::json!({ "title": title }).to_string()));
+  };
+  let mut object = match serde_json::from_str::<serde_json::Value>(raw) {
+    Ok(serde_json::Value::Object(object)) => object,
+    _ => return Err("invalid_arguments: --metadata must be a JSON object".to_string()),
+  };
+  let Some(title) = title else {
+    return Ok(metadata);
+  };
+  object.insert("title".to_string(), serde_json::Value::String(title));
+  Ok(Some(serde_json::Value::Object(object).to_string()))
+}
+
 pub(crate) fn parse_remote_command_request(
   command: &str,
   matches: &Matches,
@@ -380,7 +399,10 @@ pub(crate) fn parse_remote_command_request(
       repo,
       branch_name: require_value("branch name")?,
       source_branch: target,
-      metadata: get_arg_value(matches, "metadata"),
+      metadata: create_workspace_metadata(
+        get_arg_value(matches, "metadata"),
+        get_arg_value(matches, "title"),
+      )?,
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
     ("workspace", "rename") => Ok(TreqCommandRequest::RenameWorkspace {
@@ -623,10 +645,6 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
     | "pty-remote" => run_structured(&subcommand.matches, |format| {
       handle_remote_review_command(&subcommand.name, &subcommand.matches, format)
     }),
-    "help" => {
-      print_cli_help();
-      true
-    }
     _ => return None,
   };
   Some(if success { 0 } else { 1 })
@@ -697,34 +715,7 @@ pub(super) fn is_supported_cli_command(name: &str) -> bool {
       | "agent-remote"
       | "agent-review"
       | "pty-remote"
-      | "help"
   )
-}
-
-fn print_cli_help() {
-  println!("Treq - Stacking ADE");
-  println!();
-  println!("Usage:");
-  println!("  treq add <branch_name> [-d description] [-l title] [-s source_branch] [-p sparse]... [-k symlink]...");
-  println!("  treq set <workspace_name> [-d description] [-l title] [-t target_branch]");
-  println!("  treq st [workspace_name]");
-  println!("  treq diff [workspace_name]");
-  println!(
-        "  treq mv <source> <destination> -f [FILES...] -r [RANGES...] -c [COMMITS...]  (use '.' for the home repo)"
-    );
-  println!("  treq agent <branch> <prompt> [-m <edit|plan>]");
-  println!("  treq commit <workspace_name> -m <message> [--push]");
-  println!("  treq resolve <commit_id> [sides...]");
-  println!("  treq send [path|-]");
-  println!("  treq send --browser <path-or-url>");
-  println!("  treq repo inspect --repo <path> [--format human|json]");
-  println!("  treq repo usage --repo <root> [--format human|json]");
-  println!(
-        "  treq agent-review add --target-type <type> --target-id <id> --file <path> --start-line <n> [--end-line <n>] [--side old|new] --comment <text> [--suggestion <text>]"
-    );
-  println!("  treq agent-review list --target-type <type> --target-id <id>");
-  println!("  treq agent-review resolve|delete --comment-id <id>");
-  println!("  treq help");
 }
 
 pub(super) fn parse_agent_mode(mode: &str) -> Result<&'static str, String> {
