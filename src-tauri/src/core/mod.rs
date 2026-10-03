@@ -71,14 +71,19 @@ pub fn resolve_conflict_marker_style(db: &std::sync::Mutex<crate::db::Database>)
 }
 
 pub fn resolve_app_db_path(repo_path: &str) -> PathBuf {
-  if let Ok(explicit_db_path) = std::env::var("TREQ_APP_DB_PATH") {
+  resolve_app_db_path_with(repo_path, |key| std::env::var(key).ok())
+}
+
+/// `resolve_app_db_path` reading env vars through `env`, so tests need not mutate the process env.
+fn resolve_app_db_path_with(repo_path: &str, env: impl Fn(&str) -> Option<String>) -> PathBuf {
+  if let Some(explicit_db_path) = env("TREQ_APP_DB_PATH") {
     let trimmed = explicit_db_path.trim();
     if !trimmed.is_empty() {
       return PathBuf::from(trimmed);
     }
   }
 
-  if let Some(app_data_dir) = app_data_dir() {
+  if let Some(app_data_dir) = app_data_dir_with(env) {
     return app_data_dir.join("treq.db");
   }
 
@@ -94,12 +99,15 @@ thread_local! {
 
 /// The app data dir from `TREQ_APP_DATA_DIR`, or a test's per-thread override.
 pub(crate) fn app_data_dir() -> Option<PathBuf> {
+  app_data_dir_with(|key| std::env::var(key).ok())
+}
+
+fn app_data_dir_with(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
   #[cfg(test)]
   if let Some(dir) = TEST_APP_DATA_DIR.with(|dir| dir.borrow().clone()) {
     return Some(dir);
   }
-  std::env::var("TREQ_APP_DATA_DIR")
-    .ok()
+  env("TREQ_APP_DATA_DIR")
     .map(|dir| dir.trim().to_string())
     .filter(|dir| !dir.is_empty())
     .map(PathBuf::from)
@@ -107,37 +115,26 @@ pub(crate) fn app_data_dir() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-  use super::resolve_app_db_path;
-  use std::sync::{Mutex, OnceLock};
-
-  fn env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-  }
+  use super::resolve_app_db_path_with;
+  use std::path::Path;
 
   #[test]
   fn resolve_app_db_path_prefers_explicit_db_path() {
-    let _guard = env_lock().lock().unwrap();
-    std::env::set_var("TREQ_APP_DB_PATH", "/tmp/explicit-treq.db");
-    std::env::set_var("TREQ_APP_DATA_DIR", "/tmp/ignored-dir");
+    let env = |key: &str| match key {
+      "TREQ_APP_DB_PATH" => Some("/tmp/explicit-treq.db".to_string()),
+      "TREQ_APP_DATA_DIR" => Some("/tmp/ignored-dir".to_string()),
+      _ => None,
+    };
 
-    let resolved = resolve_app_db_path("/repo/path");
+    let resolved = resolve_app_db_path_with("/repo/path", env);
     assert_eq!(resolved.to_string_lossy(), "/tmp/explicit-treq.db");
-
-    std::env::remove_var("TREQ_APP_DB_PATH");
-    std::env::remove_var("TREQ_APP_DATA_DIR");
   }
 
   #[test]
   fn resolve_app_db_path_falls_back_to_app_data_dir() {
-    let _guard = env_lock().lock().unwrap();
-    std::env::remove_var("TREQ_APP_DB_PATH");
-    std::env::set_var("TREQ_APP_DATA_DIR", "/tmp/app-data");
+    let env = |key: &str| (key == "TREQ_APP_DATA_DIR").then(|| "/tmp/app-data".to_string());
 
-    let resolved = resolve_app_db_path("/repo/path");
-    let expected = std::path::Path::new("/tmp/app-data").join("treq.db");
-    assert_eq!(resolved, expected);
-
-    std::env::remove_var("TREQ_APP_DATA_DIR");
+    let resolved = resolve_app_db_path_with("/repo/path", env);
+    assert_eq!(resolved, Path::new("/tmp/app-data").join("treq.db"));
   }
 }
