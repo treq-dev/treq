@@ -185,6 +185,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GitHubPanel } from "./GitHubPanel";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { LinearPanel } from "./LinearPanel";
+import type { DocReviewLaunch } from "./google/GoogleDrivePanel";
 import { GoogleWorkspacePanel } from "./google/GoogleWorkspacePanel";
 import { TrackerPanel } from "./TrackerPanel";
 import { MergePreviewPage } from "./MergePreviewPage";
@@ -2543,9 +2544,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   })();
 
   /**
-   * Opens an observable agent terminal on a workspace, seeded with a prompt.
-   * Shared by agent deep links and automatic reviews so every agent treq
-   * starts on its own behalf appears the same way a manually started one does.
+   * Opens an observable agent terminal on a workspace (or the repo root when
+   * `workspace` is null), seeded with a prompt. Shared by agent deep links,
+   * automatic reviews and document reviews so every agent treq starts on its
+   * own behalf appears the same way a manually started one does.
    */
   const launchAgentSession = async ({
     workspace,
@@ -2554,13 +2556,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     agent,
     sessionName,
   }: {
-    workspace: Workspace;
+    workspace: Workspace | null;
     prompt?: string;
     mode?: "plan" | "acceptEdits";
     agent?: AgentKind;
     sessionName?: string;
   }): Promise<number> => {
-    const sessionId = await getOrCreateSession(workspace.id, {
+    const sessionId = await getOrCreateSession(workspace?.id ?? null, {
       forceNew: true,
       agent,
       name: sessionName,
@@ -2578,7 +2580,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
       return next;
     });
     if (prompt) {
-      addPromptHistory(repoPath, workspace.id, sessionId, prompt, agent)
+      addPromptHistory(
+        repoPath,
+        workspace?.id ?? null,
+        sessionId,
+        prompt,
+        agent,
+      )
         .then(() => {
           void invalidateQueries(["prompt-history"]);
           invalidateQueries(["workspace-starting-prompt"]);
@@ -2596,25 +2604,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     prompt,
     agent,
     title,
-  }: {
-    prompt: string;
-    agent?: string;
-    title: string;
-  }) => {
-    const agentKind = toAgentKind(agent);
-    const sessionId = await getOrCreateSession(null, {
-      forceNew: true,
-      agent: agentKind,
-      name: title,
-    });
-    setSelectedWorkspace(null);
-    setViewMode("show-workspace");
-    handleSessionCreated({
-      sessionId,
-      workspaceId: null,
-      pendingPrompt: prompt,
-      permissionMode: "acceptEdits",
-      agent: agentKind,
+  }: DocReviewLaunch) => {
+    await launchAgentSession({
+      workspace: null,
+      prompt,
+      mode: "acceptEdits",
+      agent: toAgentKind(agent),
+      sessionName: title,
     });
   };
 

@@ -10,27 +10,23 @@ import {
 import { useState } from "react";
 import useSWR from "swr";
 import {
-  GOOGLE_DOC_REVIEW_TARGET,
   googleListDriveFiles,
   googlePostReviewComments,
   googlePrepareDocReview,
   type DriveFile,
 } from "../../lib/api-google";
 
-import { getRepoSetting, listAgentReviewComments } from "../../lib/api";
+import { getRepoSetting } from "../../lib/api";
 import { buildDocReviewPrompt } from "../../lib/google-doc-review";
 import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { errorText } from "../../lib/errorText";
 
 export interface DocReviewLaunch {
   prompt: string;
   agent?: string;
   title: string;
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -85,28 +81,30 @@ export const GoogleDrivePanel: React.FC<{
   const postComments = async (file: DriveFile) => {
     setBusy(`post:${file.id}`);
     try {
-      const open = (
-        await listAgentReviewComments(
-          repoPath,
-          GOOGLE_DOC_REVIEW_TARGET,
-          file.id,
-        )
-      ).filter((c) => c.status === "open");
-      if (open.length === 0) {
+      const { posted, errors } = await googlePostReviewComments(
+        repoPath,
+        file.id,
+      );
+      if (posted === 0 && errors.length === 0) {
         addToast({
           title: "No review comments to post",
           description:
             "Run a review first, or all comments are already posted.",
           type: "info",
         });
-        return;
+      } else if (errors.length > 0) {
+        addToast({
+          title: `Posted ${posted}, ${errors.length} failed`,
+          description: `${errors[0]} Failed comments stay open; post again to retry.`,
+          type: "warning",
+        });
+      } else {
+        addToast({
+          title: `Posted ${posted} comment${posted === 1 ? "" : "s"}`,
+          description: file.name,
+          type: "success",
+        });
       }
-      const posted = await googlePostReviewComments(repoPath, file.id);
-      addToast({
-        title: `Posted ${posted} comment${posted === 1 ? "" : "s"}`,
-        description: file.name,
-        type: "success",
-      });
     } catch (e) {
       addToast({
         title: "Failed to post comments",

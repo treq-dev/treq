@@ -115,8 +115,14 @@ export const googlePrepareDocReview = (
 ): Promise<PreparedDocReview> =>
   invoke("google_prepare_doc_review", { repoPath, fileId });
 
+export type PostCommentsResult = {
+  posted: number;
+  /** One message per comment that was not posted; those stay open. */
+  errors: string[];
+};
+
 export const googlePostReviewComments = (
   repoPath: string,
   fileId: string,
-): Promise<number> =>
+): Promise<PostCommentsResult> =>
   invoke("google_post_review_comments", { repoPath, fileId });

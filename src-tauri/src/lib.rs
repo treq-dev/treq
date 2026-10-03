@@ -22,6 +22,7 @@ pub mod local_db;
 pub mod lock_ext;
 mod open_new_window;
 pub mod pr_status;
+pub mod proxy_session;
 pub mod pty;
 pub mod repo_config;
 pub mod review_aggregate;

@@ -23,6 +23,8 @@ export interface ProxyDeps {
 }
 
 export type ProxyRequest = {
+  /** `"status"` reports whether the user has linked Google; nothing is forwarded. */
+  op?: "status";
   method?: string;
   url?: string;
   body?: unknown;
@@ -116,6 +118,14 @@ export async function proxyGoogleRequest(
   request: ProxyRequest,
   deps: ProxyDeps,
 ): Promise<ProxyResult> {
+  if (request.op === "status") {
+    try {
+      return json({ linked: (await deps.store.load()) !== null }, 200);
+    } catch (err) {
+      console.error("[google-proxy] token lookup failed:", String(err));
+      return json({ error: "Failed to retrieve Google token" }, 500);
+    }
+  }
   const method = (request.method ?? "GET").toUpperCase();
   if (!ALLOWED_METHODS.has(method)) {
     return json({ error: "Method not allowed" }, 400);

@@ -16,6 +16,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
+import { errorText } from "../../lib/errorText";
 
 const SettingRow: React.FC<{
   title: string;
@@ -30,10 +31,6 @@ const SettingRow: React.FC<{
     <div className="flex items-center gap-2 shrink-0">{children}</div>
   </div>
 );
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * Free plan: the user's own Google Cloud desktop OAuth client, run through a

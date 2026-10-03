@@ -113,6 +113,18 @@ describe("proxyGoogleRequest", () => {
     expect(JSON.parse(result.body).error).toBe(RECONNECT_MESSAGE);
   });
 
+  it("reports link status without forwarding", async () => {
+    const linked = deps(token(), () => ok({}));
+    const result = await proxyGoogleRequest({ op: "status" }, linked);
+    expect(JSON.parse(result.body)).toEqual({ linked: true });
+    expect(linked.calls).toHaveLength(0);
+    const unlinked = await proxyGoogleRequest(
+      { op: "status" },
+      deps(null, () => ok({})),
+    );
+    expect(JSON.parse(unlinked.body)).toEqual({ linked: false });
+  });
+
   it("reports an unlinked account", async () => {
     const result = await proxyGoogleRequest(
       { url: LISTS },

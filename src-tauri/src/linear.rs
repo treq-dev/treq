@@ -2,7 +2,7 @@ use crate::tracker::{KickoffLedger, KickoffPoller, MAX_KICKOFF_ATTEMPTS};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -90,39 +90,20 @@ pub enum LinearClientSource {
   Proxy(LinearProxySession),
 }
 
-#[derive(Clone)]
-pub struct LinearProxySession {
-  pub supabase_url: String,
-  pub access_token: String,
-}
+pub type LinearProxySession = crate::proxy_session::ProxySession;
 
-// The frontend pushes the Supabase session on sign-in and every token
-// refresh. The auto-kickoff poller reads it here too, so OAuth-connected
-// repos work without a Tauri command in flight. It is never logged.
-static PROXY_SESSION: RwLock<Option<LinearProxySession>> = RwLock::new(None);
+// The auto-kickoff poller reads the session here too, so OAuth-connected
+// repos work without a Tauri command in flight.
+static PROXY_SESSION: crate::proxy_session::ProxySessionSlot =
+  crate::proxy_session::ProxySessionSlot::new();
 
 /// Sets, or clears on sign-out, the session used for the OAuth proxy.
 pub fn set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
-  let session = match (supabase_url, access_token) {
-    (Some(url), Some(token)) if !url.trim().is_empty() && !token.is_empty() => {
-      Some(LinearProxySession {
-        supabase_url: url.trim().trim_end_matches('/').to_string(),
-        access_token: token,
-      })
-    }
-    _ => None,
-  };
-  match PROXY_SESSION.write() {
-    Ok(mut guard) => *guard = session,
-    Err(poisoned) => *poisoned.into_inner() = session,
-  }
+  PROXY_SESSION.set(supabase_url, access_token);
 }
 
 fn proxy_session() -> Option<LinearProxySession> {
-  match PROXY_SESSION.read() {
-    Ok(guard) => guard.clone(),
-    Err(poisoned) => poisoned.into_inner().clone(),
-  }
+  PROXY_SESSION.get()
 }
 
 pub fn resolve_linear_client(
@@ -208,10 +189,7 @@ async fn linear_graphql<T: DeserializeOwned>(
       .post(url)
       .header("Authorization", api_key),
     LinearClientSource::Proxy(session) => linear_http_client()
-      .post(format!(
-        "{}/functions/v1/linear-proxy",
-        session.supabase_url
-      ))
+      .post(session.function_url("linear-proxy"))
       .bearer_auth(&session.access_token),
   };
   let response = request

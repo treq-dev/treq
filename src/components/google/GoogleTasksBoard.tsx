@@ -6,7 +6,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import {
   googleCreateTask,
   googleCreateTaskList,
@@ -26,9 +26,8 @@ import { Input } from "../ui/input";
 import { CreateLinearIssueDialog } from "./CreateLinearIssueDialog";
 import { DRAG_TYPE, type DragPayload, TaskCardView } from "./TaskCardView";
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+const taskListKey = (listId: string) => ["google-tasks", listId];
+import { errorText } from "../../lib/errorText";
 
 /**
  * Google Tasks as a Kanban board: one column per task list, like the
@@ -48,8 +47,10 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
-  // Bumped after a cross-column move so both columns refetch.
-  const [generation, setGeneration] = useState(0);
+  const { mutate } = useSWRConfig();
+  // Refetch only the columns an action touched.
+  const refreshColumns = (...listIds: string[]) =>
+    Promise.all(listIds.map((id) => mutate(taskListKey(id))));
   const [newListTitle, setNewListTitle] = useState("");
   const [linearTask, setLinearTask] = useState<GoogleTask | null>(null);
 
@@ -66,7 +67,7 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
         destinationListId,
         previousTaskId,
       });
-      setGeneration((g) => g + 1);
+      await refreshColumns(payload.listId, destinationListId);
     } catch (e) {
       addToast({
         title: "Failed to move task",
@@ -115,7 +116,7 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
           size="sm"
           onClick={() => {
             void refetchLists();
-            setGeneration((g) => g + 1);
+            void refreshColumns(...(lists ?? []).map((l) => l.id));
           }}
           aria-label="Refresh tasks"
         >
@@ -130,7 +131,6 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
           <TaskColumn
             key={list.id}
             list={list}
-            generation={generation}
             onDrop={handleDrop}
             onCreateLinearIssue={setLinearTask}
           />
@@ -159,7 +159,7 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
         repoPath={repoPath}
         task={linearTask}
         onClose={() => setLinearTask(null)}
-        onCreated={() => setGeneration((g) => g + 1)}
+        onLinked={(listId) => void refreshColumns(listId)}
       />
     </div>
   );
@@ -167,21 +167,19 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
 
 const TaskColumn: React.FC<{
   list: GoogleTaskList;
-  generation: number;
   onDrop: (payload: DragPayload, listId: string, previous?: string) => void;
   onCreateLinearIssue: (task: GoogleTask) => void;
-}> = ({ list, generation, onDrop, onCreateLinearIssue }) => {
+}> = ({ list, onDrop, onCreateLinearIssue }) => {
   const { addToast } = useToastStore();
   const {
     data: tasks = [],
     isLoading,
     error,
     mutate,
-  } = useSWR(
-    ["google-tasks", list.id, generation],
-    () => googleListTasks(list.id),
-    { revalidateOnFocus: false, shouldRetryOnError: false },
-  );
+  } = useSWR(taskListKey(list.id), () => googleListTasks(list.id), {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
   const column = useMemo(() => buildTaskColumn(tasks), [tasks]);
   const [showCompleted, setShowCompleted] = useState(false);
   const [adding, setAdding] = useState(false);

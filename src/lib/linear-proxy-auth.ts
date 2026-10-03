@@ -6,26 +6,9 @@
 
 import { linearSetProxySession } from "./api-linear";
 import { SUPABASE_URL } from "./supabase";
-import {
-  type AccessTokenSyncDeps,
-  startAccessTokenSync,
-  supabaseTokenDeps,
-} from "./supabase-token-sync";
+import { createProxySessionSync } from "./supabase-token-sync";
 
-let started: Promise<void> | null = null;
+const sync = createProxySessionSync(linearSetProxySession, SUPABASE_URL);
 
-/** Starts the sync once per app run and resolves after the first push. */
-export function ensureLinearProxySessionSync(
-  deps: AccessTokenSyncDeps = supabaseTokenDeps((token) =>
-    linearSetProxySession(token ? SUPABASE_URL : null, token),
-  ),
-): Promise<void> {
-  if (started) return started;
-  started = startAccessTokenSync(deps);
-  return started;
-}
-
-/** Test-only: forget that sync was started. */
-export function resetLinearProxySessionSyncForTests(): void {
-  started = null;
-}
+export const ensureLinearProxySessionSync = sync.ensure;
+export const resetLinearProxySessionSyncForTests = sync.reset;

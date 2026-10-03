@@ -12,7 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::{OnceLock, RwLock};
+use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::db::Database;
@@ -52,11 +53,7 @@ pub struct StoredTokens {
   pub expires_at: Option<i64>,
 }
 
-#[derive(Clone)]
-pub struct ProxySession {
-  pub supabase_url: String,
-  pub access_token: String,
-}
+pub use crate::proxy_session::ProxySession;
 
 #[derive(Clone)]
 pub enum GoogleSource {
@@ -64,32 +61,19 @@ pub enum GoogleSource {
     tokens: StoredTokens,
     client_id: String,
     client_secret: Option<String>,
+    /// App database that refreshed tokens are written back to. `None`
+    /// keeps them in memory only (tests).
+    token_db: Option<PathBuf>,
   },
   Proxy(ProxySession),
 }
 
-static PROXY_SESSION: RwLock<Option<ProxySession>> = RwLock::new(None);
+static PROXY_SESSION: crate::proxy_session::ProxySessionSlot =
+  crate::proxy_session::ProxySessionSlot::new();
 
 /// Sets, or clears on sign-out, the Supabase session sent to `google-proxy`.
 pub fn set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
-  let session = match (supabase_url, access_token) {
-    (Some(url), Some(token)) if !url.trim().is_empty() && !token.is_empty() => Some(ProxySession {
-      supabase_url: url.trim().trim_end_matches('/').to_string(),
-      access_token: token,
-    }),
-    _ => None,
-  };
-  match PROXY_SESSION.write() {
-    Ok(mut guard) => *guard = session,
-    Err(poisoned) => *poisoned.into_inner() = session,
-  }
-}
-
-fn proxy_session() -> Option<ProxySession> {
-  match PROXY_SESSION.read() {
-    Ok(guard) => guard.clone(),
-    Err(poisoned) => poisoned.into_inner().clone(),
-  }
+  PROXY_SESSION.set(supabase_url, access_token);
 }
 
 fn non_empty(value: Option<String>) -> Option<String> {
@@ -105,15 +89,20 @@ pub fn read_local_tokens(db: &Database) -> Option<StoredTokens> {
     .and_then(|raw| serde_json::from_str(&raw).ok())
 }
 
-pub fn resolve_source(db: &Database) -> Result<GoogleSource, String> {
+/// `token_db` is the path of `db`, where refreshed tokens are written back.
+pub fn resolve_source(db: &Database, token_db: PathBuf) -> Result<GoogleSource, String> {
   let client_id = non_empty(db.get_setting(CLIENT_ID_SETTING).ok().flatten());
   let client_secret = non_empty(db.get_setting(CLIENT_SECRET_SETTING).ok().flatten());
-  choose_source(
+  let mut source = choose_source(
     read_local_tokens(db),
     client_id,
     client_secret,
-    proxy_session(),
-  )
+    PROXY_SESSION.get(),
+  )?;
+  if let GoogleSource::Local { token_db: slot, .. } = &mut source {
+    *slot = Some(token_db);
+  }
+  Ok(source)
 }
 
 fn choose_source(
@@ -127,6 +116,7 @@ fn choose_source(
       tokens,
       client_id,
       client_secret,
+      token_db: None,
     }),
     (_, _, Some(session)) => Ok(GoogleSource::Proxy(session)),
     _ => {
@@ -143,16 +133,43 @@ pub struct GoogleConnectionStatus {
   pub has_client_id: bool,
 }
 
-pub fn connection_status(db: &Database) -> GoogleConnectionStatus {
-  let has_client_id = non_empty(db.get_setting(CLIENT_ID_SETTING).ok().flatten()).is_some();
-  let mode = match resolve_source(db) {
+/// Which source requests would use. A signed-in treq session only counts as
+/// connected once `google-proxy` confirms it holds a Google grant for it.
+pub async fn connection_status(
+  source: Result<GoogleSource, String>,
+  has_client_id: bool,
+) -> GoogleConnectionStatus {
+  let mode = match source {
     Ok(GoogleSource::Local { .. }) => "local",
-    Ok(GoogleSource::Proxy(_)) => "proxy",
-    Err(_) => "none",
+    Ok(GoogleSource::Proxy(session)) if proxy_linked(&session).await => "proxy",
+    _ => "none",
   };
   GoogleConnectionStatus {
     mode: mode.to_string(),
     has_client_id,
+  }
+}
+
+pub fn has_client_id(db: &Database) -> bool {
+  non_empty(db.get_setting(CLIENT_ID_SETTING).ok().flatten()).is_some()
+}
+
+async fn proxy_linked(session: &ProxySession) -> bool {
+  let response = http_client()
+    .post(session.function_url("google-proxy"))
+    .bearer_auth(&session.access_token)
+    .timeout(REQUEST_TIMEOUT)
+    .json(&json!({ "op": "status" }))
+    .send()
+    .await;
+  match response {
+    Ok(r) if r.status().is_success() => r
+      .json::<Value>()
+      .await
+      .ok()
+      .and_then(|v| v.get("linked").and_then(Value::as_bool))
+      .unwrap_or(false),
+    _ => false,
   }
 }
 
@@ -375,6 +392,7 @@ async fn local_access_token(
   tokens: &StoredTokens,
   client_id: &str,
   client_secret: &Option<String>,
+  token_db: &Option<PathBuf>,
 ) -> Result<String, String> {
   let fresh = tokens
     .expires_at
@@ -396,14 +414,20 @@ async fn local_access_token(
   }
   let grant = token_request(&form).await?;
   let refreshed = tokens_from_grant(&grant, Some(refresh))?;
-  save_tokens_to_app_db(&refreshed);
+  if let Some(path) = token_db {
+    save_tokens(path, &refreshed);
+  }
   Ok(refreshed.access_token)
 }
 
-fn save_tokens_to_app_db(tokens: &StoredTokens) {
-  let path = crate::core::resolve_app_db_path("");
-  if let (Ok(db), Ok(raw)) = (Database::new(path), serde_json::to_string(tokens)) {
-    let _ = db.set_setting(TOKENS_SETTING, &raw);
+fn save_tokens(path: &std::path::Path, tokens: &StoredTokens) {
+  if let (Ok(db), Ok(raw)) = (
+    Database::new(path.to_path_buf()),
+    serde_json::to_string(tokens),
+  ) {
+    if let Err(e) = db.set_setting(TOKENS_SETTING, &raw) {
+      tracing::warn!("Failed to store refreshed Google tokens: {e}");
+    }
   }
 }
 
@@ -464,8 +488,9 @@ async fn send(
       tokens,
       client_id,
       client_secret,
+      token_db,
     } => {
-      let token = local_access_token(tokens, client_id, client_secret).await?;
+      let token = local_access_token(tokens, client_id, client_secret, token_db).await?;
       let mut req = http_client()
         .request(method, rewrite(url))
         .bearer_auth(token);
@@ -475,10 +500,7 @@ async fn send(
       req
     }
     GoogleSource::Proxy(session) => http_client()
-      .post(format!(
-        "{}/functions/v1/google-proxy",
-        session.supabase_url
-      ))
+      .post(session.function_url("google-proxy"))
       .bearer_auth(&session.access_token)
       .json(&json!({ "method": method.as_str(), "url": url, "body": body })),
   };
@@ -540,7 +562,10 @@ fn error_message(status: reqwest::StatusCode, text: &str, via_proxy: bool) -> St
       .map(str::to_string)
   });
   match (status.as_u16(), message) {
-    (401, _) if via_proxy => {
+    // The proxy explains a lapsed Google grant itself ("Reconnect Google
+    // Workspace…"); only a bare 401 means the treq session was rejected.
+    (401, Some(message)) if via_proxy => message,
+    (401, None) if via_proxy => {
       "treq could not authenticate with the Google proxy. Sign in to treq again.".to_string()
     }
     (401, _) => {
@@ -912,7 +937,7 @@ pub async fn create_comment(
 ) -> Result<String, String> {
   let mut body = json!({ "content": content });
   if let Some(quoted) = quoted.filter(|q| !q.trim().is_empty()) {
-    body["quotedFileContent"] = json!({ "mimeType": "text/html", "value": quoted });
+    body["quotedFileContent"] = json!({ "mimeType": "text/plain", "value": quoted });
   }
   let value = send_json(
     source,
@@ -1014,6 +1039,8 @@ pub async fn prepare_doc_review(
   std::fs::create_dir_all(&root).map_err(|e| format!("Failed to create review directory: {e}"))?;
   std::fs::write(root.join(&file_name), &text)
     .map_err(|e| format!("Failed to write exported document: {e}"))?;
+  // Unposted comments point at lines of the export just replaced.
+  discard_open_comments(repo_path, file_id)?;
   Ok(PreparedDocReview {
     line_count: text.lines().count(),
     root: root.to_string_lossy().into_owned(),
@@ -1054,25 +1081,49 @@ pub fn comment_content(comment: &crate::local_db::AgentReviewComment) -> String 
   content
 }
 
-/// Posts the open agent comments for `file_id` to Drive and resolves each
-/// one that was posted. Returns how many were posted.
+fn discard_open_comments(repo_path: &str, file_id: &str) -> Result<(), String> {
+  for comment in
+    crate::local_db::list_agent_review_comments(repo_path, REVIEW_TARGET_TYPE, file_id)?
+  {
+    if comment.status == "open" {
+      crate::local_db::delete_agent_review_comment(repo_path, &comment.id)?;
+    }
+  }
+  Ok(())
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct PostCommentsResult {
+  pub posted: usize,
+  /// One message per comment that was not posted; those stay open.
+  pub errors: Vec<String>,
+}
+
+/// Posts the open agent comments for `file_id` to Drive. Each comment is
+/// resolved before it is sent and reopened if sending fails, so a retry
+/// never posts the same comment twice. A failure does not stop the rest.
 pub async fn post_review_comments(
   source: &GoogleSource,
   repo_path: &str,
   file_id: &str,
-) -> Result<usize, String> {
+) -> Result<PostCommentsResult, String> {
   let root = review_root(repo_path, file_id)?;
   let comments =
     crate::local_db::list_agent_review_comments(repo_path, REVIEW_TARGET_TYPE, file_id)?;
-  let mut posted = 0;
+  let mut result = PostCommentsResult::default();
   for comment in comments.iter().filter(|c| c.status == "open") {
+    crate::local_db::resolve_agent_review_comment(repo_path, &comment.id)?;
     let text = std::fs::read_to_string(root.join(&comment.file_path)).unwrap_or_default();
     let quote = quoted_lines(&text, comment.start_line, comment.end_line);
-    create_comment(source, file_id, &comment_content(comment), quote.as_deref()).await?;
-    crate::local_db::resolve_agent_review_comment(repo_path, &comment.id)?;
-    posted += 1;
+    match create_comment(source, file_id, &comment_content(comment), quote.as_deref()).await {
+      Ok(_) => result.posted += 1,
+      Err(e) => {
+        crate::local_db::reopen_agent_review_comment(repo_path, &comment.id)?;
+        result.errors.push(e);
+      }
+    }
   }
-  Ok(posted)
+  Ok(result)
 }
 
 #[cfg(test)]
@@ -1090,6 +1141,7 @@ mod tests {
       },
       client_id: "cid".into(),
       client_secret: None,
+      token_db: None,
     }
   }
 
@@ -1327,7 +1379,9 @@ mod tests {
       refresh_token: Some("r".into()),
       expires_at: Some(now_secs() - 10),
     };
-    let token = local_access_token(&tokens, "cid", &None).await.unwrap();
+    let token = local_access_token(&tokens, "cid", &None, &None)
+      .await
+      .unwrap();
     assert_eq!(token, "fresh");
   }
 
@@ -1364,5 +1418,120 @@ mod tests {
       .await
       .unwrap();
     assert_eq!(id, "c1");
+  }
+
+  fn add_comment(repo: &str, file_id: &str, text: &str) -> String {
+    crate::local_db::create_agent_review_comment(
+      repo,
+      REVIEW_TARGET_TYPE,
+      file_id,
+      "doc.md",
+      None,
+      1,
+      1,
+      None,
+      text,
+      None,
+      "local-agent",
+    )
+    .unwrap()
+    .id
+  }
+
+  fn statuses(repo: &str, file_id: &str) -> Vec<(String, String)> {
+    crate::local_db::list_agent_review_comments(repo, REVIEW_TARGET_TYPE, file_id)
+      .unwrap()
+      .into_iter()
+      .map(|c| (c.comment_text, c.status))
+      .collect()
+  }
+
+  #[tokio::test]
+  async fn posting_continues_past_a_failure_and_reopens_it() {
+    let server = mock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().to_str().unwrap();
+    let root = review_root(repo, "doc1").unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("doc.md"), "Line one\n").unwrap();
+    add_comment(repo, "doc1", "bad");
+    add_comment(repo, "doc1", "good");
+    Mock::given(method("POST"))
+      .and(path("/drive/v3/files/doc1/comments"))
+      .and(body_partial_json(
+        json!({"quotedFileContent": {"mimeType": "text/plain", "value": "Line one"}}),
+      ))
+      .and(wiremock::matchers::body_string_contains("bad"))
+      .respond_with(ResponseTemplate::new(500).set_body_json(json!({"error": {"message": "boom"}})))
+      .mount(&server)
+      .await;
+    Mock::given(method("POST"))
+      .and(path("/drive/v3/files/doc1/comments"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": "c"})))
+      .mount(&server)
+      .await;
+
+    let result = post_review_comments(&local("tok"), repo, "doc1")
+      .await
+      .unwrap();
+    assert_eq!(result.posted, 1);
+    assert_eq!(result.errors, ["Google: boom"]);
+    let mut states = statuses(repo, "doc1");
+    states.sort();
+    assert_eq!(
+      states,
+      [
+        ("bad".into(), "open".into()),
+        ("good".into(), "resolved".into())
+      ]
+    );
+  }
+
+  #[tokio::test]
+  async fn re_export_discards_unposted_comments_only() {
+    let server = mock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().to_str().unwrap();
+    std::fs::create_dir_all(review_root(repo, "doc1").unwrap()).unwrap();
+    add_comment(repo, "doc1", "stale");
+    let posted = add_comment(repo, "doc1", "posted");
+    crate::local_db::resolve_agent_review_comment(repo, &posted).unwrap();
+    Mock::given(method("GET"))
+      .and(path("/drive/v3/files/doc1"))
+      .respond_with(
+        ResponseTemplate::new(200)
+          .set_body_json(json!({"id": "doc1", "name": "Spec", "mimeType": GOOGLE_DOC_MIME})),
+      )
+      .mount(&server)
+      .await;
+    Mock::given(method("GET"))
+      .and(path("/drive/v3/files/doc1/export"))
+      .respond_with(ResponseTemplate::new(200).set_body_raw("# New\n", "text/markdown"))
+      .mount(&server)
+      .await;
+
+    let prepared = prepare_doc_review(&local("tok"), repo, "doc1")
+      .await
+      .unwrap();
+    assert_eq!(prepared.file_name, "Spec.md");
+    assert_eq!(
+      statuses(repo, "doc1"),
+      [("posted".into(), "resolved".into())]
+    );
+  }
+
+  #[test]
+  fn proxy_reconnect_message_is_kept() {
+    let status = reqwest::StatusCode::UNAUTHORIZED;
+    assert_eq!(
+      error_message(
+        status,
+        r#"{"error":"Google authorization expired. Reconnect."}"#,
+        true
+      ),
+      "Google authorization expired. Reconnect."
+    );
+    assert!(error_message(status, "", true).contains("Sign in to treq again"));
+    assert!(error_message(status, "", false).contains("Reconnect Google Workspace"));
   }
 }

@@ -11,14 +11,24 @@ use tauri::State;
 /// before returning so callers can await network requests.
 fn source_for(state: &State<'_, AppState>) -> Result<GoogleSource, String> {
   crate::commands::feature_preview::require(state, PreviewFeature::GoogleWorkspace)?;
+  resolve(state)
+}
+
+fn resolve(state: &State<'_, AppState>) -> Result<GoogleSource, String> {
   let db = state.db.lock_or_recover();
-  crate::google::resolve_source(&db)
+  crate::google::resolve_source(&db, crate::core::resolve_app_db_path(""))
 }
 
 #[tauri::command]
-pub fn google_connection_status(state: State<'_, AppState>) -> GoogleConnectionStatus {
-  let db = state.db.lock_or_recover();
-  crate::google::connection_status(&db)
+pub async fn google_connection_status(
+  state: State<'_, AppState>,
+) -> Result<GoogleConnectionStatus, String> {
+  let source = resolve(&state);
+  let has_client_id = {
+    let db = state.db.lock_or_recover();
+    crate::google::has_client_id(&db)
+  };
+  Ok(crate::google::connection_status(source, has_client_id).await)
 }
 
 /// Gives the client the Supabase session it sends to `google-proxy`.
@@ -161,6 +171,6 @@ pub async fn google_post_review_comments(
   state: State<'_, AppState>,
   repo_path: String,
   file_id: String,
-) -> Result<usize, String> {
+) -> Result<crate::google::PostCommentsResult, String> {
   crate::google::post_review_comments(&source_for(&state)?, &repo_path, &file_id).await
 }

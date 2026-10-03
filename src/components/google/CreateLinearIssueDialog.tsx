@@ -2,7 +2,11 @@ import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { googleUpdateTask, type GoogleTask } from "../../lib/api-google";
-import { linearCreateIssue, linearListTeams } from "../../lib/api-linear";
+import {
+  linearCreateIssue,
+  linearListTeams,
+  type LinearCreatedIssue,
+} from "../../lib/api-linear";
 import { notesWithLinearLink } from "../../lib/google-tasks";
 import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
@@ -13,18 +17,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import { errorText } from "../../lib/errorText";
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** Creates a Linear issue from a task and links it in the task&apos;s notes. */
+/** Creates a Linear issue from a task and links it in the task's notes. */
 export const CreateLinearIssueDialog: React.FC<{
   repoPath: string;
   task: GoogleTask | null;
   onClose: () => void;
-  onCreated: () => void;
-}> = ({ repoPath, task, onClose, onCreated }) => {
+  /** Called with the task's list once its notes carry the issue link. */
+  onLinked: (listId: string) => void;
+}> = ({ repoPath, task, onClose, onLinked }) => {
   const { addToast } = useToastStore();
   const [creating, setCreating] = useState(false);
   const { data: teams, error } = useSWR(
@@ -36,13 +38,28 @@ export const CreateLinearIssueDialog: React.FC<{
   const create = async (teamId: string) => {
     if (!task) return;
     setCreating(true);
+    let issue: LinearCreatedIssue;
     try {
-      const issue = await linearCreateIssue({
+      issue = await linearCreateIssue({
         repoPath,
         teamId,
         title: task.title,
         description: task.notes ?? undefined,
       });
+    } catch (e) {
+      addToast({
+        title: "Failed to create Linear issue",
+        description: errorText(e),
+        type: "error",
+      });
+      setCreating(false);
+      return;
+    }
+    // The issue exists from here on: close the dialog whatever happens next,
+    // so a retry cannot create a second one.
+    onClose();
+    setCreating(false);
+    try {
       await googleUpdateTask(task.list_id, task.id, {
         notes: notesWithLinearLink(task.notes, issue.identifier, issue.url),
       });
@@ -51,16 +68,13 @@ export const CreateLinearIssueDialog: React.FC<{
         description: task.title,
         type: "success",
       });
-      onCreated();
-      onClose();
+      onLinked(task.list_id);
     } catch (e) {
       addToast({
-        title: "Failed to create Linear issue",
-        description: errorText(e),
-        type: "error",
+        title: `Created ${issue.identifier}, but could not link the task`,
+        description: `${issue.url} — ${errorText(e)}`,
+        type: "warning",
       });
-    } finally {
-      setCreating(false);
     }
   };
 

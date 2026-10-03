@@ -22,6 +22,7 @@ import {
 } from "../../lib/ci-status";
 import { Button } from "../ui/button";
 import { useToast } from "../ui/toast";
+import { errorText } from "../../lib/errorText";
 
 export function formatDate(iso: string) {
   try {
@@ -342,9 +343,7 @@ export { CircleDot, GitPullRequest };
 
 /** Returns an `onError` factory that reports a failed gh action as an error toast. */
 /** gh failures reach the UI as an Error or as the Tauri command's string. */
-export function ghErrorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export const ghErrorText = errorText;
 
 export function useGhErrorToast() {
   const { addToast } = useToast();

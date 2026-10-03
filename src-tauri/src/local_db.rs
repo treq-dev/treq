@@ -2048,6 +2048,18 @@ pub fn resolve_agent_review_comment(repo_path: &str, id: &str) -> Result<(), Str
   Ok(())
 }
 
+/// Mark one local review comment open again, undoing a resolve.
+pub fn reopen_agent_review_comment(repo_path: &str, id: &str) -> Result<(), String> {
+  let conn = get_connection(repo_path)?;
+  conn
+    .execute(
+      "UPDATE agent_review_comments SET status = 'open', resolved_at = NULL WHERE id = ?1",
+      [id],
+    )
+    .map_err(|e| format!("Failed to reopen agent review comment: {}", e))?;
+  Ok(())
+}
+
 /// Delete one local review comment.
 pub fn delete_agent_review_comment(repo_path: &str, id: &str) -> Result<(), String> {
   let conn = get_connection(repo_path)?;

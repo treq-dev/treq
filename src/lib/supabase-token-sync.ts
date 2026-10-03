@@ -60,3 +60,32 @@ export function startAccessTokenSync(deps: AccessTokenSyncDeps): Promise<void> {
   deps.setInterval(() => void refresh(), REFRESH_CHECK_INTERVAL_MS);
   return refresh();
 }
+
+/**
+ * A once-per-app-run sync that pushes the session to a Rust proxy client.
+ * Each OAuth proxy (Linear, Google) gets its own.
+ */
+export function createProxySessionSync(
+  pushSession: (
+    supabaseUrl: string | null,
+    token: string | null,
+  ) => Promise<void>,
+  supabaseUrl: string,
+) {
+  let started: Promise<void> | null = null;
+  return {
+    /** Starts the sync once and resolves after the first push. */
+    ensure(
+      deps: AccessTokenSyncDeps = supabaseTokenDeps((token) =>
+        pushSession(token ? supabaseUrl : null, token),
+      ),
+    ): Promise<void> {
+      started ??= startAccessTokenSync(deps);
+      return started;
+    },
+    /** Test-only: forget that sync was started. */
+    reset(): void {
+      started = null;
+    },
+  };
+}
