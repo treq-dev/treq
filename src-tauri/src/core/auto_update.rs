@@ -1,5 +1,6 @@
 //! Auto-update checks against the marketing-site `/version` endpoint.
-//! Install is enabled on macOS only.
+//! Install is enabled on macOS only, and only for bundles signed by the same
+//! Developer ID team as the running app.
 
 use std::cmp::Ordering;
 
@@ -233,24 +234,85 @@ pub fn find_extracted_app_bundle(dir: &std::path::Path) -> Result<std::path::Pat
   }
 }
 
+/// Extract `TeamIdentifier` from `codesign -dv` output (written to stderr).
+/// Returns None for unsigned or ad-hoc signed bundles (`TeamIdentifier=not set`).
+pub fn parse_codesign_team_id(output: &str) -> Option<String> {
+  let team = output
+    .lines()
+    .find_map(|line| line.trim().strip_prefix("TeamIdentifier="))?
+    .trim();
+  let valid = !team.is_empty() && team.chars().all(|c| c.is_ascii_alphanumeric());
+  valid.then(|| team.to_string())
+}
+
+/// Designated requirement: an Apple-issued Developer ID chain whose leaf belongs to `team_id`.
+pub fn developer_id_requirement(team_id: &str) -> String {
+  format!(
+    "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists \
+     and certificate leaf[field.1.2.840.113635.100.6.1.13] exists \
+     and certificate leaf[subject.OU] = \"{team_id}\""
+  )
+}
+
+/// Read the Developer ID team of a signed `.app` bundle.
+pub fn codesign_team_id(app: &std::path::Path) -> Result<String, String> {
+  let output = std::process::Command::new("codesign")
+    .args(["-dv", "--verbose=2"])
+    .arg(app)
+    .output()
+    .map_err(|e| format!("Failed to run codesign: {e}"))?;
+  if !output.status.success() {
+    return Err(format!("{} is not code signed", app.display()));
+  }
+  parse_codesign_team_id(&String::from_utf8_lossy(&output.stderr))
+    .ok_or_else(|| format!("{} has no Developer ID team", app.display()))
+}
+
+/// Verify `new_app` is validly signed by the same Developer ID team as `current_app`.
+pub fn verify_update_signature(
+  new_app: &std::path::Path,
+  current_app: &std::path::Path,
+) -> Result<(), String> {
+  let team_id = codesign_team_id(current_app)
+    .map_err(|e| format!("Cannot verify update against the running app: {e}"))?;
+  let requirement = format!("={}", developer_id_requirement(&team_id));
+  let output = std::process::Command::new("codesign")
+    .args(["--verify", "--deep", "--strict", "-R"])
+    .arg(&requirement)
+    .arg(new_app)
+    .output()
+    .map_err(|e| format!("Failed to run codesign: {e}"))?;
+  if !output.status.success() {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    return Err(format!("Update signature check failed: {}", stderr.trim()));
+  }
+  Ok(())
+}
+
 /// Download the macOS updater archive and replace the running app bundle.
 ///
 /// On non-macOS targets this always returns an error — install is Mac-only.
 pub fn install_mac_update_from_url(download_url: &str) -> Result<(), String> {
-  install_mac_update_from_url_with(download_url, download_url_to_file, || {
-    std::env::current_exe().map_err(|e| format!("Failed to resolve current executable: {e}"))
-  })
+  install_mac_update_from_url_with(
+    download_url,
+    download_url_to_file,
+    || std::env::current_exe().map_err(|e| format!("Failed to resolve current executable: {e}")),
+    verify_update_signature,
+  )
 }
 
-/// Testable install path with injectable download + exe resolution.
-pub fn install_mac_update_from_url_with<D, E>(
+/// Testable install path with injectable download, exe resolution, and signature check.
+/// The bundle is only copied over the running app after `verify` succeeds.
+pub fn install_mac_update_from_url_with<D, E, V>(
   download_url: &str,
   download: D,
   current_exe: E,
+  verify: V,
 ) -> Result<(), String>
 where
   D: FnOnce(&str, &std::path::Path) -> Result<(), String>,
   E: FnOnce() -> Result<std::path::PathBuf, String>,
+  V: FnOnce(&std::path::Path, &std::path::Path) -> Result<(), String>,
 {
   if !auto_update_supported() {
     return Err("Auto-update install is only supported on macOS".to_string());
@@ -286,6 +348,7 @@ where
     }
 
     let new_app = find_extracted_app_bundle(&extract_dir)?;
+    verify(&new_app, &current_app)?;
 
     // Replace the running bundle in place. On macOS the running binary stays mapped
     // from the old inode; the next launch picks up the replaced files.
@@ -458,8 +521,34 @@ mod tests {
           "/Applications/treq.app/Contents/MacOS/treq",
         ))
       },
+      |_new, _current| Ok(()),
     )
     .unwrap_err();
     assert!(err.contains("only supported on macOS"));
+  }
+
+  #[test]
+  fn parse_codesign_team_id_reads_developer_id_team() {
+    let out = "Executable=/Applications/treq.app/Contents/MacOS/treq\n\
+               Authority=Developer ID Application: Treq (ABCDE12345)\n\
+               TeamIdentifier=ABCDE12345\n";
+    assert_eq!(parse_codesign_team_id(out).as_deref(), Some("ABCDE12345"));
+  }
+
+  #[test]
+  fn parse_codesign_team_id_rejects_unsigned_and_adhoc() {
+    assert_eq!(parse_codesign_team_id("TeamIdentifier=not set\n"), None);
+    assert_eq!(parse_codesign_team_id("Signature=adhoc\n"), None);
+    assert_eq!(
+      parse_codesign_team_id("TeamIdentifier=\"x\" or true\n"),
+      None
+    );
+  }
+
+  #[test]
+  fn developer_id_requirement_pins_team() {
+    let req = developer_id_requirement("ABCDE12345");
+    assert!(req.starts_with("anchor apple generic"));
+    assert!(req.ends_with("certificate leaf[subject.OU] = \"ABCDE12345\""));
   }
 }
