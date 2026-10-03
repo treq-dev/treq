@@ -4944,6 +4944,20 @@ pub fn jj_bookmark_track(
     name: RefName::new(bookmark_name),
     remote: RemoteName::new(remote_name),
   };
+  let remotes = git::get_all_remote_names(loaded.repo.store())
+    .map_err(|e| JjError::IoError(format!("Failed to list remotes: {}", e)))?;
+  if !remotes.iter().any(|r| r.as_str() == remote_name) {
+    return Err(JjError::IoError(format!(
+      "Remote '{}' not found",
+      remote_name
+    )));
+  }
+  if !loaded.repo.view().get_remote_bookmark(symbol).is_present() {
+    return Err(JjError::IoError(format!(
+      "Remote bookmark '{}@{}' not found",
+      bookmark_name, remote_name
+    )));
+  }
   let mut tx = loaded.repo.start_transaction();
   tx.repo_mut().track_remote_bookmark(symbol).map_err(|e| {
     JjError::IoError(format!(
@@ -4970,6 +4984,16 @@ pub fn is_bookmark_tracked(
     remote: RemoteName::new(remote_name),
   };
   Ok(loaded.repo.view().get_remote_bookmark(symbol).is_tracked())
+}
+
+fn remote_bookmark_exists(workspace_path: &str, bookmark_name: &str, remote_name: &str) -> bool {
+  load_workspace_repo(workspace_path).is_ok_and(|loaded| {
+    let symbol = RemoteRefSymbol {
+      name: RefName::new(bookmark_name),
+      remote: RemoteName::new(remote_name),
+    };
+    loaded.repo.view().get_remote_bookmark(symbol).is_present()
+  })
 }
 
 /// Edit/switch to a bookmark (similar to git checkout)
@@ -6540,6 +6564,8 @@ pub fn jj_push(workspace_path: &str) -> Result<String, JjError> {
     Ok(true) => {
       // Already tracked, proceed normally
     }
+    // A branch not yet on origin has nothing to track; the push creates it.
+    Ok(false) if !remote_bookmark_exists(workspace_path, &branch_name, "origin") => {}
     Ok(false) => {
       // Not tracked, attempt to set up tracking
       tracking_message.push_str(&format!(
@@ -9946,20 +9972,20 @@ mod tests {
   }
 
   #[test]
-  fn bookmark_track_marks_remote_as_tracked_even_before_first_push() {
+  fn bookmark_track_rejects_remote_that_does_not_exist() {
     let temp = TempDir::new().expect("tempdir");
     init_jj_repo(&temp);
     let workspace_path = temp.path().to_str().expect("utf8 path");
     jj_set_bookmark(workspace_path, "main", "@").expect("set main bookmark");
 
+    let err = jj_bookmark_track(workspace_path, "main", "origin").expect_err("no origin remote");
+    assert!(
+      err.to_string().contains("Remote 'origin' not found"),
+      "{err}"
+    );
     assert!(
       !is_bookmark_tracked(workspace_path, "main", "origin").expect("tracked check"),
-      "main@origin should start untracked"
-    );
-    jj_bookmark_track(workspace_path, "main", "origin").expect("track bookmark");
-    assert!(
-      is_bookmark_tracked(workspace_path, "main", "origin").expect("tracked check"),
-      "main@origin should become tracked"
+      "main@origin should stay untracked"
     );
   }
 
