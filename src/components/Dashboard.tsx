@@ -2515,13 +2515,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
     agent,
     sessionName,
   }: {
-    workspace: Workspace;
+    /** `null` starts the session in the home repository. */
+    workspace: Workspace | null;
     prompt?: string;
     mode?: "plan" | "acceptEdits";
     agent?: AgentKind;
     sessionName?: string;
   }): Promise<number> => {
-    const sessionId = await getOrCreateSession(workspace.id, {
+    const workspaceId = workspace?.id ?? null;
+    const sessionId = await getOrCreateSession(workspaceId, {
       forceNew: true,
       agent,
       name: sessionName,
@@ -2539,7 +2541,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       return next;
     });
     if (prompt) {
-      addPromptHistory(repoPath, workspace.id, sessionId, prompt, agent)
+      addPromptHistory(repoPath, workspaceId, sessionId, prompt, agent)
         .then(() => {
           void invalidateQueries(["prompt-history"]);
           invalidateQueries(["workspace-starting-prompt"]);
@@ -3381,6 +3383,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   onStartPromptFromIssue={(issue) =>
                     handleStartPromptFromIssue(issueFromLinear(issue))
                   }
+                  // Linear content is not tied to a workspace, so the review
+                  // runs in the home repository, where the agent can still
+                  // check the text against the code.
+                  onStartAgentReview={async ({ prompt, agent }) => {
+                    await launchAgentSession({
+                      workspace: null,
+                      prompt,
+                      mode: "acceptEdits",
+                      agent: toAgentKind(agent),
+                      sessionName: "AI Review",
+                    });
+                  }}
                 />
               )}
 
