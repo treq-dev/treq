@@ -6,7 +6,7 @@ sidebar_position: 9
 
 _How Treq shows Google Tasks as a Kanban board and runs the review agent on Google Docs and Drive files._
 
-The **Google** panel has two tabs. **Tasks** shows your Google Tasks lists as Kanban columns. **Docs & Drive** lists your Drive files and runs the review agent on them.
+The **Google Workspace** panel has two tabs. **Tasks** shows your Google Tasks lists as Kanban columns. **Docs & Drive** lists your Drive files and runs the review agent on them.
 
 :::note[Work in progress]
 
@@ -36,15 +36,17 @@ Each task list is a column, in the same order as Google Tasks. In a column you c
 - Add a task with **Add a task**.
 - Complete or reopen a task with its circle. Completed tasks collapse under **Completed (n)**.
 - Drag a card to another column to move it to that list, or onto another card to place it after that card.
-- Set a due date, open the task in Google Tasks, or delete it from the card's menu.
+- From the card's menu: **Kick off agent** opens the agent prompt with the task's title, notes and open subtasks, the same way tracker items kick off. **Edit** changes the title and notes, **Add subtask** creates a subtask, and you can set a due date, open the task in Google Tasks, or delete it.
 - Create a new list from the last column.
 
 With the [Linear integration](./linear-integration.md) on, a card's menu also has **Create Linear issue**. Pick a team; Treq creates the issue from the task's title and notes, then adds the issue link to the task's notes.
 
 ## Reviewing Docs and Drive Files
 
-**Review** exports the file into `~/Documents/treq/exports/<file id>/` and starts a review agent session at the repository root. Exports never go inside the repository, so jj cannot snapshot document contents into a change. Set `TREQ_EXPORTS_DIR` to use another folder. Google Docs export as Markdown, Sheets as CSV and Slides as plain text. Text files are downloaded as they are. Other files cannot be reviewed.
+**Review** exports the file into `~/Documents/treq/exports/<file id>/` and starts a review agent session at the repository root. The session does not auto-accept edits or commands: the document may have been written by anyone it is shared with, so the prompt marks it as untrusted and every action the agent tries needs your approval. Exports never go inside the repository, so jj cannot snapshot document contents into a change. Set `TREQ_EXPORTS_DIR` to use another folder. Google Docs export as Markdown, Sheets as CSV and Slides as plain text. Text files are downloaded as they are. Other files cannot be reviewed.
 
 The agent records each finding with `treq agent-review add --target-type google_doc`, anchored to lines of the exported copy. The repository's **review agent** setting picks the agent. **Document review instructions** in the Google settings add to the prompt for that repository.
 
-**Post comments** sends each open finding to the file as a Drive comment. The comment quotes the exported lines it refers to and includes any suggested rewrite. Posted findings are marked resolved, so posting again does not duplicate them. Drive shows these comments in the file's comment list; Google's API cannot anchor them to a text range in the Docs editor.
+The file's row then shows its findings. Expand them to read each one with its line range and any suggested rewrite, and drop the ones you do not want. Running **Review** again replaces the export and its unposted findings, so treq asks first.
+
+**Post comments to Drive** sends each remaining finding to the file as a Drive comment. The comment quotes the exported lines it refers to and includes any suggested rewrite. Posted findings are marked resolved, so posting again does not duplicate them. A finding that fails to post stays listed for the next try. Drive shows these comments in the file's comment list; Google's API cannot anchor them to a text range in the Docs editor.

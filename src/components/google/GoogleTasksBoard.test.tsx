@@ -33,6 +33,8 @@ const task = (overrides: Partial<GoogleTask>): GoogleTask => ({
   ...overrides,
 });
 
+const onKickoff = vi.fn();
+
 describe("GoogleTasksBoard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,6 +47,7 @@ describe("GoogleTasksBoard", () => {
         ? [
             task({}),
             task({ id: "done", title: "Old task", status: "completed" }),
+            task({ id: "sub", title: "Draft outline", parent: "t1" }),
           ]
         : [],
     );
@@ -54,7 +57,7 @@ describe("GoogleTasksBoard", () => {
   });
 
   it("shows one column per task list with completed tasks collapsed", async () => {
-    render(<GoogleTasksBoard repoPath="/repo" />);
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
     const inbox = await screen.findByRole("region", { name: "Inbox" });
     expect(screen.getByRole("region", { name: "Doing" })).toBeInTheDocument();
     expect(await within(inbox).findByText("Write spec")).toBeInTheDocument();
@@ -64,7 +67,7 @@ describe("GoogleTasksBoard", () => {
   });
 
   it("adds a task to a column", async () => {
-    render(<GoogleTasksBoard repoPath="/repo" />);
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
     const doing = await screen.findByRole("region", { name: "Doing" });
     await userEvent.click(within(doing).getByText("Add a task"));
     await userEvent.type(
@@ -77,7 +80,7 @@ describe("GoogleTasksBoard", () => {
   });
 
   it("completes a task", async () => {
-    render(<GoogleTasksBoard repoPath="/repo" />);
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
     await userEvent.click(await screen.findByLabelText("Complete Write spec"));
     expect(api.googleUpdateTask).toHaveBeenCalledWith("inbox", "t1", {
       status: "completed",
@@ -85,7 +88,7 @@ describe("GoogleTasksBoard", () => {
   });
 
   it("moves a task when dropped on another column", async () => {
-    render(<GoogleTasksBoard repoPath="/repo" />);
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
     const card = await screen.findByTestId("google-task-t1");
     const doing = screen.getByRole("region", { name: "Doing" });
     const data = new Map<string, string>();
@@ -107,5 +110,50 @@ describe("GoogleTasksBoard", () => {
         previousTaskId: undefined,
       }),
     );
+  });
+
+  it("kicks off an agent from a task with its open subtasks", async () => {
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Kick off agent"));
+    expect(onKickoff).toHaveBeenCalledWith(
+      "Write spec\n\nSteps:\n- Draft outline",
+    );
+  });
+
+  it("edits a task's title and notes", async () => {
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Edit"));
+    const title = await screen.findByLabelText("Task title");
+    await userEvent.clear(title);
+    await userEvent.type(title, "Write the spec");
+    await userEvent.type(screen.getByLabelText("Task notes"), "v2");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(api.googleUpdateTask).toHaveBeenCalledWith("inbox", "t1", {
+      title: "Write the spec",
+      notes: "v2",
+    });
+  });
+
+  it("adds a subtask under a task", async () => {
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Add subtask"));
+    await userEvent.type(
+      await screen.findByLabelText("Task title"),
+      "Review{Enter}",
+    );
+    expect(api.googleCreateTask).toHaveBeenCalledWith("inbox", {
+      title: "Review",
+      notes: undefined,
+      parent: "t1",
+    });
   });
 });

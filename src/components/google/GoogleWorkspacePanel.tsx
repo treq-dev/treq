@@ -12,7 +12,8 @@ type GoogleTab = "tasks" | "drive";
 export const GoogleWorkspacePanel: React.FC<{
   repoPath: string;
   onStartDocReview: (launch: DocReviewLaunch) => void | Promise<void>;
-}> = ({ repoPath, onStartDocReview }) => {
+  onKickoffTask: (prompt: string) => void;
+}> = ({ repoPath, onStartDocReview, onKickoffTask }) => {
   const [tab, setTab] = useState<GoogleTab>("tasks");
   const [proxyReady, setProxyReady] = useState(false);
   useEffect(() => {
@@ -59,7 +60,7 @@ export const GoogleWorkspacePanel: React.FC<{
             Integrations.
           </p>
         ) : tab === "tasks" ? (
-          <GoogleTasksBoard repoPath={repoPath} />
+          <GoogleTasksBoard repoPath={repoPath} onKickoff={onKickoffTask} />
         ) : (
           <GoogleDrivePanel
             repoPath={repoPath}

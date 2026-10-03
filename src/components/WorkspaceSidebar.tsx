@@ -402,7 +402,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                     currentPage={currentPage}
                     onClick={onOpenGoogle}
                     icon={ListChecks}
-                    label="Google"
+                    label="Google Workspace"
                     testId="google-sidebar-item"
                   />
                 )}

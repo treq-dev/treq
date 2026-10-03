@@ -2605,10 +2605,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
     agent,
     title,
   }: DocReviewLaunch) => {
+    // No auto-accept: the agent reads a document anyone it is shared with
+    // could have written, so every edit or command it tries needs approval.
     await launchAgentSession({
       workspace: null,
       prompt,
-      mode: "acceptEdits",
       agent: toAgentKind(agent),
       sessionName: title,
     });
@@ -3454,6 +3455,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <GoogleWorkspacePanel
                   repoPath={dataRepoPath}
                   onStartDocReview={handleStartDocReview}
+                  onKickoffTask={(prompt) => handleRunPrompt(prompt, null)}
                 />
               )}
 

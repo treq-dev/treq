@@ -26,6 +26,8 @@ export type GoogleTaskInput = {
   status?: "needsAction" | "completed";
   /** RFC 3339; empty string clears the due date. */
   due?: string;
+  /** On creation only: the task this one becomes a subtask of. */
+  parent?: string;
 };
 
 export type DriveFile = {

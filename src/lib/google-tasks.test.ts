@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GoogleTask } from "./api-google";
 import {
   buildTaskColumn,
+  taskKickoffPrompt,
   dueFromDateInput,
   formatDue,
   notesWithLinearLink,
@@ -53,5 +54,16 @@ describe("notesWithLinearLink", () => {
     expect(notesWithLinearLink(null, "ENG-1", url)).toBe(
       `Linear: ENG-1 ${url}`,
     );
+  });
+});
+
+describe("taskKickoffPrompt", () => {
+  it("uses title, notes and open subtasks", () => {
+    expect(
+      taskKickoffPrompt(task({ title: "Ship it", notes: "Before Friday" }), [
+        task({ id: "s1", title: "Write tests" }),
+        task({ id: "s2", title: "Done already", status: "completed" }),
+      ]),
+    ).toBe("Ship it\n\nBefore Friday\n\nSteps:\n- Write tests");
   });
 });

@@ -316,10 +316,13 @@ pub(crate) async fn local_access_token(
   }
   // Single flight: requests that find the token expiring wait here, and all
   // but the first reuse its result instead of refreshing (and writing) again.
-  let mut latest = REFRESHED.lock().await;
-  if let Some(cached) = latest
+  let mut refreshed_by_token = REFRESHED.lock().await;
+  let refreshed_by_token = refreshed_by_token.get_or_insert_with(Default::default);
+  if let Some(cached) = tokens
+    .refresh_token
     .as_ref()
-    .filter(|c| c.refresh_token == tokens.refresh_token && is_fresh(c))
+    .and_then(|r| refreshed_by_token.get(r))
+    .filter(|c| is_fresh(c))
   {
     return Ok(cached.access_token.clone());
   }
@@ -336,17 +339,19 @@ pub(crate) async fn local_access_token(
     form.push(("client_secret", secret.clone()));
   }
   let grant = token_request(&form).await?;
-  let refreshed = tokens_from_grant(&grant, Some(refresh))?;
+  let refreshed = tokens_from_grant(&grant, Some(refresh.clone()))?;
   if let Some(path) = token_db {
     save_tokens(path, &refreshed);
   }
   let access_token = refreshed.access_token.clone();
-  *latest = Some(refreshed);
+  refreshed_by_token.insert(refresh, refreshed);
   Ok(access_token)
 }
 
-/// The last refreshed tokens, shared by concurrent requests.
-static REFRESHED: tokio::sync::Mutex<Option<StoredTokens>> = tokio::sync::Mutex::const_new(None);
+/// The latest refreshed tokens for each refresh token, shared by concurrent
+/// requests.
+static REFRESHED: tokio::sync::Mutex<Option<std::collections::HashMap<String, StoredTokens>>> =
+  tokio::sync::Mutex::const_new(None);
 
 fn is_fresh(tokens: &StoredTokens) -> bool {
   tokens

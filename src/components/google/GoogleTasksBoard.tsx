@@ -18,13 +18,23 @@ import {
   type GoogleTask,
   type GoogleTaskList,
 } from "../../lib/api-google";
-import { buildTaskColumn, dueFromDateInput } from "../../lib/google-tasks";
+import {
+  buildTaskColumn,
+  dueFromDateInput,
+  taskKickoffPrompt,
+} from "../../lib/google-tasks";
 import { cn } from "../../lib/utils";
 import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { CreateLinearIssueDialog } from "./CreateLinearIssueDialog";
-import { DRAG_TYPE, type DragPayload, TaskCardView } from "./TaskCardView";
+import {
+  DRAG_TYPE,
+  type DragPayload,
+  type TaskAction,
+  TaskCardView,
+} from "./TaskCardView";
+import { TaskEditDialog } from "./TaskEditDialog";
 
 const taskListKey = (listId: string) => ["google-tasks", listId];
 import { errorText } from "../../lib/errorText";
@@ -34,9 +44,11 @@ import { errorText } from "../../lib/errorText";
  * Google Tasks web view. Cards drag between columns (moving the task to that
  * list) and onto another card (placing it after that card).
  */
-export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
-  repoPath,
-}) => {
+export const GoogleTasksBoard: React.FC<{
+  repoPath: string;
+  /** Opens the agent prompt seeded with a task, like tracker kickoffs. */
+  onKickoff: (prompt: string) => void;
+}> = ({ repoPath, onKickoff }) => {
   const { addToast } = useToastStore();
   const {
     data: lists,
@@ -52,7 +64,10 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
   const refreshColumns = (...listIds: string[]) =>
     Promise.all(listIds.map((id) => mutate(taskListKey(id))));
   const [newListTitle, setNewListTitle] = useState("");
-  const [linearTask, setLinearTask] = useState<GoogleTask | null>(null);
+  const [dialog, setDialog] = useState<{
+    action: Exclude<TaskAction, "kickoff">;
+    task: GoogleTask;
+  } | null>(null);
 
   const handleDrop = async (
     payload: DragPayload,
@@ -132,7 +147,8 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
             key={list.id}
             list={list}
             onDrop={handleDrop}
-            onCreateLinearIssue={setLinearTask}
+            onKickoff={onKickoff}
+            onAction={(action, task) => setDialog({ action, task })}
           />
         ))}
         <div className="flex-shrink-0 w-72 p-3 rounded-lg border border-dashed border-border h-fit">
@@ -157,10 +173,19 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
       </div>
       <CreateLinearIssueDialog
         repoPath={repoPath}
-        task={linearTask}
-        onClose={() => setLinearTask(null)}
+        task={dialog?.action === "linear" ? dialog.task : null}
+        onClose={() => setDialog(null)}
         onLinked={(listId) => void refreshColumns(listId)}
       />
+      {(dialog?.action === "edit" || dialog?.action === "subtask") && (
+        <TaskEditDialog
+          key={`${dialog.action}:${dialog.task.id}`}
+          mode={dialog.action}
+          task={dialog.task}
+          onClose={() => setDialog(null)}
+          onSaved={(listId) => void refreshColumns(listId)}
+        />
+      )}
     </div>
   );
 };
@@ -168,8 +193,9 @@ export const GoogleTasksBoard: React.FC<{ repoPath: string }> = ({
 const TaskColumn: React.FC<{
   list: GoogleTaskList;
   onDrop: (payload: DragPayload, listId: string, previous?: string) => void;
-  onCreateLinearIssue: (task: GoogleTask) => void;
-}> = ({ list, onDrop, onCreateLinearIssue }) => {
+  onKickoff: (prompt: string) => void;
+  onAction: (action: Exclude<TaskAction, "kickoff">, task: GoogleTask) => void;
+}> = ({ list, onDrop, onKickoff, onAction }) => {
   const { addToast } = useToastStore();
   const {
     data: tasks = [],
@@ -220,7 +246,11 @@ const TaskColumn: React.FC<{
       const payload = readPayload(e);
       if (payload) onDrop(payload, list.id, target.id);
     },
-    onCreateLinearIssue,
+    onAction: (action: TaskAction, task: GoogleTask) => {
+      if (action !== "kickoff") return onAction(action, task);
+      const subtasks = tasks.filter((t) => t.parent === task.id);
+      onKickoff(taskKickoffPrompt(task, subtasks));
+    },
   };
 
   return (

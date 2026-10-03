@@ -68,3 +68,17 @@ export function notesWithLinearLink(
   const line = `Linear: ${identifier} ${url}`;
   return current ? `${current}\n\n${line}` : line;
 }
+
+/** Prompt that kicks off an agent from a task, like tracker kickoffs do. */
+export function taskKickoffPrompt(
+  task: GoogleTask,
+  subtasks: GoogleTask[],
+): string {
+  const parts = [task.title.trim()];
+  if (task.notes?.trim()) parts.push(task.notes.trim());
+  const open = subtasks.filter((s) => s.status !== "completed");
+  if (open.length > 0) {
+    parts.push(`Steps:\n${open.map((s) => `- ${s.title}`).join("\n")}`);
+  }
+  return parts.join("\n\n");
+}

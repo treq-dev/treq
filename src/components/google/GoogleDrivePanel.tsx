@@ -1,27 +1,17 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  ExternalLink,
-  FileText,
-  Loader2,
-  Search,
-  Send,
-  Sparkles,
-} from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import {
   googleListDriveFiles,
-  googlePostReviewComments,
   googlePrepareDocReview,
   type DriveFile,
 } from "../../lib/api-google";
-
 import { getRepoSetting } from "../../lib/api";
 import { buildDocReviewPrompt } from "../../lib/google-doc-review";
 import { useToastStore } from "../../stores/toastStore";
-import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { errorText } from "../../lib/errorText";
+import { DriveFileRow } from "./DriveFileRow";
 
 export interface DocReviewLaunch {
   prompt: string;
@@ -42,7 +32,7 @@ export const GoogleDrivePanel: React.FC<{
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [docsOnly, setDocsOnly] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
 
   const {
     data: files,
@@ -55,7 +45,7 @@ export const GoogleDrivePanel: React.FC<{
   );
 
   const startReview = async (file: DriveFile) => {
-    setBusy(`review:${file.id}`);
+    setReviewing(true);
     try {
       const prepared = await googlePrepareDocReview(repoPath, file.id);
       const [instructions, agent] = await Promise.all([
@@ -74,45 +64,7 @@ export const GoogleDrivePanel: React.FC<{
         type: "error",
       });
     } finally {
-      setBusy(null);
-    }
-  };
-
-  const postComments = async (file: DriveFile) => {
-    setBusy(`post:${file.id}`);
-    try {
-      const { posted, errors } = await googlePostReviewComments(
-        repoPath,
-        file.id,
-      );
-      if (posted === 0 && errors.length === 0) {
-        addToast({
-          title: "No review comments to post",
-          description:
-            "Run a review first, or all comments are already posted.",
-          type: "info",
-        });
-      } else if (errors.length > 0) {
-        addToast({
-          title: `Posted ${posted}, ${errors.length} failed`,
-          description: `${errors[0]} Failed comments stay open; post again to retry.`,
-          type: "warning",
-        });
-      } else {
-        addToast({
-          title: `Posted ${posted} comment${posted === 1 ? "" : "s"}`,
-          description: file.name,
-          type: "success",
-        });
-      }
-    } catch (e) {
-      addToast({
-        title: "Failed to post comments",
-        description: errorText(e),
-        type: "error",
-      });
-    } finally {
-      setBusy(null);
+      setReviewing(false);
     }
   };
 
@@ -164,62 +116,13 @@ export const GoogleDrivePanel: React.FC<{
         data-testid="google-drive-files"
       >
         {(files ?? []).map((file) => (
-          <li key={file.id} className="flex items-center gap-3 py-2">
-            <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{file.name}</p>
-              <p className="text-xs text-muted-foreground truncate">
-                {[
-                  file.owner,
-                  file.modified_time &&
-                    new Date(file.modified_time).toLocaleString(),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            </div>
-            {file.web_view_link && (
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={`Open ${file.name}`}
-                onClick={() => void openUrl(file.web_view_link ?? "")}
-              >
-                <ExternalLink className="w-4 h-4" />
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!file.reviewable || busy !== null}
-              title={
-                file.reviewable
-                  ? undefined
-                  : "Only Docs, Sheets, Slides and text files can be reviewed"
-              }
-              onClick={() => void startReview(file)}
-            >
-              {busy === `review:${file.id}` ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
-              Review
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!file.reviewable || busy !== null}
-              onClick={() => void postComments(file)}
-            >
-              {busy === `post:${file.id}` ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-              Post comments
-            </Button>
-          </li>
+          <DriveFileRow
+            key={file.id}
+            file={file}
+            repoPath={repoPath}
+            disabled={reviewing}
+            onReview={startReview}
+          />
         ))}
       </ul>
     </div>

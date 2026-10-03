@@ -15,6 +15,9 @@ export const DRAG_TYPE = "application/x-treq-google-task";
 
 export type DragPayload = { listId: string; taskId: string };
 
+/** Card actions the board handles with a dialog or by leaving the panel. */
+export type TaskAction = "kickoff" | "edit" | "subtask" | "linear";
+
 export const TaskCardView: React.FC<{
   card: TaskCard;
   listId: string;
@@ -22,7 +25,7 @@ export const TaskCardView: React.FC<{
   onDelete: (task: GoogleTask) => void;
   onSetDue: (task: GoogleTask, value: string) => void;
   onDropOnCard: (e: React.DragEvent, target: GoogleTask) => void;
-  onCreateLinearIssue: (task: GoogleTask) => void;
+  onAction: (action: TaskAction, task: GoogleTask) => void;
 }> = ({
   card,
   listId,
@@ -30,7 +33,7 @@ export const TaskCardView: React.FC<{
   onDelete,
   onSetDue,
   onDropOnCard,
-  onCreateLinearIssue,
+  onAction,
 }) => {
   const { task, subtasks } = card;
   const [editingDue, setEditingDue] = useState(false);
@@ -145,8 +148,19 @@ export const TaskCardView: React.FC<{
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => onAction("kickoff", task)}>
+              Kick off agent
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onAction("edit", task)}>
+              Edit
+            </DropdownMenuItem>
+            {!task.parent && (
+              <DropdownMenuItem onSelect={() => onAction("subtask", task)}>
+                Add subtask
+              </DropdownMenuItem>
+            )}
             {linearIntegration && (
-              <DropdownMenuItem onSelect={() => onCreateLinearIssue(task)}>
+              <DropdownMenuItem onSelect={() => onAction("linear", task)}>
                 Create Linear issue
               </DropdownMenuItem>
             )}
