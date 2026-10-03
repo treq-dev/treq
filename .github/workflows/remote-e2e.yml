@@ -41,10 +41,10 @@ jobs:
         id: gate
         env:
           TREQ_REMOTE_E2E: ${{ secrets.TREQ_REMOTE_E2E }}
-          SPRITES_TEST_API_TOKEN: ${{ secrets.SPRITES_TEST_API_TOKEN }}
+          TREQ_SPRITES_TEST_API_TOKEN: ${{ secrets.TREQ_SPRITES_TEST_API_TOKEN }}
           SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
         run: |
-          if [ "$TREQ_REMOTE_E2E" != "1" ] || [ -z "$SPRITES_TEST_API_TOKEN" ] || [ -z "$SUPABASE_TEST_URL" ]; then
+          if [ "$TREQ_REMOTE_E2E" != "1" ] || [ -z "$TREQ_SPRITES_TEST_API_TOKEN" ] || [ -z "$SUPABASE_TEST_URL" ]; then
             echo "SKIP: dedicated live e2e secrets are not configured"
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
@@ -70,8 +70,8 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         env:
           TREQ_REMOTE_E2E: "1"
-          SPRITES_TEST_API_TOKEN: ${{ secrets.SPRITES_TEST_API_TOKEN }}
-          SPRITES_TEST_API_URL: ${{ secrets.SPRITES_TEST_API_URL }}
+          TREQ_SPRITES_TEST_API_TOKEN: ${{ secrets.TREQ_SPRITES_TEST_API_TOKEN }}
+          TREQ_SPRITES_TEST_API_URL: ${{ secrets.TREQ_SPRITES_TEST_API_URL }}
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --test remote_e2e -- --ignored --test-threads=1
       - name: Native SSH live tests
         if: ${{ !cancelled() && steps.gate.outputs.run == 'true' && github.event.inputs.native == 'true' }}
@@ -102,8 +102,8 @@ jobs:
           SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
           SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
           TREQ_REMOTE_E2E_CLEANUP_TARGET: ${{ secrets.TREQ_REMOTE_E2E_CLEANUP_TARGET }}
-          SPRITES_E2E_CLEANUP_API_TOKEN: ${{ secrets.SPRITES_E2E_CLEANUP_API_TOKEN }}
-          SPRITES_E2E_CLEANUP_API_URL: ${{ secrets.SPRITES_E2E_CLEANUP_API_URL }}
+          TREQ_SPRITES_E2E_CLEANUP_API_TOKEN: ${{ secrets.TREQ_SPRITES_E2E_CLEANUP_API_TOKEN }}
+          TREQ_SPRITES_E2E_CLEANUP_API_URL: ${{ secrets.TREQ_SPRITES_E2E_CLEANUP_API_URL }}
         run: |
           if [ "$TREQ_REMOTE_E2E_CLEANUP_TARGET" = "dedicated-test" ]; then
             mode=--apply

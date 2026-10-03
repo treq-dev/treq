@@ -6,7 +6,7 @@
  * command and the managed-connect flow send and expect against the
  * `remote-instance` / `remote-ssh-trust` edge functions.
  *
- * Requires `REMOTE_SPRITES_STUB=1` (set by `scripts/service-qa/up.sh`) so
+ * Requires `TREQ_REMOTE_SPRITES_STUB=1` (set by `scripts/service-qa/up.sh`) so
  * `ensure`/`wake`/`status` resolve without a real Fly.io account.
  */
 import { it, expect, afterEach } from "vitest";
