@@ -1,19 +1,12 @@
 import { create } from "zustand";
 import { setSetting } from "../lib/api";
 import {
-  FEATURES,
   PREVIEW_FEATURE_IDS,
   type PreviewFeatureId,
   parsePreviewSetting,
+  previewFeatureDefault,
   previewSettingKey,
 } from "../lib/features";
-
-function previewFeatureDefault(id: PreviewFeatureId): boolean {
-  if (import.meta.env.DEV || import.meta.env.MODE === "test") {
-    return true;
-  }
-  return FEATURES[id] === true;
-}
 
 type PreviewFlags = Record<PreviewFeatureId, boolean>;
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  isAllowedUrl,
+  isAllowedRequest,
+  PRO_REQUIRED_MESSAGE,
   proxyGoogleRequest,
   RECONNECT_MESSAGE,
   type ProxyDeps,
@@ -23,6 +24,7 @@ function token(overrides: Partial<StoredToken> = {}): StoredToken {
 function deps(
   stored: StoredToken | null,
   fetchImpl: (url: string, init: RequestInit) => Response,
+  pro = true,
 ): ProxyDeps & { saved: unknown[]; calls: [string, RequestInit][] } {
   const saved: unknown[] = [];
   const calls: [string, RequestInit][] = [];
@@ -30,6 +32,7 @@ function deps(
     saved,
     calls,
     now: () => NOW,
+    isPro: async () => pro,
     googleClient: { id: "cid", secret: "secret" },
     store: {
       load: async () => stored,
@@ -50,20 +53,52 @@ const ok = (body: unknown) =>
     headers: { "Content-Type": "application/json" },
   });
 
-describe("isAllowedUrl", () => {
-  it("allows only the Tasks and Drive APIs", () => {
-    expect(isAllowedUrl(LISTS)).toBe(true);
-    expect(isAllowedUrl("https://www.googleapis.com/drive/v3/files")).toBe(
-      true,
-    );
-    expect(isAllowedUrl("https://www.googleapis.com/gmail/v1/users/me")).toBe(
-      false,
-    );
-    expect(isAllowedUrl("https://evil.example/tasks/v1/")).toBe(false);
-    expect(
-      isAllowedUrl("https://tasks.googleapis.com@evil.example/tasks/v1/"),
-    ).toBe(false);
-    expect(isAllowedUrl("not a url")).toBe(false);
+const DRIVE = "https://www.googleapis.com/drive/v3";
+
+describe("isAllowedRequest", () => {
+  it("allows the calls the app makes", () => {
+    for (const [method, url] of [
+      ["GET", LISTS],
+      ["POST", LISTS],
+      [
+        "GET",
+        "https://tasks.googleapis.com/tasks/v1/lists/L1/tasks?showCompleted=true",
+      ],
+      ["PATCH", "https://tasks.googleapis.com/tasks/v1/lists/L1/tasks/t1"],
+      ["DELETE", "https://tasks.googleapis.com/tasks/v1/lists/L1/tasks/t1"],
+      [
+        "POST",
+        "https://tasks.googleapis.com/tasks/v1/lists/L1/tasks/t1/move?destinationTasklist=L2",
+      ],
+      ["GET", `${DRIVE}/files?q=x`],
+      ["GET", `${DRIVE}/files/doc1?alt=media`],
+      ["GET", `${DRIVE}/files/doc1/export?mimeType=text%2Fmarkdown`],
+      ["POST", `${DRIVE}/files/doc1/comments?fields=id`],
+    ]) {
+      expect(isAllowedRequest(method, url), `${method} ${url}`).toBe(true);
+    }
+  });
+
+  it("refuses destructive Drive calls, other APIs and path tricks", () => {
+    for (const [method, url] of [
+      ["DELETE", `${DRIVE}/files/doc1`],
+      ["PATCH", `${DRIVE}/files/doc1`],
+      ["POST", `${DRIVE}/files/doc1/permissions`],
+      ["POST", `${DRIVE}/files`],
+      ["GET", `${DRIVE}/files/doc1/comments/../permissions`],
+      ["GET", `${DRIVE}/files/%2e%2e/about`],
+      ["GET", `${DRIVE}/about`],
+      ["DELETE", LISTS],
+      ["GET", "https://www.googleapis.com/gmail/v1/users/me"],
+      [
+        "GET",
+        "https://tasks.googleapis.com@evil.example/tasks/v1/users/@me/lists",
+      ],
+      ["GET", "https://evil.example/tasks/v1/users/@me/lists"],
+      ["GET", "not a url"],
+    ]) {
+      expect(isAllowedRequest(method, url), `${method} ${url}`).toBe(false);
+    }
   });
 });
 
@@ -81,7 +116,7 @@ describe("proxyGoogleRequest", () => {
   it("refuses URLs outside the allowlist without touching the token", async () => {
     const d = deps(token(), () => ok({}));
     const result = await proxyGoogleRequest(
-      { url: "https://www.googleapis.com/gmail/v1/users/me/messages" },
+      { url: `${DRIVE}/files/doc1/permissions`, method: "POST" },
       d,
     );
     expect(result.status).toBe(400);
@@ -123,6 +158,16 @@ describe("proxyGoogleRequest", () => {
       deps(null, () => ok({})),
     );
     expect(JSON.parse(unlinked.body)).toEqual({ linked: false });
+  });
+
+  it("refuses users without an active Pro plan", async () => {
+    const d = deps(token(), () => ok({}), false);
+    for (const request of [{ url: LISTS }, { op: "status" as const }]) {
+      const result = await proxyGoogleRequest(request, d);
+      expect(result.status).toBe(403);
+      expect(JSON.parse(result.body).error).toBe(PRO_REQUIRED_MESSAGE);
+    }
+    expect(d.calls).toHaveLength(0);
   });
 
   it("reports an unlinked account", async () => {

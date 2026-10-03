@@ -56,7 +56,9 @@ fn package_flag(id: &str) -> bool {
 }
 
 pub fn compile_default(feature: PreviewFeature) -> bool {
-  if cfg!(debug_assertions) {
+  // Google Workspace stays opt-in even in debug builds: it holds a full
+  // Drive grant, so nobody should get it without turning it on.
+  if cfg!(debug_assertions) && feature != PreviewFeature::GoogleWorkspace {
     true
   } else {
     package_flag(feature.as_str())
@@ -115,6 +117,17 @@ mod tests {
     assert!(!package_json_default(PreviewFeature::Logs));
     assert!(!package_json_default(PreviewFeature::Checks));
     assert!(!package_json_default(PreviewFeature::Browser));
+    assert!(!package_json_default(PreviewFeature::GoogleWorkspace));
+  }
+
+  #[test]
+  fn google_workspace_is_off_by_default_in_every_build() {
+    let (_dir, db) = temp_db();
+    assert!(!compile_default(PreviewFeature::GoogleWorkspace));
+    assert!(!is_enabled(&db, PreviewFeature::GoogleWorkspace));
+    db.set_setting(&PreviewFeature::GoogleWorkspace.setting_key(), "true")
+      .unwrap();
+    assert!(is_enabled(&db, PreviewFeature::GoogleWorkspace));
   }
 
   #[test]

@@ -23,6 +23,7 @@ fn resolve(state: &State<'_, AppState>) -> Result<GoogleSource, String> {
 pub async fn google_connection_status(
   state: State<'_, AppState>,
 ) -> Result<GoogleConnectionStatus, String> {
+  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
   let source = resolve(&state);
   let has_client_id = {
     let db = state.db.lock_or_recover();
@@ -55,6 +56,7 @@ pub async fn google_oauth_begin(
 /// Waits for the browser redirect and stores the client and tokens.
 #[tauri::command]
 pub async fn google_oauth_complete(state: State<'_, AppState>) -> Result<(), String> {
+  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
   let (tokens, client_id, client_secret) = crate::google::complete_local_oauth().await?;
   let raw = serde_json::to_string(&tokens).map_err(|e| e.to_string())?;
   let db = state.db.lock_or_recover();
@@ -69,7 +71,8 @@ pub async fn google_oauth_complete(state: State<'_, AppState>) -> Result<(), Str
     .map_err(|e| format!("Failed to store Google tokens: {e}"))
 }
 
-/// Forgets the locally stored tokens. The proxy grant is removed server side.
+/// Forgets the locally stored tokens. Not gated, so turning the preview off
+/// never strands a grant. Pro grants are removed by `disconnect-google`.
 #[tauri::command]
 pub fn google_disconnect_local(state: State<'_, AppState>) -> Result<(), String> {
   let db = state.db.lock_or_recover();
@@ -155,7 +158,7 @@ pub async fn google_list_drive_files(
   crate::google::list_drive_files(&source_for(&state)?, search.as_deref(), docs_only).await
 }
 
-/// Exports a Drive file into `.treq/google-review/<id>/` for the review agent.
+/// Exports a Drive file into `~/Documents/treq/exports/<id>/` for the review agent.
 #[tauri::command]
 pub async fn google_prepare_doc_review(
   state: State<'_, AppState>,

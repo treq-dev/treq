@@ -10,7 +10,7 @@ The **Google** panel has two tabs. **Tasks** shows your Google Tasks lists as Ka
 
 :::note[Work in progress]
 
-This integration is a feature preview. Turn on **Google Workspace integration** in Settings under **Preview**. Google Keep is not supported yet: its API is only open to Google Workspace domains through admin-approved service accounts.
+This integration is a feature preview and is off by default in every build. Turn on **Google Workspace integration** in Settings under **Preview**. Google Keep is not supported yet: its API is only open to Google Workspace domains through admin-approved service accounts.
 
 :::
 
@@ -24,6 +24,8 @@ Connect in Settings under **Integrations**. There are two ways.
 | Pro | **Connect with Google** uses Treq's OAuth app. | Treq's servers. The app sends requests through the `google-proxy` function, which adds your token. |
 
 When both are set up, the local client wins.
+
+The `google-proxy` function only serves users with an active Pro plan, and only forwards the exact Tasks and Drive calls the app makes. It refuses anything else, such as deleting or sharing Drive files. **Disconnect** next to **Connect with Google** revokes the grant with Google and deletes it from Treq's servers; it works even after a Pro plan lapses.
 
 Treq asks for the `tasks` and `drive` scopes. Full Drive access is needed so the review can export any Doc you pick and post comments on it.
 
@@ -41,7 +43,7 @@ With the [Linear integration](./linear-integration.md) on, a card's menu also ha
 
 ## Reviewing Docs and Drive Files
 
-**Review** exports the file into `.treq/google-review/<file id>/` in the repository and starts a review agent session at the repository root. Google Docs export as Markdown, Sheets as CSV and Slides as plain text. Text files are downloaded as they are. Other files cannot be reviewed.
+**Review** exports the file into `~/Documents/treq/exports/<file id>/` and starts a review agent session at the repository root. Exports never go inside the repository, so jj cannot snapshot document contents into a change. Set `TREQ_EXPORTS_DIR` to use another folder. Google Docs export as Markdown, Sheets as CSV and Slides as plain text. Text files are downloaded as they are. Other files cannot be reviewed.
 
 The agent records each finding with `treq agent-review add --target-type google_doc`, anchored to lines of the exported copy. The repository's **review agent** setting picks the agent. **Document review instructions** in the Google settings add to the prompt for that repository.
 

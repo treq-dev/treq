@@ -86,8 +86,15 @@ export function previewSettingKey(id: PreviewFeatureId): string {
   return `feature_preview.${id}`;
 }
 
-/** Startup default: Vite dev (and Vitest) turn every preview flag on. */
+// Opt-in in every build, dev included: it holds a full Google Drive grant.
+const OPT_IN_ONLY: ReadonlySet<PreviewFeatureId> = new Set(["googleWorkspace"]);
+
+/**
+ * Startup default: Vite dev (and Vitest) turn every preview flag on, except
+ * the opt-in-only ones, which follow package.json everywhere.
+ */
 export function previewFeatureDefault(id: PreviewFeatureId): boolean {
+  if (OPT_IN_ONLY.has(id)) return FEATURES[id] === true;
   if (import.meta.env.DEV || import.meta.env.MODE === "test") {
     return true;
   }

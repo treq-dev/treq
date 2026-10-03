@@ -11,7 +11,7 @@ const review = {
     owner: null,
     reviewable: true,
   },
-  root: "/repo/.treq/google-review/doc_1",
+  root: "/home/me/Documents/treq/exports/doc_1",
   file_name: "Q3-plan.md",
   line_count: 12,
 };
@@ -21,7 +21,9 @@ describe("buildDocReviewPrompt", () => {
     const prompt = buildDocReviewPrompt(review);
     expect(prompt).toContain("--target-type google_doc --target-id doc_1");
     expect(prompt).toContain("--file Q3-plan.md");
-    expect(prompt).toContain("/repo/.treq/google-review/doc_1/Q3-plan.md");
+    expect(prompt).toContain(
+      "/home/me/Documents/treq/exports/doc_1/Q3-plan.md",
+    );
     expect(prompt).not.toContain("Reviewer instructions");
   });
 

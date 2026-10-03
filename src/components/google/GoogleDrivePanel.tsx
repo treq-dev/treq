@@ -31,7 +31,7 @@ export interface DocReviewLaunch {
 
 /**
  * Google Drive and Docs files, each with a review flow: export the file into
- * the repo's `.treq/google-review/`, run the review agent on it, then post
+ * `~/Documents/treq/exports/`, run the review agent on it, then post
  * its findings back to the file as Drive comments.
  */
 export const GoogleDrivePanel: React.FC<{

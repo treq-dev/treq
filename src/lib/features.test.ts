@@ -42,14 +42,14 @@ describe("preview features", () => {
     expect(FEATURES.agentMessageQueue).toBe(false);
   });
 
-  it("defaults every preview flag on in test and dev", () => {
+  it("defaults preview flags on in test and dev, except opt-in-only ones", () => {
     expect(previewFeatureDefault("skillsInstallation")).toBe(true);
     expect(previewFeatureDefault("workspaceScheduling")).toBe(true);
     expect(previewFeatureDefault("remoteSsh")).toBe(true);
     expect(previewFeatureDefault("linearIntegration")).toBe(true);
     expect(previewFeatureDefault("trelloIntegration")).toBe(true);
     expect(previewFeatureDefault("jiraIntegration")).toBe(true);
-    expect(previewFeatureDefault("googleWorkspace")).toBe(true);
+    expect(previewFeatureDefault("googleWorkspace")).toBe(false);
     expect(previewFeatureDefault("logs")).toBe(true);
     expect(previewFeatureDefault("checks")).toBe(true);
     expect(previewFeatureDefault("browser")).toBe(true);

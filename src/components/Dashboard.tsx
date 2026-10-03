@@ -2598,8 +2598,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return sessionId;
   };
 
-  // Document reviews run at the repo root: the exported file lives in
-  // `.treq/google-review/`, outside any workspace.
+  // Document reviews run at the repo root, not in a workspace; the exported
+  // file lives in ~/Documents/treq/exports/.
   const handleStartDocReview = async ({
     prompt,
     agent,

@@ -39,7 +39,7 @@ const SettingRow: React.FC<{
 export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   repoPath,
 }) => {
-  const { subscription } = useAuthStore();
+  const { subscription, user } = useAuthStore();
   const isPro =
     subscription?.plan === "pro" && subscription.status === "active";
   const { addToast } = useToastStore();
@@ -115,6 +115,33 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   const disconnectLocal = async () => {
     await googleDisconnectLocal();
     await mutate();
+  };
+
+  // Not Pro-gated: a lapsed plan must still be able to remove its grant.
+  const disconnectPro = async () => {
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "disconnect-google",
+        { body: {} },
+      );
+      if (error) throw new Error(errorText(error));
+      await mutate();
+      addToast({
+        title: data?.disconnected
+          ? "Google disconnected from your treq account"
+          : "No Google account was connected through treq",
+        type: "success",
+      });
+    } catch (e) {
+      addToast({
+        title: "Failed to disconnect Google",
+        description: errorText(e),
+        type: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const saveReviewPrompt = async () => {
@@ -199,6 +226,16 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
           >
             Connect with Google
           </Button>
+          {user && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={disconnectPro}
+              disabled={busy}
+            >
+              Disconnect
+            </Button>
+          )}
         </SettingRow>
 
         {repoPath && (

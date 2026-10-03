@@ -31,8 +31,9 @@ pub const CLIENT_ID_SETTING: &str = "google_client_id";
 pub const CLIENT_SECRET_SETTING: &str = "google_client_secret";
 pub const TOKENS_SETTING: &str = "google_oauth_tokens";
 
-/// Directory, relative to the repo, that exported documents are reviewed in.
-pub const REVIEW_DIR: &str = ".treq/google-review";
+/// Under the user's Documents folder: exports never land inside a repo,
+/// where jj would snapshot private document contents into a change.
+pub const EXPORTS_DIR: &str = "treq/exports";
 pub const REVIEW_TARGET_TYPE: &str = "google_doc";
 pub const GOOGLE_DOC_MIME: &str = "application/vnd.google-apps.document";
 
@@ -961,15 +962,38 @@ pub fn valid_file_id(id: &str) -> bool {
       .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-pub fn review_root(repo_path: &str, file_id: &str) -> Result<std::path::PathBuf, String> {
+#[cfg(test)]
+thread_local! {
+  static TEST_EXPORTS_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Test-only: export into `dir` on this thread instead of ~/Documents.
+#[cfg(test)]
+pub fn use_test_exports_dir(dir: &std::path::Path) {
+  TEST_EXPORTS_DIR.with(|d| *d.borrow_mut() = Some(dir.to_path_buf()));
+}
+
+/// `~/Documents/treq/exports`, or `$TREQ_EXPORTS_DIR` when set.
+pub fn exports_root() -> Result<PathBuf, String> {
+  #[cfg(test)]
+  if let Some(dir) = TEST_EXPORTS_DIR.with(|d| d.borrow().clone()) {
+    return Ok(dir);
+  }
+  if let Some(dir) = non_empty(std::env::var("TREQ_EXPORTS_DIR").ok()) {
+    return Ok(PathBuf::from(dir));
+  }
+  let home = non_empty(std::env::var("HOME").ok())
+    .or_else(|| non_empty(std::env::var("USERPROFILE").ok()))
+    .ok_or("Cannot find the home directory to export documents into")?;
+  Ok(PathBuf::from(home).join("Documents").join(EXPORTS_DIR))
+}
+
+/// Directory one Drive file is exported into for review.
+pub fn review_root(file_id: &str) -> Result<PathBuf, String> {
   if !valid_file_id(file_id) {
     return Err(format!("Invalid Google Drive file id '{file_id}'"));
   }
-  Ok(
-    std::path::Path::new(repo_path)
-      .join(REVIEW_DIR)
-      .join(file_id),
-  )
+  Ok(exports_root()?.join(file_id))
 }
 
 pub fn review_file_name(file: &DriveFile) -> String {
@@ -1029,7 +1053,7 @@ pub async fn prepare_doc_review(
   repo_path: &str,
   file_id: &str,
 ) -> Result<PreparedDocReview, String> {
-  let root = review_root(repo_path, file_id)?;
+  let root = review_root(file_id)?;
   let file = get_drive_file(source, file_id).await?;
   let text = export_text(source, &file).await?;
   let file_name = review_file_name(&file);
@@ -1107,7 +1131,7 @@ pub async fn post_review_comments(
   repo_path: &str,
   file_id: &str,
 ) -> Result<PostCommentsResult, String> {
-  let root = review_root(repo_path, file_id)?;
+  let root = review_root(file_id)?;
   let comments =
     crate::local_db::list_agent_review_comments(repo_path, REVIEW_TARGET_TYPE, file_id)?;
   let mut result = PostCommentsResult::default();
@@ -1246,11 +1270,12 @@ mod tests {
 
   #[test]
   fn review_root_rejects_path_traversal() {
-    assert!(review_root("/repo", "../etc").is_err());
-    assert!(review_root("/repo", "").is_err());
+    use_test_exports_dir(std::path::Path::new("/docs/treq/exports"));
+    assert!(review_root("../etc").is_err());
+    assert!(review_root("").is_err());
     assert_eq!(
-      review_root("/repo", "abc_D-1").unwrap(),
-      std::path::Path::new("/repo/.treq/google-review/abc_D-1")
+      review_root("abc_D-1").unwrap(),
+      std::path::Path::new("/docs/treq/exports/abc_D-1")
     );
   }
 
@@ -1451,7 +1476,9 @@ mod tests {
     let server = mock().await;
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().to_str().unwrap();
-    let root = review_root(repo, "doc1").unwrap();
+    let exports = tempfile::tempdir().unwrap();
+    use_test_exports_dir(exports.path());
+    let root = review_root("doc1").unwrap();
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("doc.md"), "Line one\n").unwrap();
     add_comment(repo, "doc1", "bad");
@@ -1492,7 +1519,9 @@ mod tests {
     let server = mock().await;
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().to_str().unwrap();
-    std::fs::create_dir_all(review_root(repo, "doc1").unwrap()).unwrap();
+    let exports = tempfile::tempdir().unwrap();
+    use_test_exports_dir(exports.path());
+    std::fs::create_dir_all(review_root("doc1").unwrap()).unwrap();
     add_comment(repo, "doc1", "stale");
     let posted = add_comment(repo, "doc1", "posted");
     crate::local_db::resolve_agent_review_comment(repo, &posted).unwrap();

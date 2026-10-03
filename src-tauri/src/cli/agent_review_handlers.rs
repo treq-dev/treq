@@ -215,8 +215,9 @@ fn validate_add_target(
     }
     "file_browser_file" => PathBuf::from(repo_path),
     // An exported Google Doc; `--file` is relative to its review directory.
-    crate::google::REVIEW_TARGET_TYPE => crate::google::review_root(repo_path, target_id)
-      .map_err(|e| format!("invalid_arguments: {e}"))?,
+    crate::google::REVIEW_TARGET_TYPE => {
+      crate::google::review_root(target_id).map_err(|e| format!("invalid_arguments: {e}"))?
+    }
     other => {
       return Err(format!(
         "invalid_arguments: unknown --target-type '{other}'. Expected one of: {}",
@@ -370,7 +371,9 @@ mod tests {
     check(DEFAULT_TARGET_TYPE, &id, "a.rs", 3, None).unwrap();
     check(DEFAULT_TARGET_TYPE, &id, "a.rs", 99, Some("old")).unwrap();
     check("file_browser_file", b, "b.rs", 1, None).unwrap();
-    let doc_dir = dir.path().join(".treq/google-review/doc1");
+    let exports = tempfile::tempdir().unwrap();
+    crate::google::use_test_exports_dir(exports.path());
+    let doc_dir = exports.path().join("doc1");
     std::fs::create_dir_all(&doc_dir).unwrap();
     std::fs::write(doc_dir.join("spec.md"), "1\n2\n").unwrap();
     check("google_doc", "doc1", "spec.md", 2, None).unwrap();

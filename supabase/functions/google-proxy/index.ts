@@ -62,6 +62,14 @@ Deno.serve(async (req) => {
 
   const result = await proxyGoogleRequest(body, {
     fetch,
+    isPro: async () => {
+      const { data, error } = await supabaseUser
+        .from("subscriptions")
+        .select("plan, status")
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return data?.plan === "pro" && data?.status === "active";
+    },
     googleClient:
       clientId && clientSecret ? { id: clientId, secret: clientSecret } : null,
     store: {

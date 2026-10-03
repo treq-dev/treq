@@ -17,6 +17,8 @@ export interface TokenStore {
 
 export interface ProxyDeps {
   store: TokenStore;
+  /** Whether the user has an active Pro plan; the proxy is Pro-only. */
+  isPro: () => Promise<boolean>;
   fetch: typeof fetch;
   googleClient: { id: string; secret: string } | null;
   now?: () => number;
@@ -36,18 +38,37 @@ export type ProxyResult = {
   contentType: string;
 };
 
+export const PRO_REQUIRED_MESSAGE =
+  "Connecting Google through treq needs an active Pro plan. Use your own OAuth client in Settings instead.";
+
 export const RECONNECT_MESSAGE =
   "Google authorization expired. Reconnect Google Workspace in treq settings.";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REFRESH_MARGIN_MS = 60_000;
-const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH", "PUT", "DELETE"]);
-// Only the APIs the desktop app uses; anything else is refused so the
-// proxy cannot be used as a general Google token oracle.
-const ALLOWED_PREFIXES = [
-  "https://tasks.googleapis.com/tasks/v1/",
-  "https://www.googleapis.com/drive/v3/",
-];
+const SEGMENT = "[A-Za-z0-9_-]+";
+const TASKS = "https://tasks.googleapis.com/tasks/v1";
+const DRIVE = "https://www.googleapis.com/drive/v3";
+
+// Exactly the calls the desktop app makes, by method and path. Anything
+// else (deleting or sharing Drive files, other Google APIs) is refused, so a
+// stolen treq session cannot be turned into general access to the grant.
+const ALLOWED_ENDPOINTS: { method: string; path: RegExp }[] = [
+  ["GET", `${TASKS}/users/@me/lists`],
+  ["POST", `${TASKS}/users/@me/lists`],
+  ["GET", `${TASKS}/lists/${SEGMENT}/tasks`],
+  ["POST", `${TASKS}/lists/${SEGMENT}/tasks`],
+  ["PATCH", `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}`],
+  ["DELETE", `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}`],
+  ["POST", `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}/move`],
+  ["GET", `${DRIVE}/files`],
+  ["GET", `${DRIVE}/files/${SEGMENT}`],
+  ["GET", `${DRIVE}/files/${SEGMENT}/export`],
+  ["POST", `${DRIVE}/files/${SEGMENT}/comments`],
+].map(([method, path]) => ({
+  method,
+  path: new RegExp(`^${path.replace(/[.]/g, "\\.")}$`),
+}));
 
 function json(body: unknown, status: number): ProxyResult {
   return {
@@ -57,16 +78,20 @@ function json(body: unknown, status: number): ProxyResult {
   };
 }
 
-export function isAllowedUrl(raw: string): boolean {
+export function isAllowedRequest(method: string, raw: string): boolean {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     return false;
   }
-  if (url.username || url.password) return false;
-  const normalized = url.toString();
-  return ALLOWED_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  if (url.username || url.password || url.hash) return false;
+  // `new URL` has already resolved dot segments, so `files/../x` cannot
+  // slip past the anchored patterns.
+  const target = `${url.origin}${url.pathname}`;
+  return ALLOWED_ENDPOINTS.some(
+    (endpoint) => endpoint.method === method && endpoint.path.test(target),
+  );
 }
 
 function needsRefresh(token: StoredToken, now: number): boolean {
@@ -118,6 +143,14 @@ export async function proxyGoogleRequest(
   request: ProxyRequest,
   deps: ProxyDeps,
 ): Promise<ProxyResult> {
+  let pro: boolean;
+  try {
+    pro = await deps.isPro();
+  } catch (err) {
+    console.error("[google-proxy] plan lookup failed:", String(err));
+    return json({ error: "Failed to check your plan" }, 500);
+  }
+  if (!pro) return json({ error: PRO_REQUIRED_MESSAGE }, 403);
   if (request.op === "status") {
     try {
       return json({ linked: (await deps.store.load()) !== null }, 200);
@@ -127,11 +160,8 @@ export async function proxyGoogleRequest(
     }
   }
   const method = (request.method ?? "GET").toUpperCase();
-  if (!ALLOWED_METHODS.has(method)) {
-    return json({ error: "Method not allowed" }, 400);
-  }
-  if (!request.url || !isAllowedUrl(request.url)) {
-    return json({ error: "URL not allowed" }, 400);
+  if (!request.url || !isAllowedRequest(method, request.url)) {
+    return json({ error: "Request not allowed" }, 400);
   }
   const now = (deps.now ?? Date.now)();
 
