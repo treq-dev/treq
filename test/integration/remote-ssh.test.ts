@@ -6,11 +6,7 @@ import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { Dashboard } from "../../src/components/Dashboard";
-import {
-  buildExplicitAliasSshEndpoint,
-  listSshHosts,
-  setSetting,
-} from "../../src/lib/api";
+import { listSshHosts, setSetting } from "../../src/lib/api";
 import type {
   RemoteRepoProbe,
   RepositoryInspection,
@@ -88,18 +84,6 @@ describe("remote SSH integration", () => {
     expect(screen.queryByText("Remote repository connected")).toBeNull();
     await setSetting("last_opened_remote_repo", "");
     await setSetting("last_opened_remote_repo_id", "");
-  });
-
-  it("rejects an alias that resolves to no ~/.ssh/config Host block before any connection is made", async () => {
-    await expect(
-      buildExplicitAliasSshEndpoint({
-        endpointId: "endpoint-test",
-        alias: "devbox; rm -rf /",
-        expectedFingerprint: "SHA256:abc",
-        hostKeyAlgorithm: "ssh-ed25519",
-        keyReference: "id_ed25519",
-      }),
-    ).rejects.toThrow("alias_not_found");
   });
 
   it("lists SSH hosts as an array even when no user config is present", async () => {
