@@ -11,11 +11,10 @@
 //! autocomplete only; never connect merely because an alias was found").
 //! Nothing here opens a network connection or reads `known_hosts`, and
 //! resolving an alias never by itself grants trust. Trust is established only
-//! when a caller pairs a resolved alias with a user-supplied expected
-//! host-key fingerprint via [`build_explicit_alias_endpoint`], which produces
-//! a native [`SshEndpoint`] enforced by
-//! `crate::core::remote_ssh_transport::HostKeyVerifier` — never a system
-//! `ssh` subprocess and never `StrictHostKeyChecking=no` or an equivalent.
+//! when the user registers the endpoint with an expected host-key
+//! fingerprint, which `crate::core::remote_ssh_transport::HostKeyVerifier`
+//! enforces — never a system `ssh` subprocess and never
+//! `StrictHostKeyChecking=no` or an equivalent.
 //!
 //! ## Supported directives
 //!
@@ -35,10 +34,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-
-use crate::core::remote_control_plane::{
-  SshAuthentication, SshEndpoint, SshEndpointSource, TrustedHostKey,
-};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SshConfigError {
@@ -366,61 +361,6 @@ pub fn resolve_alias(alias: &str) -> Result<ResolvedSshAlias, SshConfigError> {
   resolve_alias_from_paths(alias, &default_ssh_config_paths())
 }
 
-/// Builds a fully-explicit, trust-pinned native [`SshEndpoint`] for an
-/// explicitly-selected alias. This is the only way an alias may ever produce
-/// a connectable endpoint (PRD "Require explicit endpoint registration and
-/// the user-supplied expected fingerprint" / "Construct an explicit native
-/// SshEndpoint after registration"):
-///
-/// - `alias` is resolved via [`resolve_alias_from_paths`] into hostname,
-///   port, username, and identity — never connected to on its own;
-/// - `expected_fingerprint` must come from the user, not from
-///   `~/.ssh/known_hosts` or any other ambient trust store — the returned
-///   endpoint's `host_keys` contains exactly this fingerprint, so
-///   `HostKeyVerifier` rejects anything else, including a key that was
-///   previously trusted under a *different* fingerprint (a changed key is
-///   never silently accepted);
-/// - a `ProxyJump`/`ProxyCommand` directive for this alias is rejected here
-///   (via `resolve_alias_from_paths`) rather than silently dropped or
-///   fumbled through a system `ssh` fallback.
-///
-/// The returned endpoint uses the native `russh`-based transport
-/// exclusively; nothing in this path spawns a system `ssh` subprocess.
-#[allow(clippy::too_many_arguments)]
-pub fn build_explicit_alias_endpoint(
-  endpoint_id: String,
-  alias: &str,
-  paths: &[PathBuf],
-  expected_fingerprint: String,
-  host_key_algorithm: String,
-  username_override: Option<String>,
-  key_reference: String,
-) -> Result<SshEndpoint, SshConfigError> {
-  let resolved = resolve_alias_from_paths(alias, paths)?;
-  let username = username_override
-    .or(resolved.username)
-    .unwrap_or_else(|| alias.to_string());
-  Ok(SshEndpoint {
-    id: endpoint_id,
-    instance_id: None,
-    source: SshEndpointSource::ExplicitAlias {
-      alias: alias.to_string(),
-    },
-    hostname: resolved.hostname,
-    port: resolved.port,
-    username,
-    host_keys: vec![TrustedHostKey {
-      algorithm: host_key_algorithm,
-      fingerprint_sha256: expected_fingerprint,
-      comment: None,
-    }],
-    authentication: SshAuthentication::PublicKey {
-      key_reference: resolved.identity_file.unwrap_or(key_reference),
-    },
-    transport: Default::default(),
-  })
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -663,66 +603,12 @@ mod tests {
     assert_eq!(resolved.hostname, "this-host-does-not-resolve.invalid");
   }
 
-  // -- Endpoint construction / trust model ---------------------------------------
-
-  #[test]
-  fn build_explicit_alias_endpoint_pins_only_the_user_supplied_fingerprint() {
-    let dir = TempDir::new().unwrap();
-    let config = write(
-      &dir,
-      "config",
-      "Host prod\n  HostName prod.example.com\n  User deploy\n  Port 2222\n",
-    );
-
-    let endpoint = build_explicit_alias_endpoint(
-      "endpoint-1".to_string(),
-      "prod",
-      &[config],
-      "SHA256:expected".to_string(),
-      "ssh-ed25519".to_string(),
-      None,
-      "id_ed25519".to_string(),
-    )
-    .unwrap();
-
-    assert_eq!(endpoint.hostname, "prod.example.com");
-    assert_eq!(endpoint.username, "deploy");
-    assert_eq!(endpoint.port, 2222);
-    assert_eq!(endpoint.host_keys.len(), 1);
-    assert_eq!(endpoint.host_keys[0].fingerprint_sha256, "SHA256:expected");
-    assert_eq!(
-      endpoint.source,
-      SshEndpointSource::ExplicitAlias {
-        alias: "prod".to_string()
-      }
-    );
-  }
-
-  #[test]
-  fn build_explicit_alias_endpoint_rejects_proxyjump_alias() {
-    let dir = TempDir::new().unwrap();
-    let config = write(&dir, "config", "Host bastioned\n  ProxyJump bastion\n");
-
-    let error = build_explicit_alias_endpoint(
-      "endpoint-1".to_string(),
-      "bastioned",
-      &[config],
-      "SHA256:expected".to_string(),
-      "ssh-ed25519".to_string(),
-      None,
-      "id_ed25519".to_string(),
-    )
-    .unwrap_err();
-
-    assert!(matches!(error, SshConfigError::UnsupportedFeature { .. }));
-  }
-
   // -- No system ssh subprocess on the reachable alias flow ---------------------
 
   #[test]
-  fn alias_resolution_and_endpoint_construction_never_reference_a_system_ssh_program() {
+  fn alias_resolution_never_references_a_system_ssh_program() {
     // Pure static inspection of this module's own source: everything in the
-    // explicit-alias resolution/registration path lives here, and none of it
+    // explicit-alias resolution path lives here, and none of it
     // may spawn a system `ssh` binary or shell out at all (PRD "Remove the
     // system-ssh subprocess from the reachable alias product flow").
     let source = include_str!("remote_ssh_config.rs");
@@ -741,15 +627,12 @@ mod tests {
   }
 
   #[test]
-  fn native_probe_open_clone_helpers_never_shell_out_to_ssh() {
-    // Static inspection of the reachable structured-command alias path
-    // (`probe_repo_native`/`open_repo_native`/`clone_repo_native` in
-    // `core::remote`, which every alias-based probe/open/clone Tauri command
-    // now calls): the only remaining `"ssh"` program-name reference in that
-    // file is `build_ssh_shell_command`, which builds an *interactive PTY*
-    // shell command line (out of scope for this native-alias-trust delivery
-    // per its explicit PTY non-goal) and is never called by the structured
-    // probe/open/clone/inspect commands this module's endpoints feed.
+  fn core_remote_typed_commands_never_shell_out_to_ssh() {
+    // Static inspection of `core::remote`, whose typed commands reach an
+    // endpoint only over the native transport: the only remaining `"ssh"`
+    // program-name reference in that file is `build_ssh_shell_command`, which
+    // builds an *interactive PTY* shell command line and is never called by
+    // the typed probe/clone/inspect commands.
     let source = include_str!("remote.rs");
     assert!(
       !source.contains("Command::new(\"ssh\")"),
@@ -763,28 +646,6 @@ mod tests {
     assert!(
       source.contains("pub fn build_ssh_shell_command"),
       "the one remaining ssh-program reference must be inside build_ssh_shell_command"
-    );
-  }
-
-  #[test]
-  fn build_explicit_alias_endpoint_rejects_missing_alias() {
-    let dir = TempDir::new().unwrap();
-    let config = write(&dir, "config", "Host prod\n  HostName prod.example.com\n");
-
-    let error = build_explicit_alias_endpoint(
-      "endpoint-1".to_string(),
-      "does-not-exist",
-      &[config],
-      "SHA256:expected".to_string(),
-      "ssh-ed25519".to_string(),
-      None,
-      "id_ed25519".to_string(),
-    )
-    .unwrap_err();
-
-    assert_eq!(
-      error,
-      SshConfigError::AliasNotFound("does-not-exist".to_string())
     );
   }
 }

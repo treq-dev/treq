@@ -19,6 +19,7 @@ import { configure } from "@testing-library/dom";
 
 // Shared DOM polyfills, browser API stubs, Tauri plugin mocks, and hook mocks
 import "./setup.common";
+import { routeLoopbackSsh } from "./loopback-ssh";
 import {
   closeTestPtys,
   setTestEventSource,
@@ -104,7 +105,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((cmd: string, args?: Record<string, unknown>) => {
     trackPtyInvoke(cmd, args);
     pendingInvokes++;
-    const promise = tauriTest.invoke(cmd, args ?? {}).finally(() => {
+    const promise = (
+      routeLoopbackSsh(tauriTest.invoke, cmd, args ?? {}) ??
+      tauriTest.invoke(cmd, args ?? {})
+    ).finally(() => {
       pendingInvokes--;
       if (pendingInvokes === 0 && onAllSettled) {
         onAllSettled();

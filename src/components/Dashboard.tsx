@@ -30,7 +30,6 @@ import {
   acknowledgeAgentDispatch,
   addPromptHistory,
   archiveWorkspace,
-  buildExplicitAliasSshEndpoint,
   checkAndRebaseWorkspaces,
   createSession,
   deleteWorkspace,
@@ -47,9 +46,6 @@ import {
   listWorkspaceStatuses,
   moveWorkspaceChanges,
   readLocalSshPublicKey,
-  remoteCloneRepoOverSsh,
-  remoteOpenRepoOverSsh,
-  remoteProbeRepoOverSsh,
   selectFolder,
   setSetting,
   setWindowRepoPath,
@@ -123,6 +119,7 @@ import {
   saveUserManagedEndpoint,
   sshEndpointFromUserManaged,
   type SavedRemoteRepositoryRecord,
+  type UserManagedEndpointRecord,
 } from "../lib/remote-endpoints";
 import {
   dispatchMutationOverSsh,
@@ -219,14 +216,6 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
-import { Input } from "./ui/input";
 import { SidebarInset, SidebarProvider } from "./ui/sidebar";
 import { useToast } from "./ui/toast";
 import { WorkspacePicker } from "./WorkspacePicker";
@@ -361,15 +350,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [terminalSessionSummaries, setTerminalSessionSummaries] = useState<
     TerminalSessionSummary[]
   >([]);
-  const [showRemoteSshDialog, setShowRemoteSshDialog] = useState(false);
-  const [remoteSshHost, setRemoteSshHost] = useState("");
-  const [remoteSshPath, setRemoteSshPath] = useState("~/src/project");
-  const [remoteSshRepoUrl, setRemoteSshRepoUrl] = useState("");
-  const [remoteSshNeedsClone, setRemoteSshNeedsClone] = useState(false);
-  const [remoteSshSubmitting, setRemoteSshSubmitting] = useState(false);
-  const [remoteSshStage, setRemoteSshStage] = useState("");
   const [remoteSshHosts, setRemoteSshHosts] = useState<string[]>([]);
-  const [remoteSshFingerprint, setRemoteSshFingerprint] = useState("");
   const [activeRemoteRepo, setActiveRemoteRepo] =
     useState<RemoteRepository | null>(null);
 
@@ -473,10 +454,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         descriptor,
         connectionEndpoint,
         inspection,
-      );
-      await setSetting(
-        "last_opened_remote_repo",
-        JSON.stringify(connectedRepo),
       );
       setActiveRemoteRepo(connectedRepo);
     }
@@ -1104,40 +1081,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleRegisterUserManaged = async (values: UserManagedFormValues) => {
     setProvisioningError(undefined);
-    const id = `user-managed-${Date.now()}`;
-    await saveUserManagedEndpoint({
-      id,
-      display_name: values.display_name,
-      hostname: values.hostname,
-      port: values.port,
-      username: values.username,
-      host_key_fingerprint: values.host_key_fingerprint,
-      auth_identity_reference: values.auth_identity_reference,
-      alias: values.alias,
+    // Pin exactly the values the user confirmed; alias autofill happens in the form.
+    const record: UserManagedEndpointRecord = {
+      ...values,
+      id: `user-managed-${Date.now()}`,
       created_at: new Date().toISOString(),
-    });
-
-    if (values.alias) {
-      // Alias mode: keep using the working alias-based probe/clone/terminal
-      // path below rather than the native transport, which cannot resolve
-      // `~/.ssh/config` aliases (it requires an explicit trusted host key).
-      setShowRemoteSetupDialog(false);
-      await handleOpenRemoteSsh();
-      setRemoteSshHost(values.alias);
-      return;
-    }
-
-    const endpoint = sshEndpointFromUserManaged({
-      id,
-      display_name: values.display_name,
-      hostname: values.hostname,
-      port: values.port,
-      username: values.username,
-      host_key_fingerprint: values.host_key_fingerprint,
-      auth_identity_reference: values.auth_identity_reference,
-      alias: values.alias,
-      created_at: new Date().toISOString(),
-    });
+    };
+    await saveUserManagedEndpoint(record);
+    const endpoint = sshEndpointFromUserManaged(record);
     setActiveSshEndpoint(endpoint);
     setActiveEndpointGeneration(0);
     setExplicitEndpointRepoConnected(false);
@@ -1702,24 +1653,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const id = await getSetting(LAST_OPENED_REMOTE_REPO_ID_KEY).catch(
         () => null,
       );
-      if (!id) {
-        // No pinned descriptor was ever saved for this session (an
-        // alias-backed repo, which dispatches locally rather than through a
-        // trust-pinned endpoint - see `activeRepositoryFromRemote`). Restore
-        // the last-connected blob directly instead of requiring reconnect.
-        const saved = await getSetting("last_opened_remote_repo").catch(
-          () => null,
-        );
-        if (!saved || cancelled) return;
-        try {
-          const parsed = JSON.parse(saved) as PersistedRemoteRepository;
-          if (!cancelled) setActiveRemoteRepo(parsed);
-        } catch {
-          void setSetting("last_opened_remote_repo", "");
-        }
-        return;
-      }
-      if (cancelled) return;
+      // Without a saved descriptor there is no endpoint to validate trust
+      // against; the legacy endpoint-less blob is never restored on its own.
+      if (!id || cancelled) return;
       const descriptor = await getSavedRemoteRepository(id);
       if (!descriptor || cancelled) return;
 
@@ -1790,114 +1726,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         activeEndpoint,
         result.inspection,
       );
-      await setSetting(
-        "last_opened_remote_repo",
-        JSON.stringify(connectedRepo),
-      );
       if (!cancelled) setActiveRemoteRepo(connectedRepo);
     })();
     return () => {
       cancelled = true;
     };
   }, [repoPath, remoteSshEnabled]);
-
-  const rememberRemoteHost = async (host: string) => {
-    const raw = await getSetting("remote_ssh_recent_hosts").catch(() => null);
-    const existing: string[] = raw ? JSON.parse(raw) : [];
-    const next = [host, ...existing.filter((h) => h !== host)].slice(0, 5);
-    await setSetting("remote_ssh_recent_hosts", JSON.stringify(next));
-  };
-
-  const handleOpenRemoteSsh = async () => {
-    const configuredHosts = await listSshHosts().catch(() => []);
-    const recentRaw = await getSetting("remote_ssh_recent_hosts").catch(
-      () => null,
-    );
-    const recentHosts: string[] = recentRaw ? JSON.parse(recentRaw) : [];
-    setRemoteSshHosts([
-      ...new Set([...recentHosts, ...configuredHosts.map((h) => h.alias)]),
-    ]);
-    setRemoteSshHost(recentHosts[0] ?? configuredHosts[0]?.alias ?? "");
-    setRemoteSshPath("~/src/project");
-    setRemoteSshRepoUrl("");
-    setRemoteSshNeedsClone(false);
-    setRemoteSshFingerprint("");
-    setRemoteSshStage("");
-    setShowRemoteSshDialog(true);
-  };
-
-  const handleSubmitRemoteSsh = async () => {
-    const host = remoteSshHost.trim();
-    const remotePath = remoteSshPath.trim();
-    const repoUrl = remoteSshRepoUrl.trim();
-    const fingerprint = remoteSshFingerprint.trim();
-    if (!host || !remotePath || !fingerprint) {
-      addToast({
-        title: "Remote SSH details required",
-        description:
-          "Enter an SSH host alias, remote directory, and the expected host-key fingerprint.",
-        type: "error",
-      });
-      return;
-    }
-
-    setRemoteSshSubmitting(true);
-    try {
-      setRemoteSshStage("Resolving SSH alias and pinning host trust...");
-      // Trust is explicit and pinned here, not inferred from ~/.ssh/known_hosts:
-      // the alias is resolved to hostname/port/user, then paired with the
-      // fingerprint the user just supplied to build a native SshEndpoint whose
-      // HostKeyVerifier enforces exactly that fingerprint (never a system ssh
-      // subprocess, never StrictHostKeyChecking=no).
-      const identities = await listLocalSshIdentities().catch(() => []);
-      const endpoint = await buildExplicitAliasSshEndpoint({
-        endpointId: `alias:${host}`,
-        alias: host,
-        expectedFingerprint: fingerprint,
-        hostKeyAlgorithm: "unknown",
-        keyReference: identities[0]?.reference ?? "id_ed25519",
-      });
-
-      setRemoteSshStage("Inspecting repository...");
-      const probe = await remoteProbeRepoOverSsh(endpoint, remotePath);
-      let remoteRepo = probe.is_repo
-        ? await remoteOpenRepoOverSsh(endpoint, remotePath)
-        : null;
-
-      if (!remoteRepo) {
-        if (!repoUrl) {
-          setRemoteSshNeedsClone(true);
-          setRemoteSshStage("Repository not found. Enter a Git URL to clone.");
-          return;
-        }
-        setRemoteSshStage("Cloning and inspecting repository...");
-        remoteRepo = await remoteCloneRepoOverSsh(
-          endpoint,
-          repoUrl,
-          remotePath,
-        );
-      }
-
-      await rememberRemoteHost(host);
-      await setSetting("last_opened_remote_repo", JSON.stringify(remoteRepo));
-      setActiveRemoteRepo(remoteRepo);
-      setShowRemoteSshDialog(false);
-      addToast({
-        title: "Remote SSH repository ready",
-        description: `${remoteRepo.display_name} is ready for SSH terminal sessions.`,
-        type: "success",
-      });
-    } catch (error) {
-      addToast({
-        title: "Remote SSH failed",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setRemoteSshSubmitting(false);
-      setRemoteSshStage("");
-    }
-  };
 
   // Consolidate all Tauri event listeners
   useEffect(() => {
@@ -2874,98 +2708,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     pointerEvents: isSessionView ? "auto" : "none",
   };
 
-  const remoteSshDialog = (
-    <Dialog open={showRemoteSshDialog} onOpenChange={setShowRemoteSshDialog}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Open via SSH</DialogTitle>
-          <DialogDescription>
-            Use an SSH host alias from your config and a remote repository path.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium">SSH host</span>
-            <Input
-              value={remoteSshHost}
-              onChange={(event) => setRemoteSshHost(event.target.value)}
-              placeholder="my-server"
-              list="remote-ssh-hosts"
-            />
-            <datalist id="remote-ssh-hosts">
-              {remoteSshHosts.map((host) => (
-                <option key={host} value={host} />
-              ))}
-            </datalist>
-          </label>
-          <label className="flex flex-col gap-1" htmlFor="remote-ssh-path">
-            <span className="text-sm font-medium">Remote directory</span>
-            <Input
-              id="remote-ssh-path"
-              value={remoteSshPath}
-              onChange={(event) => setRemoteSshPath(event.target.value)}
-              placeholder="~/src/project"
-            />
-          </label>
-          {remoteSshNeedsClone && (
-            <label
-              className="flex flex-col gap-1"
-              htmlFor="remote-ssh-repo-url"
-            >
-              <span className="text-sm font-medium">
-                Git URL (repository not found remotely)
-              </span>
-              <Input
-                id="remote-ssh-repo-url"
-                value={remoteSshRepoUrl}
-                onChange={(event) => setRemoteSshRepoUrl(event.target.value)}
-                placeholder="git@github.com:org/repo.git"
-              />
-            </label>
-          )}
-          <label
-            className="flex flex-col gap-1"
-            htmlFor="remote-ssh-fingerprint"
-          >
-            <span className="text-sm font-medium">
-              Expected host-key fingerprint
-            </span>
-            <Input
-              id="remote-ssh-fingerprint"
-              className="font-mono text-xs"
-              value={remoteSshFingerprint}
-              onChange={(event) => setRemoteSshFingerprint(event.target.value)}
-              placeholder="SHA256:..."
-            />
-            <span className="text-xs text-muted-foreground">
-              Treq pins this fingerprint and never infers trust from your local
-              SSH configuration or known_hosts; a changed key is always
-              rejected.
-            </span>
-          </label>
-          {remoteSshStage && (
-            <p className="text-sm text-muted-foreground">{remoteSshStage}</p>
-          )}
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setShowRemoteSshDialog(false)}
-            disabled={remoteSshSubmitting}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => void handleSubmitRemoteSsh()}
-            disabled={remoteSshSubmitting}
-          >
-            {remoteSshSubmitting ? "Connecting..." : "Open via SSH"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-
   const remoteSetupDialog = (
     <RemoteSetupDialog
       open={showRemoteSetupDialog}
@@ -3048,7 +2790,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
           />
           {explicitEndpointPathForm}
           {remoteSetupDialog}
-          {remoteSshDialog}
           <RemoteAmbiguousMutationDialog />
         </>
       ) : (
@@ -3615,7 +3356,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onSelect={handleOpenSession}
           />
           {remoteSetupDialog}
-          {remoteSshDialog}
           <RemoteAmbiguousMutationDialog />
           {activeSshEndpoint && activeRepository?.canonicalPath && (
             <RemoteTerminalDialog
