@@ -4330,6 +4330,13 @@ where
   let repo_commit_lock = commit_lock_for_repo(repo_path);
   let _repo_commit_guard = repo_commit_lock.lock_or_recover();
   let workspace_root = resolve_workspace_root(repo_path, workspace_id)?;
+  // The mutex above only covers this process; CLI calls run in separate processes.
+  let _workspace_commit_lock = jj_lib::lock::FileLock::lock(
+    Path::new(&workspace_root)
+      .join(".jj")
+      .join("treq-commit.lock"),
+  )
+  .map_err(|e| format!("Failed to lock workspace for commit: {}", e))?;
   let (committed_branch, target_branch) = if let Some(id) = workspace_id {
     let workspace = local_db::get_workspace_by_id(repo_path, id)
       .map_err(|e| format!("Failed to get workspace: {}", e))?
