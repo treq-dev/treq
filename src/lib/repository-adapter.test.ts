@@ -14,6 +14,7 @@ import {
   mergeWorkspace,
   moveWorkspaceChanges,
   readFile,
+  renameWorkspace,
   saveFileBrowserReview,
   searchWorkspaceFiles,
   setWorkspaceTargetBranch,
@@ -228,6 +229,27 @@ describe("remote repository mutations", () => {
       source_branch: "main",
       metadata: '{"title":"T"}',
     });
+  });
+
+  it("returns a rename the remote rejected as an unsuccessful result", async () => {
+    vi.mocked(dispatchMutationOverSsh).mockRejectedValueOnce(
+      "invalid_arguments: invalid_arguments: Branch 'feat-b' already exists locally",
+    );
+    await expect(renameWorkspace(ROOT, 7, "feat-b", false)).resolves.toEqual({
+      success: false,
+      message: "Branch 'feat-b' already exists locally",
+      workspace: null,
+      updated_children_ids: [],
+    });
+  });
+
+  it("still throws a remote rename that failed for another reason", async () => {
+    vi.mocked(dispatchMutationOverSsh).mockRejectedValueOnce(
+      "transport_error: connection reset",
+    );
+    await expect(renameWorkspace(ROOT, 7, "feat-b", false)).rejects.toBe(
+      "transport_error: connection reset",
+    );
   });
 
   it("keeps files and hunks when moving workspace changes", async () => {

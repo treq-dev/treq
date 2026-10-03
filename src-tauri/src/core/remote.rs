@@ -2018,12 +2018,16 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         .as_ref()
         .expect("RenameWorkspace is a mutation"),
       || {
-        json(crate::core::workspaces::rename_workspace(
+        let result = crate::core::workspaces::rename_workspace(
           &repo,
           workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?,
           &new_name,
           false,
-        ))
+        )?;
+        if !result.success {
+          return Err(format!("invalid_arguments: {}", result.message));
+        }
+        json(Ok(result))
       },
     ),
     TreqCommandRequest::UpdateWorkspace {
@@ -3602,6 +3606,37 @@ mod tests {
       inspection["repository_type"], "jj_colocated",
       "{inspection}"
     );
+  }
+
+  #[test]
+  fn rename_workspace_rejection_is_an_error() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo_path = repo_dir.path().to_str().unwrap().to_string();
+    execute_local_request(TreqCommandRequest::InitRepo {
+      repo: repo_path.clone(),
+      idempotency_key: "init-rename".into(),
+    })
+    .unwrap();
+    let id = crate::local_db::add_workspace(
+      &repo_path,
+      "feat-a".into(),
+      "feat-a".into(),
+      "feat/a".into(),
+      None,
+      None,
+      None,
+    )
+    .unwrap();
+
+    let error = execute_local_request(TreqCommandRequest::RenameWorkspace {
+      repo: repo_path,
+      workspace: id.to_string(),
+      new_name: "feat/a".into(),
+      idempotency_key: "rename-same".into(),
+    })
+    .unwrap_err();
+
+    assert!(error.starts_with("invalid_arguments: "), "{error}");
   }
 
   #[test]
