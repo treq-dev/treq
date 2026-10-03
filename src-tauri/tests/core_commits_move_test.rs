@@ -3,6 +3,7 @@
 mod e2e_test_helpers;
 
 use e2e_test_helpers::{JjVerifier, TestRepo};
+use treq_lib::core::move_commit_to_existing_workspace as move_commit;
 
 fn source_with_commit(repo: &TestRepo) -> (treq_lib::local_db::Workspace, String, String) {
   let source = repo
@@ -20,13 +21,7 @@ fn move_commit_removes_it_from_source_without_inverse_diff() {
   let target = repo.create_workspace_simple("feat/move-dst").unwrap();
   let target_path = repo.workspace_full_path(&target);
 
-  treq_lib::core::move_commit_to_existing_workspace(
-    &repo.repo_path,
-    source.id,
-    &change_id,
-    target.id,
-  )
-  .unwrap();
+  move_commit(&repo.repo_path, source.id, &change_id, target.id).unwrap();
 
   assert!(JjVerifier::file_exists_in_workspace(
     &target_path,
@@ -51,12 +46,7 @@ fn move_commit_into_its_own_workspace_is_refused() {
   let repo = TestRepo::new().unwrap();
   let (source, source_path, change_id) = source_with_commit(&repo);
 
-  let result = treq_lib::core::move_commit_to_existing_workspace(
-    &repo.repo_path,
-    source.id,
-    &change_id,
-    source.id,
-  );
+  let result = move_commit(&repo.repo_path, source.id, &change_id, source.id);
 
   assert!(result.is_err());
   assert!(TestRepo::jj_working_copy_is_clean(&source_path));
@@ -85,8 +75,7 @@ fn move_refuses_parent_owned_or_conflicting_commits_without_changes() {
   let logs = || [&a_path, &b_path, &c_path].map(|p| TestRepo::jj_log_descriptions(p, "::@", None));
   let before = logs();
   assert!(format!("{:?}", before[0]).contains("Add c.txt"));
-  let mv =
-    |id: &str| treq_lib::core::move_commit_to_existing_workspace(&repo.repo_path, a.id, id, b.id);
+  let mv = |id: &str| move_commit(&repo.repo_path, a.id, id, b.id);
 
   assert!(mv(&c_change).unwrap_err().contains("cannot be rewritten"));
   assert!(mv(&a_change).unwrap_err().contains("conflicts with target"));

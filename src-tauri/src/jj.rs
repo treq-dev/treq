@@ -2757,6 +2757,7 @@ pub fn move_paths_between_workspace_paths(
 
 /// Squash a commit out of the source history into another workspace's working copy.
 /// Equivalent to: jj squash --from <change_id> --into <target workspace>@
+// home-head-test: move_commit_to_workspace
 pub fn squash_commit_to_workspace(
   workspace_path: &str,
   change_id: &str,

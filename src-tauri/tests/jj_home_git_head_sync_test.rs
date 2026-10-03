@@ -179,6 +179,16 @@ fn revert_commit() {
 }
 
 #[test]
+fn move_commit_to_workspace() {
+  let (repo, _) = home_on_feature();
+  let ws = repo.create_workspace_simple("ws").expect("ws");
+  let tip = change_id(&repo, "@-");
+  let target = repo.workspace_full_path(&ws);
+  jj::squash_commit_to_workspace(&repo.repo_path, &tip, &target).expect("move");
+  assert!(assert_git_head_follows_wc_parent(&repo, Some("feature")).is_empty());
+}
+
+#[test]
 fn stash_commit() {
   let (repo, _) = home_on_feature();
   let tip = change_id(&repo, "@-");
