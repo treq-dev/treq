@@ -2940,10 +2940,18 @@ pub fn apply_workspace_target_branch(
 
   let _ = jj::jj_git_fetch(repo_path);
 
-  let rebase_result = jj::jj_rebase_workspace_bookmark_onto(
+  // Lifting off a parent workspace must leave that parent's commits in place.
+  let parent_workspace = workspace.target_branch.as_deref().filter(|parent| {
+    matches!(
+      local_db::get_workspace_by_branch(repo_path, parent),
+      Ok(Some(_))
+    )
+  });
+  let rebase_result = jj::jj_retarget_workspace_bookmark(
     workspace_path_str,
     &workspace.branch_name,
     target_branch,
+    parent_workspace,
   )
   .map_err(|e| format!("Failed to rebase workspace: {}", e))?;
 

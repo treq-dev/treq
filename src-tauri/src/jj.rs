@@ -5711,10 +5711,23 @@ pub fn jj_rebase_workspace_bookmark_onto(
   workspace_branch: &str,
   target_branch: &str,
 ) -> Result<JjRebaseResult, JjError> {
+  jj_retarget_workspace_bookmark(workspace_path, workspace_branch, target_branch, None)
+}
+
+/// Like [`jj_rebase_workspace_bookmark_onto`], but commits of `old_target_branch`
+/// (the branch the workspace stacks on now) stay put, so a child lifted off its
+/// parent does not drag the parent's commits along.
+pub fn jj_retarget_workspace_bookmark(
+  workspace_path: &str,
+  workspace_branch: &str,
+  target_branch: &str,
+  old_target_branch: Option<&str>,
+) -> Result<JjRebaseResult, JjError> {
   jj_rebase_workspace_bookmark_onto_with_checkout_mode(
     workspace_path,
     workspace_branch,
     target_branch,
+    old_target_branch,
     CheckoutMode::Immediate,
   )
 }
@@ -5728,6 +5741,7 @@ pub fn jj_rebase_workspace_bookmark_onto_deferred_checkout(
     workspace_path,
     workspace_branch,
     target_branch,
+    None,
     CheckoutMode::Deferred,
   )
 }
@@ -5737,6 +5751,7 @@ fn jj_rebase_workspace_bookmark_onto_with_checkout_mode(
   workspace_path: &str,
   workspace_branch: &str,
   target_branch: &str,
+  old_target_branch: Option<&str>,
   checkout_mode: CheckoutMode,
 ) -> Result<JjRebaseResult, JjError> {
   validate_branch_name(workspace_branch, "workspace")?;
@@ -5748,6 +5763,13 @@ fn jj_rebase_workspace_bookmark_onto_with_checkout_mode(
   let target_revision = resolve_branch_revision_for_rebase(workspace_path, target_branch)?;
   let workspace_tip_commit = resolve_commit_by_revision(&loaded, &workspace_revision)?;
   let target_commit = resolve_commit_by_revision(&loaded, &target_revision)?;
+  let mut lineage_base = target_commit.id().hex();
+  if let Some(old_target) = old_target_branch.filter(|old| *old != target_branch) {
+    // Without the old parent's tip the rebase would drag its commits along.
+    let old_revision = resolve_branch_revision_for_rebase(workspace_path, old_target)?;
+    let old_commit = resolve_commit_by_revision(&loaded, &old_revision)?;
+    lineage_base = format!("({lineage_base} | {})", old_commit.id().hex());
+  }
 
   // Select the complete ancestry that belongs to this bookmark, stopping at
   // the target's ancestry. Workspace creation can put the bookmark on a new
@@ -5757,11 +5779,7 @@ fn jj_rebase_workspace_bookmark_onto_with_checkout_mode(
   // sibling bookmarks from becoming part of the move target.
   let branch_only_commits = evaluate_revset(
     &loaded,
-    &format!(
-      "{}..{}",
-      target_commit.id().hex(),
-      workspace_tip_commit.id().hex()
-    ),
+    &format!("{}..{}", lineage_base, workspace_tip_commit.id().hex()),
   )?
   .iter()
   .commits(loaded.repo.store())
@@ -10019,6 +10037,23 @@ mod tests {
       resolved_commit.id().hex(),
       expected.id().hex(),
       "helper should resolve to the bookmark tip commit"
+    );
+  }
+
+  #[test]
+  fn retarget_fails_when_old_target_bookmark_is_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    init_jj_repo(&temp);
+    let repo_path = temp.path().to_str().expect("utf8 path");
+    jj_set_bookmark(repo_path, "feat/target", "@").expect("set target bookmark");
+    jj_set_bookmark(repo_path, "feat/ws", "@").expect("set workspace bookmark");
+
+    let result =
+      jj_retarget_workspace_bookmark(repo_path, "feat/ws", "feat/target", Some("feat/gone"));
+
+    assert!(
+      result.is_err(),
+      "unresolvable old target must fail: {result:?}"
     );
   }
 
