@@ -55,17 +55,57 @@ fn authorize_url_requests_offline_pkce_grant() {
 }
 
 #[test]
-fn parse_redirect_checks_state() {
+fn parse_redirect_checks_state_and_path() {
   assert_eq!(
-    parse_redirect("GET /?state=abc&code=xyz HTTP/1.1", "abc").unwrap(),
-    "xyz"
+    parse_redirect("GET /?state=abc&code=xyz HTTP/1.1", "abc"),
+    Redirect::Code("xyz".into())
   );
-  assert!(parse_redirect("GET /?state=bad&code=xyz HTTP/1.1", "abc").is_err());
-  assert!(
-    parse_redirect("GET /?error=access_denied&state=abc HTTP/1.1", "abc")
-      .unwrap_err()
-      .contains("access_denied")
+  assert_eq!(
+    parse_redirect("GET /?error=access_denied&state=abc HTTP/1.1", "abc"),
+    Redirect::Denied("access_denied".into())
   );
+  for line in [
+    "GET /?state=bad&code=xyz HTTP/1.1",
+    "GET /?error=access_denied HTTP/1.1",
+    "GET /favicon.ico HTTP/1.1",
+    "GET /other?state=abc&code=xyz HTTP/1.1",
+    "POST /?state=abc&code=xyz HTTP/1.1",
+    "garbage",
+  ] {
+    assert_eq!(parse_redirect(line, "abc"), Redirect::Ignore, "{line}");
+  }
+}
+
+#[tokio::test]
+async fn listener_survives_stray_and_silent_connections() {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  let waiter = tokio::spawn(async move { wait_for_code(&listener, "st").await });
+
+  // A wrong state and a stray path are ignored, not fatal.
+  for request in [
+    "GET /?state=bad&error=x HTTP/1.1\r\n\r\n",
+    "GET /favicon.ico HTTP/1.1\r\n\r\n",
+  ] {
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    s.write_all(request.as_bytes()).await.unwrap();
+    let mut out = String::new();
+    s.read_to_string(&mut out).await.unwrap();
+    assert!(out.starts_with("HTTP/1.1 404"), "{out}");
+  }
+  // A silent connection is dropped after the read timeout; then the real
+  // redirect still completes the sign-in.
+  let _silent = tokio::net::TcpStream::connect(addr).await.unwrap();
+  let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+  s.write_all(b"GET /?state=st&code=good HTTP/1.1\r\n\r\n")
+    .await
+    .unwrap();
+  let code = tokio::time::timeout(Duration::from_secs(10), waiter)
+    .await
+    .unwrap()
+    .unwrap();
+  assert_eq!(code.unwrap(), "good");
 }
 
 #[test]
@@ -268,4 +308,50 @@ fn proxy_reconnect_message_is_kept() {
   );
   assert!(error_message(status, "", true).contains("Sign in to treq again"));
   assert!(error_message(status, "", false).contains("Reconnect Google Workspace"));
+}
+
+#[test]
+fn path_segments_cannot_climb() {
+  assert_eq!(seg(".."), "%2E%2E");
+  assert_eq!(seg("a b/c"), "a%20b%2Fc");
+  assert_eq!(seg("MTA-x_y~"), "MTA-x_y~");
+}
+
+#[test]
+fn subtasks_are_created_under_their_parent() {
+  assert_eq!(
+    create_task_url("L1", Some("t 1")),
+    format!("{TASKS_API}/lists/L1/tasks?parent=t+1")
+  );
+  assert_eq!(
+    create_task_url("L1", None),
+    format!("{TASKS_API}/lists/L1/tasks")
+  );
+}
+
+#[tokio::test]
+async fn concurrent_refreshes_hit_google_once() {
+  let server = mock().await;
+  Mock::given(method("POST"))
+    .and(path("/token"))
+    .respond_with(
+      ResponseTemplate::new(200)
+        .set_body_json(json!({"access_token": "fresh", "expires_in": 3600})),
+    )
+    .expect(1)
+    .mount(&server)
+    .await;
+  let tokens = StoredTokens {
+    access_token: "stale".into(),
+    refresh_token: Some("single-flight".into()),
+    expires_at: Some(now_secs() - 10),
+  };
+  let (a, b) = tokio::join!(
+    local_access_token(&tokens, "cid", &None, &None),
+    local_access_token(&tokens, "cid", &None, &None)
+  );
+  assert_eq!(
+    (a.unwrap(), b.unwrap()),
+    ("fresh".to_string(), "fresh".to_string())
+  );
 }

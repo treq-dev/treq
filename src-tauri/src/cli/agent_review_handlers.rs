@@ -184,7 +184,8 @@ pub(super) fn handle_agent_review_command(
   }
 }
 
-/// Target types the app renders review comments for.
+/// Target types `add` accepts. `google_doc` comments are listed in the
+/// Google panel and posted to Drive rather than shown on a diff.
 const KNOWN_TARGET_TYPES: &[&str] = &[
   DEFAULT_TARGET_TYPE,
   "file_browser_file",

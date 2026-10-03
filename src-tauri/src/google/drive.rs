@@ -94,7 +94,7 @@ pub async fn list_drive_files(
 pub async fn get_drive_file(source: &GoogleSource, file_id: &str) -> Result<DriveFile, String> {
   let url = format!(
     "{DRIVE_API}/files/{}?supportsAllDrives=true&fields={}",
-    enc(file_id),
+    seg(file_id),
     enc("id,name,mimeType,modifiedTime,webViewLink,owners(displayName)")
   );
   let value = send_json(source, reqwest::Method::GET, &url, None).await?;
@@ -105,12 +105,12 @@ pub async fn export_text(source: &GoogleSource, file: &DriveFile) -> Result<Stri
   let url = match export_mime(&file.mime_type) {
     Some(mime) => format!(
       "{DRIVE_API}/files/{}/export?mimeType={}",
-      enc(&file.id),
+      seg(&file.id),
       enc(mime)
     ),
     None if file.reviewable => format!(
       "{DRIVE_API}/files/{}?alt=media&supportsAllDrives=true",
-      enc(&file.id)
+      seg(&file.id)
     ),
     None => return Err(format!("'{}' cannot be reviewed as text", file.name)),
   };
@@ -135,7 +135,7 @@ pub async fn create_comment(
   let value = send_json(
     source,
     reqwest::Method::POST,
-    &format!("{DRIVE_API}/files/{}/comments?fields=id", enc(file_id)),
+    &format!("{DRIVE_API}/files/{}/comments?fields=id", seg(file_id)),
     Some(&body),
   )
   .await?;

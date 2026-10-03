@@ -60,8 +60,22 @@ pub(crate) struct PendingOAuth {
 pub(crate) static PENDING: tokio::sync::Mutex<Option<PendingOAuth>> =
   tokio::sync::Mutex::const_new(None);
 
+// Wakes a `complete_local_oauth` that a newer `begin_local_oauth` replaced,
+// so the abandoned flow ends at once instead of holding its port.
+static SUPERSEDED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// A local process could connect and send nothing; it gets this long before
+/// the listener moves on to the next connection.
+const CONNECTION_READ_TIMEOUT: Duration = if cfg!(test) {
+  Duration::from_millis(200)
+} else {
+  Duration::from_secs(5)
+};
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Binds a loopback port and returns the URL to open in the browser.
-/// `complete_local_oauth` then waits for Google to redirect back.
+/// `complete_local_oauth` then waits for Google to redirect back. Starting
+/// again cancels a sign-in that is still waiting.
 pub async fn begin_local_oauth(
   client_id: String,
   client_secret: Option<String>,
@@ -79,6 +93,7 @@ pub async fn begin_local_oauth(
     &state,
     &pkce_challenge(&verifier),
   );
+  SUPERSEDED.notify_waiters();
   *PENDING.lock().await = Some(PendingOAuth {
     listener,
     redirect_uri,
@@ -90,71 +105,133 @@ pub async fn begin_local_oauth(
   Ok(url)
 }
 
-/// Pulls `code` out of the redirect's request line after checking `state`.
-pub fn parse_redirect(request_line: &str, expected_state: &str) -> Result<String, String> {
-  let target = request_line
-    .split_whitespace()
-    .nth(1)
-    .ok_or("Malformed redirect from Google")?;
-  let url = url::Url::parse(&format!("http://127.0.0.1{target}"))
-    .map_err(|_| "Malformed redirect from Google".to_string())?;
+/// What one request to the loopback listener means for the sign-in.
+#[derive(Debug, PartialEq)]
+pub enum Redirect {
+  /// Google redirected back with a code for this sign-in.
+  Code(String),
+  /// Google redirected back for this sign-in with an error, e.g. the user
+  /// denied access.
+  Denied(String),
+  /// Not Google's redirect for this sign-in: a favicon request, another path,
+  /// or a missing or wrong `state`. The listener keeps waiting, so a local
+  /// process that finds the port cannot end the sign-in.
+  Ignore,
+}
+
+/// Classifies a request line such as `GET /?state=…&code=… HTTP/1.1`.
+pub fn parse_redirect(request_line: &str, expected_state: &str) -> Redirect {
+  let mut parts = request_line.split_whitespace();
+  let (Some("GET"), Some(target)) = (parts.next(), parts.next()) else {
+    return Redirect::Ignore;
+  };
+  let Ok(url) = url::Url::parse(&format!("http://127.0.0.1{target}")) else {
+    return Redirect::Ignore;
+  };
+  if url.path() != "/" {
+    return Redirect::Ignore;
+  }
   let param = |name: &str| {
     url
       .query_pairs()
       .find(|(k, _)| k == name)
       .map(|(_, v)| v.into_owned())
   };
-  if let Some(error) = param("error") {
-    return Err(format!("Google sign-in failed: {error}"));
-  }
   if param("state").as_deref() != Some(expected_state) {
-    return Err("Google sign-in state did not match. Try connecting again.".to_string());
+    return Redirect::Ignore;
   }
-  param("code").ok_or_else(|| "Google did not return an authorization code".to_string())
+  match (param("code"), param("error")) {
+    (_, Some(error)) => Redirect::Denied(error),
+    (Some(code), None) => Redirect::Code(code),
+    (None, None) => Redirect::Denied("no authorization code".to_string()),
+  }
+}
+
+/// Reads up to the end of the request line, giving up after
+/// `CONNECTION_READ_TIMEOUT` or 8 KiB.
+async fn read_request_line(stream: &mut tokio::net::TcpStream) -> Option<String> {
+  use tokio::io::AsyncReadExt;
+  let mut buf = Vec::with_capacity(1024);
+  let read = async {
+    let mut chunk = [0u8; 1024];
+    while !buf.windows(2).any(|w| w == b"\r\n") && buf.len() < 8192 {
+      let n = stream.read(&mut chunk).await.ok()?;
+      if n == 0 {
+        break;
+      }
+      buf.extend_from_slice(&chunk[..n]);
+    }
+    Some(())
+  };
+  tokio::time::timeout(CONNECTION_READ_TIMEOUT, read)
+    .await
+    .ok()??;
+  let text = String::from_utf8_lossy(&buf);
+  text.lines().next().map(str::to_string)
+}
+
+async fn respond(stream: &mut tokio::net::TcpStream, status: &str, body: &str) {
+  use tokio::io::AsyncWriteExt;
+  let response = format!(
+    "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+    body.len()
+  );
+  let _ = stream.write_all(response.as_bytes()).await;
+}
+
+/// Accepts connections until Google's redirect for this sign-in arrives.
+pub(crate) async fn wait_for_code(
+  listener: &tokio::net::TcpListener,
+  state: &str,
+) -> Result<String, String> {
+  loop {
+    let (mut stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
+    let Some(line) = read_request_line(&mut stream).await else {
+      continue;
+    };
+    match parse_redirect(&line, state) {
+      Redirect::Ignore => respond(&mut stream, "404 Not Found", "").await,
+      Redirect::Denied(error) => {
+        respond(
+          &mut stream,
+          "200 OK",
+          "Google sign-in failed. Return to treq and try again.",
+        )
+        .await;
+        return Err(format!("Google sign-in failed: {error}"));
+      }
+      Redirect::Code(code) => {
+        respond(
+          &mut stream,
+          "200 OK",
+          "Google Workspace is connected. You can close this tab and return to treq.",
+        )
+        .await;
+        return Ok(code);
+      }
+    }
+  }
 }
 
 /// Waits (up to five minutes) for the browser redirect, exchanges the code
 /// and returns the tokens to store.
 pub async fn complete_local_oauth() -> Result<(StoredTokens, String, Option<String>), String> {
-  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  let superseded = SUPERSEDED.notified();
   let pending = PENDING
     .lock()
     .await
     .take()
     .ok_or("No Google sign-in in progress")?;
-  let accept = tokio::time::timeout(Duration::from_secs(300), async {
-    loop {
-      let (mut stream, _) = pending.listener.accept().await.map_err(|e| e.to_string())?;
-      let mut buf = vec![0u8; 8192];
-      let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
-      let request = String::from_utf8_lossy(&buf[..n]).to_string();
-      let first_line = request.lines().next().unwrap_or_default().to_string();
-      // Browsers also ask for /favicon.ico; ignore anything without a query.
-      if !first_line.contains('?') {
-        let _ = stream
-          .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
-          .await;
-        continue;
-      }
-      let result = parse_redirect(&first_line, &pending.state);
-      let body = match &result {
-        Ok(_) => "Google Workspace is connected. You can close this tab and return to treq.",
-        Err(_) => "Google sign-in failed. Return to treq and try again.",
-      };
-      let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-      );
-      let _ = stream.write_all(response.as_bytes()).await;
-      return result;
+  let code = tokio::select! {
+    result = tokio::time::timeout(SIGN_IN_TIMEOUT, wait_for_code(&pending.listener, &pending.state)) => {
+      result.map_err(|_| "Timed out waiting for Google sign-in".to_string())??
     }
-  })
-  .await
-  .map_err(|_| "Timed out waiting for Google sign-in".to_string())??;
+    _ = superseded => return Err("Google sign-in was restarted".to_string()),
+  };
 
   let mut form = vec![
     ("client_id", pending.client_id.clone()),
-    ("code", accept),
+    ("code", code),
     ("code_verifier", pending.verifier.clone()),
     ("grant_type", "authorization_code".to_string()),
     ("redirect_uri", pending.redirect_uri.clone()),
@@ -165,6 +242,20 @@ pub async fn complete_local_oauth() -> Result<(StoredTokens, String, Option<Stri
   let grant = token_request(&form).await?;
   let tokens = tokens_from_grant(&grant, None)?;
   Ok((tokens, pending.client_id, pending.client_secret))
+}
+
+/// Stores the client and its first tokens after a successful sign-in.
+pub fn store_local_grant(
+  db: &Database,
+  tokens: &StoredTokens,
+  client_id: &str,
+  client_secret: Option<&str>,
+) -> Result<(), String> {
+  let raw = serde_json::to_string(tokens).map_err(|e| e.to_string())?;
+  db.set_setting(CLIENT_ID_SETTING, client_id)
+    .and_then(|_| db.set_setting(CLIENT_SECRET_SETTING, client_secret.unwrap_or("")))
+    .and_then(|_| db.set_setting(TOKENS_SETTING, &raw))
+    .map_err(|e| format!("Failed to store Google tokens: {e}"))
 }
 
 pub(crate) async fn token_request(form: &[(&str, String)]) -> Result<Value, String> {
@@ -220,11 +311,17 @@ pub(crate) async fn local_access_token(
   client_secret: &Option<String>,
   token_db: &Option<PathBuf>,
 ) -> Result<String, String> {
-  let fresh = tokens
-    .expires_at
-    .is_none_or(|at| at - now_secs() > REFRESH_MARGIN_SECS);
-  if fresh {
+  if is_fresh(tokens) {
     return Ok(tokens.access_token.clone());
+  }
+  // Single flight: requests that find the token expiring wait here, and all
+  // but the first reuse its result instead of refreshing (and writing) again.
+  let mut latest = REFRESHED.lock().await;
+  if let Some(cached) = latest
+    .as_ref()
+    .filter(|c| c.refresh_token == tokens.refresh_token && is_fresh(c))
+  {
+    return Ok(cached.access_token.clone());
   }
   let refresh = tokens
     .refresh_token
@@ -243,7 +340,18 @@ pub(crate) async fn local_access_token(
   if let Some(path) = token_db {
     save_tokens(path, &refreshed);
   }
-  Ok(refreshed.access_token)
+  let access_token = refreshed.access_token.clone();
+  *latest = Some(refreshed);
+  Ok(access_token)
+}
+
+/// The last refreshed tokens, shared by concurrent requests.
+static REFRESHED: tokio::sync::Mutex<Option<StoredTokens>> = tokio::sync::Mutex::const_new(None);
+
+fn is_fresh(tokens: &StoredTokens) -> bool {
+  tokens
+    .expires_at
+    .is_none_or(|at| at - now_secs() > REFRESH_MARGIN_SECS)
 }
 
 pub(crate) fn save_tokens(path: &std::path::Path, tokens: &StoredTokens) {

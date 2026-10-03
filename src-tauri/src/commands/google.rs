@@ -57,17 +57,8 @@ pub async fn google_oauth_begin(
 pub async fn google_oauth_complete(state: State<'_, AppState>) -> Result<(), String> {
   crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
   let (tokens, client_id, client_secret) = crate::google::complete_local_oauth().await?;
-  let raw = serde_json::to_string(&tokens).map_err(|e| e.to_string())?;
   let db = state.db.lock_or_recover();
-  db.set_setting(crate::google::CLIENT_ID_SETTING, &client_id)
-    .and_then(|_| {
-      db.set_setting(
-        crate::google::CLIENT_SECRET_SETTING,
-        client_secret.as_deref().unwrap_or(""),
-      )
-    })
-    .and_then(|_| db.set_setting(crate::google::TOKENS_SETTING, &raw))
-    .map_err(|e| format!("Failed to store Google tokens: {e}"))
+  crate::google::store_local_grant(&db, &tokens, &client_id, client_secret.as_deref())
 }
 
 /// Forgets the locally stored tokens. Not gated, so turning the preview off

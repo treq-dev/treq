@@ -126,6 +126,23 @@ pub async fn prepare_doc_review(
   })
 }
 
+/// Reads a file of the export at post time, checked again rather than
+/// trusting the path validated when the comment was added: the file could
+/// since have been swapped for a symlink to something outside the export,
+/// and its lines would then be quoted onto a shared document.
+pub fn read_export(root: &std::path::Path, file: &str) -> Option<String> {
+  let path = root.join(file);
+  let meta = std::fs::symlink_metadata(&path).ok()?;
+  if !meta.is_file() {
+    return None;
+  }
+  let (path, root) = (path.canonicalize().ok()?, root.canonicalize().ok()?);
+  if !path.starts_with(&root) {
+    return None;
+  }
+  std::fs::read_to_string(path).ok()
+}
+
 /// The exported lines a comment covers, trimmed for use as a Drive quote.
 pub fn quoted_lines(text: &str, start: i64, end: i64) -> Option<String> {
   let start = start.max(1) as usize;
@@ -190,7 +207,7 @@ pub async fn post_review_comments(
   let mut result = PostCommentsResult::default();
   for comment in comments.iter().filter(|c| c.status == "open") {
     crate::local_db::resolve_agent_review_comment(repo_path, &comment.id)?;
-    let text = std::fs::read_to_string(root.join(&comment.file_path)).unwrap_or_default();
+    let text = read_export(&root, &comment.file_path).unwrap_or_default();
     let quote = quoted_lines(&text, comment.start_line, comment.end_line);
     match create_comment(source, file_id, &comment_content(comment), quote.as_deref()).await {
       Ok(_) => result.posted += 1,
@@ -347,5 +364,21 @@ mod tests {
       statuses(repo, "doc1"),
       [("posted".into(), "resolved".into())]
     );
+  }
+
+  #[test]
+  fn read_export_refuses_symlinks_and_escapes() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("doc.md"), "ok\n").unwrap();
+    std::fs::write(outside.path().join("secret"), "token\n").unwrap();
+    assert_eq!(read_export(root.path(), "doc.md").as_deref(), Some("ok\n"));
+    assert_eq!(read_export(root.path(), "../secret"), None);
+    #[cfg(unix)]
+    {
+      std::os::unix::fs::symlink(outside.path().join("secret"), root.path().join("link.md"))
+        .unwrap();
+      assert_eq!(read_export(root.path(), "link.md"), None);
+    }
   }
 }

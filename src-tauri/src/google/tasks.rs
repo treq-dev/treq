@@ -72,7 +72,7 @@ pub async fn list_tasks(source: &GoogleSource, list_id: &str) -> Result<Vec<Goog
   loop {
     let mut url = format!(
       "{TASKS_API}/lists/{}/tasks?maxResults=100&showCompleted=true&showHidden=true",
-      enc(list_id)
+      seg(list_id)
     );
     if let Some(token) = &page_token {
       url.push_str(&format!("&pageToken={}", enc(token)));
@@ -102,6 +102,8 @@ pub struct TaskInput {
   pub notes: Option<String>,
   pub status: Option<String>,
   pub due: Option<String>,
+  /// On creation only: makes the new task a subtask of this one.
+  pub parent: Option<String>,
 }
 
 pub(crate) fn task_body(input: &TaskInput) -> Value {
@@ -132,6 +134,14 @@ pub(crate) fn task_body(input: &TaskInput) -> Value {
   Value::Object(body)
 }
 
+pub(crate) fn create_task_url(list_id: &str, parent: Option<&str>) -> String {
+  let mut url = format!("{TASKS_API}/lists/{}/tasks", seg(list_id));
+  if let Some(parent) = parent.filter(|p| !p.is_empty()) {
+    url.push_str(&format!("?parent={}", enc(parent)));
+  }
+  url
+}
+
 pub async fn create_task(
   source: &GoogleSource,
   list_id: &str,
@@ -140,7 +150,7 @@ pub async fn create_task(
   let value = send_json(
     source,
     reqwest::Method::POST,
-    &format!("{TASKS_API}/lists/{}/tasks", enc(list_id)),
+    &create_task_url(list_id, input.parent.as_deref()),
     Some(&task_body(input)),
   )
   .await?;
@@ -156,7 +166,7 @@ pub async fn update_task(
   let value = send_json(
     source,
     reqwest::Method::PATCH,
-    &format!("{TASKS_API}/lists/{}/tasks/{}", enc(list_id), enc(task_id)),
+    &format!("{TASKS_API}/lists/{}/tasks/{}", seg(list_id), seg(task_id)),
     Some(&task_body(input)),
   )
   .await?;
@@ -171,7 +181,7 @@ pub async fn delete_task(
   send(
     source,
     reqwest::Method::DELETE,
-    &format!("{TASKS_API}/lists/{}/tasks/{}", enc(list_id), enc(task_id)),
+    &format!("{TASKS_API}/lists/{}/tasks/{}", seg(list_id), seg(task_id)),
     None,
   )
   .await
@@ -188,8 +198,8 @@ pub async fn move_task(
 ) -> Result<GoogleTask, String> {
   let mut url = format!(
     "{TASKS_API}/lists/{}/tasks/{}/move?",
-    enc(list_id),
-    enc(task_id)
+    seg(list_id),
+    seg(task_id)
   );
   if let Some(dest) = destination_list_id.filter(|d| *d != list_id) {
     url.push_str(&format!("destinationTasklist={}&", enc(dest)));

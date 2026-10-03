@@ -147,6 +147,19 @@ pub(crate) fn error_message(status: reqwest::StatusCode, text: &str, via_proxy: 
   }
 }
 
-pub(crate) fn enc(segment: &str) -> String {
-  url::form_urlencoded::byte_serialize(segment.as_bytes()).collect()
+/// Encodes a query parameter value.
+pub(crate) fn enc(value: &str) -> String {
+  url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+/// Encodes one path segment. Everything but `[A-Za-z0-9_~-]` is escaped,
+/// dots included, so an id of `..` cannot climb out of its path.
+pub(crate) fn seg(segment: &str) -> String {
+  segment
+    .bytes()
+    .map(|b| match b {
+      b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'~' | b'-' => (b as char).to_string(),
+      _ => format!("%{b:02X}"),
+    })
+    .collect()
 }
