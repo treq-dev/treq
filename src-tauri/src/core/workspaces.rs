@@ -3210,20 +3210,19 @@ pub fn rename_workspace(
     .to_str()
     .ok_or("Failed to convert workspace path to string")?;
 
-  // 8-9. Move the bookmark in one jj transaction so a failure cannot leave
-  // both names (or neither) behind.
+  // 7. Rename the bookmark in one jj transaction so a failure can't leave both names or neither.
   jj::jj_rename_bookmark(workspace_path_str, old_branch_name, new_branch_name)
     .map_err(|e| format!("Failed to rename bookmark: {}", e))?;
 
-  // 11. Update branch name in DB
+  // 8. Update branch name in DB
   local_db::update_workspace_branch_name(repo_path, workspace_id, new_branch_name)
     .map_err(|e| format!("Failed to update branch name in DB: {}", e))?;
 
-  // 12. Mark as not_on_remote (new name hasn't been pushed)
+  // 9. Mark as not_on_remote (new name hasn't been pushed)
   local_db::update_workspace_not_on_remote(repo_path, workspace_id, true)
     .map_err(|e| format!("Failed to update not_on_remote: {}", e))?;
 
-  // 13. Update children targeting the old branch name
+  // 10. Update children targeting the old branch name
   let children = local_db::get_workspaces_by_target_branch(repo_path, old_branch_name)
     .map_err(|e| format!("Failed to get child workspaces: {}", e))?;
 
@@ -3234,7 +3233,7 @@ pub fn rename_workspace(
     updated_children_ids.push(child.id);
   }
 
-  // 14. Return updated workspace
+  // 11. Return updated workspace
   let updated_workspace = local_db::get_workspace_by_id(repo_path, workspace_id)
     .map_err(|e| format!("Failed to get updated workspace: {}", e))?;
 
