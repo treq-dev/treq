@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Layout from '@theme/Layout';
+import DownloadCTA from '@site/src/components/DownloadCTA';
 import Head from '@docusaurus/Head';
 import { useHistory, useLocation } from '@docusaurus/router';
 import {
@@ -374,6 +375,7 @@ export default function BranchVisualizerPage() {
           </div>
         </div>
       </div>
+      <DownloadCTA title="Built by Treq" />
     </Layout>
   );
 }

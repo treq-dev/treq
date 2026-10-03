@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from 'react';
 import Layout from '@theme/Layout';
+import DownloadCTA from '@site/src/components/DownloadCTA';
 import Head from '@docusaurus/Head';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 
@@ -53,6 +54,7 @@ export default function DagVisualizerPage() {
           </Suspense>
         )}
       </BrowserOnly>
+      <DownloadCTA title="Built by Treq" />
     </Layout>
   );
 }

@@ -5,12 +5,12 @@ import Head from '@docusaurus/Head';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
+import {DOWNLOAD_HREF} from '@site/src/components/DownloadCTA';
 
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import styles from './index.module.css';
 import {RebaseGraphic, WorkspaceTreeGraphic} from '../components/landing/ProductGraphics';
 
-const DOWNLOAD_HREF = 'https://github.com/Ziinc/treq/releases';
 
 function LandingShot({
   file,

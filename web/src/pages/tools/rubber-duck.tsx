@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Layout from '@theme/Layout';
+import DownloadCTA from '@site/src/components/DownloadCTA';
 import Head from '@docusaurus/Head';
 import styles from './rubber-duck.module.css';
 
@@ -749,6 +750,7 @@ export default function RubberDuckPage() {
           </div>
         </div>
       </div>
+      <DownloadCTA title="Built by Treq" />
     </Layout>
   );
 }

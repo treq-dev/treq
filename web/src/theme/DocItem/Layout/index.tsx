@@ -3,6 +3,7 @@ import DocItemLayout from '@theme-original/DocItem/Layout';
 import type {Props} from '@theme/DocItem/Layout';
 import Head from '@docusaurus/Head';
 import {useDoc} from '@docusaurus/plugin-content-docs/client';
+import DownloadCTA from '@site/src/components/DownloadCTA';
 
 const SITE_URL = 'https://treq.dev';
 const ORG = {'@type': 'Organization', name: 'Treq', url: SITE_URL};
@@ -56,7 +57,10 @@ export default function DocItemLayoutWrapper(props: Props): React.ReactElement {
           {JSON.stringify(buildSchema(metadata))}
         </script>
       </Head>
-      <DocItemLayout {...props} />
+      <DocItemLayout {...props}>
+        {props.children}
+        {/^\/(learn|compare)\//.test(metadata.permalink) ? <DownloadCTA /> : null}
+      </DocItemLayout>
     </>
   );
 }

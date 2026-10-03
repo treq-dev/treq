@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Layout from '@theme/Layout';
+import DownloadCTA from '@site/src/components/DownloadCTA';
 import Head from '@docusaurus/Head';
 import styles from './vibe-idea-generator.module.css';
 
@@ -544,6 +545,7 @@ export default function VibeIdeaGeneratorPage() {
           </div>
         )}
       </div>
+      <DownloadCTA title="Built by Treq" />
     </Layout>
   );
 }

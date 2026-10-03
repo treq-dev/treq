@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Layout from '@theme/Layout';
+import DownloadCTA from '@site/src/components/DownloadCTA';
 import Head from '@docusaurus/Head';
 import { renderGraph } from './_graph-shared';
 import {
@@ -333,6 +334,7 @@ export default function VcsSimulatorPage() {
           </div>
         </div>
       </div>
+      <DownloadCTA title="Built by Treq" />
     </Layout>
   );
 }
