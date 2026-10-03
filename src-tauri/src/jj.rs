@@ -4238,6 +4238,27 @@ fn parse_git_diff_hunks(diff: &str) -> Result<Vec<JjDiffHunk>, JjError> {
   Ok(hunks)
 }
 
+/// Reads `file_path` from git HEAD for a plain git repo with no `.jj`.
+fn read_git_head_blob(repo_path: &str, file_path: &str) -> Result<String, JjError> {
+  let repo = gix::open(repo_path).map_err(|e| JjError::IoError(e.to_string()))?;
+  let head_commit = repo
+    .head_commit()
+    .map_err(|e| JjError::IoError(e.to_string()))?;
+  let tree = head_commit
+    .tree()
+    .map_err(|e| JjError::IoError(e.to_string()))?;
+  let entry = tree
+    .lookup_entry_by_path(file_path)
+    .map_err(|e| JjError::IoError(e.to_string()))?
+    .ok_or_else(|| JjError::IoError(format!("Path '{}' not found in HEAD", file_path)))?;
+  let blob = entry
+    .object()
+    .map_err(|e| JjError::IoError(e.to_string()))?
+    .try_into_blob()
+    .map_err(|e| JjError::IoError(e.to_string()))?;
+  Ok(String::from_utf8_lossy(&blob.data).to_string())
+}
+
 /// Get file content at specific lines for context expansion
 pub fn jj_get_file_lines(
   workspace_path: &str,
@@ -4259,24 +4280,44 @@ pub fn jj_get_file_lines(
       file_path
     )));
   }
-  let content = if from_parent {
-    let repo = gix::open(workspace_path).map_err(|e| JjError::IoError(e.to_string()))?;
-    let head_commit = repo
-      .head_commit()
-      .map_err(|e| JjError::IoError(e.to_string()))?;
-    let tree = head_commit
-      .tree()
-      .map_err(|e| JjError::IoError(e.to_string()))?;
-    let entry = tree
-      .lookup_entry_by_path(file_path)
-      .map_err(|e| JjError::IoError(e.to_string()))?
-      .ok_or_else(|| JjError::IoError(format!("Path '{}' not found in HEAD", file_path)))?;
-    let blob = entry
-      .object()
-      .map_err(|e| JjError::IoError(e.to_string()))?
-      .try_into_blob()
-      .map_err(|e| JjError::IoError(e.to_string()))?;
-    String::from_utf8_lossy(&blob.data).to_string()
+  let content = if from_parent && !Path::new(workspace_path).join(".jj").exists() {
+    read_git_head_blob(workspace_path, file_path)?
+  } else if from_parent {
+    // Read through jj-lib: a secondary workspace has no `.git` of its own.
+    let mut loaded = load_workspace_repo(workspace_path)?;
+    import_colocated_git_state(&mut loaded, workspace_path)?;
+    let wc_commit = get_workspace_wc_commit(&loaded)?
+      .ok_or_else(|| JjError::IoError("No working-copy commit found".to_string()))?;
+    let parent_tree = block_on(wc_commit.parent_tree(loaded.repo.as_ref()))
+      .map_err(|e| JjError::IoError(format!("Failed to read parent tree: {}", e)))?;
+    let repo_path = RepoPathBuf::from_relative_path(relative)
+      .map_err(|_| JjError::IoError("Invalid file path".to_string()))?;
+    let value = block_on(parent_tree.path_value(&repo_path))
+      .map_err(|e| JjError::IoError(format!("Failed to read parent path value: {}", e)))?;
+    let materialized = block_on(jj_lib::conflicts::materialize_tree_value(
+      loaded.repo.store(),
+      &repo_path,
+      value,
+      &ConflictLabels::unlabeled(),
+    ))
+    .map_err(|e| JjError::IoError(format!("Failed to materialize parent value: {}", e)))?;
+    let bytes = match materialized {
+      MaterializedTreeValue::File(mut file) => block_on(file.read_all(&repo_path))
+        .map_err(|e| JjError::IoError(format!("Failed to read file: {}", e)))?,
+      other => {
+        let merge_options = MergeOptions::from_settings(&loaded.settings)
+          .map_err(|e| JjError::IoError(format!("Failed to load merge options: {}", e)))?;
+        // Git markers, as `treq changes diff` renders the same file.
+        block_on(materialized_value_to_bytes(
+          &repo_path,
+          other,
+          ConflictMarkerStyle::Git,
+          Some(&merge_options),
+        ))
+        .ok_or_else(|| JjError::IoError(format!("Path '{}' not found in parent", file_path)))?
+      }
+    };
+    String::from_utf8_lossy(&bytes).to_string()
   } else {
     // Read file from working directory
     let full_path = Path::new(workspace_path).join(file_path);
