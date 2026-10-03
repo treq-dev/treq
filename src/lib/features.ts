@@ -9,6 +9,7 @@ export const PREVIEW_FEATURE_IDS = [
   "linearIntegration",
   "trelloIntegration",
   "jiraIntegration",
+  "googleWorkspace",
   "logs",
   "checks",
   "browser",
@@ -53,6 +54,11 @@ export const PREVIEW_FEATURES: readonly PreviewFeature[] = [
     id: "jiraIntegration",
     title: "Jira integration",
     docsPath: "/docs/concepts/trello-and-jira-integrations",
+  },
+  {
+    id: "googleWorkspace",
+    title: "Google Workspace integration",
+    docsPath: "/docs/concepts/google-workspace-integration",
   },
   {
     id: "logs",

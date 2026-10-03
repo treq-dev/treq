@@ -14,6 +14,7 @@ pub mod core;
 pub mod db;
 pub mod file_indexer;
 pub mod github;
+pub mod google;
 pub mod jira;
 pub mod jj;
 pub mod linear;
@@ -916,6 +917,22 @@ pub fn run() {
       commands::linear_start_auto_kickoff_polling,
       commands::linear_get_viewer,
       commands::linear_set_proxy_session,
+      commands::linear_create_issue,
+      commands::google_connection_status,
+      commands::google_set_proxy_session,
+      commands::google_oauth_begin,
+      commands::google_oauth_complete,
+      commands::google_disconnect_local,
+      commands::google_list_task_lists,
+      commands::google_create_task_list,
+      commands::google_list_tasks,
+      commands::google_create_task,
+      commands::google_update_task,
+      commands::google_delete_task,
+      commands::google_move_task,
+      commands::google_list_drive_files,
+      commands::google_prepare_doc_review,
+      commands::google_post_review_comments,
       commands::linear_list_projects,
       commands::linear_list_project_documents,
       commands::linear_list_issue_comments,

@@ -15,6 +15,7 @@
     "linearIntegration": false,
     "trelloIntegration": false,
     "jiraIntegration": false,
+    "googleWorkspace": false,
     "logs": false,
     "checks": false,
     "browser": false,

@@ -25,6 +25,7 @@ import {
 } from "./AccountSettings";
 import { GitHubIntegrationSettings } from "./GitHubIntegrationSettings";
 import { LinearIntegrationSettings } from "./LinearIntegrationSettings";
+import { GoogleIntegrationSettings } from "./google/GoogleIntegrationSettings";
 import { TrackerIntegrationSettings } from "./TrackerIntegrationSettings";
 import { RepoYamlConfigCard } from "./RepoYamlConfigCard";
 import { FeaturePreviewSettings } from "./FeaturePreviewSettings";
@@ -83,6 +84,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const linearIntegration = usePreviewFeature("linearIntegration");
   const trelloIntegration = usePreviewFeature("trelloIntegration");
   const jiraIntegration = usePreviewFeature("jiraIntegration");
+  const googleWorkspace = usePreviewFeature("googleWorkspace");
 
   useEffect(() => {
     if (!skillsInstallation && currentTab === "skills") {
@@ -439,6 +441,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         provider="jira"
                         repoPath={repoPath}
                       />
+                    )}
+                    {googleWorkspace && (
+                      <GoogleIntegrationSettings repoPath={repoPath} />
                     )}
                   </div>
                 </TabsContent>

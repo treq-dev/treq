@@ -420,6 +420,57 @@ struct LinearTeamNode {
   key: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LinearCreatedIssue {
+  pub id: String,
+  pub identifier: String,
+  pub url: String,
+}
+
+#[derive(Deserialize)]
+struct LinearIssueCreateData {
+  #[serde(rename = "issueCreate")]
+  issue_create: LinearIssueCreatePayload,
+}
+
+#[derive(Deserialize)]
+struct LinearIssueCreatePayload {
+  success: bool,
+  issue: Option<LinearCreatedIssue>,
+}
+
+/// Creates an issue in `team_id`. Used to turn a Google Task into a Linear issue.
+pub async fn linear_create_issue_impl(
+  client: &LinearClientSource,
+  team_id: &str,
+  title: &str,
+  description: Option<&str>,
+) -> Result<LinearCreatedIssue, String> {
+  let query = r#"mutation($input: IssueCreateInput!) {
+    issueCreate(input: $input) {
+      success
+      issue { id identifier url }
+    }
+  }"#;
+  let mut input = serde_json::json!({ "teamId": team_id, "title": title });
+  if let Some(description) = description.filter(|d| !d.trim().is_empty()) {
+    input["description"] = serde_json::json!(description);
+  }
+  let data: LinearIssueCreateData = linear_graphql(
+    client,
+    &serde_json::json!({ "query": query, "variables": { "input": input } }),
+    "issue creation",
+  )
+  .await?;
+  match data.issue_create {
+    LinearIssueCreatePayload {
+      success: true,
+      issue: Some(issue),
+    } => Ok(issue),
+    _ => Err("Linear did not create the issue".to_string()),
+  }
+}
+
 pub async fn linear_list_teams_impl(
   client: &LinearClientSource,
 ) -> Result<Vec<LinearTeam>, String> {
@@ -1267,6 +1318,30 @@ mod tests {
   fn use_mock_endpoint(server: &wiremock::MockServer, timeout: Duration) -> TestEndpointGuard {
     TEST_ENDPOINT.with(|e| *e.borrow_mut() = Some((server.uri(), timeout)));
     TestEndpointGuard
+  }
+
+  #[tokio::test]
+  async fn create_issue_sends_team_and_title() {
+    use wiremock::{
+      matchers::{body_partial_json, method},
+      Mock, MockServer, ResponseTemplate,
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+      .and(body_partial_json(serde_json::json!({
+        "variables": {"input": {"teamId": "t1", "title": "Ship it", "description": "notes"}}
+      })))
+      .respond_with(ResponseTemplate::new(200).set_body_string(
+        r#"{"data":{"issueCreate":{"success":true,"issue":{"id":"i1","identifier":"ENG-1","url":"https://linear.app/x/issue/ENG-1"}}}}"#,
+      ))
+      .expect(1)
+      .mount(&server)
+      .await;
+    let _guard = use_mock_endpoint(&server, Duration::from_secs(5));
+    let issue = linear_create_issue_impl(&api_key("k"), "t1", "Ship it", Some("notes"))
+      .await
+      .unwrap();
+    assert_eq!(issue.identifier, "ENG-1");
   }
 
   #[tokio::test]

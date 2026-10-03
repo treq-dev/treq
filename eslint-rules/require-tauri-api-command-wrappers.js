@@ -7,6 +7,7 @@ const API_FILES = [
   join("src", "lib", "api-checks-logs.ts"),
   join("src", "lib", "api-extra.ts"),
   join("src", "lib", "api-github.ts"),
+  join("src", "lib", "api-google.ts"),
   join("src", "lib", "api-linear.ts"),
   join("src", "lib", "api-pr-status.ts"),
   join("src", "lib", "api-remote-ssh.ts"),

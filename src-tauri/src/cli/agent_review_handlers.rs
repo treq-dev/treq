@@ -185,7 +185,11 @@ pub(super) fn handle_agent_review_command(
 }
 
 /// Target types the app renders review comments for.
-const KNOWN_TARGET_TYPES: &[&str] = &[DEFAULT_TARGET_TYPE, "file_browser_file"];
+const KNOWN_TARGET_TYPES: &[&str] = &[
+  DEFAULT_TARGET_TYPE,
+  "file_browser_file",
+  crate::google::REVIEW_TARGET_TYPE,
+];
 
 /// Rejects an `add` that nothing could display: an unknown target type, a
 /// target that does not exist, a `--file` that is not relative, or (on the
@@ -210,6 +214,9 @@ fn validate_add_target(
       PathBuf::from(workspace_dir)
     }
     "file_browser_file" => PathBuf::from(repo_path),
+    // An exported Google Doc; `--file` is relative to its review directory.
+    crate::google::REVIEW_TARGET_TYPE => crate::google::review_root(repo_path, target_id)
+      .map_err(|e| format!("invalid_arguments: {e}"))?,
     other => {
       return Err(format!(
         "invalid_arguments: unknown --target-type '{other}'. Expected one of: {}",
@@ -363,6 +370,10 @@ mod tests {
     check(DEFAULT_TARGET_TYPE, &id, "a.rs", 3, None).unwrap();
     check(DEFAULT_TARGET_TYPE, &id, "a.rs", 99, Some("old")).unwrap();
     check("file_browser_file", b, "b.rs", 1, None).unwrap();
+    let doc_dir = dir.path().join(".treq/google-review/doc1");
+    std::fs::create_dir_all(&doc_dir).unwrap();
+    std::fs::write(doc_dir.join("spec.md"), "1\n2\n").unwrap();
+    check("google_doc", "doc1", "spec.md", 2, None).unwrap();
     for (target_type, target_id, file, end) in [
       ("bogus", id.as_str(), "a.rs", 1),
       (DEFAULT_TARGET_TYPE, "999", "a.rs", 1),
@@ -375,6 +386,9 @@ mod tests {
       ("file_browser_file", b, "b.rs", 2),
       ("file_browser_file", big, "b.rs", 3),
       ("file_browser_file", b, "missing.rs", 1),
+      ("google_doc", "doc1", "spec.md", 3),
+      ("google_doc", "../doc1", "spec.md", 1),
+      ("google_doc", "doc1", "../../../b.rs", 1),
       (DEFAULT_TARGET_TYPE, id.as_str(), "link.rs", 1),
       (DEFAULT_TARGET_TYPE, id.as_str(), "dir/o.rs", 1),
     ] {

@@ -152,3 +152,16 @@ export const linearListDocumentComments = (
   documentId: string,
 ): Promise<LinearComment[]> =>
   invoke("linear_list_document_comments", { repoPath, documentId });
+
+export type LinearCreatedIssue = {
+  id: string;
+  identifier: string;
+  url: string;
+};
+
+export const linearCreateIssue = (issue: {
+  repoPath: string;
+  teamId: string;
+  title: string;
+  description?: string;
+}): Promise<LinearCreatedIssue> => invoke("linear_create_issue", issue);

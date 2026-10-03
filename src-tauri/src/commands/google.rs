@@ -1,0 +1,166 @@
+use crate::core::feature_preview::PreviewFeature;
+use crate::google::{
+  DriveFile, GoogleConnectionStatus, GoogleSource, GoogleTask, GoogleTaskList, PreparedDocReview,
+  TaskInput,
+};
+use crate::lock_ext::LockExt;
+use crate::AppState;
+use tauri::State;
+
+/// Checks the preview flag and resolves credentials. The db lock is released
+/// before returning so callers can await network requests.
+fn source_for(state: &State<'_, AppState>) -> Result<GoogleSource, String> {
+  crate::commands::feature_preview::require(state, PreviewFeature::GoogleWorkspace)?;
+  let db = state.db.lock_or_recover();
+  crate::google::resolve_source(&db)
+}
+
+#[tauri::command]
+pub fn google_connection_status(state: State<'_, AppState>) -> GoogleConnectionStatus {
+  let db = state.db.lock_or_recover();
+  crate::google::connection_status(&db)
+}
+
+/// Gives the client the Supabase session it sends to `google-proxy`.
+#[tauri::command]
+pub fn google_set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
+  crate::google::set_proxy_session(supabase_url, access_token);
+}
+
+/// Starts the loopback OAuth flow and returns the URL to open.
+#[tauri::command]
+pub async fn google_oauth_begin(
+  state: State<'_, AppState>,
+  client_id: String,
+  client_secret: Option<String>,
+) -> Result<String, String> {
+  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
+  let client_id = client_id.trim().to_string();
+  if client_id.is_empty() {
+    return Err("Enter a Google OAuth client ID first".to_string());
+  }
+  crate::google::begin_local_oauth(client_id, client_secret).await
+}
+
+/// Waits for the browser redirect and stores the client and tokens.
+#[tauri::command]
+pub async fn google_oauth_complete(state: State<'_, AppState>) -> Result<(), String> {
+  let (tokens, client_id, client_secret) = crate::google::complete_local_oauth().await?;
+  let raw = serde_json::to_string(&tokens).map_err(|e| e.to_string())?;
+  let db = state.db.lock_or_recover();
+  db.set_setting(crate::google::CLIENT_ID_SETTING, &client_id)
+    .and_then(|_| {
+      db.set_setting(
+        crate::google::CLIENT_SECRET_SETTING,
+        client_secret.as_deref().unwrap_or(""),
+      )
+    })
+    .and_then(|_| db.set_setting(crate::google::TOKENS_SETTING, &raw))
+    .map_err(|e| format!("Failed to store Google tokens: {e}"))
+}
+
+/// Forgets the locally stored tokens. The proxy grant is removed server side.
+#[tauri::command]
+pub fn google_disconnect_local(state: State<'_, AppState>) -> Result<(), String> {
+  let db = state.db.lock_or_recover();
+  db.set_setting(crate::google::TOKENS_SETTING, "")
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn google_list_task_lists(
+  state: State<'_, AppState>,
+) -> Result<Vec<GoogleTaskList>, String> {
+  crate::google::list_task_lists(&source_for(&state)?).await
+}
+
+#[tauri::command]
+pub async fn google_create_task_list(
+  state: State<'_, AppState>,
+  title: String,
+) -> Result<GoogleTaskList, String> {
+  crate::google::create_task_list(&source_for(&state)?, &title).await
+}
+
+#[tauri::command]
+pub async fn google_list_tasks(
+  state: State<'_, AppState>,
+  list_id: String,
+) -> Result<Vec<GoogleTask>, String> {
+  crate::google::list_tasks(&source_for(&state)?, &list_id).await
+}
+
+#[tauri::command]
+pub async fn google_create_task(
+  state: State<'_, AppState>,
+  list_id: String,
+  input: TaskInput,
+) -> Result<GoogleTask, String> {
+  crate::google::create_task(&source_for(&state)?, &list_id, &input).await
+}
+
+#[tauri::command]
+pub async fn google_update_task(
+  state: State<'_, AppState>,
+  list_id: String,
+  task_id: String,
+  input: TaskInput,
+) -> Result<GoogleTask, String> {
+  crate::google::update_task(&source_for(&state)?, &list_id, &task_id, &input).await
+}
+
+#[tauri::command]
+pub async fn google_delete_task(
+  state: State<'_, AppState>,
+  list_id: String,
+  task_id: String,
+) -> Result<(), String> {
+  crate::google::delete_task(&source_for(&state)?, &list_id, &task_id).await
+}
+
+#[tauri::command]
+pub async fn google_move_task(
+  state: State<'_, AppState>,
+  list_id: String,
+  task_id: String,
+  destination_list_id: Option<String>,
+  previous_task_id: Option<String>,
+) -> Result<GoogleTask, String> {
+  crate::google::move_task(
+    &source_for(&state)?,
+    &list_id,
+    &task_id,
+    destination_list_id.as_deref(),
+    previous_task_id.as_deref(),
+  )
+  .await
+}
+
+#[tauri::command]
+pub async fn google_list_drive_files(
+  state: State<'_, AppState>,
+  search: Option<String>,
+  docs_only: bool,
+) -> Result<Vec<DriveFile>, String> {
+  crate::google::list_drive_files(&source_for(&state)?, search.as_deref(), docs_only).await
+}
+
+/// Exports a Drive file into `.treq/google-review/<id>/` for the review agent.
+#[tauri::command]
+pub async fn google_prepare_doc_review(
+  state: State<'_, AppState>,
+  repo_path: String,
+  file_id: String,
+) -> Result<PreparedDocReview, String> {
+  crate::google::prepare_doc_review(&source_for(&state)?, &repo_path, &file_id).await
+}
+
+/// Posts the agent's open comments to the Drive file and resolves them.
+#[tauri::command]
+pub async fn google_post_review_comments(
+  state: State<'_, AppState>,
+  repo_path: String,
+  file_id: String,
+) -> Result<usize, String> {
+  crate::google::post_review_comments(&source_for(&state)?, &repo_path, &file_id).await
+}

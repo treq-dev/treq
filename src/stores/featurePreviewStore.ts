@@ -25,6 +25,7 @@ function defaultFlags(): PreviewFlags {
     linearIntegration: previewFeatureDefault("linearIntegration"),
     trelloIntegration: previewFeatureDefault("trelloIntegration"),
     jiraIntegration: previewFeatureDefault("jiraIntegration"),
+    googleWorkspace: previewFeatureDefault("googleWorkspace"),
     logs: previewFeatureDefault("logs"),
     checks: previewFeatureDefault("checks"),
     browser: previewFeatureDefault("browser"),

@@ -16,6 +16,7 @@ describe("preview features", () => {
       "linearIntegration",
       "trelloIntegration",
       "jiraIntegration",
+      "googleWorkspace",
       "logs",
       "checks",
       "browser",
@@ -34,6 +35,7 @@ describe("preview features", () => {
     expect(FEATURES.linearIntegration).toBe(false);
     expect(FEATURES.trelloIntegration).toBe(false);
     expect(FEATURES.jiraIntegration).toBe(false);
+    expect(FEATURES.googleWorkspace).toBe(false);
     expect(FEATURES.logs).toBe(false);
     expect(FEATURES.checks).toBe(false);
     expect(FEATURES.browser).toBe(false);
@@ -47,6 +49,7 @@ describe("preview features", () => {
     expect(previewFeatureDefault("linearIntegration")).toBe(true);
     expect(previewFeatureDefault("trelloIntegration")).toBe(true);
     expect(previewFeatureDefault("jiraIntegration")).toBe(true);
+    expect(previewFeatureDefault("googleWorkspace")).toBe(true);
     expect(previewFeatureDefault("logs")).toBe(true);
     expect(previewFeatureDefault("checks")).toBe(true);
     expect(previewFeatureDefault("browser")).toBe(true);

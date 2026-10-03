@@ -31,6 +31,26 @@ pub async fn linear_list_teams(
 }
 
 #[tauri::command]
+pub async fn linear_create_issue(
+  state: State<'_, AppState>,
+  repo_path: String,
+  team_id: String,
+  title: String,
+  description: Option<String>,
+) -> Result<crate::linear::LinearCreatedIssue, String> {
+  crate::commands::feature_preview::require(
+    &state,
+    crate::core::feature_preview::PreviewFeature::LinearIntegration,
+  )?;
+  let client_source = {
+    let db = state.db.lock_or_recover();
+    crate::linear::resolve_linear_client(&repo_path, &db)?
+  };
+  crate::linear::linear_create_issue_impl(&client_source, &team_id, &title, description.as_deref())
+    .await
+}
+
+#[tauri::command]
 pub async fn linear_list_issues(
   state: State<'_, AppState>,
   repo_path: String,

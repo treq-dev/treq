@@ -97,6 +97,7 @@ import {
   type AutoReviewEvent,
 } from "../lib/agent-review-launch";
 import { LINEAR_BASE_PATH } from "../lib/linearRoutes";
+import { GOOGLE_BASE_PATH } from "../lib/googleRoutes";
 import { useLinearAutoKickoff } from "../hooks/useLinearAutoKickoff";
 import { useTrackerAutoKickoff } from "../hooks/useTrackerAutoKickoff";
 import { TRACKER_PROVIDERS, type TrackerProvider } from "../lib/trackers";
@@ -184,6 +185,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GitHubPanel } from "./GitHubPanel";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { LinearPanel } from "./LinearPanel";
+import { GoogleWorkspacePanel } from "./google/GoogleWorkspacePanel";
 import { TrackerPanel } from "./TrackerPanel";
 import { MergePreviewPage } from "./MergePreviewPage";
 import { Onboarding } from "./Onboarding";
@@ -259,6 +261,7 @@ type ViewMode =
   | "merge-preview"
   | "github"
   | "linear"
+  | "google"
   | TrackerProvider;
 
 type SessionOpenOptions = {
@@ -301,6 +304,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const linearIntegrationEnabled = usePreviewFeature("linearIntegration");
   const trelloIntegrationEnabled = usePreviewFeature("trelloIntegration");
   const jiraIntegrationEnabled = usePreviewFeature("jiraIntegration");
+  const googleWorkspaceEnabled = usePreviewFeature("googleWorkspace");
   const trackerEnabled: Record<TrackerProvider, boolean> = {
     trello: trelloIntegrationEnabled,
     jira: jiraIntegrationEnabled,
@@ -1246,6 +1250,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     navigate(LINEAR_BASE_PATH);
   };
 
+  const openGoogle = () => {
+    if (viewMode !== "google") {
+      previousViewModeRef.current = viewMode;
+    }
+    setViewMode("google");
+    navigate(GOOGLE_BASE_PATH);
+  };
+
   const openTracker = (provider: TrackerProvider) => {
     if (viewMode !== provider) {
       previousViewModeRef.current = viewMode;
@@ -1281,6 +1293,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
       setViewMode("artifacts");
     }
+    if (
+      viewMode === "google" &&
+      (!googleWorkspaceEnabled || !location.startsWith(GOOGLE_BASE_PATH))
+    ) {
+      setViewMode(previousViewModeRef.current);
+    }
+    if (
+      googleWorkspaceEnabled &&
+      location.startsWith(GOOGLE_BASE_PATH) &&
+      viewMode !== "google"
+    ) {
+      if (viewMode !== "github" && viewMode !== "artifacts") {
+        previousViewModeRef.current = viewMode;
+      }
+      setViewMode("google");
+    }
     if (location.startsWith(LINEAR_BASE_PATH) && viewMode !== "linear") {
       if (viewMode !== "github" && viewMode !== "artifacts") {
         previousViewModeRef.current = viewMode;
@@ -1305,7 +1333,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
         setViewMode(id);
       }
     }
-  }, [location, viewMode, trelloIntegrationEnabled, jiraIntegrationEnabled]);
+  }, [
+    location,
+    viewMode,
+    trelloIntegrationEnabled,
+    jiraIntegrationEnabled,
+    googleWorkspaceEnabled,
+  ]);
 
   // The reverse also happens: leaving "github" through a non-URL action (e.g.
   // clicking a workspace in the sidebar) should clear the now-stale
@@ -1320,6 +1354,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       viewMode !== "artifacts";
     const leftLinear =
       previousViewModeForUrlRef.current === "linear" && viewMode !== "linear";
+    const leftGoogle =
+      previousViewModeForUrlRef.current === "google" && viewMode !== "google";
     const leftTracker = Object.values(TRACKER_PROVIDERS).find(
       ({ id }) => previousViewModeForUrlRef.current === id && viewMode !== id,
     );
@@ -1334,6 +1370,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       navigate("/", { replace: true });
     }
     if (leftLinear && location.startsWith(LINEAR_BASE_PATH)) {
+      navigate("/", { replace: true });
+    }
+    if (leftGoogle && location.startsWith(GOOGLE_BASE_PATH)) {
       navigate("/", { replace: true });
     }
   }, [viewMode, location, navigate]);
@@ -2551,6 +2590,34 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return sessionId;
   };
 
+  // Document reviews run at the repo root: the exported file lives in
+  // `.treq/google-review/`, outside any workspace.
+  const handleStartDocReview = async ({
+    prompt,
+    agent,
+    title,
+  }: {
+    prompt: string;
+    agent?: string;
+    title: string;
+  }) => {
+    const agentKind = toAgentKind(agent);
+    const sessionId = await getOrCreateSession(null, {
+      forceNew: true,
+      agent: agentKind,
+      name: title,
+    });
+    setSelectedWorkspace(null);
+    setViewMode("show-workspace");
+    handleSessionCreated({
+      sessionId,
+      workspaceId: null,
+      pendingPrompt: prompt,
+      permissionMode: "acceptEdits",
+      agent: agentKind,
+    });
+  };
+
   const handleStartAgentRequest = async (request: AgentDeepLinkRequest) => {
     const workspace = findWorkspaceByBranch(workspaces, request.branch);
     if (!workspace) {
@@ -3099,6 +3166,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onOpenJira={
               jiraIntegrationEnabled ? () => openTracker("jira") : undefined
             }
+            onOpenGoogle={googleWorkspaceEnabled ? openGoogle : undefined}
             onOpenArtifacts={openArtifacts}
             currentPage={
               viewMode === "settings"
@@ -3109,7 +3177,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     ? "artifacts"
                     : viewMode === "linear" ||
                         viewMode === "trello" ||
-                        viewMode === "jira"
+                        viewMode === "jira" ||
+                        viewMode === "google"
                       ? viewMode
                       : viewMode === "session" || viewMode === "show-workspace"
                         ? "session"
@@ -3381,6 +3450,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   onStartPromptFromIssue={(issue) =>
                     handleStartPromptFromIssue(issueFromLinear(issue))
                   }
+                />
+              )}
+
+              {/* Google Workspace Panel */}
+              {viewMode === "google" && googleWorkspaceEnabled && (
+                <GoogleWorkspacePanel
+                  repoPath={dataRepoPath}
+                  onStartDocReview={handleStartDocReview}
                 />
               )}
 

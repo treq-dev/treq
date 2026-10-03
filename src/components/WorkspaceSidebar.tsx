@@ -1,5 +1,5 @@
 import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
-import { Archive, Github, ListTodo, Search } from "lucide-react";
+import { Archive, Github, ListChecks, ListTodo, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import {
@@ -76,6 +76,7 @@ interface WorkspaceSidebarProps {
   onOpenLinear?: () => void;
   onOpenTrello?: () => void;
   onOpenJira?: () => void;
+  onOpenGoogle?: () => void;
   onOpenArtifacts?: () => void;
   currentPage?: string;
   onAddBefore?: (workspace: Workspace) => void;
@@ -109,6 +110,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   onOpenLinear,
   onOpenTrello,
   onOpenJira,
+  onOpenGoogle,
   onOpenArtifacts,
   currentPage,
   onAddAfter,
@@ -297,6 +299,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     currentPage !== "linear" &&
     currentPage !== "trello" &&
     currentPage !== "jira" &&
+    currentPage !== "google" &&
     currentPage !== "settings" &&
     currentPage !== "artifacts";
   const isHomeSelected =
@@ -390,6 +393,17 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                     icon={TRACKER_ICONS.trello}
                     label="Trello"
                     testId="trello-sidebar-item"
+                  />
+                )}
+
+                {onOpenGoogle && (
+                  <WorkspaceSidebarPanelButton
+                    page="google"
+                    currentPage={currentPage}
+                    onClick={onOpenGoogle}
+                    icon={ListChecks}
+                    label="Google"
+                    testId="google-sidebar-item"
                   />
                 )}
 
