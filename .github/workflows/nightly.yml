@@ -44,7 +44,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/nightly" --jq '.id' 2>/dev/null || true)
+          # On 404, gh prints the error JSON to stdout, so discard output on failure.
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/nightly" --jq '.id' 2>/dev/null) || RELEASE_ID=
 
           if [ -n "$RELEASE_ID" ]; then
             echo "Deleting existing nightly release"
