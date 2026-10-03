@@ -19,10 +19,10 @@
 //   SUPABASE_TEST_SERVICE_ROLE_KEY
 //
 // Optional, separately scoped Sprites cleanup credentials for the dedicated
-// test organization (never the product SPRITES_API_TOKEN, and not the
-// live-test SPRITES_TEST_API_TOKEN):
-//   SPRITES_E2E_CLEANUP_API_TOKEN
-//   SPRITES_E2E_CLEANUP_API_URL    (default https://api.sprites.dev)
+// test organization (never the product TREQ_SPRITES_API_TOKEN, and not the
+// live-test TREQ_SPRITES_TEST_API_TOKEN):
+//   TREQ_SPRITES_E2E_CLEANUP_API_TOKEN
+//   TREQ_SPRITES_E2E_CLEANUP_API_URL    (default https://api.sprites.dev)
 //
 // Apply-mode gate:
 //   TREQ_REMOTE_E2E_CLEANUP_TARGET=dedicated-test
@@ -57,7 +57,7 @@ async function main() {
     supabaseUrl: Deno.env.get("SUPABASE_TEST_URL"),
     supabaseServiceRoleKey: Deno.env.get("SUPABASE_TEST_SERVICE_ROLE_KEY"),
     cleanupTargetKind: Deno.env.get("TREQ_REMOTE_E2E_CLEANUP_TARGET"),
-    spritesCleanupToken: Deno.env.get("SPRITES_E2E_CLEANUP_API_TOKEN"),
+    spritesCleanupToken: Deno.env.get("TREQ_SPRITES_E2E_CLEANUP_API_TOKEN"),
   });
   if (!gate.ok) {
     if (gate.skip) {
@@ -135,14 +135,14 @@ async function main() {
 
   if (!gate.spriteScanEnabled) {
     console.log(
-      "remote-e2e-cleanup: SKIP Sprites scan: SPRITES_E2E_CLEANUP_API_TOKEN is not set. " +
-        "This is a separately scoped cleanup credential, not SPRITES_TEST_API_TOKEN / SPRITES_API_TOKEN.",
+      "remote-e2e-cleanup: SKIP Sprites scan: TREQ_SPRITES_E2E_CLEANUP_API_TOKEN is not set. " +
+        "This is a separately scoped cleanup credential, not TREQ_SPRITES_TEST_API_TOKEN / TREQ_SPRITES_API_TOKEN.",
     );
     return;
   }
 
-  const spritesToken = Deno.env.get("SPRITES_E2E_CLEANUP_API_TOKEN")!;
-  const spritesBase = (Deno.env.get("SPRITES_E2E_CLEANUP_API_URL") || "https://api.sprites.dev").replace(/\/+$/, "");
+  const spritesToken = Deno.env.get("TREQ_SPRITES_E2E_CLEANUP_API_TOKEN")!;
+  const spritesBase = (Deno.env.get("TREQ_SPRITES_E2E_CLEANUP_API_URL") || "https://api.sprites.dev").replace(/\/+$/, "");
   const authHeaders = { Authorization: `Bearer ${spritesToken}` };
   const requestIdOf = (response: Response) =>
     response.headers.get("fly-request-id") ?? response.headers.get("x-request-id") ?? "";

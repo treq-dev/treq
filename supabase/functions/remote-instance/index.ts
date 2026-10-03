@@ -299,7 +299,7 @@ async function establishSshTrust(
       endpointId: params.endpointId,
       eventType: "host_key_registered",
       detail: {
-        note: "REMOTE_SPRITES_STUB active: recorded a placeholder fingerprint, not a real host key",
+        note: "TREQ_REMOTE_SPRITES_STUB active: recorded a placeholder fingerprint, not a real host key",
         generation: params.generation,
       },
       correlationId: params.correlationId,

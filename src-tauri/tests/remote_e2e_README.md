@@ -59,11 +59,11 @@ Every provider credential here must belong to a dedicated Sprites test organizat
 | Variable (also the secret name) | Used by | Replaces |
 |---|---|---|
 | `TREQ_REMOTE_E2E` = `1` | all live suites; the workflow gate | unchanged |
-| `SPRITES_TEST_API_TOKEN` | `remote_e2e.rs` | `FLY_TEST_API_TOKEN` |
-| `SPRITES_TEST_API_URL` (optional, default `https://api.sprites.dev`) | `remote_e2e.rs` | `FLY_TEST_API_BASE_URL` |
+| `TREQ_SPRITES_TEST_API_TOKEN` | `remote_e2e.rs` | `SPRITES_TEST_API_TOKEN`, `FLY_TEST_API_TOKEN` |
+| `TREQ_SPRITES_TEST_API_URL` (optional, default `https://api.sprites.dev`) | `remote_e2e.rs` | `SPRITES_TEST_API_URL`, `FLY_TEST_API_BASE_URL` |
 | none | | `FLY_TEST_APP_NAME` (Sprites have no app) |
-| `SPRITES_E2E_CLEANUP_API_TOKEN` | `scripts/remote-e2e-cleanup.ts` | `FLY_E2E_CLEANUP_API_TOKEN` |
-| `SPRITES_E2E_CLEANUP_API_URL` (optional, default `https://api.sprites.dev`) | `scripts/remote-e2e-cleanup.ts` | `FLY_E2E_CLEANUP_API_BASE_URL` |
+| `TREQ_SPRITES_E2E_CLEANUP_API_TOKEN` | `scripts/remote-e2e-cleanup.ts` | `SPRITES_E2E_CLEANUP_API_TOKEN`, `FLY_E2E_CLEANUP_API_TOKEN` |
+| `TREQ_SPRITES_E2E_CLEANUP_API_URL` (optional, default `https://api.sprites.dev`) | `scripts/remote-e2e-cleanup.ts` | `SPRITES_E2E_CLEANUP_API_URL`, `FLY_E2E_CLEANUP_API_BASE_URL` |
 | none | | `FLY_E2E_CLEANUP_APP_NAME` (Sprites have no app) |
 | `SUPABASE_TEST_URL`, `SUPABASE_TEST_ANON_KEY`, `SUPABASE_TEST_SERVICE_ROLE_KEY`, `REMOTE_ADMIN_API_KEY_TEST` | native and Edge suites, cleanup | unchanged |
 | `TREQ_REMOTE_E2E_CLEANUP_TARGET` = `dedicated-test` | cleanup apply mode | unchanged |
@@ -74,6 +74,6 @@ Local-only tuning, not secrets:
 - `TREQ_REMOTE_E2E_IDLE_PAUSE_TIMEOUT_SECS`: how long `remote_e2e.rs` waits for a Sprite to pause (default 600).
 - `TREQ_REMOTE_E2E_IDLE_PAUSE_WAIT_SECS`: how long `remote_e2e_native.rs` idles before it wakes the VM (default 90).
 
-The Edge Functions on the Supabase test project read their own `SPRITES_API_URL` and `SPRITES_API_TOKEN` function secrets. Set those to the same test organization.
+The Edge Functions on the Supabase test project read their own `TREQ_SPRITES_API_URL` and `TREQ_SPRITES_API_TOKEN` function secrets. Set those to the same test organization.
 
 Sprites created by `remote_e2e.rs` are named `dev-treq-treq-e2e-<uuid>`. Sprites created through the Edge Functions are named `dev-treq-<user id>` for an e2e-tagged test user. The cleanup script deletes only those two shapes and refuses anything else.

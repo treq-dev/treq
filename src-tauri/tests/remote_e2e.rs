@@ -21,10 +21,10 @@
 //!
 //! - `TREQ_REMOTE_E2E=1`: explicit opt-in. Nothing runs without it, so a
 //!   stray token in a shared CI environment can never trigger spend.
-//! - `SPRITES_TEST_API_TOKEN`: a Sprites API token for a dedicated test
+//! - `TREQ_SPRITES_TEST_API_TOKEN`: a Sprites API token for a dedicated test
 //!   organization. Sprites tokens are organization-scoped, so this must
 //!   never be a token for an organization that holds real user Sprites.
-//! - `SPRITES_TEST_API_URL`: optional, defaults to `https://api.sprites.dev`.
+//! - `TREQ_SPRITES_TEST_API_URL`: optional, defaults to `https://api.sprites.dev`.
 //! - `TREQ_REMOTE_E2E_IDLE_PAUSE_TIMEOUT_SECS`: optional upper bound on how
 //!   long the suspend/wake test waits for the Sprite to pause on its own
 //!   (default 600).
@@ -184,10 +184,10 @@ fn e2e_config() -> Option<SpritesConfig> {
     });
     return None;
   }
-  let api_token = std::env::var("SPRITES_TEST_API_TOKEN")
+  let api_token = std::env::var("TREQ_SPRITES_TEST_API_TOKEN")
     .ok()
     .filter(|v| !v.is_empty())?;
-  let base_url = std::env::var("SPRITES_TEST_API_URL")
+  let base_url = std::env::var("TREQ_SPRITES_TEST_API_URL")
     .ok()
     .filter(|v| !v.is_empty())
     .unwrap_or_else(|| DEFAULT_API_URL.to_string());
@@ -204,7 +204,7 @@ macro_rules! require_e2e {
       Some(cfg) => cfg,
       None => {
         eprintln!(
-          "[remote-e2e] SKIP {}: missing TREQ_REMOTE_E2E=1 / SPRITES_TEST_API_TOKEN",
+          "[remote-e2e] SKIP {}: missing TREQ_REMOTE_E2E=1 / TREQ_SPRITES_TEST_API_TOKEN",
           module_path!()
         );
         return;

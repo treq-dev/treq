@@ -1,5 +1,5 @@
 // In-memory Sprites adapter for local service-qa, activated when
-// REMOTE_SPRITES_STUB=1 so the control plane can be exercised end to end
+// TREQ_REMOTE_SPRITES_STUB=1 so the control plane can be exercised end to end
 // without a real Fly account or vendor token, mirroring
 // `stub-github-adapter.ts`'s role for the merge queue.
 
@@ -15,7 +15,7 @@ import type {
 import { ProviderError } from "./sprites-adapter.ts";
 
 export function isSpritesStubEnabled(): boolean {
-  const v = Deno.env.get("REMOTE_SPRITES_STUB") ?? "";
+  const v = Deno.env.get("TREQ_REMOTE_SPRITES_STUB") ?? "";
   return v === "1" || v.toLowerCase() === "true";
 }
 

@@ -3,9 +3,9 @@
 //
 // This suite calls real, deployed Supabase Edge Functions on a dedicated
 // Supabase *test* project - never the stub adapter
-// (`_shared/remote/stub-sprites-adapter.ts` / `REMOTE_SPRITES_STUB=1`), and
+// (`_shared/remote/stub-sprites-adapter.ts` / `TREQ_REMOTE_SPRITES_STUB=1`), and
 // never localhost `supabase functions serve` with mocked provider calls.
-// `stub-sprites-adapter.ts` and its `REMOTE_SPRITES_STUB` switch exist
+// `stub-sprites-adapter.ts` and its `TREQ_REMOTE_SPRITES_STUB` switch exist
 // precisely so functional/unit-style tests of the *control-plane logic*
 // (routing, RLS, idempotency bookkeeping) can run without a vendor account;
 // this file is the deliberately-separate non-mocked counterpart the PRD
@@ -30,8 +30,8 @@
 //                                            REMOTE_ADMIN_API_KEY function
 //                                            secret, for remote-admin calls.
 //
-// The test project's own Edge Function secrets (SPRITES_API_URL,
-// SPRITES_API_TOKEN for the dedicated Sprites test organization, the SSH CA
+// The test project's own Edge Function secrets (TREQ_SPRITES_API_URL,
+// TREQ_SPRITES_API_TOKEN for the dedicated Sprites test organization, the SSH CA
 // key material, etc.) are configured on the Supabase side per the project's
 // normal `supabase secrets set` flow, not passed through this test process.
 // This suite only ever holds Supabase keys and the admin API key, never the

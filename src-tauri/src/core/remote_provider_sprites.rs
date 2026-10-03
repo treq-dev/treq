@@ -28,15 +28,13 @@ impl std::fmt::Debug for SpritesConfig {
 
 impl SpritesConfig {
   pub fn from_env() -> Result<Self, ProviderError> {
-    let base_url = std::env::var("SPRITES_API_URL")
-      .or_else(|_| std::env::var("FLY_SPRITES_API_BASE_URL"))
-      .map_err(|_| ProviderError::InvalidRequest {
-        message: "SPRITES_API_URL is not set".to_string(),
+    let base_url =
+      std::env::var("TREQ_SPRITES_API_URL").map_err(|_| ProviderError::InvalidRequest {
+        message: "TREQ_SPRITES_API_URL is not set".to_string(),
       })?;
-    let api_token = std::env::var("SPRITES_API_TOKEN")
-      .or_else(|_| std::env::var("FLY_SPRITES_API_TOKEN"))
-      .map_err(|_| ProviderError::InvalidRequest {
-        message: "SPRITES_API_TOKEN is not set".to_string(),
+    let api_token =
+      std::env::var("TREQ_SPRITES_API_TOKEN").map_err(|_| ProviderError::InvalidRequest {
+        message: "TREQ_SPRITES_API_TOKEN is not set".to_string(),
       })?;
     Ok(Self {
       base_url,

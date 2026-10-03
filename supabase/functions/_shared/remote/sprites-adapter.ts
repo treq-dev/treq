@@ -148,14 +148,12 @@ export interface SpritesConfig {
 /// Reads Fly Sprites configuration from Edge Function secrets. Never logged;
 /// never returned to a client.
 export function spritesConfigFromEnv(): SpritesConfig {
-  const baseUrl =
-    Deno.env.get("SPRITES_API_URL") ?? Deno.env.get("FLY_SPRITES_API_BASE_URL");
-  const apiToken =
-    Deno.env.get("SPRITES_API_TOKEN") ?? Deno.env.get("FLY_SPRITES_API_TOKEN");
+  const baseUrl = Deno.env.get("TREQ_SPRITES_API_URL");
+  const apiToken = Deno.env.get("TREQ_SPRITES_API_TOKEN");
   if (!baseUrl || !apiToken) {
     throw new ProviderError(
       "invalid_request",
-      "SPRITES_API_URL and SPRITES_API_TOKEN must be set",
+      "TREQ_SPRITES_API_URL and TREQ_SPRITES_API_TOKEN must be set",
     );
   }
   return { baseUrl, apiToken };
