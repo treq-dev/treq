@@ -104,19 +104,6 @@
   gap: 0.45rem;
 }
 
-.comingSoonBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  background: var(--ifm-color-emphasis-100);
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
 
 .featureMark {
   flex-shrink: 0;
@@ -173,18 +160,7 @@
   background: rgba(59, 156, 255, 0.08);
 }
 
-.planButtonDisabled {
-  flex-direction: column;
-  gap: 0.15rem;
-  cursor: not-allowed;
-  opacity: 0.5;
-  pointer-events: none;
-}
 
-.planButtonNote {
-  font-size: 0.75rem;
-  font-weight: 500;
-}
 
 .comparison,
 .faq {
