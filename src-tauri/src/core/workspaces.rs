@@ -3486,12 +3486,19 @@ pub fn move_workspace_changes(
       .flat_map(|commit| [commit.change_id.clone(), commit.commit_id.clone()])
       .filter(|id| !id.is_empty())
       .collect();
+    let source_workspace = match source.workspace_id {
+      Some(id) => local_db::get_workspace_by_id(repo_path, id)?,
+      None => None,
+    };
     for commit_id in &request.commits {
       if !history_ids.contains(commit_id) {
         return Err(format!(
           "Commit '{}' not found in source workspace history",
           commit_id
         ));
+      }
+      if let Some(workspace) = &source_workspace {
+        crate::core::commits::ensure_rewritable(repo_path, workspace, commit_id)?;
       }
     }
 

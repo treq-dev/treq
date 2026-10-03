@@ -724,7 +724,7 @@ fn test_undo_commit_rejects_commit_on_target_branch() {
   // No new commits made in this workspace — its tip is the target branch tip itself.
   let err = treq_lib::core::undo_commit(&repo.repo_path, workspace.id, default_branch)
     .expect_err("Should not allow undoing a commit that belongs to the target branch");
-  assert!(err.contains("target branch"), "unexpected error: {}", err);
+  assert!(err.contains("default branch"), "unexpected error: {}", err);
 }
 
 #[test]

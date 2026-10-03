@@ -74,6 +74,11 @@ pub fn stash_commit(
   let workspace_path = resolve_workspace_root(repo_path, workspace_id)?;
   let workspace_label = workspace_label_for(repo_path, workspace_id)?;
   let bookmark_name = format!("{}{}", jj::STASH_BOOKMARK_PREFIX, Uuid::new_v4());
+  if let Some(id) = workspace_id {
+    let workspace = local_db::get_workspace_by_id(repo_path, id)?
+      .ok_or_else(|| format!("Workspace not found: {}", id))?;
+    super::commits::ensure_rewritable(repo_path, &workspace, change_id)?;
+  }
 
   let stash_commit =
     jj::jj_stash_commit(&workspace_path, change_id, &bookmark_name).map_err(|e| e.to_string())?;

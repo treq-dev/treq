@@ -3315,12 +3315,16 @@ fn reject_root_commit(loaded: &LoadedWorkspaceRepo, commit: &Commit) -> Result<(
 
 /// Checks that `revision` names one commit this workspace may rewrite: not the
 /// root commit, an ancestor of (or) the workspace's working copy, and not on
-/// `protected_branch`. Revisions arrive as revset strings from the CLI, so
-/// without this `main` or another workspace's commit could be rewritten.
+/// `default_branch` or `parent_branch` (the bookmark a stacked workspace
+/// targets; its commits belong to the parent workspace). Revisions arrive as
+/// revset strings from the CLI, so without this `main` or another workspace's
+/// commit could be rewritten. A branch that no longer resolves (e.g. a deleted
+/// parent bookmark) protects nothing; the `::@` check still applies.
 pub fn ensure_commit_rewritable(
   workspace_path: &str,
   revision: &str,
-  protected_branch: Option<&str>,
+  default_branch: Option<&str>,
+  parent_branch: Option<&str>,
 ) -> Result<(), JjError> {
   let loaded = load_workspace_repo(workspace_path)?;
   let commit = resolve_commit_by_revision(&loaded, revision)?;
@@ -3333,14 +3337,20 @@ pub fn ensure_commit_rewritable(
     )));
   }
 
-  if let Some(branch) = protected_branch {
-    if let Ok(symbol) = resolve_target_branch_symbol(&loaded, workspace_path, branch) {
-      let protected = evaluate_revset(&loaded, &format!("::{}", format_revset_symbol(&symbol)))?;
-      if protected.containing_fn()(commit.id()).unwrap_or(false) {
-        return Err(JjError::IoError(format!(
-          "Revision '{revision}' is on the default branch '{branch}' and cannot be rewritten"
-        )));
-      }
+  let protected = [
+    (default_branch, "is on the default branch"),
+    (parent_branch, "belongs to parent branch"),
+  ];
+  for (branch, reason) in protected {
+    let Some(branch) = branch else { continue };
+    let Ok(symbol) = resolve_target_branch_symbol(&loaded, workspace_path, branch) else {
+      continue;
+    };
+    let protected = evaluate_revset(&loaded, &format!("::{}", format_revset_symbol(&symbol)))?;
+    if protected.containing_fn()(commit.id()).unwrap_or(false) {
+      return Err(JjError::IoError(format!(
+        "Revision '{revision}' {reason} '{branch}' and cannot be rewritten from this workspace"
+      )));
     }
   }
   Ok(())
