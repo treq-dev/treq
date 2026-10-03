@@ -201,10 +201,7 @@ pub fn move_commit_to_existing_workspace(
   if source_workspace_id == target_workspace_id {
     return Err("invalid_arguments: cannot move a commit into its own workspace".to_string());
   }
-  ensure_rewritable(repo_path, &source_full_path_str, commit_change_id)?;
-  let parent = source.target_branch.as_deref();
-  jj::ensure_commit_rewritable(&source_full_path_str, commit_change_id, parent)
-    .map_err(|e| e.to_string())?;
+  ensure_rewritable(repo_path, &source, commit_change_id)?;
   let target_workspace_dir = Path::new(repo_path)
     .join(".treq")
     .join("workspaces")
@@ -247,7 +244,7 @@ pub fn abandon_commit(
     .to_str()
     .ok_or("Failed to convert workspace path to string")?;
 
-  ensure_rewritable(repo_path, workspace_dir_str, commit_change_id)?;
+  ensure_rewritable(repo_path, &workspace, commit_change_id)?;
 
   let op_id = jj::jj_abandon(workspace_dir_str, commit_change_id)
     .map_err(|e| format!("Failed to abandon commit: {}", e))?;
@@ -258,10 +255,26 @@ pub fn abandon_commit(
   Ok(op_id)
 }
 
-fn ensure_rewritable(repo_path: &str, workspace_dir: &str, revision: &str) -> Result<(), String> {
+/// Refuses `revision` unless `workspace` may rewrite it: it must be in the
+/// workspace's own history and not on the default branch or on the parent
+/// branch a stacked workspace targets (those commits belong to another workspace).
+pub(crate) fn ensure_rewritable(
+  repo_path: &str,
+  workspace: &local_db::Workspace,
+  revision: &str,
+) -> Result<(), String> {
+  let workspace_dir = Path::new(repo_path)
+    .join(".treq")
+    .join("workspaces")
+    .join(&workspace.workspace_path);
   let default_branch = jj::get_default_branch(repo_path).ok();
-  jj::ensure_commit_rewritable(workspace_dir, revision, default_branch.as_deref())
-    .map_err(|e| e.to_string())
+  jj::ensure_commit_rewritable(
+    &workspace_dir.to_string_lossy(),
+    revision,
+    default_branch.as_deref(),
+    workspace.target_branch.as_deref(),
+  )
+  .map_err(|e| e.to_string())
 }
 
 /// Undo a repository operation identified by `operation_id` (hex).
@@ -320,6 +333,7 @@ pub fn undo_commit(
     .to_str()
     .ok_or("Failed to convert workspace path to string")?;
 
+  ensure_rewritable(repo_path, &workspace, commit_change_id)?;
   let default_branch = jj::get_default_branch(repo_path)
     .map_err(|e| format!("Failed to resolve default branch: {}", e))?;
   let target_branch = workspace
@@ -431,7 +445,7 @@ pub fn describe_commit(
     .to_str()
     .ok_or("Failed to convert workspace path to string")?;
 
-  ensure_rewritable(repo_path, workspace_dir_str, commit_change_id)?;
+  ensure_rewritable(repo_path, &workspace, commit_change_id)?;
 
   jj::jj_describe(workspace_dir_str, commit_change_id, description)
     .map_err(|e| format!("Failed to describe commit: {}", e))?;
@@ -472,6 +486,7 @@ pub fn shift_commit_timestamp(
     .as_deref()
     .unwrap_or(&default_branch);
 
+  ensure_rewritable(repo_path, &workspace, commit_change_id)?;
   let shift = match to_day {
     Some(day) => {
       if days != 0 || hours != 0 || minutes != 0 {
