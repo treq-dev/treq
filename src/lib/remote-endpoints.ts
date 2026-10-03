@@ -12,7 +12,6 @@
 
 import { getSetting, setSetting } from "./api";
 import type {
-  ResolvedSshAlias,
   SshAuthentication,
   SshEndpoint,
   TrustedHostKey,
@@ -154,22 +153,5 @@ export function sshEndpointFromUserManaged(
     username: record.username,
     host_keys: [trustedHostKeyFromFingerprint(record.host_key_fingerprint)],
     authentication: publicKeyAuthentication(record.auth_identity_reference),
-  };
-}
-
-/**
- * Points an alias-mode record at the host and port its `~/.ssh/config` alias
- * names. The registered fingerprint and identity stay authoritative, so the
- * endpoint is as trust-pinned as a record entered by hand.
- */
-export function applyResolvedAlias(
-  record: UserManagedEndpointRecord,
-  resolved: ResolvedSshAlias,
-): UserManagedEndpointRecord {
-  return {
-    ...record,
-    hostname: resolved.hostname,
-    port: resolved.port,
-    username: record.username || (resolved.username ?? ""),
   };
 }

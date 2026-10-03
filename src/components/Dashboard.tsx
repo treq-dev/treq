@@ -45,7 +45,6 @@ import {
   listWorkspaceStatuses,
   moveWorkspaceChanges,
   readLocalSshPublicKey,
-  resolveSshConfigAlias,
   selectFolder,
   setSetting,
   setWindowRepoPath,
@@ -115,7 +114,6 @@ import {
   wakeInstance,
 } from "../lib/remote-control-plane";
 import {
-  applyResolvedAlias,
   listUserManagedEndpoints,
   saveUserManagedEndpoint,
   sshEndpointFromUserManaged,
@@ -1083,24 +1081,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleRegisterUserManaged = async (values: UserManagedFormValues) => {
     setProvisioningError(undefined);
-    let record: UserManagedEndpointRecord = {
+    // Pin exactly the values the user confirmed; alias autofill happens in the form.
+    const record: UserManagedEndpointRecord = {
       ...values,
       id: `user-managed-${Date.now()}`,
       created_at: new Date().toISOString(),
     };
-    if (values.alias) {
-      // Alias mode resolves the alias to the host it names, then registers
-      // the same trust-pinned endpoint as a hand-entered record.
-      try {
-        const resolved = await resolveSshConfigAlias(values.alias);
-        record = applyResolvedAlias(record, resolved);
-      } catch (error) {
-        setProvisioningError(
-          error instanceof Error ? error.message : String(error),
-        );
-        return;
-      }
-    }
     await saveUserManagedEndpoint(record);
     const endpoint = sshEndpointFromUserManaged(record);
     setActiveSshEndpoint(endpoint);

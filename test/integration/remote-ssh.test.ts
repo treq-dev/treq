@@ -18,6 +18,7 @@ import type {
 import { dispatchLocal } from "../../src/lib/remote-dispatch";
 import { listUserManagedEndpoints } from "../../src/lib/remote-endpoints";
 import {
+  clearLastOpenedRemoteRepository,
   listSavedRepositoriesForEndpoint,
   upsertSavedRemoteRepository,
 } from "../../src/lib/remote-repository";
@@ -175,20 +176,18 @@ describe("remote SSH integration", () => {
     expect(cloneProbe.is_repo).toBe(true);
   });
 
-  it("registers an alias as its resolved, endpoint-backed host", async () => {
+  function writeSshConfig(contents: string) {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "treq-alias-home-"));
     fs.mkdirSync(path.join(home, ".ssh"));
-    fs.writeFileSync(
-      path.join(home, ".ssh", "config"),
-      `Host qa-alias\n  HostName ${LOOPBACK_SSH_HOSTNAME}\n  Port 2222\n`,
-    );
+    fs.writeFileSync(path.join(home, ".ssh", "config"), contents);
     const previousHome = process.env.HOME;
     process.env.HOME = home;
     onTestFinished(() => {
       process.env.HOME = previousHome;
     });
-    const { repoPath } = createTestRepo(false);
+  }
 
+  async function startAliasRegistration() {
     render(React.createElement(Dashboard));
     await user.click(
       await screen.findByRole("button", { name: "Open via SSH" }),
@@ -197,10 +196,6 @@ describe("remote SSH integration", () => {
       await screen.findByRole("button", { name: /Your own VM/ }),
     );
     await user.type(await screen.findByLabelText("Display name"), "QA box");
-    await user.type(
-      screen.getByLabelText("Hostname or IP address"),
-      "typed.invalid",
-    );
     await user.type(screen.getByLabelText("Username"), "treq");
     await user.type(
       screen.getByLabelText("Expected host-key fingerprint"),
@@ -212,10 +207,25 @@ describe("remote SSH integration", () => {
     );
     await user.click(screen.getByLabelText(/Use an explicit SSH alias/));
     await user.type(screen.getByLabelText(/^Alias/), "qa-alias");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(
-      await screen.findByRole("button", { name: "Trust and connect" }),
+  }
+
+  it("registers the host an alias autofills, exactly as the user confirmed it", async () => {
+    writeSshConfig(
+      `Host qa-alias\n  HostName ${LOOPBACK_SSH_HOSTNAME}\n  Port 2222\n`,
     );
+    const { repoPath } = createTestRepo(false);
+    onTestFinished(clearLastOpenedRemoteRepository);
+
+    await startAliasRegistration();
+    await user.click(
+      screen.getByRole("button", { name: "Autofill from alias" }),
+    );
+    expect(await screen.findByDisplayValue(LOOPBACK_SSH_HOSTNAME)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByTestId("host-trust-confirmation"),
+    ).toHaveTextContent(`treq@${LOOPBACK_SSH_HOSTNAME}:2222`);
+    await user.click(screen.getByRole("button", { name: "Trust and connect" }));
 
     const pathInput = await screen.findByLabelText("Remote repository path");
     const [record] = await listUserManagedEndpoints();
@@ -232,5 +242,30 @@ describe("remote SSH integration", () => {
 
     expect(await screen.findByTestId("show-workspace-header")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Terminal" })).toBeTruthy();
+  }, 20_000);
+
+  it("pins the hand-entered host and port the user confirmed for an alias without HostName or Port", async () => {
+    writeSshConfig("Host qa-alias\n");
+
+    await startAliasRegistration();
+    await user.type(
+      screen.getByLabelText("Hostname or IP address"),
+      LOOPBACK_SSH_HOSTNAME,
+    );
+    await user.clear(screen.getByLabelText("SSH port"));
+    await user.type(screen.getByLabelText("SSH port"), "2222");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByTestId("host-trust-confirmation"),
+    ).toHaveTextContent(`treq@${LOOPBACK_SSH_HOSTNAME}:2222`);
+    await user.click(screen.getByRole("button", { name: "Trust and connect" }));
+
+    await screen.findByLabelText("Remote repository path");
+    const [record] = await listUserManagedEndpoints();
+    expect(record).toMatchObject({
+      alias: "qa-alias",
+      hostname: LOOPBACK_SSH_HOSTNAME,
+      port: 2222,
+    });
   }, 20_000);
 });
