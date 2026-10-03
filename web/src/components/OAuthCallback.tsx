@@ -17,6 +17,18 @@ export interface OAuthCallbackProps {
   description: string;
 }
 
+/** The `error` field from a non-2xx Edge Function response, if it has one. */
+async function serverErrorMessage(error: unknown): Promise<string | null> {
+  const context = (error as { context?: unknown } | null)?.context;
+  if (!(context instanceof Response)) return null;
+  try {
+    const body = await context.json();
+    return typeof body?.error === "string" ? body.error : null;
+  } catch {
+    return null;
+  }
+}
+
 function CallbackContent({
   provider,
   completeFunction,
@@ -33,6 +45,18 @@ function CallbackContent({
       const params = new URLSearchParams(window.location.search);
       const code = params.get("code");
       const callbackState = params.get("state");
+      // Drop the single-use code and state from the address bar and history
+      // so they don't linger in screenshots, logs or Referer headers.
+      if (code || callbackState) {
+        params.delete("code");
+        params.delete("state");
+        const query = params.toString();
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+        );
+      }
 
       if (!code) {
         setState("error");
@@ -70,7 +94,12 @@ function CallbackContent({
 
       if (error || data?.error) {
         setState("error");
-        setMessage(data?.error ?? error?.message ?? "Unknown error");
+        setMessage(
+          data?.error ??
+            (await serverErrorMessage(error)) ??
+            error?.message ??
+            "Unknown error",
+        );
         return;
       }
 

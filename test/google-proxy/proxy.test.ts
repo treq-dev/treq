@@ -4,6 +4,8 @@ import {
   PRO_REQUIRED_MESSAGE,
   proxyGoogleRequest,
   RECONNECT_MESSAGE,
+  TOO_LARGE_MESSAGE,
+  TREQ_SESSION_UNAUTHORIZED,
   type ProxyDeps,
   type StoredToken,
 } from "../../supabase/functions/google-proxy/lib.ts";
@@ -176,5 +178,93 @@ describe("proxyGoogleRequest", () => {
       deps(null, () => ok({})),
     );
     expect(result.status).toBe(403);
+  });
+});
+
+describe("hardening", () => {
+  it("exports the treq-session 401 body", () => {
+    expect(TREQ_SESSION_UNAUTHORIZED).toEqual({
+      error: "Unauthorized",
+      code: "treq_session",
+    });
+  });
+
+  it("rejects malformed input with 400", async () => {
+    for (const request of [
+      null,
+      "x",
+      [],
+      { method: 1, url: LISTS },
+      { method: "GET", url: 5 },
+      { method: "GET" },
+    ]) {
+      const d = deps(token(), () => ok({}));
+      const result = await proxyGoogleRequest(request as never, d);
+      expect(result.status, JSON.stringify(request)).toBe(400);
+      expect(d.calls).toHaveLength(0);
+    }
+  });
+
+  it("refreshes when expires_at is unparseable", async () => {
+    const d = deps(token({ expires_at: "garbage" }), (url) =>
+      url.includes("oauth2")
+        ? ok({ access_token: "ya29.fresh", expires_in: 3600 })
+        : ok({}),
+    );
+    await proxyGoogleRequest({ url: LISTS }, d);
+    expect(d.calls[0][0]).toContain("oauth2");
+  });
+
+  it("allows only listed query params per endpoint", () => {
+    const T = "https://tasks.googleapis.com/tasks/v1";
+    const allowed: [string, string][] = [
+      ["GET", `${LISTS}?maxResults=10&pageToken=a`],
+      [
+        "GET",
+        `${T}/lists/L/tasks?maxResults=1&showCompleted=true&showHidden=true&pageToken=p`,
+      ],
+      ["POST", `${T}/lists/L/tasks?parent=a&previous=b`],
+      [
+        "POST",
+        `${T}/lists/L/tasks/t/move?destinationTasklist=a&parent=b&previous=c`,
+      ],
+      [
+        "GET",
+        `${DRIVE}/files?pageSize=1&pageToken=a&q=x&orderBy=name&fields=f&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+      ],
+      ["GET", `${DRIVE}/files/d?fields=f&supportsAllDrives=true&alt=media`],
+    ];
+    for (const [m, u] of allowed) expect(isAllowedRequest(m, u), u).toBe(true);
+    const refused: [string, string][] = [
+      ["POST", `${LISTS}?maxResults=1`],
+      ["GET", `${LISTS}?key=x`],
+      ["PATCH", `${T}/lists/L/tasks/t?x=1`],
+      ["DELETE", `${T}/lists/L/tasks/t?x=1`],
+      ["GET", `${DRIVE}/files/d?alt=json`],
+      ["GET", `${DRIVE}/files/d?alt=media&alt=media2`],
+      ["GET", `${DRIVE}/files/d/export?mimeType=a&fields=x`],
+      ["POST", `${DRIVE}/files/d/comments?uploadType=x`],
+      ["GET", `${DRIVE}/files?access_token=x`],
+    ];
+    for (const [m, u] of refused) expect(isAllowedRequest(m, u), u).toBe(false);
+  });
+
+  it("returns 413 for oversized responses", async () => {
+    const big = deps(
+      token(),
+      () =>
+        new Response("x", {
+          headers: { "content-length": String(21 * 1024 * 1024) },
+        }),
+    );
+    const r1 = await proxyGoogleRequest({ url: LISTS }, big);
+    expect(r1.status).toBe(413);
+    expect(JSON.parse(r1.body).error).toBe(TOO_LARGE_MESSAGE);
+    const bigBody = deps(
+      token(),
+      () => new Response("x".repeat(20 * 1024 * 1024 + 1)),
+    );
+    const r2 = await proxyGoogleRequest({ url: LISTS }, bigBody);
+    expect(r2.status).toBe(413);
   });
 });

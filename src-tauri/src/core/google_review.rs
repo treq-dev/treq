@@ -7,14 +7,6 @@ use serde::Serialize;
 
 use crate::google::*;
 
-/// Drive ids are `[A-Za-z0-9_-]`; anything else could escape the review dir.
-pub fn valid_file_id(id: &str) -> bool {
-  !id.is_empty()
-    && id
-      .chars()
-      .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-}
-
 #[cfg(test)]
 thread_local! {
   static TEST_EXPORTS_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
@@ -41,12 +33,27 @@ pub fn exports_root() -> Result<PathBuf, String> {
   Ok(PathBuf::from(home).join("Documents").join(EXPORTS_DIR))
 }
 
-/// Directory one Drive file is exported into for review.
-pub fn review_root(file_id: &str) -> Result<PathBuf, String> {
+/// Short, stable name for a repo: the start of the SHA-256 of its
+/// canonical path, so two repos reviewing one file get separate exports.
+pub fn repo_key(repo_path: &str) -> String {
+  use sha2::Digest;
+  let canonical = std::fs::canonicalize(repo_path)
+    .map(|p| p.to_string_lossy().into_owned())
+    .unwrap_or_else(|_| repo_path.to_string());
+  sha2::Sha256::digest(canonical.as_bytes())
+    .iter()
+    .take(8)
+    .map(|b| format!("{b:02x}"))
+    .collect()
+}
+
+/// Directory one Drive file is exported into for review from one repo:
+/// `<exports>/<repo key>/<file id>`.
+pub fn review_root(repo_path: &str, file_id: &str) -> Result<PathBuf, String> {
   if !valid_file_id(file_id) {
     return Err(format!("Invalid Google Drive file id '{file_id}'"));
   }
-  Ok(exports_root()?.join(file_id))
+  Ok(exports_root()?.join(repo_key(repo_path)).join(file_id))
 }
 
 pub fn review_file_name(file: &DriveFile) -> String {
@@ -106,7 +113,7 @@ pub async fn prepare_doc_review(
   repo_path: &str,
   file_id: &str,
 ) -> Result<PreparedDocReview, String> {
-  let root = review_root(file_id)?;
+  let root = review_root(repo_path, file_id)?;
   let file = get_drive_file(source, file_id).await?;
   let text = export_text(source, &file).await?;
   let file_name = review_file_name(&file);
@@ -176,14 +183,11 @@ pub fn comment_content(comment: &crate::local_db::AgentReviewComment) -> String 
 }
 
 fn discard_open_comments(repo_path: &str, file_id: &str) -> Result<(), String> {
-  for comment in
-    crate::local_db::list_agent_review_comments(repo_path, REVIEW_TARGET_TYPE, file_id)?
-  {
-    if comment.status == "open" {
-      crate::local_db::delete_agent_review_comment(repo_path, &comment.id)?;
-    }
-  }
-  Ok(())
+  crate::local_db::delete_open_agent_review_comments_in_target(
+    repo_path,
+    REVIEW_TARGET_TYPE,
+    file_id,
+  )
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -193,26 +197,59 @@ pub struct PostCommentsResult {
   pub errors: Vec<String>,
 }
 
-/// Posts the open agent comments for `file_id` to Drive. Each comment is
-/// resolved before it is sent and reopened if sending fails, so a retry
-/// never posts the same comment twice. A failure does not stop the rest.
+/// Posts the open agent comments for `file_id` to Drive. A failure does not
+/// stop the rest; failed comments stay open with one error each.
+///
+/// Each comment is claimed (resolved, only if still open) before it is sent
+/// and reopened if sending fails. That makes a double-clicked or concurrent
+/// post send each comment once, at the cost that a crash between claim and
+/// send leaves a comment resolved but unposted. We prefer that over the
+/// reverse order, where a crash or a lost response after a successful send
+/// would post a duplicate onto a document other people read.
 pub async fn post_review_comments(
   source: &GoogleSource,
   repo_path: &str,
   file_id: &str,
 ) -> Result<PostCommentsResult, String> {
-  let root = review_root(file_id)?;
+  let root = review_root(repo_path, file_id)?;
   let comments =
     crate::local_db::list_agent_review_comments(repo_path, REVIEW_TARGET_TYPE, file_id)?;
   let mut result = PostCommentsResult::default();
   for comment in comments.iter().filter(|c| c.status == "open") {
-    crate::local_db::resolve_agent_review_comment(repo_path, &comment.id)?;
-    let text = read_export(&root, &comment.file_path).unwrap_or_default();
+    let Some(text) = read_export(&root, &comment.file_path) else {
+      result.errors.push(format!(
+        "{}: export missing; run Review again",
+        comment.file_path
+      ));
+      continue;
+    };
+    let claimed = crate::local_db::resolve_agent_review_comment_in_target(
+      repo_path,
+      REVIEW_TARGET_TYPE,
+      file_id,
+      &comment.id,
+    );
+    match claimed {
+      Ok(true) => {}
+      // Another post already claimed it.
+      Ok(false) => continue,
+      Err(e) => {
+        result.errors.push(e);
+        continue;
+      }
+    }
     let quote = quoted_lines(&text, comment.start_line, comment.end_line);
     match create_comment(source, file_id, &comment_content(comment), quote.as_deref()).await {
       Ok(_) => result.posted += 1,
       Err(e) => {
-        crate::local_db::reopen_agent_review_comment(repo_path, &comment.id)?;
+        if let Err(reopen) = crate::local_db::reopen_agent_review_comment_in_target(
+          repo_path,
+          REVIEW_TARGET_TYPE,
+          file_id,
+          &comment.id,
+        ) {
+          result.errors.push(reopen);
+        }
         result.errors.push(e);
       }
     }
@@ -231,12 +268,70 @@ mod tests {
   #[test]
   fn review_root_rejects_path_traversal() {
     use_test_exports_dir(std::path::Path::new("/docs/treq/exports"));
-    assert!(review_root("../etc").is_err());
-    assert!(review_root("").is_err());
+    assert!(review_root("/repo", "../etc").is_err());
+    assert!(review_root("/repo", "").is_err());
     assert_eq!(
-      review_root("abc_D-1").unwrap(),
-      std::path::Path::new("/docs/treq/exports/abc_D-1")
+      review_root("/repo", "abc_D-1").unwrap(),
+      std::path::Path::new("/docs/treq/exports")
+        .join(repo_key("/repo"))
+        .join("abc_D-1")
     );
+  }
+
+  #[test]
+  fn review_root_differs_per_repo() {
+    use_test_exports_dir(std::path::Path::new("/docs/treq/exports"));
+    assert_ne!(
+      review_root("/repo-a", "doc").unwrap(),
+      review_root("/repo-b", "doc").unwrap()
+    );
+    assert_eq!(repo_key("/repo-a"), repo_key("/repo-a"));
+    assert_eq!(repo_key("/repo-a").len(), 16);
+  }
+
+  #[tokio::test]
+  async fn missing_export_keeps_comment_open_and_posts_nothing() {
+    let server = mock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().to_str().unwrap();
+    let exports = tempfile::tempdir().unwrap();
+    use_test_exports_dir(exports.path());
+    add_comment(repo, "doc1", "orphan");
+    Mock::given(method("POST"))
+      .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": "c"})))
+      .expect(0)
+      .mount(&server)
+      .await;
+    let result = post_review_comments(&local("tok"), repo, "doc1")
+      .await
+      .unwrap();
+    assert_eq!(result.posted, 0);
+    assert_eq!(result.errors, ["doc.md: export missing; run Review again"]);
+    assert_eq!(statuses(repo, "doc1"), [("orphan".into(), "open".into())]);
+  }
+
+  #[tokio::test]
+  async fn success_without_comment_id_counts_as_posted() {
+    let server = mock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().to_str().unwrap();
+    let exports = tempfile::tempdir().unwrap();
+    use_test_exports_dir(exports.path());
+    let root = review_root(repo, "doc1").unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("doc.md"), "Line one\n").unwrap();
+    add_comment(repo, "doc1", "note");
+    Mock::given(method("POST"))
+      .and(path("/drive/v3/files/doc1/comments"))
+      .respond_with(ResponseTemplate::new(204))
+      .expect(1)
+      .mount(&server)
+      .await;
+    let result = post_review_comments(&local("tok"), repo, "doc1")
+      .await
+      .unwrap();
+    assert_eq!(result.posted, 1);
+    assert_eq!(statuses(repo, "doc1"), [("note".into(), "resolved".into())]);
   }
 
   #[test]
@@ -295,7 +390,7 @@ mod tests {
     let repo = dir.path().to_str().unwrap();
     let exports = tempfile::tempdir().unwrap();
     use_test_exports_dir(exports.path());
-    let root = review_root("doc1").unwrap();
+    let root = review_root(repo, "doc1").unwrap();
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("doc.md"), "Line one\n").unwrap();
     add_comment(repo, "doc1", "bad");
@@ -338,7 +433,7 @@ mod tests {
     let repo = dir.path().to_str().unwrap();
     let exports = tempfile::tempdir().unwrap();
     use_test_exports_dir(exports.path());
-    std::fs::create_dir_all(review_root("doc1").unwrap()).unwrap();
+    std::fs::create_dir_all(review_root(repo, "doc1").unwrap()).unwrap();
     add_comment(repo, "doc1", "stale");
     let posted = add_comment(repo, "doc1", "posted");
     crate::local_db::resolve_agent_review_comment(repo, &posted).unwrap();

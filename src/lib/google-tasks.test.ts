@@ -34,6 +34,55 @@ describe("buildTaskColumn", () => {
     expect(column.open[0].subtasks.map((t) => t.id)).toEqual(["a1"]);
     expect(column.completed.map((c) => c.task.id)).toEqual(["done"]);
   });
+
+  const ids = (cards: { task: GoogleTask }[]) => cards.map((c) => c.task.id);
+
+  it("sorts tasks without a position last and keeps every task", () => {
+    const column = buildTaskColumn([
+      task({ id: "none", position: null as unknown as string }),
+      task({ id: "a", position: "1" }),
+    ]);
+    expect(ids(column.open)).toEqual(["a", "none"]);
+  });
+
+  it("shows self-parented and cyclic tasks as their own cards", () => {
+    const column = buildTaskColumn([
+      task({ id: "self", parent: "self", position: "1" }),
+      task({ id: "x", parent: "y", position: "2" }),
+      task({ id: "y", parent: "x", position: "3" }),
+    ]);
+    expect(ids(column.open)).toEqual(["self", "x", "y"]);
+    expect(column.open.every((c) => c.subtasks.length === 0)).toBe(true);
+  });
+
+  it("nests a grandchild under its top-level ancestor", () => {
+    const column = buildTaskColumn([
+      task({ id: "a", position: "1" }),
+      task({ id: "a1", parent: "a", position: "2" }),
+      task({ id: "a11", parent: "a1", position: "3" }),
+    ]);
+    expect(ids(column.open)).toEqual(["a"]);
+    expect(column.open[0].subtasks.map((t) => t.id)).toEqual(["a1", "a11"]);
+  });
+
+  it("promotes an open subtask of a completed task to an open card", () => {
+    const column = buildTaskColumn([
+      task({ id: "p", status: "completed", position: "1" }),
+      task({ id: "open", parent: "p", position: "2" }),
+      task({ id: "closed", parent: "p", status: "completed", position: "3" }),
+    ]);
+    expect(ids(column.open)).toEqual(["open"]);
+    expect(ids(column.completed)).toEqual(["p"]);
+    expect(column.completed[0].subtasks.map((t) => t.id)).toEqual(["closed"]);
+  });
+
+  it("drops duplicate ids", () => {
+    const column = buildTaskColumn([
+      task({ id: "a", title: "first" }),
+      task({ id: "a", title: "second" }),
+    ]);
+    expect(column.open.map((c) => c.task.title)).toEqual(["first"]);
+  });
 });
 
 describe("due dates", () => {

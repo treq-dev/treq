@@ -5,7 +5,7 @@ import {
   Plus,
   RefreshCw,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import {
   googleCreateTask,
@@ -23,6 +23,7 @@ import {
   dueFromDateInput,
   taskKickoffPrompt,
 } from "../../lib/google-tasks";
+import { errorText } from "../../lib/errorText";
 import { cn } from "../../lib/utils";
 import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
@@ -35,9 +36,9 @@ import {
   TaskCardView,
 } from "./TaskCardView";
 import { TaskEditDialog } from "./TaskEditDialog";
+import { GoogleErrorState } from "./GoogleErrorState";
 
 const taskListKey = (listId: string) => ["google-tasks", listId];
-import { errorText } from "../../lib/errorText";
 
 /**
  * Google Tasks as a Kanban board: one column per task list, like the
@@ -48,7 +49,9 @@ export const GoogleTasksBoard: React.FC<{
   repoPath: string;
   /** Opens the agent prompt seeded with a task, like tracker kickoffs. */
   onKickoff: (prompt: string) => void;
-}> = ({ repoPath, onKickoff }) => {
+  /** Opens Settings on the Integrations tab, to reconnect Google. */
+  onOpenSettings?: () => void;
+}> = ({ repoPath, onKickoff, onOpenSettings }) => {
   const { addToast } = useToastStore();
   const {
     data: lists,
@@ -117,9 +120,11 @@ export const GoogleTasksBoard: React.FC<{
   }
   if (error) {
     return (
-      <p className="p-6 text-sm text-destructive" role="alert">
-        {errorText(error)}
-      </p>
+      <GoogleErrorState
+        error={error}
+        onRetry={() => void refetchLists()}
+        onOpenSettings={onOpenSettings}
+      />
     );
   }
 
@@ -149,6 +154,7 @@ export const GoogleTasksBoard: React.FC<{
             onDrop={handleDrop}
             onKickoff={onKickoff}
             onAction={(action, task) => setDialog({ action, task })}
+            onOpenSettings={onOpenSettings}
           />
         ))}
         <div className="flex-shrink-0 w-72 p-3 rounded-lg border border-dashed border-border h-fit">
@@ -195,7 +201,8 @@ const TaskColumn: React.FC<{
   onDrop: (payload: DragPayload, listId: string, previous?: string) => void;
   onKickoff: (prompt: string) => void;
   onAction: (action: Exclude<TaskAction, "kickoff">, task: GoogleTask) => void;
-}> = ({ list, onDrop, onKickoff, onAction }) => {
+  onOpenSettings?: () => void;
+}> = ({ list, onDrop, onKickoff, onAction, onOpenSettings }) => {
   const { addToast } = useToastStore();
   const {
     data: tasks = [],
@@ -211,6 +218,18 @@ const TaskColumn: React.FC<{
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  // A card's drop handler stops propagation and a drag can end anywhere, so
+  // clear the highlight on any drop or drag end, not only this column's.
+  useEffect(() => {
+    if (!dragOver) return;
+    const clear = () => setDragOver(false);
+    window.addEventListener("dragend", clear, true);
+    window.addEventListener("drop", clear, true);
+    return () => {
+      window.removeEventListener("dragend", clear, true);
+      window.removeEventListener("drop", clear, true);
+    };
+  }, [dragOver]);
 
   const run = async (label: string, action: () => Promise<unknown>) => {
     try {
@@ -267,12 +286,20 @@ const TaskColumn: React.FC<{
           setDragOver(true);
         }
       }}
-      onDragLeave={() => setDragOver(false)}
+      onDragLeave={(e) => {
+        // Moving between the column's own children fires dragleave too.
+        const next = e.relatedTarget as Node | null;
+        if (!next || !e.currentTarget.contains(next)) setDragOver(false);
+      }}
+      onDropCapture={() => setDragOver(false)}
       onDrop={(e) => {
-        setDragOver(false);
         const payload = readPayload(e);
-        // Dropping on empty column space puts the task at the top.
-        if (payload) onDrop(payload, list.id);
+        if (!payload) return;
+        // A top-level task dropped on its own column's empty space stays put.
+        const own = tasks.find((t) => t.id === payload.taskId);
+        if (payload.listId === list.id && own && !own.parent) return;
+        // Otherwise empty column space puts the task at the top.
+        onDrop(payload, list.id);
       }}
     >
       <div className="flex items-center justify-between mb-2">
@@ -321,7 +348,12 @@ const TaskColumn: React.FC<{
           <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
         )}
         {error && (
-          <p className="text-xs text-destructive">{errorText(error)}</p>
+          <GoogleErrorState
+            className="space-y-2"
+            error={error}
+            onRetry={() => void mutate()}
+            onOpenSettings={onOpenSettings}
+          />
         )}
         {column.open.map((card) => (
           <TaskCardView

@@ -1,3 +1,4 @@
+import { errorText } from "../../lib/errorText";
 import { useState } from "react";
 import useSWR from "swr";
 import { useMutation } from "../../hooks/useMutation";
@@ -30,7 +31,6 @@ import {
 import {
   ErrorState,
   formatDate,
-  ghErrorText,
   LabelChip,
   OpenInWebButton,
   StateChip,
@@ -365,9 +365,7 @@ export function CreateIssueForm({
         </Button>
       </div>
       {create.isError && (
-        <p className="text-base text-destructive">
-          {ghErrorText(create.error)}
-        </p>
+        <p className="text-base text-destructive">{errorText(create.error)}</p>
       )}
     </div>
   );

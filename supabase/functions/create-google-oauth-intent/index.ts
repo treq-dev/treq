@@ -31,6 +31,13 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
+function base64Url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders, status: 204 });
@@ -84,9 +91,22 @@ Deno.serve(async (req) => {
     Date.now() + INTENT_TTL_MINUTES * 60 * 1000,
   ).toISOString();
 
+  // PKCE: the verifier stays on the intent row (service role only), so a
+  // leaked authorization code is useless without it.
+  const codeVerifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const codeChallenge = base64Url(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(codeVerifier),
+      ),
+    ),
+  );
+
   const { error } = await supabase.from("google_oauth_intents").insert({
     user_id: user.id,
     state_hash: await sha256Hex(state),
+    code_verifier: codeVerifier,
     expires_at: expiresAt,
   });
   if (error) {
@@ -103,6 +123,8 @@ Deno.serve(async (req) => {
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
   url.searchParams.set("state", state);
+  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
 
   return json({ authorize_url: url.toString(), expires_at: expiresAt });
 });

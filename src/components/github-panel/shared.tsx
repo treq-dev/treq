@@ -342,15 +342,12 @@ export function ErrorState({
 export { CircleDot, GitPullRequest };
 
 /** Returns an `onError` factory that reports a failed gh action as an error toast. */
-/** gh failures reach the UI as an Error or as the Tauri command's string. */
-export const ghErrorText = errorText;
-
 export function useGhErrorToast() {
   const { addToast } = useToast();
   return (title: string) => (error: unknown) =>
     addToast({
       title,
-      description: ghErrorText(error),
+      description: errorText(error),
       type: "error",
     });
 }

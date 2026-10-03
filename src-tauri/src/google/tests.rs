@@ -8,6 +8,7 @@ pub(crate) fn local(token: &str) -> GoogleSource {
       access_token: token.into(),
       refresh_token: None,
       expires_at: None,
+      lifetime_secs: None,
     },
     client_id: "cid".into(),
     client_secret: None,
@@ -114,6 +115,7 @@ fn local_tokens_win_over_proxy() {
     access_token: "a".into(),
     refresh_token: None,
     expires_at: None,
+    lifetime_secs: None,
   };
   let session = ProxySession {
     supabase_url: "u".into(),
@@ -185,6 +187,11 @@ async fn lists_tasks_across_pages_sorted_by_position() {
 #[tokio::test]
 async fn moves_task_to_another_list() {
   let server = mock().await;
+  Mock::given(method("GET"))
+    .and(path("/tasks/v1/lists/L1/tasks"))
+    .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": []})))
+    .mount(&server)
+    .await;
   Mock::given(method("POST"))
     .and(path("/tasks/v1/lists/L1/tasks/t1/move"))
     .and(query_param("destinationTasklist", "L2"))
@@ -194,7 +201,7 @@ async fn moves_task_to_another_list() {
     .expect(1)
     .mount(&server)
     .await;
-  let task = move_task(&local("tok"), "L1", "t1", Some("L2"), None)
+  let task = move_task(&local("tok"), "L1", "t1", Some("L2"), None, None)
     .await
     .unwrap();
   assert_eq!(task.list_id, "L2");
@@ -253,6 +260,7 @@ async fn expired_local_token_is_refreshed() {
     access_token: "stale".into(),
     refresh_token: Some("r".into()),
     expires_at: Some(now_secs() - 10),
+    lifetime_secs: None,
   };
   let token = local_access_token(&tokens, "cid", &None, &None)
     .await
@@ -292,7 +300,7 @@ async fn comment_carries_quote() {
   let id = create_comment(&local("tok"), "doc1", "fix", Some("Body"))
     .await
     .unwrap();
-  assert_eq!(id, "c1");
+  assert_eq!(id.as_deref(), Some("c1"));
 }
 
 #[test]
@@ -345,6 +353,7 @@ async fn concurrent_refreshes_hit_google_once() {
     access_token: "stale".into(),
     refresh_token: Some("single-flight".into()),
     expires_at: Some(now_secs() - 10),
+    lifetime_secs: None,
   };
   let (a, b) = tokio::join!(
     local_access_token(&tokens, "cid", &None, &None),
@@ -354,4 +363,343 @@ async fn concurrent_refreshes_hit_google_once() {
     (a.unwrap(), b.unwrap()),
     ("fresh".to_string(), "fresh".to_string())
   );
+}
+
+#[tokio::test]
+async fn pagination_stops_on_a_repeated_page_token() {
+  let server = mock().await;
+  Mock::given(method("GET"))
+    .and(path("/tasks/v1/lists/L1/tasks"))
+    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+      "items": [{"id": "a", "position": "1"}],
+      "nextPageToken": "same"
+    })))
+    .expect(2)
+    .mount(&server)
+    .await;
+  let tasks = list_tasks(&local("tok"), "L1").await.unwrap();
+  assert_eq!(tasks.len(), 2);
+}
+
+#[tokio::test]
+async fn pagination_is_capped() {
+  let server = mock().await;
+  Mock::given(method("GET"))
+    .and(path("/tasks/v1/users/@me/lists"))
+    .respond_with(move |req: &wiremock::Request| {
+      let n = req
+        .url
+        .query_pairs()
+        .find(|(k, _)| k == "pageToken")
+        .map(|(_, v)| v.parse::<u32>().unwrap())
+        .unwrap_or(0);
+      ResponseTemplate::new(200).set_body_json(json!({
+        "items": [{"id": format!("l{n}"), "title": "x"}],
+        "nextPageToken": (n + 1).to_string()
+      }))
+    })
+    .expect(50)
+    .mount(&server)
+    .await;
+  let lists = list_task_lists(&local("tok")).await.unwrap();
+  assert_eq!(lists.len(), 50);
+}
+
+#[tokio::test]
+async fn task_lists_follow_page_tokens() {
+  let server = mock().await;
+  Mock::given(method("GET"))
+    .and(path("/tasks/v1/users/@me/lists"))
+    .and(query_param("pageToken", "p2"))
+    .respond_with(
+      ResponseTemplate::new(200).set_body_json(json!({"items": [{"id": "b", "title": "B"}]})),
+    )
+    .mount(&server)
+    .await;
+  Mock::given(method("GET"))
+    .and(path("/tasks/v1/users/@me/lists"))
+    .respond_with(
+      ResponseTemplate::new(200)
+        .set_body_json(json!({"items": [{"id": "a", "title": "A"}], "nextPageToken": "p2"})),
+    )
+    .mount(&server)
+    .await;
+  let ids: Vec<_> = list_task_lists(&local("tok"))
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|l| l.id)
+    .collect();
+  assert_eq!(ids, ["a", "b"]);
+}
+
+#[tokio::test]
+async fn drive_listing_follows_pages_up_to_the_cap() {
+  let server = mock().await;
+  Mock::given(method("GET"))
+    .and(path("/drive/v3/files"))
+    .respond_with(move |req: &wiremock::Request| {
+      let n = req
+        .url
+        .query_pairs()
+        .find(|(k, _)| k == "pageToken")
+        .map(|(_, v)| v.parse::<u32>().unwrap())
+        .unwrap_or(0);
+      ResponseTemplate::new(200).set_body_json(json!({
+        "files": [{"id": format!("f{n}"), "name": "x", "mimeType": GOOGLE_DOC_MIME}],
+        "nextPageToken": (n + 1).to_string()
+      }))
+    })
+    .expect(4)
+    .mount(&server)
+    .await;
+  let files = list_drive_files(&local("tok"), None, true).await.unwrap();
+  assert_eq!(files.len(), 4);
+}
+
+#[tokio::test]
+async fn empty_export_is_empty_text() {
+  let server = mock().await;
+  Mock::given(method("GET"))
+    .and(path("/drive/v3/files/doc1/export"))
+    .respond_with(ResponseTemplate::new(200))
+    .mount(&server)
+    .await;
+  let file =
+    map_drive_file(&json!({"id": "doc1", "name": "Spec", "mimeType": GOOGLE_DOC_MIME})).unwrap();
+  assert_eq!(export_text(&local("tok"), &file).await.unwrap(), "");
+}
+
+#[tokio::test]
+async fn json_download_is_returned_verbatim() {
+  let server = mock().await;
+  let raw = "{\"b\":1,  \"a\":2}\n";
+  Mock::given(method("GET"))
+    .and(path("/drive/v3/files/j1"))
+    .and(query_param("alt", "media"))
+    .respond_with(ResponseTemplate::new(200).set_body_raw(raw, "application/json"))
+    .mount(&server)
+    .await;
+  let file =
+    map_drive_file(&json!({"id": "j1", "name": "a.json", "mimeType": "application/json"})).unwrap();
+  assert_eq!(export_text(&local("tok"), &file).await.unwrap(), raw);
+}
+
+#[tokio::test]
+async fn oversized_export_is_refused() {
+  let server = mock().await;
+  let big = "x".repeat(MAX_RESPONSE_BYTES as usize + 1);
+  Mock::given(method("GET"))
+    .and(path("/drive/v3/files/doc1/export"))
+    .respond_with(ResponseTemplate::new(200).set_body_raw(big, "text/markdown"))
+    .mount(&server)
+    .await;
+  let file =
+    map_drive_file(&json!({"id": "doc1", "name": "Spec", "mimeType": GOOGLE_DOC_MIME})).unwrap();
+  assert_eq!(
+    export_text(&local("tok"), &file).await.unwrap_err(),
+    "Document too large to review (over 20 MB)"
+  );
+}
+
+#[test]
+fn proxy_treq_session_401_asks_to_sign_in_again() {
+  let status = reqwest::StatusCode::UNAUTHORIZED;
+  assert_eq!(
+    error_message(
+      status,
+      r#"{"error":"Unauthorized","code":"treq_session"}"#,
+      true
+    ),
+    "treq could not authenticate with the Google proxy. Sign in to treq again."
+  );
+}
+
+#[test]
+fn short_lived_tokens_use_half_their_lifetime_as_margin() {
+  let tokens = StoredTokens {
+    access_token: "a".into(),
+    refresh_token: Some("r".into()),
+    expires_at: Some(now_secs() + 50),
+    lifetime_secs: Some(60),
+  };
+  assert!(is_fresh(&tokens));
+  let old = StoredTokens {
+    lifetime_secs: None,
+    ..tokens
+  };
+  assert!(!is_fresh(&old));
+  let grant = tokens_from_grant(&json!({"access_token": "x", "expires_in": 60}), None).unwrap();
+  assert_eq!(grant.lifetime_secs, Some(60));
+}
+
+#[tokio::test]
+async fn failed_refresh_is_reused_briefly() {
+  let server = mock().await;
+  Mock::given(method("POST"))
+    .and(path("/token"))
+    .respond_with(ResponseTemplate::new(500).set_body_json(json!({"error": "server_error"})))
+    .expect(1)
+    .mount(&server)
+    .await;
+  let tokens = StoredTokens {
+    access_token: "stale".into(),
+    refresh_token: Some("fails-once".into()),
+    expires_at: Some(now_secs() - 10),
+    lifetime_secs: None,
+  };
+  let (a, b) = tokio::join!(
+    local_access_token(&tokens, "cid", &None, &None),
+    local_access_token(&tokens, "cid", &None, &None)
+  );
+  assert_eq!(a.unwrap_err(), b.unwrap_err());
+}
+
+#[tokio::test]
+async fn invalid_grant_clears_local_tokens() {
+  let server = mock().await;
+  Mock::given(method("POST"))
+    .and(path("/token"))
+    .respond_with(ResponseTemplate::new(400).set_body_json(
+      json!({"error": "invalid_grant", "error_description": "Token has been expired or revoked."}),
+    ))
+    .mount(&server)
+    .await;
+  let dir = tempfile::tempdir().unwrap();
+  let db_path = dir.path().join("treq.db");
+  let db = Database::new(db_path.clone()).unwrap();
+  db.init().unwrap();
+  let tokens = StoredTokens {
+    access_token: "stale".into(),
+    refresh_token: Some("revoked".into()),
+    expires_at: Some(now_secs() - 10),
+    lifetime_secs: None,
+  };
+  store_local_grant(&db, &tokens, "cid", None).unwrap();
+  let source = resolve_source(&db, db_path.clone()).unwrap();
+  assert_eq!(
+    connection_status(Ok(source.clone())).await.mode,
+    ConnectionMode::Local
+  );
+  let err = list_task_lists(&source).await.unwrap_err();
+  assert_eq!(err, REVOKED);
+  assert!(read_local_tokens(&db).is_none());
+  assert_eq!(
+    connection_status(resolve_source(&db, db_path)).await.mode,
+    ConnectionMode::None
+  );
+}
+
+#[test]
+fn connection_mode_serializes_lowercase() {
+  let status = GoogleConnectionStatus {
+    mode: ConnectionMode::Local,
+  };
+  assert_eq!(
+    serde_json::to_value(&status).unwrap(),
+    json!({"mode": "local"})
+  );
+}
+
+#[test]
+fn disconnect_removes_the_token_setting() {
+  let dir = tempfile::tempdir().unwrap();
+  let db = Database::new(dir.path().join("treq.db")).unwrap();
+  db.init().unwrap();
+  db.set_setting(TOKENS_SETTING, "{}").unwrap();
+  disconnect_local(&db).unwrap();
+  assert_eq!(db.get_setting(TOKENS_SETTING).unwrap(), None);
+}
+
+#[tokio::test]
+async fn idle_connections_do_not_delay_the_redirect() {
+  use tokio::io::AsyncWriteExt;
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  let waiter = tokio::spawn(async move { wait_for_code(&listener, "st").await });
+  let mut idle = Vec::new();
+  for _ in 0..20 {
+    idle.push(tokio::net::TcpStream::connect(addr).await.unwrap());
+  }
+  let started = std::time::Instant::now();
+  let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+  s.write_all(b"GET /?state=st&code=good HTTP/1.1\r\n\r\n")
+    .await
+    .unwrap();
+  let code = waiter.await.unwrap().unwrap();
+  assert_eq!(code, "good");
+  // Twenty idle connections read one after another would take 20 × 200 ms.
+  assert!(started.elapsed() < Duration::from_millis(1000));
+}
+
+#[tokio::test]
+async fn cancel_ends_a_waiting_sign_in() {
+  begin_local_oauth("cid".into(), None).await.unwrap();
+  let waiter = tokio::spawn(complete_local_oauth());
+  tokio::time::sleep(Duration::from_millis(50)).await;
+  cancel_local_oauth().await;
+  let result = tokio::time::timeout(Duration::from_secs(5), waiter)
+    .await
+    .unwrap()
+    .unwrap();
+  assert_eq!(result.unwrap_err(), "Google sign-in was cancelled");
+
+  // Cancelled before anyone waited: the next complete reports it too.
+  begin_local_oauth("cid".into(), None).await.unwrap();
+  cancel_local_oauth().await;
+  assert_eq!(
+    complete_local_oauth().await.unwrap_err(),
+    "Google sign-in was cancelled"
+  );
+}
+
+#[tokio::test]
+async fn cross_list_move_brings_subtasks_along() {
+  let server = mock().await;
+  Mock::given(method("GET"))
+    .and(path("/tasks/v1/lists/L1/tasks"))
+    .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [
+      {"id": "t1", "position": "1"},
+      {"id": "s1", "parent": "t1", "position": "2"},
+      {"id": "other", "position": "3"}
+    ]})))
+    .mount(&server)
+    .await;
+  Mock::given(method("POST"))
+    .and(path("/tasks/v1/lists/L1/tasks/t1/move"))
+    .and(query_param("destinationTasklist", "L2"))
+    .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": "t1", "position": "1"})))
+    .expect(1)
+    .mount(&server)
+    .await;
+  Mock::given(method("POST"))
+    .and(path("/tasks/v1/lists/L1/tasks/s1/move"))
+    .and(query_param("destinationTasklist", "L2"))
+    .and(query_param("parent", "t1"))
+    .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": "s1", "position": "1"})))
+    .expect(1)
+    .mount(&server)
+    .await;
+  let task = move_task(&local("tok"), "L1", "t1", Some("L2"), None, None)
+    .await
+    .unwrap();
+  assert_eq!(task.list_id, "L2");
+}
+
+#[test]
+fn move_url_sends_only_allowed_params() {
+  assert_eq!(
+    move_task_url("L1", "t1", Some("L1"), Some("p"), Some("prev")),
+    format!("{TASKS_API}/lists/L1/tasks/t1/move?parent=p&previous=prev")
+  );
+  assert_eq!(
+    move_task_url("L1", "t1", None, None, None),
+    format!("{TASKS_API}/lists/L1/tasks/t1/move")
+  );
+}
+
+#[tokio::test]
+async fn drive_calls_reject_invalid_ids() {
+  let err = get_drive_file(&local("tok"), "../x").await.unwrap_err();
+  assert!(err.contains("Invalid Google Drive file id"), "{err}");
 }

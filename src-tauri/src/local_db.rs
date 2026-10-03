@@ -2048,24 +2048,67 @@ pub fn resolve_agent_review_comment(repo_path: &str, id: &str) -> Result<(), Str
   Ok(())
 }
 
-/// Mark one local review comment open again, undoing a resolve.
-pub fn reopen_agent_review_comment(repo_path: &str, id: &str) -> Result<(), String> {
-  let conn = get_connection(repo_path)?;
-  conn
-    .execute(
-      "UPDATE agent_review_comments SET status = 'open', resolved_at = NULL WHERE id = ?1",
-      [id],
-    )
-    .map_err(|e| format!("Failed to reopen agent review comment: {}", e))?;
-  Ok(())
-}
-
 /// Delete one local review comment.
 pub fn delete_agent_review_comment(repo_path: &str, id: &str) -> Result<(), String> {
   let conn = get_connection(repo_path)?;
   conn
     .execute("DELETE FROM agent_review_comments WHERE id = ?1", [id])
     .map_err(|e| format!("Failed to delete agent review comment: {}", e))?;
+  Ok(())
+}
+
+/// Resolves one open comment, but only if it belongs to the given target.
+/// Returns whether it changed, so a caller can claim a comment exactly once.
+pub fn resolve_agent_review_comment_in_target(
+  repo_path: &str,
+  target_type: &str,
+  target_id: &str,
+  id: &str,
+) -> Result<bool, String> {
+  let conn = get_connection(repo_path)?;
+  let now = Utc::now().to_rfc3339();
+  conn
+    .execute(
+      "UPDATE agent_review_comments SET status = 'resolved', resolved_at = ?5
+       WHERE id = ?1 AND repo_path = ?2 AND target_type = ?3 AND target_id = ?4 AND status = 'open'",
+      params![id, repo_path, target_type, target_id, now],
+    )
+    .map(|n| n > 0)
+    .map_err(|e| format!("Failed to resolve agent review comment: {}", e))
+}
+
+/// Reopens one comment, but only if it belongs to the given target.
+pub fn reopen_agent_review_comment_in_target(
+  repo_path: &str,
+  target_type: &str,
+  target_id: &str,
+  id: &str,
+) -> Result<(), String> {
+  let conn = get_connection(repo_path)?;
+  conn
+    .execute(
+      "UPDATE agent_review_comments SET status = 'open', resolved_at = NULL
+       WHERE id = ?1 AND repo_path = ?2 AND target_type = ?3 AND target_id = ?4",
+      params![id, repo_path, target_type, target_id],
+    )
+    .map_err(|e| format!("Failed to reopen agent review comment: {}", e))?;
+  Ok(())
+}
+
+/// Deletes the open comments of one target; resolved ones are kept.
+pub fn delete_open_agent_review_comments_in_target(
+  repo_path: &str,
+  target_type: &str,
+  target_id: &str,
+) -> Result<(), String> {
+  let conn = get_connection(repo_path)?;
+  conn
+    .execute(
+      "DELETE FROM agent_review_comments
+       WHERE repo_path = ?1 AND target_type = ?2 AND target_id = ?3 AND status = 'open'",
+      params![repo_path, target_type, target_id],
+    )
+    .map_err(|e| format!("Failed to delete agent review comments: {}", e))?;
   Ok(())
 }
 

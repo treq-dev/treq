@@ -112,6 +112,51 @@ describe("GoogleTasksBoard", () => {
     );
   });
 
+  it("leaves a top-level task alone when dropped on its own column", async () => {
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    const card = await screen.findByTestId("google-task-t1");
+    const inbox = screen.getByRole("region", { name: "Inbox" });
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      setData: (k: string, v: string) => data.set(k, v),
+      getData: (k: string) => data.get(k) ?? "",
+      get types() {
+        return [...data.keys()];
+      },
+    };
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.dragOver(inbox, { dataTransfer });
+    fireEvent.drop(inbox, { dataTransfer });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.googleMoveTask).not.toHaveBeenCalled();
+  });
+
+  it("clears a due date", async () => {
+    api.googleListTasks.mockImplementation(async (listId: string) =>
+      listId === "inbox" ? [task({ due: "2026-10-03T00:00:00.000Z" })] : [],
+    );
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Clear due date"));
+    expect(api.googleUpdateTask).toHaveBeenCalledWith("inbox", "t1", {
+      due: "",
+    });
+  });
+
+  it("keeps the due date input open after choosing Set due date", async () => {
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Set due date"));
+    const input = await screen.findByLabelText("Due date for Write spec");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveFocus();
+  });
+
   it("kicks off an agent from a task with its open subtasks", async () => {
     render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
     await userEvent.click(

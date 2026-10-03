@@ -42,20 +42,52 @@ pub fn map_task(list_id: &str, v: &Value) -> Option<GoogleTask> {
   })
 }
 
-pub async fn list_task_lists(source: &GoogleSource) -> Result<Vec<GoogleTaskList>, String> {
-  let value = send_json(
-    source,
-    reqwest::Method::GET,
-    &format!("{TASKS_API}/users/@me/lists?maxResults=100"),
-    None,
-  )
-  .await?;
-  Ok(
-    value
-      .get("items")
+/// Fetches `url` page by page and returns each page's JSON. Stops at the last
+/// page, at a `nextPageToken` already seen (a server loop), or after
+/// `max_pages`.
+pub(crate) async fn fetch_pages(
+  source: &GoogleSource,
+  url: &str,
+  max_pages: usize,
+) -> Result<Vec<Value>, String> {
+  let mut pages = Vec::new();
+  let mut seen = std::collections::HashSet::new();
+  let mut page_token: Option<String> = None;
+  while pages.len() < max_pages {
+    let page_url = match &page_token {
+      Some(token) => format!("{url}&pageToken={}", enc(token)),
+      None => url.to_string(),
+    };
+    let value = send_json(source, reqwest::Method::GET, &page_url, None).await?;
+    page_token = str_field(&value, "nextPageToken");
+    pages.push(value);
+    match &page_token {
+      Some(token) if seen.insert(token.clone()) => {}
+      _ => break,
+    }
+  }
+  Ok(pages)
+}
+
+fn items<'a>(pages: &'a [Value], key: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
+  pages.iter().flat_map(move |page| {
+    page
+      .get(key)
       .and_then(Value::as_array)
       .into_iter()
       .flatten()
+  })
+}
+
+pub async fn list_task_lists(source: &GoogleSource) -> Result<Vec<GoogleTaskList>, String> {
+  let pages = fetch_pages(
+    source,
+    &format!("{TASKS_API}/users/@me/lists?maxResults=100"),
+    MAX_TASK_PAGES,
+  )
+  .await?;
+  Ok(
+    items(&pages, "items")
       .filter_map(|v| {
         Some(GoogleTaskList {
           id: str_field(v, "id")?,
@@ -67,31 +99,15 @@ pub async fn list_task_lists(source: &GoogleSource) -> Result<Vec<GoogleTaskList
 }
 
 pub async fn list_tasks(source: &GoogleSource, list_id: &str) -> Result<Vec<GoogleTask>, String> {
-  let mut tasks = Vec::new();
-  let mut page_token: Option<String> = None;
-  loop {
-    let mut url = format!(
-      "{TASKS_API}/lists/{}/tasks?maxResults=100&showCompleted=true&showHidden=true",
-      seg(list_id)
-    );
-    if let Some(token) = &page_token {
-      url.push_str(&format!("&pageToken={}", enc(token)));
-    }
-    let value = send_json(source, reqwest::Method::GET, &url, None).await?;
-    tasks.extend(
-      value
-        .get("items")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|v| v.get("deleted").and_then(Value::as_bool) != Some(true))
-        .filter_map(|v| map_task(list_id, v)),
-    );
-    page_token = str_field(&value, "nextPageToken");
-    if page_token.is_none() {
-      break;
-    }
-  }
+  let url = format!(
+    "{TASKS_API}/lists/{}/tasks?maxResults=100&showCompleted=true&showHidden=true",
+    seg(list_id)
+  );
+  let pages = fetch_pages(source, &url, MAX_TASK_PAGES).await?;
+  let mut tasks: Vec<GoogleTask> = items(&pages, "items")
+    .filter(|v| v.get("deleted").and_then(Value::as_bool) != Some(true))
+    .filter_map(|v| map_task(list_id, v))
+    .collect();
   tasks.sort_by(|a, b| a.position.cmp(&b.position));
   Ok(tasks)
 }
@@ -178,7 +194,7 @@ pub async fn delete_task(
   list_id: &str,
   task_id: &str,
 ) -> Result<(), String> {
-  send(
+  send_raw(
     source,
     reqwest::Method::DELETE,
     &format!("{TASKS_API}/lists/{}/tasks/{}", seg(list_id), seg(task_id)),
@@ -188,28 +204,81 @@ pub async fn delete_task(
   .map(|_| ())
 }
 
-/// Moves a task to another list (a Kanban column) and/or after a sibling.
+pub(crate) fn move_task_url(
+  list_id: &str,
+  task_id: &str,
+  destination_list_id: Option<&str>,
+  parent: Option<&str>,
+  previous_task_id: Option<&str>,
+) -> String {
+  let mut params = Vec::new();
+  if let Some(dest) = destination_list_id.filter(|d| *d != list_id) {
+    params.push(format!("destinationTasklist={}", enc(dest)));
+  }
+  if let Some(parent) = parent.filter(|p| !p.is_empty()) {
+    params.push(format!("parent={}", enc(parent)));
+  }
+  if let Some(previous) = previous_task_id.filter(|p| !p.is_empty()) {
+    params.push(format!("previous={}", enc(previous)));
+  }
+  let mut url = format!(
+    "{TASKS_API}/lists/{}/tasks/{}/move",
+    seg(list_id),
+    seg(task_id)
+  );
+  if !params.is_empty() {
+    url.push('?');
+    url.push_str(&params.join("&"));
+  }
+  url
+}
+
+/// Moves a task to another list (a Kanban column), under `parent` and/or
+/// after a sibling. Moving to another list brings its subtasks along.
 pub async fn move_task(
   source: &GoogleSource,
   list_id: &str,
   task_id: &str,
   destination_list_id: Option<&str>,
+  parent: Option<&str>,
   previous_task_id: Option<&str>,
 ) -> Result<GoogleTask, String> {
-  let mut url = format!(
-    "{TASKS_API}/lists/{}/tasks/{}/move?",
-    seg(list_id),
-    seg(task_id)
-  );
-  if let Some(dest) = destination_list_id.filter(|d| *d != list_id) {
-    url.push_str(&format!("destinationTasklist={}&", enc(dest)));
+  let destination = destination_list_id.filter(|d| *d != list_id);
+  // Google may leave subtasks behind in the old list, so note them first.
+  let subtasks: Vec<GoogleTask> = match destination {
+    Some(_) => list_tasks(source, list_id)
+      .await?
+      .into_iter()
+      .filter(|t| t.parent.as_deref() == Some(task_id))
+      .collect(),
+    None => Vec::new(),
+  };
+  let value = send_json(
+    source,
+    reqwest::Method::POST,
+    &move_task_url(list_id, task_id, destination, parent, previous_task_id),
+    None,
+  )
+  .await?;
+  let final_list = destination.unwrap_or(list_id);
+  let task =
+    map_task(final_list, &value).ok_or_else(|| "Google returned an invalid task".to_string())?;
+  let mut previous: Option<String> = None;
+  for subtask in subtasks {
+    let url = move_task_url(
+      list_id,
+      &subtask.id,
+      Some(final_list),
+      Some(&task.id),
+      previous.as_deref(),
+    );
+    match send_json(source, reqwest::Method::POST, &url, None).await {
+      Ok(_) => previous = Some(subtask.id),
+      // Already moved with its parent, or gone: nothing left to fix.
+      Err(e) => tracing::warn!("Failed to move subtask {} with its parent: {e}", subtask.id),
+    }
   }
-  if let Some(previous) = previous_task_id {
-    url.push_str(&format!("previous={}", enc(previous)));
-  }
-  let value = send_json(source, reqwest::Method::POST, &url, None).await?;
-  let final_list = destination_list_id.unwrap_or(list_id);
-  map_task(final_list, &value).ok_or_else(|| "Google returned an invalid task".to_string())
+  Ok(task)
 }
 
 pub async fn create_task_list(

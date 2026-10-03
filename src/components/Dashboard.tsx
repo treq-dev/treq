@@ -254,6 +254,13 @@ function generationFromEndpoint(
   return fallback;
 }
 
+/** A view with its own URL section, kept in sync with `viewMode`. */
+type RoutedPanel = {
+  id: "linear" | "google" | TrackerProvider;
+  basePath: string;
+  enabled: boolean;
+};
+
 type ViewMode =
   | "session"
   | "show-workspace"
@@ -310,6 +317,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
     trello: trelloIntegrationEnabled,
     jira: jiraIntegrationEnabled,
   };
+  // Linear's route is not gated: its sidebar entry is.
+  const routedPanels: RoutedPanel[] = useMemo(
+    () => [
+      { id: "linear", basePath: LINEAR_BASE_PATH, enabled: true },
+      {
+        id: "google",
+        basePath: GOOGLE_BASE_PATH,
+        enabled: googleWorkspaceEnabled,
+      },
+      ...Object.values(TRACKER_PROVIDERS).map(({ id, basePath }) => ({
+        id,
+        basePath,
+        enabled:
+          id === "trello" ? trelloIntegrationEnabled : jiraIntegrationEnabled,
+      })),
+    ],
+    [googleWorkspaceEnabled, trelloIntegrationEnabled, jiraIntegrationEnabled],
+  );
+  const [settingsTab, setSettingsTab] = useState<string | undefined>();
   const previousViewModeRef = useRef<ViewMode>(
     initialViewMode === "settings" ? "show-workspace" : initialViewMode,
   );
@@ -1211,7 +1237,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const openSettings = (tab?: string) => {
-    void tab;
+    setSettingsTab(typeof tab === "string" ? tab : undefined);
     if (viewMode !== "settings") {
       previousViewModeRef.current = viewMode;
     }
@@ -1243,29 +1269,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
     navigate(githubListPath("issues"));
   };
 
-  const openLinear = () => {
-    if (viewMode !== "linear") {
+  const openPanel = (panel: RoutedPanel["id"]) => {
+    if (viewMode !== panel) {
       previousViewModeRef.current = viewMode;
     }
-    setViewMode("linear");
-    navigate(LINEAR_BASE_PATH);
+    setViewMode(panel);
+    navigate(routedPanels.find((p) => p.id === panel)!.basePath);
   };
-
-  const openGoogle = () => {
-    if (viewMode !== "google") {
-      previousViewModeRef.current = viewMode;
-    }
-    setViewMode("google");
-    navigate(GOOGLE_BASE_PATH);
-  };
-
-  const openTracker = (provider: TrackerProvider) => {
-    if (viewMode !== provider) {
-      previousViewModeRef.current = viewMode;
-    }
-    setViewMode(provider);
-    navigate(TRACKER_PROVIDERS[provider].basePath);
-  };
+  const openLinear = () => openPanel("linear");
+  const openGoogle = () => openPanel("google");
+  const openTracker = (provider: TrackerProvider) => openPanel(provider);
 
   const openGitHubPr = (prNumber: number, prState: string) => {
     if (viewMode !== "github") {
@@ -1285,8 +1298,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (viewMode === "artifacts" && !location.startsWith(ARTIFACTS_BASE_PATH)) {
       setViewMode(previousViewModeRef.current);
     }
-    if (viewMode === "linear" && !location.startsWith(LINEAR_BASE_PATH)) {
-      setViewMode(previousViewModeRef.current);
+    // Panels with their own route: a disabled one falls back to the previous
+    // view, so a stale URL or turning the preview off mid-view never leaves a
+    // blank pane.
+    for (const { id, basePath, enabled } of routedPanels) {
+      if (viewMode === id && (!enabled || !location.startsWith(basePath))) {
+        setViewMode(previousViewModeRef.current);
+      }
     }
     if (location.startsWith(ARTIFACTS_BASE_PATH) && viewMode !== "artifacts") {
       if (viewMode !== "github") {
@@ -1294,39 +1312,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
       setViewMode("artifacts");
     }
-    if (
-      viewMode === "google" &&
-      (!googleWorkspaceEnabled || !location.startsWith(GOOGLE_BASE_PATH))
-    ) {
-      setViewMode(previousViewModeRef.current);
-    }
-    if (
-      googleWorkspaceEnabled &&
-      location.startsWith(GOOGLE_BASE_PATH) &&
-      viewMode !== "google"
-    ) {
-      if (viewMode !== "github" && viewMode !== "artifacts") {
-        previousViewModeRef.current = viewMode;
-      }
-      setViewMode("google");
-    }
-    if (location.startsWith(LINEAR_BASE_PATH) && viewMode !== "linear") {
-      if (viewMode !== "github" && viewMode !== "artifacts") {
-        previousViewModeRef.current = viewMode;
-      }
-      setViewMode("linear");
-    }
-    // A disabled tracker's route falls back to the previous view, so a stale
-    // URL or turning the preview off mid-view never leaves a blank pane.
-    const trackerRouteEnabled: Record<TrackerProvider, boolean> = {
-      trello: trelloIntegrationEnabled,
-      jira: jiraIntegrationEnabled,
-    };
-    for (const { id, basePath } of Object.values(TRACKER_PROVIDERS)) {
-      const enabled = trackerRouteEnabled[id];
-      if (viewMode === id && (!enabled || !location.startsWith(basePath))) {
-        setViewMode(previousViewModeRef.current);
-      }
+    for (const { id, basePath, enabled } of routedPanels) {
       if (enabled && location.startsWith(basePath) && viewMode !== id) {
         if (viewMode !== "github" && viewMode !== "artifacts") {
           previousViewModeRef.current = viewMode;
@@ -1334,13 +1320,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         setViewMode(id);
       }
     }
-  }, [
-    location,
-    viewMode,
-    trelloIntegrationEnabled,
-    jiraIntegrationEnabled,
-    googleWorkspaceEnabled,
-  ]);
+  }, [location, viewMode, routedPanels]);
 
   // The reverse also happens: leaving "github" through a non-URL action (e.g.
   // clicking a workspace in the sidebar) should clear the now-stale
@@ -1353,15 +1333,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const leftArtifacts =
       previousViewModeForUrlRef.current === "artifacts" &&
       viewMode !== "artifacts";
-    const leftLinear =
-      previousViewModeForUrlRef.current === "linear" && viewMode !== "linear";
-    const leftGoogle =
-      previousViewModeForUrlRef.current === "google" && viewMode !== "google";
-    const leftTracker = Object.values(TRACKER_PROVIDERS).find(
+    const leftPanel = routedPanels.find(
       ({ id }) => previousViewModeForUrlRef.current === id && viewMode !== id,
     );
     previousViewModeForUrlRef.current = viewMode;
-    if (leftTracker && location.startsWith(leftTracker.basePath)) {
+    if (leftPanel && location.startsWith(leftPanel.basePath)) {
       navigate("/", { replace: true });
     }
     if (leftGitHub && location.startsWith(GITHUB_BASE_PATH)) {
@@ -1370,13 +1346,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (leftArtifacts && location.startsWith(ARTIFACTS_BASE_PATH)) {
       navigate("/", { replace: true });
     }
-    if (leftLinear && location.startsWith(LINEAR_BASE_PATH)) {
-      navigate("/", { replace: true });
-    }
-    if (leftGoogle && location.startsWith(GOOGLE_BASE_PATH)) {
-      navigate("/", { replace: true });
-    }
-  }, [viewMode, location, navigate]);
+  }, [viewMode, location, navigate, routedPanels]);
 
   const handleOpenMergePreview = () => {
     if (!remoteCaps.mergeWorkspace.supported) {
@@ -3387,6 +3357,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {viewMode === "settings" && (
                 <SettingsPage
                   repoPath={dataRepoPath}
+                  initialTab={settingsTab}
                   onClose={closeSettings}
                   currentBranch={effectiveDefaultBranch}
                   cloudWorkspace={{
@@ -3455,6 +3426,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <GoogleWorkspacePanel
                   repoPath={dataRepoPath}
                   onStartDocReview={handleStartDocReview}
+                  onOpenSettings={() => openSettings("integrations")}
                   onKickoffTask={(prompt) => handleRunPrompt(prompt, null)}
                 />
               )}

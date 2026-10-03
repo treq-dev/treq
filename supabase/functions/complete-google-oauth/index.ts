@@ -76,14 +76,15 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   );
 
+  const stateHash = await sha256Hex(state);
   const { data: intent, error: intentError } = await supabase
     .from("google_oauth_intents")
     .update({ consumed_at: new Date().toISOString() })
-    .eq("state_hash", await sha256Hex(state))
+    .eq("state_hash", stateHash)
     .eq("user_id", user.id)
     .is("consumed_at", null)
     .gte("expires_at", new Date().toISOString())
-    .select("id")
+    .select("id, code_verifier")
     .maybeSingle();
   if (intentError) {
     console.error(
@@ -93,6 +94,20 @@ Deno.serve(async (req) => {
     return json({ error: "Failed to verify OAuth intent" }, 500);
   }
   if (!intent) {
+    // A state that exists but belongs to someone else means the callback URL
+    // leaked. Burn the intent so its owner's code can't be redeemed later.
+    const { error: burnError } = await supabase
+      .from("google_oauth_intents")
+      .update({ consumed_at: new Date().toISOString() })
+      .eq("state_hash", stateHash)
+      .neq("user_id", user.id)
+      .is("consumed_at", null);
+    if (burnError) {
+      console.error(
+        "[complete-google-oauth] burning foreign intent failed:",
+        burnError.message,
+      );
+    }
     return json(
       { error: "OAuth intent is invalid, expired or already used" },
       403,
@@ -115,6 +130,7 @@ Deno.serve(async (req) => {
       code,
       redirect_uri: redirectUri,
       grant_type: "authorization_code",
+      ...(intent.code_verifier ? { code_verifier: intent.code_verifier } : {}),
     }).toString(),
   }).catch(() => null);
   if (!tokenRes?.ok) {

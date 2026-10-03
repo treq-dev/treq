@@ -10,8 +10,8 @@ vi.mock("../lib/api-linear", () => ({
   linearStartAutoKickoffPolling: mockStartPolling,
 }));
 
-vi.mock("../lib/linear-proxy-auth", () => ({
-  ensureLinearProxySessionSync: () => Promise.resolve(),
+vi.mock("../lib/proxy-session-sync", () => ({
+  ensureProxySessionSync: () => Promise.resolve(),
 }));
 
 describe("useLinearAutoKickoff", () => {

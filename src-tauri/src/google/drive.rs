@@ -14,6 +14,23 @@ pub struct DriveFile {
   pub reviewable: bool,
 }
 
+/// Drive ids are `[A-Za-z0-9_-]`; anything else is refused before it can
+/// reach a URL or the review directory.
+pub fn valid_file_id(id: &str) -> bool {
+  !id.is_empty()
+    && id
+      .chars()
+      .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+pub(crate) fn check_file_id(id: &str) -> Result<(), String> {
+  if valid_file_id(id) {
+    Ok(())
+  } else {
+    Err(format!("Invalid Google Drive file id '{id}'"))
+  }
+}
+
 /// Google-native types are exported; plain text-like uploads are downloaded.
 pub fn export_mime(mime: &str) -> Option<&'static str> {
   match mime {
@@ -77,23 +94,28 @@ pub async fn list_drive_files(
   let url = format!(
     "{DRIVE_API}/files?pageSize=50&q={}{order}&fields={}&supportsAllDrives=true&includeItemsFromAllDrives=true",
     enc(&q),
-    enc("files(id,name,mimeType,modifiedTime,webViewLink,owners(displayName))")
+    enc("nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink,owners(displayName))")
   );
-  let value = send_json(source, reqwest::Method::GET, &url, None).await?;
+  let pages = fetch_pages(source, &url, MAX_DRIVE_PAGES).await?;
   Ok(
-    value
-      .get("files")
-      .and_then(Value::as_array)
-      .into_iter()
-      .flatten()
+    pages
+      .iter()
+      .flat_map(|page| {
+        page
+          .get("files")
+          .and_then(Value::as_array)
+          .into_iter()
+          .flatten()
+      })
       .filter_map(map_drive_file)
       .collect(),
   )
 }
 
 pub async fn get_drive_file(source: &GoogleSource, file_id: &str) -> Result<DriveFile, String> {
+  check_file_id(file_id)?;
   let url = format!(
-    "{DRIVE_API}/files/{}?supportsAllDrives=true&fields={}",
+    "{DRIVE_API}/files/{}?fields={}&supportsAllDrives=true",
     seg(file_id),
     enc("id,name,mimeType,modifiedTime,webViewLink,owners(displayName)")
   );
@@ -101,7 +123,9 @@ pub async fn get_drive_file(source: &GoogleSource, file_id: &str) -> Result<Driv
   map_drive_file(&value).ok_or_else(|| "Google returned an invalid file".to_string())
 }
 
+/// The file's text exactly as Drive returns it.
 pub async fn export_text(source: &GoogleSource, file: &DriveFile) -> Result<String, String> {
+  check_file_id(&file.id)?;
   let url = match export_mime(&file.mime_type) {
     Some(mime) => format!(
       "{DRIVE_API}/files/{}/export?mimeType={}",
@@ -114,20 +138,19 @@ pub async fn export_text(source: &GoogleSource, file: &DriveFile) -> Result<Stri
     ),
     None => return Err(format!("'{}' cannot be reviewed as text", file.name)),
   };
-  match send(source, reqwest::Method::GET, &url, None).await? {
-    Body::Text(text) => Ok(text),
-    Body::Json(value) => Ok(serde_json::to_string_pretty(&value).unwrap_or_default()),
-  }
+  send_raw(source, reqwest::Method::GET, &url, None).await
 }
 
 /// Posts one comment. `quoted` is the reviewed text the comment refers to;
-/// Drive shows it as the comment's quote.
+/// Drive shows it as the comment's quote. Any 2xx means it was posted; the
+/// new comment's id is returned when Google sends one.
 pub async fn create_comment(
   source: &GoogleSource,
   file_id: &str,
   content: &str,
   quoted: Option<&str>,
-) -> Result<String, String> {
+) -> Result<Option<String>, String> {
+  check_file_id(file_id)?;
   let mut body = json!({ "content": content });
   if let Some(quoted) = quoted.filter(|q| !q.trim().is_empty()) {
     body["quotedFileContent"] = json!({ "mimeType": "text/plain", "value": quoted });
@@ -139,5 +162,5 @@ pub async fn create_comment(
     Some(&body),
   )
   .await?;
-  str_field(&value, "id").ok_or_else(|| "Google returned an invalid comment".to_string())
+  Ok(str_field(&value, "id"))
 }

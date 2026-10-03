@@ -215,9 +215,18 @@ fn validate_add_target(
       PathBuf::from(workspace_dir)
     }
     "file_browser_file" => PathBuf::from(repo_path),
-    // An exported Google Doc; `--file` is relative to its review directory.
-    crate::google::REVIEW_TARGET_TYPE => crate::core::google_review::review_root(target_id)
-      .map_err(|e| format!("invalid_arguments: {e}"))?,
+    // A Google Doc this repo exported; `--file` is relative to its review
+    // directory, which must exist.
+    crate::google::REVIEW_TARGET_TYPE => {
+      let root = crate::core::google_review::review_root(repo_path, target_id)
+        .map_err(|e| format!("invalid_arguments: {e}"))?;
+      if !root.is_dir() {
+        return Err(format!(
+          "invalid_arguments: Google Doc '{target_id}' has not been exported for review in this repository"
+        ));
+      }
+      root
+    }
     other => {
       return Err(format!(
         "invalid_arguments: unknown --target-type '{other}'. Expected one of: {}",
@@ -373,10 +382,14 @@ mod tests {
     check("file_browser_file", b, "b.rs", 1, None).unwrap();
     let exports = tempfile::tempdir().unwrap();
     crate::core::google_review::use_test_exports_dir(exports.path());
-    let doc_dir = exports.path().join("doc1");
+    let doc_dir = crate::core::google_review::review_root(repo, "doc1").unwrap();
     std::fs::create_dir_all(&doc_dir).unwrap();
     std::fs::write(doc_dir.join("spec.md"), "1\n2\n").unwrap();
     check("google_doc", "doc1", "spec.md", 2, None).unwrap();
+    // Another repo's export of a doc is not this repo's.
+    let other_dir = crate::core::google_review::review_root("/other/repo", "doc3").unwrap();
+    std::fs::create_dir_all(&other_dir).unwrap();
+    std::fs::write(other_dir.join("spec.md"), "1\n").unwrap();
     for (target_type, target_id, file, end) in [
       ("bogus", id.as_str(), "a.rs", 1),
       (DEFAULT_TARGET_TYPE, "999", "a.rs", 1),
@@ -392,6 +405,8 @@ mod tests {
       ("google_doc", "doc1", "spec.md", 3),
       ("google_doc", "../doc1", "spec.md", 1),
       ("google_doc", "doc1", "../../../b.rs", 1),
+      ("google_doc", "doc2", "spec.md", 1),
+      ("google_doc", "doc3", "spec.md", 1),
       (DEFAULT_TARGET_TYPE, id.as_str(), "link.rs", 1),
       (DEFAULT_TARGET_TYPE, id.as_str(), "dir/o.rs", 1),
     ] {

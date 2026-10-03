@@ -1,15 +1,16 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import {
   googleConnectionStatus,
   googleDisconnectLocal,
   googleOAuthBegin,
+  googleOAuthCancel,
   googleOAuthComplete,
 } from "../../lib/api-google";
 import { getRepoSetting, getSetting, setRepoSetting } from "../../lib/api";
-import { ensureGoogleProxySessionSync } from "../../lib/google-proxy-auth";
+import { ensureProxySessionSync } from "../../lib/proxy-session-sync";
 import { supabase } from "../../lib/supabase";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -17,6 +18,17 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { errorText } from "../../lib/errorText";
+import { functionsErrorText } from "../../lib/functionsErrorText";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 
 const SettingRow: React.FC<{
   title: string;
@@ -31,6 +43,12 @@ const SettingRow: React.FC<{
     <div className="flex items-center gap-2 shrink-0">{children}</div>
   </div>
 );
+
+/** How often, and how long, to wait for the Pro sign-in to land server side. */
+export const PRO_POLL_INTERVAL_MS = 3_000;
+export const PRO_POLL_TIMEOUT_MS = 120_000;
+
+type DisconnectTarget = "local" | "proxy";
 
 /**
  * Free plan: the user's own Google Cloud desktop OAuth client, run through a
@@ -47,46 +65,86 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   const [clientSecret, setClientSecret] = useState("");
   const [reviewPrompt, setReviewPrompt] = useState("");
   const [busy, setBusy] = useState(false);
+  /** The sign-in page of a pending local connect. */
+  const [signInUrl, setSignInUrl] = useState<string | null>(null);
+  const [waitingForPro, setWaitingForPro] = useState(false);
+  const [confirming, setConfirming] = useState<DisconnectTarget | null>(null);
+  const cancelled = useRef(false);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   const { data: status, mutate } = useSWR(
     ["google-connection-status"],
     async () => {
-      await ensureGoogleProxySessionSync().catch(() => undefined);
+      await ensureProxySessionSync().catch(() => undefined);
       return googleConnectionStatus();
     },
     { revalidateOnFocus: true },
   );
-  useSWR(
-    ["google-client-id"],
-    async () => setClientId((await getSetting("google_client_id")) ?? ""),
-    { revalidateOnFocus: false, dedupingInterval: 0 },
-  );
-  useSWR(
-    repoPath ? ["google-review-prompt", repoPath] : null,
-    async () =>
-      setReviewPrompt(
-        (await getRepoSetting(repoPath!, "google_review_prompt")) ?? "",
-      ),
-    { revalidateOnFocus: false, dedupingInterval: 0 },
-  );
+
+  // Seed the inputs once; never overwrite what the user has typed.
+  useEffect(() => {
+    void getSetting("google_client_id")
+      .then((saved) => setClientId((current) => current || (saved ?? "")))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!repoPath) return;
+    void getRepoSetting(repoPath, "google_review_prompt")
+      .then((saved) => setReviewPrompt((current) => current || (saved ?? "")))
+      .catch(() => undefined);
+  }, [repoPath]);
 
   const connectLocal = async () => {
     setBusy(true);
+    cancelled.current = false;
     try {
       const url = await googleOAuthBegin(clientId, clientSecret || undefined);
+      setSignInUrl(url);
       await openUrl(url);
       await googleOAuthComplete();
       setClientSecret("");
       await mutate();
       addToast({ title: "Google Workspace connected", type: "success" });
     } catch (e) {
-      addToast({
-        title: "Google sign-in failed",
-        description: errorText(e),
-        type: "error",
-      });
+      if (!cancelled.current) {
+        addToast({
+          title: "Google sign-in failed",
+          description: errorText(e),
+          type: "error",
+        });
+      }
     } finally {
+      setSignInUrl(null);
       setBusy(false);
+    }
+  };
+
+  const cancelLocal = async () => {
+    cancelled.current = true;
+    await googleOAuthCancel().catch(() => undefined);
+  };
+
+  /** Waits for the browser sign-in to store the grant server side. */
+  const waitForProxy = async () => {
+    setWaitingForPro(true);
+    const poll = async (waited: number): Promise<void> => {
+      if (waited >= PRO_POLL_TIMEOUT_MS || !mounted.current) return;
+      await new Promise((r) => setTimeout(r, PRO_POLL_INTERVAL_MS));
+      const next = await googleConnectionStatus().catch(() => null);
+      if (next?.mode !== "proxy") return poll(waited + PRO_POLL_INTERVAL_MS);
+      await mutate(next, { revalidate: false });
+      addToast({ title: "Google Workspace connected", type: "success" });
+    };
+    try {
+      await poll(0);
+    } finally {
+      if (mounted.current) setWaitingForPro(false);
     }
   };
 
@@ -97,7 +155,7 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
         "create-google-oauth-intent",
         { body: {} },
       );
-      if (error) throw new Error(errorText(error));
+      if (error) throw new Error(await functionsErrorText(error));
       if (!data?.authorize_url)
         throw new Error("No authorization URL returned");
       await openUrl(data.authorize_url);
@@ -107,14 +165,28 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
         description: errorText(e),
         type: "error",
       });
+      return;
     } finally {
       setBusy(false);
     }
+    await waitForProxy();
   };
 
   const disconnectLocal = async () => {
-    await googleDisconnectLocal();
-    await mutate();
+    setBusy(true);
+    try {
+      await googleDisconnectLocal();
+      await mutate();
+      addToast({ title: "Google Workspace disconnected", type: "success" });
+    } catch (e) {
+      addToast({
+        title: "Failed to disconnect Google",
+        description: errorText(e),
+        type: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Not Pro-gated: a lapsed plan must still be able to remove its grant.
@@ -125,7 +197,7 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
         "disconnect-google",
         { body: {} },
       );
-      if (error) throw new Error(errorText(error));
+      if (error) throw new Error(await functionsErrorText(error));
       await mutate();
       addToast({
         title: data?.disconnected
@@ -146,14 +218,30 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
 
   const saveReviewPrompt = async () => {
     if (!repoPath) return;
-    await setRepoSetting(repoPath, "google_review_prompt", reviewPrompt);
-    addToast({ title: "Review instructions saved", type: "success" });
+    try {
+      await setRepoSetting(repoPath, "google_review_prompt", reviewPrompt);
+      addToast({ title: "Review instructions saved", type: "success" });
+    } catch (e) {
+      addToast({
+        title: "Failed to save review instructions",
+        description: errorText(e),
+        type: "error",
+      });
+    }
   };
 
+  const confirmDisconnect = () => {
+    const target = confirming;
+    setConfirming(null);
+    if (target === "local") void disconnectLocal();
+    if (target === "proxy") void disconnectPro();
+  };
+
+  const mode = status?.mode;
   const modeLabel =
-    status?.mode === "local"
+    mode === "local"
       ? "Connected with your own OAuth client"
-      : status?.mode === "proxy"
+      : mode === "proxy"
         ? "Connected through treq (Pro)"
         : "Not connected";
 
@@ -167,8 +255,13 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
       </div>
       <div className="divide-y divide-border">
         <SettingRow title="Status" description={modeLabel}>
-          {status?.mode === "local" && (
-            <Button size="sm" variant="outline" onClick={disconnectLocal}>
+          {(mode === "local" || (mode === "proxy" && user)) && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirming(mode)}
+              disabled={busy}
+            >
               Disconnect
             </Button>
           )}
@@ -208,35 +301,56 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
               Connect
             </Button>
           </div>
+          {signInUrl && (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-muted-foreground">
+                Waiting for Google sign-in in your browser…
+              </span>
+              <button
+                type="button"
+                className="text-primary underline"
+                onClick={() => void openUrl(signInUrl)}
+              >
+                Reopen sign-in page
+              </button>
+              <Button size="sm" variant="outline" onClick={cancelLocal}>
+                Cancel
+              </Button>
+            </div>
+          )}
         </div>
 
         <SettingRow
           title="Connect via treq"
           description={
-            isPro
-              ? "Use treq's Google app. No Cloud project needed."
-              : "Pro plan: connect without your own Google Cloud project."
+            waitingForPro
+              ? "Waiting for Google sign-in in your browser…"
+              : isPro
+                ? "Use treq's Google app. No Cloud project needed."
+                : "Pro plan: connect without your own Google Cloud project."
           }
         >
           <Button
             size="sm"
             variant="outline"
             onClick={connectPro}
-            disabled={!isPro || busy}
+            disabled={!isPro || busy || waitingForPro}
           >
             Connect with Google
           </Button>
-          {user && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={disconnectPro}
+        </SettingRow>
+        {user && mode !== "proxy" && (
+          <div className="pb-3">
+            <button
+              type="button"
+              className="text-sm text-muted-foreground underline"
+              onClick={() => setConfirming("proxy")}
               disabled={busy}
             >
-              Disconnect
-            </Button>
-          )}
-        </SettingRow>
+              Remove Google from your treq account
+            </button>
+          </div>
+        )}
 
         {repoPath && (
           <div className="py-3 space-y-2">
@@ -257,6 +371,28 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
           </div>
         )}
       </div>
+
+      <AlertDialog
+        open={confirming !== null}
+        onOpenChange={(open) => !open && setConfirming(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect Google Workspace?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirming === "local"
+                ? "treq deletes the Google tokens stored on this device."
+                : "treq removes the Google grant it holds for your account."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDisconnect}>
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 };

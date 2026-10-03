@@ -57,12 +57,37 @@ pub(crate) struct PendingOAuth {
   client_secret: Option<String>,
 }
 
-pub(crate) static PENDING: tokio::sync::Mutex<Option<PendingOAuth>> =
+/// The sign-in begun but not yet awaited: `Err` when it was cancelled before
+/// `complete_local_oauth` picked it up.
+pub(crate) static PENDING: tokio::sync::Mutex<Option<Result<PendingOAuth, String>>> =
   tokio::sync::Mutex::const_new(None);
 
-// Wakes a `complete_local_oauth` that a newer `begin_local_oauth` replaced,
-// so the abandoned flow ends at once instead of holding its port.
-static SUPERSEDED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// Ends the `complete_local_oauth` that is waiting, with the reason sent.
+static ACTIVE: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<String>>> =
+  std::sync::Mutex::new(None);
+
+const CANCELLED: &str = "Google sign-in was cancelled";
+
+fn end_active(reason: &str) {
+  let sender = match ACTIVE.lock() {
+    Ok(mut guard) => guard.take(),
+    Err(poisoned) => poisoned.into_inner().take(),
+  };
+  if let Some(sender) = sender {
+    let _ = sender.send(reason.to_string());
+  }
+}
+
+/// Cancels a sign-in that is pending or waiting for the browser; the waiting
+/// `complete_local_oauth` returns "Google sign-in was cancelled".
+pub async fn cancel_local_oauth() {
+  let mut pending = PENDING.lock().await;
+  if matches!(*pending, Some(Ok(_))) {
+    *pending = Some(Err(CANCELLED.to_string()));
+  }
+  drop(pending);
+  end_active(CANCELLED);
+}
 
 /// A local process could connect and send nothing; it gets this long before
 /// the listener moves on to the next connection.
@@ -93,15 +118,16 @@ pub async fn begin_local_oauth(
     &state,
     &pkce_challenge(&verifier),
   );
-  SUPERSEDED.notify_waiters();
-  *PENDING.lock().await = Some(PendingOAuth {
+  let mut slot = PENDING.lock().await;
+  end_active("Google sign-in was restarted");
+  *slot = Some(Ok(PendingOAuth {
     listener,
     redirect_uri,
     state,
     verifier,
     client_id,
     client_secret: non_empty(client_secret),
-  });
+  }));
   Ok(url)
 }
 
@@ -179,35 +205,56 @@ async fn respond(stream: &mut tokio::net::TcpStream, status: &str, body: &str) {
   let _ = stream.write_all(response.as_bytes()).await;
 }
 
+/// Answers one connection, and forwards the outcome when it is Google's
+/// redirect for this sign-in.
+async fn handle_connection(
+  mut stream: tokio::net::TcpStream,
+  state: &str,
+  outcome: tokio::sync::mpsc::Sender<Result<String, String>>,
+) {
+  let Some(line) = read_request_line(&mut stream).await else {
+    return;
+  };
+  match parse_redirect(&line, state) {
+    Redirect::Ignore => respond(&mut stream, "404 Not Found", "").await,
+    Redirect::Denied(error) => {
+      respond(
+        &mut stream,
+        "200 OK",
+        "Google sign-in failed. Return to treq and try again.",
+      )
+      .await;
+      let _ = outcome.try_send(Err(format!("Google sign-in failed: {error}")));
+    }
+    Redirect::Code(code) => {
+      respond(
+        &mut stream,
+        "200 OK",
+        "Google Workspace is connected. You can close this tab and return to treq.",
+      )
+      .await;
+      let _ = outcome.try_send(Ok(code));
+    }
+  }
+}
+
 /// Accepts connections until Google's redirect for this sign-in arrives.
+/// Each connection is read in its own task, so idle ones cannot hold up the
+/// redirect; they are dropped when this returns.
 pub(crate) async fn wait_for_code(
   listener: &tokio::net::TcpListener,
   state: &str,
 ) -> Result<String, String> {
+  let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+  let mut connections = tokio::task::JoinSet::new();
   loop {
-    let (mut stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
-    let Some(line) = read_request_line(&mut stream).await else {
-      continue;
-    };
-    match parse_redirect(&line, state) {
-      Redirect::Ignore => respond(&mut stream, "404 Not Found", "").await,
-      Redirect::Denied(error) => {
-        respond(
-          &mut stream,
-          "200 OK",
-          "Google sign-in failed. Return to treq and try again.",
-        )
-        .await;
-        return Err(format!("Google sign-in failed: {error}"));
-      }
-      Redirect::Code(code) => {
-        respond(
-          &mut stream,
-          "200 OK",
-          "Google Workspace is connected. You can close this tab and return to treq.",
-        )
-        .await;
-        return Ok(code);
+    tokio::select! {
+      Some(outcome) = rx.recv() => return outcome,
+      Some(_) = connections.join_next() => {}
+      accepted = listener.accept() => {
+        let (stream, _) = accepted.map_err(|e| e.to_string())?;
+        let (tx, state) = (tx.clone(), state.to_string());
+        connections.spawn(async move { handle_connection(stream, &state, tx).await });
       }
     }
   }
@@ -216,17 +263,23 @@ pub(crate) async fn wait_for_code(
 /// Waits (up to five minutes) for the browser redirect, exchanges the code
 /// and returns the tokens to store.
 pub async fn complete_local_oauth() -> Result<(StoredTokens, String, Option<String>), String> {
-  let superseded = SUPERSEDED.notified();
-  let pending = PENDING
-    .lock()
-    .await
-    .take()
-    .ok_or("No Google sign-in in progress")?;
+  let (ended_tx, ended) = tokio::sync::oneshot::channel::<String>();
+  let pending = {
+    let mut slot = PENDING.lock().await;
+    let pending = slot.take().ok_or("No Google sign-in in progress")??;
+    // Registered under the PENDING lock so a later begin or cancel sees it.
+    end_active("Google sign-in was restarted");
+    match ACTIVE.lock() {
+      Ok(mut guard) => *guard = Some(ended_tx),
+      Err(poisoned) => *poisoned.into_inner() = Some(ended_tx),
+    }
+    pending
+  };
   let code = tokio::select! {
     result = tokio::time::timeout(SIGN_IN_TIMEOUT, wait_for_code(&pending.listener, &pending.state)) => {
       result.map_err(|_| "Timed out waiting for Google sign-in".to_string())??
     }
-    _ = superseded => return Err("Google sign-in was restarted".to_string()),
+    reason = ended => return Err(reason.unwrap_or_else(|_| CANCELLED.to_string())),
   };
 
   let mut form = vec![
@@ -259,13 +312,20 @@ pub fn store_local_grant(
 }
 
 pub(crate) async fn token_request(form: &[(&str, String)]) -> Result<Value, String> {
+  token_request_coded(form)
+    .await
+    .map_err(|(message, _)| message)
+}
+
+/// Like `token_request`, but a failure also carries Google's `error` code.
+async fn token_request_coded(form: &[(&str, String)]) -> Result<Value, (String, Option<String>)> {
   let response = http_client()
     .post(token_url())
     .timeout(REQUEST_TIMEOUT)
     .form(form)
     .send()
     .await
-    .map_err(|e| format!("Failed to reach Google: {e}"))?;
+    .map_err(|e| (format!("Failed to reach Google: {e}"), None))?;
   let status = response.status();
   let body: Value = response.json().await.unwrap_or(Value::Null);
   if !status.is_success() {
@@ -274,7 +334,10 @@ pub(crate) async fn token_request(form: &[(&str, String)]) -> Result<Value, Stri
       .or_else(|| body.get("error"))
       .and_then(Value::as_str)
       .unwrap_or("unknown error");
-    return Err(format!("Google token request failed ({status}): {reason}"));
+    return Err((
+      format!("Google token request failed ({status}): {reason}"),
+      str_field(&body, "error"),
+    ));
   }
   Ok(body)
 }
@@ -300,11 +363,43 @@ pub fn tokens_from_grant(
       .get("expires_in")
       .and_then(Value::as_i64)
       .map(|secs| now_secs() + secs),
+    lifetime_secs: grant.get("expires_in").and_then(Value::as_i64),
   })
+}
+
+pub(crate) const REVOKED: &str =
+  "Google authorization expired or was revoked. Reconnect Google Workspace in Settings.";
+/// How long a failed refresh is reused, so requests queued behind it fail
+/// the same way instead of each asking Google again.
+const FAILURE_TTL: Duration = Duration::from_secs(10);
+
+#[derive(Default)]
+struct RefreshState {
+  refreshed: Option<StoredTokens>,
+  failure: Option<(String, std::time::Instant)>,
+}
+
+/// One lock per refresh token: a refresh of one grant never waits on another.
+static REFRESHES: std::sync::Mutex<
+  Option<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<RefreshState>>>>,
+> = std::sync::Mutex::new(None);
+
+fn refresh_slot(refresh: &str) -> std::sync::Arc<tokio::sync::Mutex<RefreshState>> {
+  let mut map = match REFRESHES.lock() {
+    Ok(guard) => guard,
+    Err(poisoned) => poisoned.into_inner(),
+  };
+  map
+    .get_or_insert_with(Default::default)
+    .entry(refresh.to_string())
+    .or_default()
+    .clone()
 }
 
 /// Returns a usable access token for a local source, refreshing it when it
 /// is about to expire. The refreshed tokens are written back to the app db.
+/// Concurrent refreshes of one grant are single-flight: the first asks
+/// Google, the rest reuse its tokens (or its error, for `FAILURE_TTL`).
 pub(crate) async fn local_access_token(
   tokens: &StoredTokens,
   client_id: &str,
@@ -314,22 +409,22 @@ pub(crate) async fn local_access_token(
   if is_fresh(tokens) {
     return Ok(tokens.access_token.clone());
   }
-  // Single flight: requests that find the token expiring wait here, and all
-  // but the first reuse its result instead of refreshing (and writing) again.
-  let mut refreshed_by_token = REFRESHED.lock().await;
-  let refreshed_by_token = refreshed_by_token.get_or_insert_with(Default::default);
-  if let Some(cached) = tokens
-    .refresh_token
-    .as_ref()
-    .and_then(|r| refreshed_by_token.get(r))
-    .filter(|c| is_fresh(c))
-  {
-    return Ok(cached.access_token.clone());
-  }
   let refresh = tokens
     .refresh_token
     .clone()
     .ok_or("Google authorization expired. Reconnect Google Workspace in Settings.")?;
+  let slot = refresh_slot(&refresh);
+  let mut state = slot.lock().await;
+  if let Some(cached) = state.refreshed.as_ref().filter(|c| is_fresh(c)) {
+    return Ok(cached.access_token.clone());
+  }
+  if let Some((error, _)) = state
+    .failure
+    .as_ref()
+    .filter(|(_, at)| at.elapsed() < FAILURE_TTL)
+  {
+    return Err(error.clone());
+  }
   let mut form = vec![
     ("client_id", client_id.to_string()),
     ("grant_type", "refresh_token".to_string()),
@@ -338,25 +433,57 @@ pub(crate) async fn local_access_token(
   if let Some(secret) = client_secret {
     form.push(("client_secret", secret.clone()));
   }
-  let grant = token_request(&form).await?;
-  let refreshed = tokens_from_grant(&grant, Some(refresh.clone()))?;
+  let grant = match token_request_coded(&form).await {
+    Ok(grant) => grant,
+    Err((message, code)) => {
+      let message = if code.as_deref() == Some("invalid_grant") {
+        if let Some(path) = token_db {
+          clear_tokens(path, &refresh);
+        }
+        REVOKED.to_string()
+      } else {
+        message
+      };
+      state.failure = Some((message.clone(), std::time::Instant::now()));
+      return Err(message);
+    }
+  };
+  let refreshed = tokens_from_grant(&grant, Some(refresh))?;
   if let Some(path) = token_db {
     save_tokens(path, &refreshed);
   }
   let access_token = refreshed.access_token.clone();
-  refreshed_by_token.insert(refresh, refreshed);
+  state.refreshed = Some(refreshed);
+  state.failure = None;
   Ok(access_token)
 }
 
-/// The latest refreshed tokens for each refresh token, shared by concurrent
-/// requests.
-static REFRESHED: tokio::sync::Mutex<Option<std::collections::HashMap<String, StoredTokens>>> =
-  tokio::sync::Mutex::const_new(None);
+/// Refresh margin: a minute, or half the token's lifetime if shorter, so a
+/// short-lived token is not refreshed on every request.
+pub(crate) fn refresh_margin(tokens: &StoredTokens) -> i64 {
+  tokens.lifetime_secs.map_or(REFRESH_MARGIN_SECS, |life| {
+    REFRESH_MARGIN_SECS.min(life / 2)
+  })
+}
 
-fn is_fresh(tokens: &StoredTokens) -> bool {
+pub(crate) fn is_fresh(tokens: &StoredTokens) -> bool {
   tokens
     .expires_at
-    .is_none_or(|at| at - now_secs() > REFRESH_MARGIN_SECS)
+    .is_none_or(|at| at - now_secs() > refresh_margin(tokens))
+}
+
+/// Deletes the stored tokens after Google revoked them, unless they were
+/// already replaced by a newer grant.
+pub(crate) fn clear_tokens(path: &std::path::Path, revoked_refresh: &str) {
+  let Ok(db) = Database::new(path.to_path_buf()) else {
+    return;
+  };
+  let stored = read_local_tokens(&db);
+  if stored.is_some_and(|t| t.refresh_token.as_deref() == Some(revoked_refresh)) {
+    if let Err(e) = disconnect_local(&db) {
+      tracing::warn!("Failed to clear revoked Google tokens: {e}");
+    }
+  }
 }
 
 pub(crate) fn save_tokens(path: &std::path::Path, tokens: &StoredTokens) {

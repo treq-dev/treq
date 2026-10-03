@@ -1,5 +1,5 @@
 import { CheckCircle2, Circle, ExternalLink, MoreVertical } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { GoogleTask } from "../../lib/api-google";
 import { formatDue, type TaskCard } from "../../lib/google-tasks";
 import { cn } from "../../lib/utils";
@@ -37,6 +37,10 @@ export const TaskCardView: React.FC<{
 }) => {
   const { task, subtasks } = card;
   const [editingDue, setEditingDue] = useState(false);
+  // The menu returns focus to the menu trigger on close, which would blur (and
+  // so close) the date input the "Set due date" item just opened.
+  const dueRequested = useRef(false);
+  const dueInput = useRef<HTMLInputElement>(null);
   const linearIntegration = usePreviewFeature("linearIntegration");
   const done = task.status === "completed";
   const due = formatDue(task.due);
@@ -91,6 +95,7 @@ export const TaskCardView: React.FC<{
           )}
           {editingDue ? (
             <input
+              ref={dueInput}
               type="date"
               autoFocus
               aria-label={`Due date for ${task.title}`}
@@ -147,7 +152,14 @@ export const TaskCardView: React.FC<{
               <MoreVertical className="w-4 h-4" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent
+            align="end"
+            finalFocus={() => {
+              if (!dueRequested.current) return true;
+              dueRequested.current = false;
+              return dueInput.current ?? false;
+            }}
+          >
             <DropdownMenuItem onSelect={() => onAction("kickoff", task)}>
               Kick off agent
             </DropdownMenuItem>
@@ -164,9 +176,19 @@ export const TaskCardView: React.FC<{
                 Create Linear issue
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onSelect={() => setEditingDue(true)}>
+            <DropdownMenuItem
+              onSelect={() => {
+                dueRequested.current = true;
+                setEditingDue(true);
+              }}
+            >
               Set due date
             </DropdownMenuItem>
+            {task.due && (
+              <DropdownMenuItem onSelect={() => onSetDue(task, "")}>
+                Clear due date
+              </DropdownMenuItem>
+            )}
             {task.web_link && (
               <DropdownMenuItem
                 onSelect={() => window.open(task.web_link ?? "", "_blank")}

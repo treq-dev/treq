@@ -23,18 +23,7 @@ pub async fn google_connection_status(
   state: State<'_, AppState>,
 ) -> Result<GoogleConnectionStatus, String> {
   crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
-  let source = resolve(&state);
-  let has_client_id = {
-    let db = state.db.lock_or_recover();
-    crate::google::has_client_id(&db)
-  };
-  Ok(crate::google::connection_status(source, has_client_id).await)
-}
-
-/// Gives the client the Supabase session it sends to `google-proxy`.
-#[tauri::command]
-pub fn google_set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
-  crate::google::set_proxy_session(supabase_url, access_token);
+  Ok(crate::google::connection_status(resolve(&state)).await)
 }
 
 /// Starts the loopback OAuth flow and returns the URL to open.
@@ -52,6 +41,15 @@ pub async fn google_oauth_begin(
   crate::google::begin_local_oauth(client_id, client_secret).await
 }
 
+/// Cancels a sign-in begun with `google_oauth_begin`; a waiting
+/// `google_oauth_complete` returns "Google sign-in was cancelled".
+#[tauri::command]
+pub async fn google_oauth_cancel(state: State<'_, AppState>) -> Result<(), String> {
+  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
+  crate::google::cancel_local_oauth().await;
+  Ok(())
+}
+
 /// Waits for the browser redirect and stores the client and tokens.
 #[tauri::command]
 pub async fn google_oauth_complete(state: State<'_, AppState>) -> Result<(), String> {
@@ -66,8 +64,7 @@ pub async fn google_oauth_complete(state: State<'_, AppState>) -> Result<(), Str
 #[tauri::command]
 pub fn google_disconnect_local(state: State<'_, AppState>) -> Result<(), String> {
   let db = state.db.lock_or_recover();
-  db.set_setting(crate::google::TOKENS_SETTING, "")
-    .map_err(|e| e.to_string())
+  crate::google::disconnect_local(&db)
 }
 
 #[tauri::command]
@@ -127,6 +124,7 @@ pub async fn google_move_task(
   list_id: String,
   task_id: String,
   destination_list_id: Option<String>,
+  parent: Option<String>,
   previous_task_id: Option<String>,
 ) -> Result<GoogleTask, String> {
   crate::google::move_task(
@@ -134,6 +132,7 @@ pub async fn google_move_task(
     &list_id,
     &task_id,
     destination_list_id.as_deref(),
+    parent.as_deref(),
     previous_task_id.as_deref(),
   )
   .await
@@ -148,7 +147,7 @@ pub async fn google_list_drive_files(
   crate::google::list_drive_files(&source_for(&state)?, search.as_deref(), docs_only).await
 }
 
-/// Exports a Drive file into `~/Documents/treq/exports/<id>/` for the review agent.
+/// Exports a Drive file into `~/Documents/treq/exports/<repo key>/<id>/` for the review agent.
 #[tauri::command]
 pub async fn google_prepare_doc_review(
   state: State<'_, AppState>,

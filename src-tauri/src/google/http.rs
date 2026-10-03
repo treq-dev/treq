@@ -38,18 +38,15 @@ pub(crate) fn http_client() -> &'static reqwest::Client {
   })
 }
 
-/// What a request returns: JSON, or raw text for Drive exports.
-pub(crate) enum Body {
-  Json(Value),
-  Text(String),
-}
+const TOO_LARGE: &str = "Document too large to review (over 20 MB)";
 
-pub(crate) async fn send(
+/// Sends one request and returns the raw response body, unparsed.
+pub(crate) async fn send_raw(
   source: &GoogleSource,
   method: reqwest::Method,
   url: &str,
   body: Option<&Value>,
-) -> Result<Body, String> {
+) -> Result<String, String> {
   let request = match source {
     GoogleSource::Local {
       tokens,
@@ -71,7 +68,7 @@ pub(crate) async fn send(
       .bearer_auth(&session.access_token)
       .json(&json!({ "method": method.as_str(), "url": url, "body": body })),
   };
-  let response = request.timeout(REQUEST_TIMEOUT).send().await.map_err(|e| {
+  let mut response = request.timeout(REQUEST_TIMEOUT).send().await.map_err(|e| {
     if e.is_timeout() {
       "Google request timed out".to_string()
     } else {
@@ -79,15 +76,25 @@ pub(crate) async fn send(
     }
   })?;
   let status = response.status();
-  let is_json = response
-    .headers()
-    .get(reqwest::header::CONTENT_TYPE)
-    .and_then(|v| v.to_str().ok())
-    .is_some_and(|v| v.contains("json"));
-  let text = response
-    .text()
+  if response
+    .content_length()
+    .is_some_and(|len| len > MAX_RESPONSE_BYTES)
+  {
+    return Err(TOO_LARGE.to_string());
+  }
+  // Read in chunks so a body without a Content-Length is capped too.
+  let mut bytes = Vec::new();
+  while let Some(chunk) = response
+    .chunk()
     .await
-    .map_err(|e| format!("Failed to read Google response: {e}"))?;
+    .map_err(|e| format!("Failed to read Google response: {e}"))?
+  {
+    if (bytes.len() + chunk.len()) as u64 > MAX_RESPONSE_BYTES {
+      return Err(TOO_LARGE.to_string());
+    }
+    bytes.extend_from_slice(&chunk);
+  }
+  let text = String::from_utf8_lossy(&bytes).into_owned();
   if !status.is_success() {
     return Err(error_message(
       status,
@@ -95,32 +102,30 @@ pub(crate) async fn send(
       matches!(source, GoogleSource::Proxy(_)),
     ));
   }
-  if text.is_empty() {
-    return Ok(Body::Json(Value::Null));
-  }
-  if is_json {
-    serde_json::from_str(&text)
-      .map(Body::Json)
-      .map_err(|e| format!("Failed to parse Google response: {e}"))
-  } else {
-    Ok(Body::Text(text))
-  }
+  Ok(text)
 }
 
+/// Sends one request and parses the body as JSON; an empty body is `null`.
 pub(crate) async fn send_json(
   source: &GoogleSource,
   method: reqwest::Method,
   url: &str,
   body: Option<&Value>,
 ) -> Result<Value, String> {
-  match send(source, method, url, body).await? {
-    Body::Json(value) => Ok(value),
-    Body::Text(_) => Err("Google returned an unexpected response".to_string()),
+  let text = send_raw(source, method, url, body).await?;
+  if text.trim().is_empty() {
+    return Ok(Value::Null);
   }
+  serde_json::from_str(&text).map_err(|e| format!("Failed to parse Google response: {e}"))
 }
 
 pub(crate) fn error_message(status: reqwest::StatusCode, text: &str, via_proxy: bool) -> String {
   let parsed = serde_json::from_str::<Value>(text).ok();
+  let treq_session_rejected = parsed
+    .as_ref()
+    .and_then(|v| v.get("code"))
+    .and_then(Value::as_str)
+    == Some("treq_session");
   // Google: {"error":{"message":…}}; proxy: {"error":"…"}.
   let message = parsed.as_ref().and_then(|v| {
     v.pointer("/error/message")
@@ -130,9 +135,10 @@ pub(crate) fn error_message(status: reqwest::StatusCode, text: &str, via_proxy: 
   });
   match (status.as_u16(), message) {
     // The proxy explains a lapsed Google grant itself ("Reconnect Google
-    // Workspace…"); only a bare 401 means the treq session was rejected.
-    (401, Some(message)) if via_proxy => message,
-    (401, None) if via_proxy => {
+    // Workspace…"); `code: "treq_session"` (or a bare 401) means it rejected
+    // the treq session.
+    (401, Some(message)) if via_proxy && !treq_session_rejected => message,
+    (401, _) if via_proxy => {
       "treq could not authenticate with the Google proxy. Sign in to treq again.".to_string()
     }
     (401, _) => {

@@ -53,22 +53,64 @@ const DRIVE = "https://www.googleapis.com/drive/v3";
 // Exactly the calls the desktop app makes, by method and path. Anything
 // else (deleting or sharing Drive files, other Google APIs) is refused, so a
 // stolen treq session cannot be turned into general access to the grant.
-const ALLOWED_ENDPOINTS: { method: string; path: RegExp }[] = [
-  ["GET", `${TASKS}/users/@me/lists`],
-  ["POST", `${TASKS}/users/@me/lists`],
-  ["GET", `${TASKS}/lists/${SEGMENT}/tasks`],
-  ["POST", `${TASKS}/lists/${SEGMENT}/tasks`],
-  ["PATCH", `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}`],
-  ["DELETE", `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}`],
-  ["POST", `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}/move`],
-  ["GET", `${DRIVE}/files`],
-  ["GET", `${DRIVE}/files/${SEGMENT}`],
-  ["GET", `${DRIVE}/files/${SEGMENT}/export`],
-  ["POST", `${DRIVE}/files/${SEGMENT}/comments`],
-].map(([method, path]) => ({
+// Query parameters are allowlisted per endpoint too, so a caller cannot add
+// e.g. `uploadType` or a different `alt` to change what Google does.
+const ALLOWED_ENDPOINTS: {
+  method: string;
+  path: RegExp;
+  params: string[];
+}[] = (
+  [
+    ["GET", `${TASKS}/users/@me/lists`, ["maxResults", "pageToken"]],
+    ["POST", `${TASKS}/users/@me/lists`, []],
+    [
+      "GET",
+      `${TASKS}/lists/${SEGMENT}/tasks`,
+      ["maxResults", "showCompleted", "showHidden", "pageToken"],
+    ],
+    ["POST", `${TASKS}/lists/${SEGMENT}/tasks`, ["parent", "previous"]],
+    ["PATCH", `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}`, []],
+    ["DELETE", `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}`, []],
+    [
+      "POST",
+      `${TASKS}/lists/${SEGMENT}/tasks/${SEGMENT}/move`,
+      ["destinationTasklist", "parent", "previous"],
+    ],
+    [
+      "GET",
+      `${DRIVE}/files`,
+      [
+        "pageSize",
+        "pageToken",
+        "q",
+        "orderBy",
+        "fields",
+        "supportsAllDrives",
+        "includeItemsFromAllDrives",
+      ],
+    ],
+    [
+      "GET",
+      `${DRIVE}/files/${SEGMENT}`,
+      ["fields", "supportsAllDrives", "alt"],
+    ],
+    ["GET", `${DRIVE}/files/${SEGMENT}/export`, ["mimeType"]],
+    ["POST", `${DRIVE}/files/${SEGMENT}/comments`, ["fields"]],
+  ] as [string, string, string[]][]
+).map(([method, path, params]) => ({
   method,
   path: new RegExp(`^${path.replace(/[.]/g, "\\.")}$`),
+  params,
 }));
+
+/** 401 body when the treq session itself is missing or invalid. */
+export const TREQ_SESSION_UNAUTHORIZED = {
+  error: "Unauthorized",
+  code: "treq_session",
+} as const;
+
+export const TOO_LARGE_MESSAGE = "Document too large to review (over 20 MB)";
+const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 
 function json(body: unknown, status: number): ProxyResult {
   return {
@@ -89,14 +131,22 @@ export function isAllowedRequest(method: string, raw: string): boolean {
   // `new URL` has already resolved dot segments, so `files/../x` cannot
   // slip past the anchored patterns.
   const target = `${url.origin}${url.pathname}`;
-  return ALLOWED_ENDPOINTS.some(
-    (endpoint) => endpoint.method === method && endpoint.path.test(target),
+  const endpoint = ALLOWED_ENDPOINTS.find(
+    (e) => e.method === method && e.path.test(target),
   );
+  if (!endpoint) return false;
+  for (const [key, value] of url.searchParams) {
+    if (!endpoint.params.includes(key)) return false;
+    if (key === "alt" && value !== "media") return false;
+  }
+  return true;
 }
 
 function needsRefresh(token: StoredToken, now: number): boolean {
   if (!token.expires_at) return false;
-  return Date.parse(token.expires_at) - now < REFRESH_MARGIN_MS;
+  const expires = Date.parse(token.expires_at);
+  // An unparseable expiry is treated as expired.
+  return Number.isNaN(expires) || expires - now < REFRESH_MARGIN_MS;
 }
 
 async function refreshToken(
@@ -151,6 +201,15 @@ export async function proxyGoogleRequest(
     return json({ error: "Failed to check your plan" }, 500);
   }
   if (!pro) return json({ error: PRO_REQUIRED_MESSAGE }, 403);
+  if (
+    typeof request !== "object" ||
+    request === null ||
+    Array.isArray(request) ||
+    (request.method !== undefined && typeof request.method !== "string") ||
+    (request.op !== "status" && typeof request.url !== "string")
+  ) {
+    return json({ error: "Malformed request" }, 400);
+  }
   if (request.op === "status") {
     try {
       return json({ linked: (await deps.store.load()) !== null }, 200);
@@ -193,9 +252,19 @@ export async function proxyGoogleRequest(
     if (response.status === 401) {
       return json({ error: RECONNECT_MESSAGE }, 401);
     }
+    const length = Number(response.headers.get("content-length"));
+    if (length > MAX_RESPONSE_BYTES) {
+      await response.body?.cancel();
+      return json({ error: TOO_LARGE_MESSAGE }, 413);
+    }
+    const text = await response.text();
+    // String length counts UTF-16 units; close enough as a byte cap.
+    if (text.length > MAX_RESPONSE_BYTES) {
+      return json({ error: TOO_LARGE_MESSAGE }, 413);
+    }
     return {
       status: response.status,
-      body: await response.text(),
+      body: text,
       contentType: response.headers.get("content-type") ?? "application/json",
     };
   } catch (err) {

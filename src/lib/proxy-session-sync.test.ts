@@ -8,19 +8,19 @@ vi.mock("./supabase", () => ({
   supabase: {},
   SUPABASE_URL: "https://proj.supabase.co",
 }));
-vi.mock("./api-linear", () => ({
-  linearSetProxySession: mockSetProxySession,
+vi.mock("./api-tracker", () => ({
+  setProxySession: mockSetProxySession,
 }));
 
 import {
-  ensureLinearProxySessionSync,
-  resetLinearProxySessionSyncForTests,
-} from "./linear-proxy-auth";
+  ensureProxySessionSync,
+  resetProxySessionSyncForTests,
+} from "./proxy-session-sync";
 import type { AccessTokenSyncDeps } from "./supabase-token-sync";
 
-describe("ensureLinearProxySessionSync", () => {
+describe("ensureProxySessionSync", () => {
   beforeEach(() => {
-    resetLinearProxySessionSyncForTests();
+    resetProxySessionSyncForTests();
     mockSetProxySession.mockReset().mockResolvedValue(undefined);
   });
 
@@ -35,7 +35,7 @@ describe("ensureLinearProxySessionSync", () => {
         mockSetProxySession(token ? "https://proj.supabase.co" : null, token),
       setInterval: () => {},
     };
-    await ensureLinearProxySessionSync(deps);
+    await ensureProxySessionSync(deps);
     listener!(null);
     expect(mockSetProxySession.mock.calls).toEqual([
       ["https://proj.supabase.co", "jwt-1"],
@@ -53,7 +53,7 @@ describe("ensureLinearProxySessionSync", () => {
     });
     vi.useFakeTimers();
     try {
-      await ensureLinearProxySessionSync();
+      await ensureProxySessionSync();
     } finally {
       vi.useRealTimers();
     }

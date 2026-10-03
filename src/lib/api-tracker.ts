@@ -72,3 +72,9 @@ export const trackerStartAutoKickoffPolling = (
   repoPath: string,
 ): Promise<void> =>
   invoke("tracker_start_auto_kickoff_polling", { provider, repoPath });
+
+/** Hands the Rust proxy clients (Linear, Google) the treq Supabase session. */
+export const setProxySession = (
+  supabaseUrl: string | null,
+  accessToken: string | null,
+): Promise<void> => invoke("set_proxy_session", { supabaseUrl, accessToken });

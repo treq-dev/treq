@@ -92,18 +92,10 @@ pub enum LinearClientSource {
 
 pub type LinearProxySession = crate::proxy_session::ProxySession;
 
-// The auto-kickoff poller reads the session here too, so OAuth-connected
+// The auto-kickoff poller reads the shared session too, so OAuth-connected
 // repos work without a Tauri command in flight.
-static PROXY_SESSION: crate::proxy_session::ProxySessionSlot =
-  crate::proxy_session::ProxySessionSlot::new();
-
-/// Sets, or clears on sign-out, the session used for the OAuth proxy.
-pub fn set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
-  PROXY_SESSION.set(supabase_url, access_token);
-}
-
 fn proxy_session() -> Option<LinearProxySession> {
-  PROXY_SESSION.get()
+  crate::proxy_session::get()
 }
 
 pub fn resolve_linear_client(
@@ -1265,20 +1257,6 @@ mod tests {
   fn no_credentials_is_a_clear_error() {
     let err = resolve_client_source(None, None).err().unwrap();
     assert!(err.contains("not connected"), "{err}");
-  }
-
-  #[test]
-  fn set_proxy_session_normalizes_and_clears() {
-    set_proxy_session(
-      Some("https://proj.supabase.co/ ".into()),
-      Some("jwt".into()),
-    );
-    assert_eq!(
-      proxy_session().map(|s| s.supabase_url).as_deref(),
-      Some("https://proj.supabase.co")
-    );
-    set_proxy_session(Some("https://proj.supabase.co".into()), None);
-    assert!(proxy_session().is_none());
   }
 
   fn api_key(key: &str) -> LinearClientSource {

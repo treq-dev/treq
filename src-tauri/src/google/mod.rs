@@ -39,8 +39,14 @@ pub const GOOGLE_DOC_MIME: &str = "application/vnd.google-apps.document";
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-// Refresh a little early so a token cannot expire mid-request.
+// Refresh a little early so a token cannot expire mid-request: a minute,
+// or half the token's lifetime when that is shorter.
 const REFRESH_MARGIN_SECS: i64 = 60;
+/// Exports and other responses larger than this are refused.
+pub const MAX_RESPONSE_BYTES: u64 = 20 * 1024 * 1024;
+/// Pages followed when listing tasks or task lists, and Drive files.
+const MAX_TASK_PAGES: usize = 50;
+const MAX_DRIVE_PAGES: usize = 4;
 
 mod drive;
 mod http;
@@ -60,6 +66,9 @@ pub struct StoredTokens {
   pub refresh_token: Option<String>,
   /// Unix seconds.
   pub expires_at: Option<i64>,
+  /// Lifetime Google granted the access token with, in seconds.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub lifetime_secs: Option<i64>,
 }
 
 pub use crate::proxy_session::ProxySession;
@@ -77,14 +86,6 @@ pub enum GoogleSource {
   Proxy(ProxySession),
 }
 
-static PROXY_SESSION: crate::proxy_session::ProxySessionSlot =
-  crate::proxy_session::ProxySessionSlot::new();
-
-/// Sets, or clears on sign-out, the Supabase session sent to `google-proxy`.
-pub fn set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
-  PROXY_SESSION.set(supabase_url, access_token);
-}
-
 pub(crate) fn non_empty(value: Option<String>) -> Option<String> {
   value
     .map(|v| v.trim().to_string())
@@ -92,10 +93,20 @@ pub(crate) fn non_empty(value: Option<String>) -> Option<String> {
 }
 
 pub fn read_local_tokens(db: &Database) -> Option<StoredTokens> {
-  db.get_setting(TOKENS_SETTING)
-    .ok()
-    .flatten()
-    .and_then(|raw| serde_json::from_str(&raw).ok())
+  let raw = non_empty(db.get_setting(TOKENS_SETTING).ok().flatten())?;
+  match serde_json::from_str(&raw) {
+    Ok(tokens) => Some(tokens),
+    Err(e) => {
+      tracing::warn!("Ignoring unreadable stored Google tokens: {e}");
+      None
+    }
+  }
+}
+
+/// Forgets the locally stored tokens (the client id is kept for reconnecting).
+pub fn disconnect_local(db: &Database) -> Result<(), String> {
+  db.delete_setting(TOKENS_SETTING)
+    .map_err(|e| format!("Failed to remove Google tokens: {e}"))
 }
 
 /// `token_db` is the path of `db`, where refreshed tokens are written back.
@@ -106,7 +117,7 @@ pub fn resolve_source(db: &Database, token_db: PathBuf) -> Result<GoogleSource, 
     read_local_tokens(db),
     client_id,
     client_secret,
-    PROXY_SESSION.get(),
+    crate::proxy_session::get(),
   )?;
   if let GoogleSource::Local { token_db: slot, .. } = &mut source {
     *slot = Some(token_db);
@@ -134,33 +145,30 @@ fn choose_source(
   }
 }
 
+/// Which source requests would use.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConnectionMode {
+  Local,
+  Proxy,
+  None,
+}
+
 /// Connection state shown in settings.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct GoogleConnectionStatus {
-  /// `"local"`, `"proxy"` or `"none"`.
-  pub mode: String,
-  pub has_client_id: bool,
+  pub mode: ConnectionMode,
 }
 
-/// Which source requests would use. A signed-in treq session only counts as
-/// connected once `google-proxy` confirms it holds a Google grant for it.
-pub async fn connection_status(
-  source: Result<GoogleSource, String>,
-  has_client_id: bool,
-) -> GoogleConnectionStatus {
+/// A signed-in treq session only counts as connected once `google-proxy`
+/// confirms it holds a Google grant for it.
+pub async fn connection_status(source: Result<GoogleSource, String>) -> GoogleConnectionStatus {
   let mode = match source {
-    Ok(GoogleSource::Local { .. }) => "local",
-    Ok(GoogleSource::Proxy(session)) if proxy_linked(&session).await => "proxy",
-    _ => "none",
+    Ok(GoogleSource::Local { .. }) => ConnectionMode::Local,
+    Ok(GoogleSource::Proxy(session)) if proxy_linked(&session).await => ConnectionMode::Proxy,
+    _ => ConnectionMode::None,
   };
-  GoogleConnectionStatus {
-    mode: mode.to_string(),
-    has_client_id,
-  }
-}
-
-pub fn has_client_id(db: &Database) -> bool {
-  non_empty(db.get_setting(CLIENT_ID_SETTING).ok().flatten()).is_some()
+  GoogleConnectionStatus { mode }
 }
 
 async fn proxy_linked(session: &ProxySession) -> bool {

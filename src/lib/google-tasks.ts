@@ -14,22 +14,56 @@ export type TaskColumnCards = {
  * Splits one list's tasks into the cards a Kanban column shows: top-level
  * tasks with their subtasks nested under them, open ones first in Google's
  * order, completed ones in a separate group like the Google Tasks UI.
- * A subtask whose parent is missing is shown as its own card.
+ *
+ * No task is ever dropped, whatever the API returns:
+ * - duplicate ids keep their first copy;
+ * - a missing position sorts last;
+ * - a subtask whose parent is missing, itself, or part of a parent cycle is
+ *   shown as its own card;
+ * - a grandchild nests under its top-level ancestor (cards are one level deep);
+ * - an open subtask under a completed task is shown as its own open card, so
+ *   it does not hide in the collapsed Completed group.
  */
 export function buildTaskColumn(tasks: GoogleTask[]): TaskColumnCards {
-  const ids = new Set(tasks.map((t) => t.id));
-  const byPosition = [...tasks].sort((a, b) =>
-    a.position.localeCompare(b.position),
-  );
+  const byId = new Map<string, GoogleTask>();
+  for (const task of tasks) if (!byId.has(task.id)) byId.set(task.id, task);
+  const unique = [...byId.values()];
+  const order = new Map(unique.map((t, i) => [t.id, i]));
+  const byPosition = unique.sort((a, b) => {
+    const pa = a.position ?? null;
+    const pb = b.position ?? null;
+    if (pa !== pb) {
+      if (pa === null) return 1;
+      if (pb === null) return -1;
+      return pa < pb ? -1 : 1;
+    }
+    return order.get(a.id)! - order.get(b.id)!;
+  });
+
+  /** The top-level ancestor, or the task itself when its chain is broken. */
+  const rootOf = (task: GoogleTask): GoogleTask => {
+    const seen = new Set([task.id]);
+    let current = task;
+    for (;;) {
+      const parent = current.parent ? byId.get(current.parent) : undefined;
+      if (!parent || parent.id === current.id) return current;
+      if (seen.has(parent.id)) return task; // cycle
+      seen.add(parent.id);
+      current = parent;
+    }
+  };
+
   const subtasks = new Map<string, GoogleTask[]>();
   const cards: TaskCard[] = [];
   for (const task of byPosition) {
-    if (task.parent && ids.has(task.parent)) {
-      const siblings = subtasks.get(task.parent) ?? [];
-      siblings.push(task);
-      subtasks.set(task.parent, siblings);
-    } else {
+    const root = rootOf(task);
+    const promoted = root.status === "completed" && task.status !== "completed";
+    if (root.id === task.id || promoted) {
       cards.push({ task, subtasks: [] });
+    } else {
+      const siblings = subtasks.get(root.id) ?? [];
+      siblings.push(task);
+      subtasks.set(root.id, siblings);
     }
   }
   for (const card of cards) {

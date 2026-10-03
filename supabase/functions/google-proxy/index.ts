@@ -7,6 +7,7 @@ import {
   proxyGoogleRequest,
   type ProxyRequest,
   type StoredToken,
+  TREQ_SESSION_UNAUTHORIZED,
 } from "./lib.ts";
 
 const corsHeaders = {
@@ -32,7 +33,7 @@ Deno.serve(async (req) => {
 
   const authHeader = req.headers.get("authorization") ?? "";
   const userToken = authHeader.replace(/^Bearer\s+/i, "");
-  if (!userToken) return json({ error: "Unauthorized" }, 401);
+  if (!userToken) return json(TREQ_SESSION_UNAUTHORIZED, 401);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const supabaseUser = createClient(
@@ -44,7 +45,7 @@ Deno.serve(async (req) => {
     data: { user },
     error: authError,
   } = await supabaseUser.auth.getUser();
-  if (authError || !user) return json({ error: "Unauthorized" }, 401);
+  if (authError || !user) return json(TREQ_SESSION_UNAUTHORIZED, 401);
 
   let body: ProxyRequest;
   try {

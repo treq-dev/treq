@@ -255,12 +255,12 @@ pub async fn linear_list_document_comments(
   crate::linear::linear_list_document_comments_impl(&client_source, &document_id).await
 }
 
-/// Gives the Linear client the Supabase session it sends to the
-/// `linear-proxy` Edge Function for OAuth-connected users. `None` clears it
-/// on sign-out. Used by `src/lib/linear-proxy-auth.ts`.
+/// Gives the Linear and Google clients the Supabase session they send to the
+/// `linear-proxy` and `google-proxy` Edge Functions. `None` clears it on
+/// sign-out; a URL that is not https (or loopback http) also clears it.
 #[tauri::command]
-pub fn linear_set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
-  crate::linear::set_proxy_session(supabase_url, access_token);
+pub fn set_proxy_session(supabase_url: Option<String>, access_token: Option<String>) {
+  crate::proxy_session::set(supabase_url, access_token);
 }
 
 #[tauri::command]

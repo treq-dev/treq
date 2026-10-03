@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { linearStartAutoKickoffPolling } from "../lib/api-linear";
-import { ensureLinearProxySessionSync } from "../lib/linear-proxy-auth";
+import { ensureProxySessionSync } from "../lib/proxy-session-sync";
 
 /**
  * Registers the open repo with the backend auto-kickoff poller. The poller
@@ -13,7 +13,7 @@ import { ensureLinearProxySessionSync } from "../lib/linear-proxy-auth";
 export function useLinearAutoKickoff(repoPath: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled || !repoPath) return;
-    void ensureLinearProxySessionSync()
+    void ensureProxySessionSync()
       .then(() => linearStartAutoKickoffPolling(repoPath))
       .catch((err) => {
         console.warn("Failed to start Linear auto-kickoff polling", err);

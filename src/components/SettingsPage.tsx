@@ -56,6 +56,8 @@ interface SettingsPageProps {
   onClose: () => void;
   currentBranch?: string | null;
   cloudWorkspace?: CloudWorkspaceControls;
+  /** Tab to show first, e.g. `integrations`. */
+  initialTab?: string;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
@@ -63,8 +65,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onClose,
   currentBranch,
   cloudWorkspace,
+  initialTab,
 }) => {
-  const [currentTab, setCurrentTab] = useState<TabValue>("repository");
+  const [currentTab, setCurrentTab] = useState<TabValue>(
+    (initialTab as TabValue | undefined) ?? "repository",
+  );
   const [modelDraft, setModelDraft] = useState<string | null>(null);
   const [agentDraft, setAgentDraft] = useState<string | null>(null);
   const [conflictDraft, setConflictDraft] = useState<string | null>(null);

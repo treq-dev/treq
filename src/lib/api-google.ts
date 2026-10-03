@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 export type GoogleConnectionStatus = {
   /** `local` (own OAuth client), `proxy` (treq Pro) or `none`. */
   mode: "local" | "proxy" | "none";
-  has_client_id: boolean;
 };
 
 export type GoogleTaskList = { id: string; title: string };
@@ -53,16 +52,14 @@ export const GOOGLE_DOC_REVIEW_TARGET = "google_doc";
 export const googleConnectionStatus = (): Promise<GoogleConnectionStatus> =>
   invoke("google_connection_status");
 
-export const googleSetProxySession = (
-  supabaseUrl: string | null,
-  accessToken: string | null,
-): Promise<void> =>
-  invoke("google_set_proxy_session", { supabaseUrl, accessToken });
-
 export const googleOAuthBegin = (
   clientId: string,
   clientSecret?: string,
 ): Promise<string> => invoke("google_oauth_begin", { clientId, clientSecret });
+
+/** Stops a pending local sign-in; `googleOAuthComplete` then rejects. */
+export const googleOAuthCancel = (): Promise<void> =>
+  invoke("google_oauth_cancel");
 
 export const googleOAuthComplete = (): Promise<void> =>
   invoke("google_oauth_complete");
@@ -103,6 +100,8 @@ export const googleMoveTask = (move: {
   destinationListId?: string;
   /** Sibling to place the task after; omit for the top of the list. */
   previousTaskId?: string;
+  /** Task to nest under; omit to move to the top level. */
+  parent?: string;
 }): Promise<GoogleTask> => invoke("google_move_task", move);
 
 export const googleListDriveFiles = (

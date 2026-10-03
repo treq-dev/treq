@@ -12,6 +12,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { Input } from "../ui/input";
 import { errorText } from "../../lib/errorText";
 import { DriveFileRow } from "./DriveFileRow";
+import { GoogleErrorState } from "./GoogleErrorState";
 
 export interface DocReviewLaunch {
   prompt: string;
@@ -27,7 +28,8 @@ export interface DocReviewLaunch {
 export const GoogleDrivePanel: React.FC<{
   repoPath: string;
   onStartReview: (launch: DocReviewLaunch) => void | Promise<void>;
-}> = ({ repoPath, onStartReview }) => {
+  onOpenSettings?: () => void;
+}> = ({ repoPath, onStartReview, onOpenSettings }) => {
   const { addToast } = useToastStore();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -38,6 +40,7 @@ export const GoogleDrivePanel: React.FC<{
     data: files,
     error,
     isLoading,
+    mutate,
   } = useSWR(
     ["google-drive-files", query, docsOnly],
     () => googleListDriveFiles(query || undefined, docsOnly),
@@ -103,9 +106,12 @@ export const GoogleDrivePanel: React.FC<{
         </div>
       )}
       {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {errorText(error)}
-        </p>
+        <GoogleErrorState
+          className="space-y-2"
+          error={error}
+          onRetry={() => void mutate()}
+          onOpenSettings={onOpenSettings}
+        />
       )}
       {files && files.length === 0 && (
         <p className="text-sm text-muted-foreground">No files found.</p>
