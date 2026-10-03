@@ -159,7 +159,7 @@ jobs:
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -189,10 +189,14 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npm run mobile:android:init
 
+      # arm64 only, without debug symbols: the universal unstripped build
+      # is ~2.4 GB, too big to sideload. This keeps it under ~100 MB.
       - name: Build unsigned debug APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
-        run: npm run mobile:android:build -- --debug
+          CARGO_PROFILE_DEV_DEBUG: "false"
+          CARGO_PROFILE_DEV_STRIP: "true"
+        run: npm run mobile:android:build -- --debug --apk --target aarch64
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
