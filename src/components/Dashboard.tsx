@@ -451,10 +451,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         connectionEndpoint,
         inspection,
       );
-      await setSetting(
-        "last_opened_remote_repo",
-        JSON.stringify(connectedRepo),
-      );
       setActiveRemoteRepo(connectedRepo);
     }
   };
@@ -1701,10 +1697,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         result.descriptor,
         activeEndpoint,
         result.inspection,
-      );
-      await setSetting(
-        "last_opened_remote_repo",
-        JSON.stringify(connectedRepo),
       );
       if (!cancelled) setActiveRemoteRepo(connectedRepo);
     })();
