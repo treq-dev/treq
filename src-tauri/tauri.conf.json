@@ -408,11 +408,13 @@
             },
             {
               "name": "start-line",
-              "takesValue": true
+              "takesValue": true,
+              "description": "First line to read, 1-based (default: 1)"
             },
             {
               "name": "end-line",
-              "takesValue": true
+              "takesValue": true,
+              "description": "Last line to read, inclusive (default: --start-line + 299, a 300-line window)"
             },
             {
               "name": "value",
