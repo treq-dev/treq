@@ -3210,19 +3210,10 @@ pub fn rename_workspace(
     .to_str()
     .ok_or("Failed to convert workspace path to string")?;
 
-  // 7. Check if old bookmark was tracked
-  let was_tracked =
-    jj::is_bookmark_tracked(workspace_path_str, old_branch_name, "origin").unwrap_or(false);
-
   // 8-9. Move the bookmark in one jj transaction so a failure cannot leave
   // both names (or neither) behind.
   jj::jj_rename_bookmark(workspace_path_str, old_branch_name, new_branch_name)
     .map_err(|e| format!("Failed to rename bookmark: {}", e))?;
-
-  // 10. If was tracked, best-effort track new bookmark
-  if was_tracked {
-    let _ = jj::jj_bookmark_track(workspace_path_str, new_branch_name, "origin");
-  }
 
   // 11. Update branch name in DB
   local_db::update_workspace_branch_name(repo_path, workspace_id, new_branch_name)
