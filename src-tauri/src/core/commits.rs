@@ -202,6 +202,9 @@ pub fn move_commit_to_existing_workspace(
     return Err("invalid_arguments: cannot move a commit into its own workspace".to_string());
   }
   ensure_rewritable(repo_path, &source_full_path_str, commit_change_id)?;
+  let parent = source.target_branch.as_deref();
+  jj::ensure_commit_rewritable(&source_full_path_str, commit_change_id, parent)
+    .map_err(|e| e.to_string())?;
   let target_workspace_dir = Path::new(repo_path)
     .join(".treq")
     .join("workspaces")
