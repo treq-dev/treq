@@ -12,10 +12,10 @@
     "skillsInstallation": false,
     "workspaceScheduling": false,
     "remoteSsh": false,
-    "linearIntegration": false,
+    "linearIntegration": true,
     "trelloIntegration": false,
     "jiraIntegration": false,
-    "logs": false,
+    "logs": true,
     "checks": false,
     "browser": false,
     "agentMessageQueue": false

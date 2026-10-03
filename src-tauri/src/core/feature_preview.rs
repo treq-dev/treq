@@ -103,14 +103,14 @@ mod tests {
   }
 
   #[test]
-  fn package_json_preview_flags_default_off() {
+  fn package_json_preview_flag_defaults() {
     assert!(!package_json_default(PreviewFeature::SkillsInstallation));
     assert!(!package_json_default(PreviewFeature::WorkspaceScheduling));
     assert!(!package_json_default(PreviewFeature::RemoteSsh));
-    assert!(!package_json_default(PreviewFeature::LinearIntegration));
+    assert!(package_json_default(PreviewFeature::LinearIntegration));
     assert!(!package_json_default(PreviewFeature::TrelloIntegration));
     assert!(!package_json_default(PreviewFeature::JiraIntegration));
-    assert!(!package_json_default(PreviewFeature::Logs));
+    assert!(package_json_default(PreviewFeature::Logs));
     assert!(!package_json_default(PreviewFeature::Checks));
     assert!(!package_json_default(PreviewFeature::Browser));
   }

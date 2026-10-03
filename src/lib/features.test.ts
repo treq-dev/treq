@@ -31,10 +31,10 @@ describe("preview features", () => {
     expect(FEATURES.skillsInstallation).toBe(false);
     expect(FEATURES.workspaceScheduling).toBe(false);
     expect(FEATURES.remoteSsh).toBe(false);
-    expect(FEATURES.linearIntegration).toBe(false);
+    expect(FEATURES.linearIntegration).toBe(true);
     expect(FEATURES.trelloIntegration).toBe(false);
     expect(FEATURES.jiraIntegration).toBe(false);
-    expect(FEATURES.logs).toBe(false);
+    expect(FEATURES.logs).toBe(true);
     expect(FEATURES.checks).toBe(false);
     expect(FEATURES.browser).toBe(false);
     expect(FEATURES.agentMessageQueue).toBe(false);
