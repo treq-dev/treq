@@ -38,15 +38,19 @@ fn parallel_commits_on_one_workspace_do_not_diverge() {
   let mut succeeded = 0;
   for child in children {
     let out = child.wait_with_output().unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    let output = format!(
+      "{}{}",
+      String::from_utf8_lossy(&out.stderr),
+      String::from_utf8_lossy(&out.stdout)
+    );
     // A losing process sees a clean working copy; with an empty-commit guard it
     // fails with "nothing to commit", otherwise it is a no-op.
     if out.status.success() {
       succeeded += 1;
     } else {
       assert!(
-        stderr.contains("nothing to commit"),
-        "unexpected failure: {stderr}"
+        output.contains("nothing to commit"),
+        "unexpected failure: {output}"
       );
     }
   }

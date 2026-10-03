@@ -252,9 +252,24 @@ fn optional_usize(matches: &Matches, name: &str) -> Result<Option<usize>, String
     .map(|value| {
       value
         .parse()
-        .map_err(|_| format!("--{name} must be a positive integer"))
+        .ok()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| format!("invalid_arguments: --{name} must be a positive integer"))
     })
     .transpose()
+}
+
+fn line_range(matches: &Matches) -> Result<(Option<usize>, Option<usize>), String> {
+  let start = optional_usize(matches, "start-line")?;
+  let end = optional_usize(matches, "end-line")?;
+  if let (Some(start), Some(end)) = (start, end) {
+    if start > end {
+      return Err(format!(
+        "invalid_arguments: invalid line range {start}..{end}: expected 1 <= start-line <= end-line"
+      ));
+    }
+  }
+  Ok((start, end))
 }
 
 fn split_csv(value: Option<String>) -> Vec<String> {
@@ -360,6 +375,7 @@ pub(crate) fn parse_remote_command_request(
       .clone()
       .ok_or_else(|| format!("--target ({what}) is required"))
   };
+  let (start_line, end_line) = line_range(matches)?;
   match (command, action.as_str()) {
     ("repo", "status") => Ok(TreqCommandRequest::RepositoryStatus { repo }),
     ("repo", "branches") => Ok(TreqCommandRequest::ListBranches { repo }),
@@ -460,8 +476,8 @@ pub(crate) fn parse_remote_command_request(
         "parent" => FileRevision::Parent,
         _ => return Err("--revision must be working-copy or parent".to_string()),
       },
-      start_line: optional_usize(matches, "start-line")?,
-      end_line: optional_usize(matches, "end-line")?,
+      start_line,
+      end_line,
     }),
     ("file", "restore") => Ok(TreqCommandRequest::RestoreFile {
       repo,

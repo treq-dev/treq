@@ -1434,3 +1434,64 @@ mod help_text {
     assert!(subcommand_help("diff").contains("changes workspace-diff"));
   }
 }
+
+mod numeric_args {
+  use super::*;
+
+  fn file_read(extra: &[(&str, &str)]) -> Result<crate::core::remote::TreqCommandRequest, String> {
+    let mut args = vec![("action", "read"), ("repo", "/tmp/r"), ("path", "a.rs")];
+    args.extend_from_slice(extra);
+    parse_remote_command_request("file", &remote_matches(&args))
+  }
+
+  #[test]
+  fn file_read_rejects_line_zero_and_reversed_ranges() {
+    file_read(&[("start-line", "2"), ("end-line", "2")]).unwrap();
+    for extra in [
+      &[("start-line", "0")][..],
+      &[("end-line", "0")][..],
+      &[("start-line", "5"), ("end-line", "2")][..],
+    ] {
+      let error = file_read(extra).unwrap_err();
+      assert!(
+        error.starts_with("invalid_arguments:"),
+        "{extra:?}: {error}"
+      );
+    }
+  }
+
+  #[test]
+  fn file_search_rejects_a_zero_limit() {
+    let error = parse_remote_command_request(
+      "file",
+      &remote_matches(&[("action", "search"), ("repo", "/tmp/r"), ("limit", "0")]),
+    )
+    .unwrap_err();
+    assert!(
+      error.contains("--limit must be a positive integer"),
+      "{error}"
+    );
+  }
+
+  #[test]
+  fn negative_numbers_parse_as_values_and_are_rejected() {
+    let matches = crate::cli::args::parse([
+      "treq",
+      "file",
+      "read",
+      "--repo",
+      "/tmp/r",
+      "--path",
+      "a.rs",
+      "--start-line",
+      "-1",
+    ])
+    .unwrap();
+    let sub = matches.subcommand.unwrap();
+    let error = parse_remote_command_request("file", &sub.matches).unwrap_err();
+    assert!(
+      error.contains("--start-line must be a positive integer"),
+      "{error}"
+    );
+  }
+}

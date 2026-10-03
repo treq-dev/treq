@@ -31,7 +31,9 @@ fn parse_line_number(value: &str, name: &str) -> Result<i64, String> {
   value
     .trim()
     .parse::<i64>()
-    .map_err(|_| format!("--{name} must be a positive line number, got '{value}'"))
+    .ok()
+    .filter(|line| *line > 0)
+    .ok_or_else(|| format!("--{name} must be a positive line number, got '{value}'"))
 }
 
 fn parse_side(value: Option<&str>) -> Result<Option<String>, String> {
@@ -236,6 +238,15 @@ mod tests {
   #[test]
   fn keeps_an_empty_suggestion_empty() {
     assert_eq!(strip_suggestion_fence("```suggestion\n```"), "");
+  }
+
+  #[test]
+  fn line_numbers_must_be_positive() {
+    assert_eq!(parse_line_number("7", "start-line"), Ok(7));
+    for bad in ["0", "-1"] {
+      let error = parse_line_number(bad, "start-line").unwrap_err();
+      assert!(error.contains("must be a positive line number"), "{error}");
+    }
   }
 
   #[test]

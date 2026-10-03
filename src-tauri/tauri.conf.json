@@ -418,7 +418,7 @@
             {
               "name": "end-line",
               "takesValue": true,
-              "description": "Last line to read, inclusive (default: 300)"
+              "description": "Last line to read, inclusive (default: --start-line + 299, a 300-line window)"
             },
             {
               "name": "value",

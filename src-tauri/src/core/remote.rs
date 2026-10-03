@@ -1822,7 +1822,9 @@ fn workspace_id(value: Option<&String>) -> Result<Option<i64>, String> {
     .map(|value| {
       value
         .parse::<i64>()
-        .map_err(|_| "invalid_arguments: workspace must be a numeric id".to_string())
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| "invalid_arguments: workspace must be a positive numeric id".to_string())
     })
     .transpose()
 }
@@ -1880,14 +1882,17 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       revision,
       start_line,
       end_line,
-    } => json(crate::core::changes::get_file_lines(
-      &repo,
-      workspace_id(workspace.as_ref())?,
-      &path,
-      revision == FileRevision::Parent,
-      start_line.unwrap_or(1),
-      end_line.unwrap_or(300),
-    )),
+    } => {
+      let start_line = start_line.unwrap_or(1);
+      json(crate::core::changes::get_file_lines(
+        &repo,
+        workspace_id(workspace.as_ref())?,
+        &path,
+        revision == FileRevision::Parent,
+        start_line,
+        end_line.unwrap_or(start_line.saturating_add(299)),
+      ))
+    }
     TreqCommandRequest::ListCommits { repo, workspace } => {
       json(crate::core::commits::list_commits(
         &repo,
@@ -3189,6 +3194,37 @@ fn validate_remote_path(path: &str) -> Result<(), String> {
 mod tests {
   use super::*;
   use std::process::Command;
+
+  #[test]
+  fn workspace_id_rejects_zero_and_negative_ids() {
+    assert_eq!(workspace_id(Some(&"3".to_string())), Ok(Some(3)));
+    for bad in ["0", "-1"] {
+      let error = workspace_id(Some(&bad.to_string())).unwrap_err();
+      assert!(error.contains("positive"), "{bad}: {error}");
+    }
+  }
+
+  #[test]
+  fn read_file_defaults_end_line_to_a_300_line_window_from_start_line() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let content: String = (1..=700).map(|n| format!("{n}\n")).collect();
+    std::fs::write(repo_dir.path().join("long.txt"), content).unwrap();
+    let read = |start_line: Option<usize>| {
+      let value = execute_local_request(TreqCommandRequest::ReadFile {
+        repo: repo_dir.path().to_str().unwrap().to_string(),
+        workspace: None,
+        path: "long.txt".into(),
+        revision: FileRevision::WorkingCopy,
+        start_line,
+        end_line: None,
+      })
+      .unwrap();
+      (value["start_line"].clone(), value["end_line"].clone())
+    };
+
+    assert_eq!(read(None), (1.into(), 300.into()));
+    assert_eq!(read(Some(301)), (301.into(), 600.into()));
+  }
 
   #[test]
   fn parses_ssh_hosts_ignoring_patterns() {
