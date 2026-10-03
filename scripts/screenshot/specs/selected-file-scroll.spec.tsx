@@ -73,7 +73,7 @@ it("scrolls the Review collapsible when clicking Changes and Selected files", as
 		);
 	}
 
-	await user.click(await screen.findByRole("tab", { name: /Review/ }));
+	await user.click(await screen.findByRole("tab", { name: /^Changes/ }));
 	await screen.findAllByText(LAST_FILE);
 
 	const scrolledIds: string[] = [];
@@ -87,7 +87,7 @@ it("scrolls the Review collapsible when clicking Changes and Selected files", as
 		name: "selected-file-scroll-01-before-click",
 		viewport: { width: 1440, height: 700 },
 		expectations: [
-			"The Review sidebar Changes list shows many files starting with file-01.txt.",
+			"The Changes sidebar Changes list shows many files starting with file-01.txt.",
 			"The main pane shows the file-01.txt collapsible near the top.",
 			"file-08.txt is not the file collapsible at the top of the main pane.",
 		],
@@ -125,7 +125,7 @@ it("scrolls the Review collapsible when clicking Changes and Selected files", as
 		viewport: { width: 1440, height: 700 },
 		scrollIntoView: fileSectionSelector(LAST_FILE),
 		expectations: [
-			"The Review sidebar has a Selected section listing file-08.txt.",
+			"The Changes sidebar has a Selected section listing file-08.txt.",
 			"file-08.txt is highlighted in the Selected list.",
 			"The main pane shows the file-08.txt collapsible in view.",
 		],

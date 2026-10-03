@@ -44,7 +44,7 @@ describe("create dialog branch check", () => {
     await screen.findByTestId("show-workspace-header");
     await user.click(await screen.findByRole("button", { name: "Stack" }));
     const dialog = await screen.findByTestId("modal");
-    const input = within(dialog).getByLabelText("Branch Name");
+    const input = await within(dialog).findByLabelText("Branch Name");
 
     await user.type(input, "feat-a");
     await within(dialog).findByText("Branch already exists locally");

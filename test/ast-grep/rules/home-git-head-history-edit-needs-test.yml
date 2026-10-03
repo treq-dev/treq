@@ -1,0 +1,40 @@
+id: home-git-head-history-edit-needs-test
+language: rust
+severity: error
+message: >
+  This function rewrites history or updates a working copy after a rewrite, so
+  it can move the colocated home repo's `@` away from Git HEAD. Put a
+  `// home-head-test: <test_fn>[, <test_fn>...]` line directly above the `fn`
+  naming tests in `src-tauri/tests/jj_home_git_head_sync_test.rs` that drive
+  this path. That test file checks each named test exists.
+note: >
+  A HEAD left behind by a rewrite makes every file the rewrite changed show up
+  as a working-copy change on the next read. See
+  `sync_home_git_head_to_wc_parent` in `src-tauri/src/jj.rs`.
+files:
+  - "src-tauri/src/**/*.rs"
+utils:
+  history-edit-chokepoint:
+    regex: (^|::)(update_workspace_after_history_edit|reconcile_all_workspaces_after_rewrite|sync_home_git_head_to_wc_parent)$
+rule:
+  kind: function_item
+  has:
+    stopBy: end
+    kind: call_expression
+    has:
+      field: function
+      matches: history-edit-chokepoint
+  not:
+    any:
+      - has:
+          field: name
+          matches: history-edit-chokepoint
+      - follows:
+          kind: line_comment
+          regex: '^// home-head-test: [a-z0-9_]+(, [a-z0-9_]+)*$'
+      - inside:
+          stopBy: end
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: cfg\(test\)

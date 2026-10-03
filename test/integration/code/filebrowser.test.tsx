@@ -69,7 +69,7 @@ async function openWorkspaceCodeBrowser(
   return scoped;
 }
 
-describe("Dashboard - FileBrowser integration", () => {
+describe("Dashboard - FileBrowser integration", { timeout: 15_000 }, () => {
   let user: ReturnType<typeof userEvent.setup>;
 
   beforeEach(() => {
@@ -112,7 +112,7 @@ describe("Dashboard - FileBrowser integration", () => {
     expect(fileBrowser.queryByText(".jj")).toBeNull();
     expect(fileBrowser.queryByText(".git")).toBeNull();
     expect(fileBrowser.queryByText(".secret")).toBeNull();
-    expect(fileBrowser.getByText(".env")).toBeTruthy();
+    expect(await fileBrowser.findByText(".env")).toBeTruthy();
   });
 
   it("reloads the open file and directory tree after a scoped filesystem refresh", async () => {

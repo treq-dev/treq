@@ -2120,3 +2120,60 @@ fn test_retarget_workspace_lifts_bridge_when_parent_moves_below_child() {
     "child should have been lifted onto parent's old target"
   );
 }
+
+#[test]
+fn retarget_workspace_swaps_the_jj_graph_when_parent_moves_below_child() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+  let default_branch = repo.default_branch().to_string();
+  let parent = repo
+    .create_workspace_with_commit("cf/p", "p.txt", "p\n", None)
+    .expect("parent");
+  let child = repo
+    .create_workspace_with_commit("cf/c", "c.txt", "c\n", Some("cf/p"))
+    .expect("child");
+  treq_lib::core::retarget_workspace(&repo.repo_path, child.id, "cf/p", &default_branch)
+    .expect("stack child on parent");
+
+  treq_lib::core::retarget_workspace(&repo.repo_path, parent.id, "cf/c", &default_branch)
+    .expect("move parent below child");
+
+  let parent_under_child =
+    TestRepo::jj_commit_ids_in_revset(&repo.repo_path, "::cf/c & cf/p").expect("revset");
+  let child_under_parent =
+    TestRepo::jj_commit_ids_in_revset(&repo.repo_path, "::cf/p & cf/c").expect("revset");
+  assert!(parent_under_child.is_empty(), "cf/p is still below cf/c");
+  assert_eq!(child_under_parent.len(), 1, "cf/c should be below cf/p");
+}
+
+#[test]
+fn retarget_workspace_swaps_a_conflicting_stack_without_literal_markers() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+  let default_branch = repo.default_branch().to_string();
+  let parent = repo
+    .create_workspace_with_commit("cf/p", "f.txt", "p\n", None)
+    .expect("parent");
+  let child = repo
+    .create_workspace_with_commit("cf/c", "f.txt", "c\n", Some("cf/p"))
+    .expect("child");
+  treq_lib::core::retarget_workspace(&repo.repo_path, child.id, "cf/p", &default_branch)
+    .expect("stack child on parent");
+
+  treq_lib::core::retarget_workspace(&repo.repo_path, parent.id, "cf/c", &default_branch)
+    .expect("move parent below child");
+
+  let parent_under_child =
+    TestRepo::jj_commit_ids_in_revset(&repo.repo_path, "::cf/c & cf/p").expect("revset");
+  assert!(parent_under_child.is_empty(), "cf/p is still below cf/c");
+  for ws in [&parent, &child] {
+    let path = repo.workspace_full_path(ws);
+    TestRepo::jj_snapshot(&path).expect("snapshot");
+    let text =
+      std::fs::read_to_string(std::path::Path::new(&path).join("f.txt")).unwrap_or_default();
+    let conflicted = treq_lib::jj::get_conflicted_files(&path, None).expect("conflicts");
+    assert!(
+      !text.contains("<<<<<<<") || conflicted.contains(&"f.txt".to_string()),
+      "{} holds literal conflict markers: {text}",
+      ws.branch_name
+    );
+  }
+}

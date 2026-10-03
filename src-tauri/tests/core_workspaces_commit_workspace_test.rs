@@ -176,6 +176,25 @@ fn test_commit_home_repo_advances_branch() {
 }
 
 #[test]
+fn test_commit_home_repo_leaves_branch_unconflicted_after_git_import() {
+  let repo = TestRepo::new().expect("Failed to create test repo");
+  let default_branch = repo.default_branch();
+  repo
+    .create_file("home.txt", "home\n")
+    .expect("write home file");
+
+  treq_lib::jj::jj_commit(&repo.repo_path, "home repo commit")
+    .expect("jj_commit on home repo failed");
+  // Any later read that imports git refs must agree with the bookmark jj moved.
+  treq_lib::jj::jj_import_remaining_git_refs(&repo.repo_path).expect("import git refs");
+
+  assert!(
+    !treq_lib::jj::jj_is_bookmark_conflicted(&repo.repo_path, default_branch),
+    "home branch bookmark became conflicted after committing"
+  );
+}
+
+#[test]
 fn test_commit_workspace_advances_branch() {
   let repo = TestRepo::new().expect("Failed to create test repo");
   let workspace = treq_lib::core::create_workspace(

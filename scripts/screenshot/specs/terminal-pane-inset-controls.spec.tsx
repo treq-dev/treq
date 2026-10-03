@@ -9,10 +9,11 @@ import userEvent from "@testing-library/user-event";
 import {
   createTestRepo,
   findSidebarBranchElement,
+  findSidebarWorkspaceRow,
   openRepo,
 } from "../../../test/utils";
 import { createWorkspace, getWorkspaces } from "../../../src/lib/api";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import { captureDocument } from "../capture";
 
@@ -44,7 +45,9 @@ it("pane expand/control buttons sit in an inset top-right pull", async () => {
   });
 
   await user.click(
-    await screen.findByRole("button", { name: "New agent terminal" }),
+    within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", {
+      name: "Start agent",
+    }),
   );
   await waitFor(() => {
     expect(

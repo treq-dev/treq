@@ -135,7 +135,10 @@ describe("skill library", () => {
     await user.keyboard("{Control>}k{/Control}");
     await user.click(await screen.findByText("Create Workspace"));
     const dialog = await screen.findByTestId("modal");
-    await user.type(within(dialog).getByLabelText("Branch Name"), BRANCH_NAME);
+    await user.type(
+      await within(dialog).findByLabelText("Branch Name"),
+      BRANCH_NAME,
+    );
     await user.click(
       within(dialog).getByRole("button", { name: "Create Workspace" }),
     );

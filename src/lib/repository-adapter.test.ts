@@ -30,6 +30,7 @@ import {
   type TreqCommandRequest,
 } from "./remote-dispatch";
 import { transportCreateCommit } from "./repository-adapter";
+import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -164,6 +165,23 @@ describe("remote repository reads", () => {
     const saved = await loadFileBrowserReview(ROOT, 7);
     expect(saved?.summary_text).toBe("summary");
     expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("remote cutoff errors", () => {
+  it.each([
+    ["client key revoked", "key_revoked"],
+    ["session ended", "session_ended"],
+    ["instance no longer accessible", "instance_inaccessible"],
+    ["certificate expired without renewal", "certificate_expired"],
+  ])("records a %s cutoff under its own reason", async (text, reason) => {
+    useRemoteCutoffStore.setState({ cutoffs: {} });
+    vi.mocked(dispatch).mockRejectedValueOnce(
+      `credential_cut_off: endpoint endpoint-1 (${text})`,
+    );
+
+    await expect(getCommitDiff(ROOT, null, "abc")).rejects.toBeDefined();
+    expect(useRemoteCutoffStore.getState().cutoffs["endpoint-1"]).toBe(reason);
   });
 });
 
