@@ -120,15 +120,33 @@ fn sync_after_commit_on_remote_cloned_branch_keeps_working_copy() {
     let bookmark = treq_lib::jj::jj_get_commit_id(ws, branch).expect("bookmark");
     let wc = treq_lib::jj::jj_get_commit_id(ws, "@").expect("@");
     let wc_parent = treq_lib::jj::jj_get_commit_id(ws, "@-").expect("@-");
-    assert_eq!(bookmark, bookmark_after_commit, "round {round}: bookmark moved");
-    assert_eq!(wc, wc_after_commit, "round {round}: working-copy commit replaced");
-    assert_eq!(wc_parent, bookmark, "round {round}: @ not a child of bookmark");
+    assert_eq!(
+      bookmark, bookmark_after_commit,
+      "round {round}: bookmark moved"
+    );
+    assert_eq!(
+      wc, wc_after_commit,
+      "round {round}: working-copy commit replaced"
+    );
+    assert_eq!(
+      wc_parent, bookmark,
+      "round {round}: @ not a child of bookmark"
+    );
 
     let remote_log = TestRepo::run_git(
       &repo.repo_path,
-      &["log", "--format=%s", "-1", &format!("refs/remotes/origin/{}", branch)],
+      &[
+        "log",
+        "--format=%s",
+        "-1",
+        &format!("refs/remotes/origin/{}", branch),
+      ],
     )
     .expect("Failed to read remote branch log");
-    assert_eq!(remote_log.trim(), "Real commit", "round {round}: remote tip wrong");
+    assert_eq!(
+      remote_log.trim(),
+      "Real commit",
+      "round {round}: remote tip wrong"
+    );
   }
 }
