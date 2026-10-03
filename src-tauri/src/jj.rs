@@ -1491,6 +1491,41 @@ fn parse_sparse_patterns(patterns: &[String]) -> Result<Vec<RepoPathBuf>, JjErro
   Ok(parsed)
 }
 
+/// True when a registered workspace never got past `init_workspace_with_existing_repo`:
+/// its working copy is still the empty commit on root and its directory holds only `.jj`.
+fn is_interrupted_workspace_init(
+  repo_path: &str,
+  name: &str,
+  workspace_dir: &Path,
+) -> Result<bool, JjError> {
+  let only_jj = match fs::read_dir(workspace_dir) {
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+    entries => entries
+      .and_then(|entries| entries.collect::<std::io::Result<Vec<_>>>())
+      .map_err(|e| JjError::IoError(format!("Failed to read workspace dir: {}", e)))?
+      .iter()
+      .all(|entry| entry.file_name() == ".jj"),
+  };
+  if !only_jj {
+    return Ok(false);
+  }
+  let repo = load_workspace_repo(repo_path)?.repo;
+  let Some(wc_id) = repo
+    .view()
+    .wc_commit_ids()
+    .iter()
+    .find(|(wc_name, _)| wc_name.as_str() == name)
+    .map(|(_, id)| id.clone())
+  else {
+    return Ok(false);
+  };
+  let wc = repo
+    .store()
+    .get_commit(&wc_id)
+    .map_err(|e| JjError::IoError(e.to_string()))?;
+  Ok(wc.parent_ids() == [repo.store().root_commit_id().clone()] && is_empty_commit(&repo, &wc))
+}
+
 /// This creates:
 /// 1. A git workspace at the specified path
 /// 2. A jj workspace initialized on top of it
@@ -1530,10 +1565,14 @@ pub fn create_workspace(
     .iter()
     .any(|name| name == &sanitized_name)
   {
-    return Err(JjError::GitWorkspaceError(format!(
-      "Workspace '{}' is already registered; refusing to recreate it",
-      branch_name
-    )));
+    if !is_interrupted_workspace_init(repo_path, &sanitized_name, &workspace_dir)? {
+      return Err(JjError::GitWorkspaceError(format!(
+        "Workspace '{}' is already registered; refusing to recreate it",
+        branch_name
+      )));
+    }
+    // A create killed between registering the workspace and its own transaction.
+    forget_workspace(repo_path, &workspace_dir.to_string_lossy())?;
   }
 
   // A .jj directory which is not present in JJ's registry is demonstrably a
@@ -1543,12 +1582,6 @@ pub fn create_workspace(
     remove_workspace_directory_only(&workspace_dir_str).map_err(|e| {
       JjError::GitWorkspaceError(format!("Failed to remove orphaned workspace dir: {}", e))
     })?;
-  }
-
-  // Ensure workspace directory exists (init_workspace_with_existing_repo requires it)
-  if !workspace_dir.exists() {
-    fs::create_dir_all(&workspace_dir)
-      .map_err(|e| JjError::GitWorkspaceError(format!("Failed to create workspace dir: {}", e)))?;
   }
 
   let settings = create_user_settings(repo_path)?;
@@ -1741,6 +1774,12 @@ pub fn create_workspace(
           ))
         })?
     };
+
+  // init_workspace_with_existing_repo needs the dir; made after source resolution so errors leave none.
+  if !workspace_dir.exists() {
+    fs::create_dir_all(&workspace_dir)
+      .map_err(|e| JjError::GitWorkspaceError(format!("Failed to create workspace dir: {}", e)))?;
+  }
 
   let new_ws_name: WorkspaceNameBuf = sanitized_name.clone().into();
 
@@ -5027,6 +5066,7 @@ pub fn jj_delete_bookmark(workspace_path: &str, bookmark_name: &str) -> Result<(
   let mut tx = loaded.repo.start_transaction();
   tx.repo_mut()
     .set_local_bookmark_target(RefName::new(bookmark_name), RefTarget::absent());
+  let _ = git::export_refs(tx.repo_mut());
   block_on(tx.commit("delete bookmark")).map_err(|e| {
     JjError::IoError(format!(
       "Failed to delete bookmark '{}': {}",
@@ -9400,6 +9440,15 @@ mod tests {
       .status()
       .expect("git init should run");
     assert!(status.success(), "git init should succeed");
+  }
+
+  #[test]
+  fn interrupted_workspace_check_fails_closed_on_unreadable_dir() {
+    let temp = TempDir::new().expect("tempdir");
+    init_jj_repo(&temp);
+    let not_a_dir = temp.path().join(".git").join("HEAD");
+    let repo = temp.path().to_str().expect("utf8");
+    assert!(is_interrupted_workspace_init(repo, "x", &not_a_dir).is_err());
   }
 
   fn init_jj_repo(temp: &TempDir) {
