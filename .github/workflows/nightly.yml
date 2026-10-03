@@ -24,7 +24,7 @@ jobs:
         run: |
           HEAD_SHA=$(git rev-parse HEAD)
           PREV_SHA=$(gh api "repos/${{ github.repository }}/git/refs/tags/nightly" \
-            --jq '.object.sha' 2>/dev/null || true)
+            --jq '.object.sha' 2>/dev/null) || PREV_SHA=
 
           if [ "$HEAD_SHA" = "$PREV_SHA" ]; then
             echo "No new commits on main since last nightly build ($HEAD_SHA); skipping."
