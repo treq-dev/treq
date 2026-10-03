@@ -252,9 +252,24 @@ fn optional_usize(matches: &Matches, name: &str) -> Result<Option<usize>, String
     .map(|value| {
       value
         .parse()
-        .map_err(|_| format!("--{name} must be a positive integer"))
+        .ok()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| format!("invalid_arguments: --{name} must be a positive integer"))
     })
     .transpose()
+}
+
+fn line_range(matches: &Matches) -> Result<(Option<usize>, Option<usize>), String> {
+  let start = optional_usize(matches, "start-line")?;
+  let end = optional_usize(matches, "end-line")?;
+  if let (Some(start), Some(end)) = (start, end) {
+    if start > end {
+      return Err(format!(
+        "invalid_arguments: invalid line range {start}..{end}: expected 1 <= start-line <= end-line"
+      ));
+    }
+  }
+  Ok((start, end))
 }
 
 fn split_csv(value: Option<String>) -> Vec<String> {
@@ -276,6 +291,43 @@ fn require_idempotency_key(key: Option<String>) -> Result<String, String> {
     .ok_or_else(|| "invalid_arguments: --idempotency-key is required".to_string())
 }
 
+/// `--repo` as an absolute path with `.`, `..` and trailing slashes resolved
+/// lexically. Symlinks are kept, so an already-absolute path, and the DB keys
+/// stored under it, stay as they are.
+fn absolute_repo_arg(repo: &str) -> String {
+  let absolute = std::path::absolute(repo).unwrap_or_else(|_| repo.into());
+  let mut normalized = std::path::PathBuf::new();
+  for component in absolute.components() {
+    match component {
+      std::path::Component::CurDir => {}
+      std::path::Component::ParentDir => {
+        normalized.pop();
+      }
+      other => normalized.push(other),
+    }
+  }
+  normalized.to_string_lossy().to_string()
+}
+
+/// Validates `--metadata` as a JSON object and folds `--title` into it.
+fn create_workspace_metadata(
+  metadata: Option<String>,
+  title: Option<String>,
+) -> Result<Option<String>, String> {
+  let Some(raw) = metadata.as_deref() else {
+    return Ok(title.map(|title| serde_json::json!({ "title": title }).to_string()));
+  };
+  let mut object = match serde_json::from_str::<serde_json::Value>(raw) {
+    Ok(serde_json::Value::Object(object)) => object,
+    _ => return Err("invalid_arguments: --metadata must be a JSON object".to_string()),
+  };
+  let Some(title) = title else {
+    return Ok(metadata);
+  };
+  object.insert("title".to_string(), serde_json::Value::String(title));
+  Ok(Some(serde_json::Value::Object(object).to_string()))
+}
+
 pub(crate) fn parse_remote_command_request(
   command: &str,
   matches: &Matches,
@@ -283,7 +335,14 @@ pub(crate) fn parse_remote_command_request(
   use crate::core::remote::{FileRevision, TreqCommandRequest};
   let action =
     get_arg_value(matches, "action").ok_or_else(|| format!("{command} action is required"))?;
-  let repo = get_arg_value(matches, "repo").ok_or_else(|| "--repo is required".to_string())?;
+  let repo = absolute_repo_arg(
+    &get_arg_value(matches, "repo").ok_or_else(|| "--repo is required".to_string())?,
+  );
+  // A workspace path means its home repo (no stray local.db in the workspace).
+  let repo = match (command, action.as_str()) {
+    ("repo", "init" | "clone" | "usage") => repo,
+    _ => crate::jj::derive_repo_path_from_workspace(&repo).unwrap_or(repo),
+  };
   let workspace = get_arg_value(matches, "workspace");
   let path = get_arg_value(matches, "path");
   let target = get_arg_value(matches, "target");
@@ -316,6 +375,7 @@ pub(crate) fn parse_remote_command_request(
       .clone()
       .ok_or_else(|| format!("--target ({what}) is required"))
   };
+  let (start_line, end_line) = line_range(matches)?;
   match (command, action.as_str()) {
     ("repo", "status") => Ok(TreqCommandRequest::RepositoryStatus { repo }),
     ("repo", "branches") => Ok(TreqCommandRequest::ListBranches { repo }),
@@ -339,7 +399,10 @@ pub(crate) fn parse_remote_command_request(
       repo,
       branch_name: require_value("branch name")?,
       source_branch: target,
-      metadata: get_arg_value(matches, "metadata"),
+      metadata: create_workspace_metadata(
+        get_arg_value(matches, "metadata"),
+        get_arg_value(matches, "title"),
+      )?,
       idempotency_key: require_idempotency_key(idempotency_key)?,
     }),
     ("workspace", "rename") => Ok(TreqCommandRequest::RenameWorkspace {
@@ -413,8 +476,8 @@ pub(crate) fn parse_remote_command_request(
         "parent" => FileRevision::Parent,
         _ => return Err("--revision must be working-copy or parent".to_string()),
       },
-      start_line: optional_usize(matches, "start-line")?,
-      end_line: optional_usize(matches, "end-line")?,
+      start_line,
+      end_line,
     }),
     ("file", "restore") => Ok(TreqCommandRequest::RestoreFile {
       repo,
@@ -582,10 +645,6 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
     | "pty-remote" => run_structured(&subcommand.matches, |format| {
       handle_remote_review_command(&subcommand.name, &subcommand.matches, format)
     }),
-    "help" => {
-      print_cli_help();
-      true
-    }
     _ => return None,
   };
   Some(if success { 0 } else { 1 })
@@ -656,34 +715,7 @@ pub(super) fn is_supported_cli_command(name: &str) -> bool {
       | "agent-remote"
       | "agent-review"
       | "pty-remote"
-      | "help"
   )
-}
-
-fn print_cli_help() {
-  println!("Treq - Stacking ADE");
-  println!();
-  println!("Usage:");
-  println!("  treq add <branch_name> [-d description] [-l title] [-s source_branch] [-p sparse]... [-k symlink]...");
-  println!("  treq set <workspace_name> [-d description] [-l title] [-t target_branch]");
-  println!("  treq st [workspace_name]");
-  println!("  treq diff [workspace_name]");
-  println!(
-        "  treq mv <source> <destination> -f [FILES...] -r [RANGES...] -c [COMMITS...]  (use '.' for the home repo)"
-    );
-  println!("  treq agent <branch> <prompt> [-m <edit|plan>]");
-  println!("  treq commit <workspace_name> -m <message> [--push]");
-  println!("  treq resolve <commit_id> [sides...]");
-  println!("  treq send [path|-]");
-  println!("  treq send --browser <path-or-url>");
-  println!("  treq repo inspect --repo <path> [--format human|json]");
-  println!("  treq repo usage --repo <root> [--format human|json]");
-  println!(
-        "  treq agent-review add --target-type <type> --target-id <id> --file <path> --start-line <n> [--end-line <n>] [--side old|new] --comment <text> [--suggestion <text>]"
-    );
-  println!("  treq agent-review list --target-type <type> --target-id <id>");
-  println!("  treq agent-review resolve|delete --comment-id <id>");
-  println!("  treq help");
 }
 
 pub(super) fn parse_agent_mode(mode: &str) -> Result<&'static str, String> {

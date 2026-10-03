@@ -1,4 +1,5 @@
 import * as React from "react";
+import type { User } from "@supabase/supabase-js";
 import { it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
@@ -22,6 +23,7 @@ import { captureDocument } from "../capture";
 import * as api from "../../../src/lib/api";
 import * as remoteControlPlane from "../../../src/lib/remote-control-plane";
 import * as remoteDispatch from "../../../src/lib/remote-dispatch";
+import { useAuthStore } from "../../../src/stores/authStore";
 
 // RemoteConnectPanel's connected/error states depend on the control-plane
 // edge functions and SSH dispatch - none of which the local-jj-repo test
@@ -71,6 +73,12 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
   const branchName = "feat/mobile-review";
   const { repoPath, defaultBranch } = createTestRepo(false);
   openRepo(repoPath);
+  // Connecting to the managed instance needs an account. Sign-in itself is
+  // not under test here, so seed the signed-in user directly.
+  useAuthStore.setState({
+    user: { id: "user-1", email: "me@example.com" } as User,
+    loading: false,
+  });
 
   const workspaceId = await createWorkspace(repoPath, branchName);
   const workspace = (await getWorkspaces(repoPath)).find(
@@ -177,7 +185,7 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
   await captureDocument(document, {
     name: "mobile-shell-review-07-remote-connect-panel",
     expectations: [
-      "A 'Remote instance' section is visible below the local repo review content.",
+      "A 'Remote' section is visible above the 'Local repository (dev preview)' review content.",
       "A 'Connect to managed instance' button is shown, not yet connected.",
     ],
   });
@@ -221,7 +229,7 @@ it("captures the mobile shell's changes, history, and conflicts tabs", async () 
   vi.mocked(remoteControlPlane.issueCertificate).mockResolvedValue({
     certificate: "ssh-cert-mobile-review",
     serial: "1",
-    expires_at: "2026-01-01T01:00:00Z",
+    expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
     endpoint: REMOTE_ENDPOINT,
   });
 

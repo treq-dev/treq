@@ -47,7 +47,10 @@ it("ignores Escape while a stacked workspace is being created", async () => {
     await within(row).findByRole("button", { name: "Stack a workspace" }),
   );
   const dialog = await screen.findByTestId("modal");
-  await user.type(within(dialog).getByLabelText("Branch Name"), "esc/child");
+  await user.type(
+    await within(dialog).findByLabelText("Branch Name"),
+    "esc/child",
+  );
 
   let release!: () => void;
   gate = new Promise((resolve) => {

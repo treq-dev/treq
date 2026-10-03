@@ -1822,7 +1822,9 @@ fn workspace_id(value: Option<&String>) -> Result<Option<i64>, String> {
     .map(|value| {
       value
         .parse::<i64>()
-        .map_err(|_| "invalid_arguments: workspace must be a numeric id".to_string())
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| "invalid_arguments: workspace must be a positive numeric id".to_string())
     })
     .transpose()
 }
@@ -1880,14 +1882,17 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
       revision,
       start_line,
       end_line,
-    } => json(crate::core::changes::get_file_lines(
-      &repo,
-      workspace_id(workspace.as_ref())?,
-      &path,
-      revision == FileRevision::Parent,
-      start_line.unwrap_or(1),
-      end_line.unwrap_or(300),
-    )),
+    } => {
+      let start_line = start_line.unwrap_or(1);
+      json(crate::core::changes::get_file_lines(
+        &repo,
+        workspace_id(workspace.as_ref())?,
+        &path,
+        revision == FileRevision::Parent,
+        start_line,
+        end_line.unwrap_or(start_line.saturating_add(299)),
+      ))
+    }
     TreqCommandRequest::ListCommits { repo, workspace } => {
       json(crate::core::commits::list_commits(
         &repo,
@@ -2018,12 +2023,16 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         .as_ref()
         .expect("RenameWorkspace is a mutation"),
       || {
-        json(crate::core::workspaces::rename_workspace(
+        let result = crate::core::workspaces::rename_workspace(
           &repo,
           workspace_id(Some(&workspace))?.ok_or("invalid_arguments: workspace is required")?,
           &new_name,
           false,
-        ))
+        )?;
+        if !result.success {
+          return Err(format!("invalid_arguments: {}", result.message));
+        }
+        json(Ok(result))
       },
     ),
     TreqCommandRequest::UpdateWorkspace {
@@ -2153,11 +2162,17 @@ pub fn execute_local_request(request: TreqCommandRequest) -> Result<serde_json::
         .as_ref()
         .expect("CreateCommit is a mutation"),
       || {
-        json(crate::core::workspaces::commit_workspace_with_auto_push(
-          &repo,
-          workspace_id(workspace.as_ref())?,
-          &message,
-        ))
+        if message.trim().is_empty() {
+          return Err("invalid_arguments: commit message must not be blank".to_string());
+        }
+        let id = workspace_id(workspace.as_ref())?;
+        let committed =
+          crate::core::workspaces::commit_workspace_changes_with_auto_push(&repo, id, &message)
+            .map_err(|e| match e.as_str() {
+              crate::core::NOTHING_TO_COMMIT => format!("invalid_arguments: {e}"),
+              _ => e,
+            });
+        json(committed)
       },
     ),
     TreqCommandRequest::DescribeCommit {
@@ -2669,6 +2684,26 @@ fn clone_repo_local(repo_url: &str, destination: &str) -> Result<RepositoryInspe
   let (mut checkout, _) = prepare
     .fetch_then_checkout(gix::progress::Discard, &interrupt)
     .map_err(|e| clone_err(&e))?;
+  // A remote HEAD naming a missing branch leaves nothing to check out. An
+  // empty remote (no branches at all) still clones, as `git clone` does.
+  let repo = checkout.repo();
+  let head = repo.head().map_err(|e| clone_err(&e))?;
+  let has_branches = repo
+    .references()
+    .map_err(|e| clone_err(&e))?
+    .prefixed("refs/remotes/")
+    .map_err(|e| clone_err(&e))?
+    .filter_map(Result::ok)
+    .any(|r| !r.name().as_bstr().ends_with(b"/HEAD"));
+  if head.is_unborn() && has_branches {
+    let branch = head
+      .referent_name()
+      .map(|name| name.shorten().to_string())
+      .unwrap_or_default();
+    return Err(format!(
+      "git_command_failed: remote HEAD points at branch '{branch}', which does not exist"
+    ));
+  }
   checkout
     .main_worktree(gix::progress::Discard, &interrupt)
     .map_err(|e| clone_err(&e))?;
@@ -3161,6 +3196,37 @@ mod tests {
   use std::process::Command;
 
   #[test]
+  fn workspace_id_rejects_zero_and_negative_ids() {
+    assert_eq!(workspace_id(Some(&"3".to_string())), Ok(Some(3)));
+    for bad in ["0", "-1"] {
+      let error = workspace_id(Some(&bad.to_string())).unwrap_err();
+      assert!(error.contains("positive"), "{bad}: {error}");
+    }
+  }
+
+  #[test]
+  fn read_file_defaults_end_line_to_a_300_line_window_from_start_line() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let content: String = (1..=700).map(|n| format!("{n}\n")).collect();
+    std::fs::write(repo_dir.path().join("long.txt"), content).unwrap();
+    let read = |start_line: Option<usize>| {
+      let value = execute_local_request(TreqCommandRequest::ReadFile {
+        repo: repo_dir.path().to_str().unwrap().to_string(),
+        workspace: None,
+        path: "long.txt".into(),
+        revision: FileRevision::WorkingCopy,
+        start_line,
+        end_line: None,
+      })
+      .unwrap();
+      (value["start_line"].clone(), value["end_line"].clone())
+    };
+
+    assert_eq!(read(None), (1.into(), 300.into()));
+    assert_eq!(read(Some(301)), (301.into(), 600.into()));
+  }
+
+  #[test]
   fn parses_ssh_hosts_ignoring_patterns() {
     let hosts = parse_ssh_config_hosts("\nHost prod bastion\n  HostName example.com\nHost *\nHost !blocked *.internal test?\nHost dev\n");
     let aliases: Vec<_> = hosts.into_iter().map(|h| h.alias).collect();
@@ -3250,6 +3316,57 @@ mod tests {
       "main"
     );
     assert!(repo.find_remote("origin").is_ok());
+  }
+
+  #[test]
+  fn clone_repo_local_fails_when_remote_head_branch_is_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    for args in [
+      &["init", "-b", "main"][..],
+      &[
+        "-c",
+        "user.name=T",
+        "-c",
+        "user.email=t@e.x",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "init",
+      ],
+      &["symbolic-ref", "HEAD", "refs/heads/missing"],
+    ] {
+      let status = Command::new("git")
+        .current_dir(&source)
+        .args(args)
+        .status()
+        .unwrap();
+      assert!(status.success(), "git {args:?}");
+    }
+
+    let destination = dir.path().join("clone");
+    let error =
+      clone_repo_local(source.to_str().unwrap(), destination.to_str().unwrap()).unwrap_err();
+    assert!(error.contains("missing"), "{error}");
+    assert!(!destination.exists());
+  }
+
+  #[test]
+  fn clone_repo_local_clones_an_empty_remote() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    let status = Command::new("git")
+      .current_dir(&source)
+      .args(["init", "-b", "main"])
+      .status()
+      .unwrap();
+    assert!(status.success());
+
+    let destination = dir.path().join("clone");
+    clone_repo_local(source.to_str().unwrap(), destination.to_str().unwrap()).unwrap();
+    assert!(gix::open(&destination).is_ok());
   }
 
   #[test]
@@ -3599,6 +3716,37 @@ mod tests {
   }
 
   #[test]
+  fn rename_workspace_rejection_is_an_error() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo_path = repo_dir.path().to_str().unwrap().to_string();
+    execute_local_request(TreqCommandRequest::InitRepo {
+      repo: repo_path.clone(),
+      idempotency_key: "init-rename".into(),
+    })
+    .unwrap();
+    let id = crate::local_db::add_workspace(
+      &repo_path,
+      "feat-a".into(),
+      "feat-a".into(),
+      "feat/a".into(),
+      None,
+      None,
+      None,
+    )
+    .unwrap();
+
+    let error = execute_local_request(TreqCommandRequest::RenameWorkspace {
+      repo: repo_path,
+      workspace: id.to_string(),
+      new_name: "feat/a".into(),
+      idempotency_key: "rename-same".into(),
+    })
+    .unwrap_err();
+
+    assert!(error.starts_with("invalid_arguments: "), "{error}");
+  }
+
+  #[test]
   fn change_marker_reflects_new_operations_and_local_dispatch_matches_direct_jj_call() {
     let repo_dir = tempfile::tempdir().unwrap();
     let repo_path = repo_dir.path().to_str().unwrap().to_string();
@@ -3622,6 +3770,7 @@ mod tests {
     // A mutation (a new commit) must advance the operation log, so the
     // marker a second client polls for changes even though it never
     // initiated the mutation itself.
+    std::fs::write(repo_dir.path().join("a.txt"), "a\n").unwrap();
     execute_local_request(TreqCommandRequest::CreateCommit {
       repo: repo_path.clone(),
       workspace: None,
@@ -3642,6 +3791,85 @@ mod tests {
       before.operation_id, after.operation_id,
       "operation id must change after a mutation so a foreign client can detect it"
     );
+  }
+
+  fn create_commit_in_fresh_repo(message: &str) -> Result<serde_json::Value, String> {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo = repo_dir.path().to_str().unwrap().to_string();
+    execute_local_request(TreqCommandRequest::InitRepo {
+      repo: repo.clone(),
+      idempotency_key: "init-1".into(),
+    })
+    .unwrap();
+    if message != "nothing" {
+      std::fs::write(repo_dir.path().join("a.txt"), "a\n").unwrap();
+    }
+    execute_local_request(TreqCommandRequest::CreateCommit {
+      repo,
+      workspace: None,
+      message: message.into(),
+      base_change_id: None,
+      idempotency_key: "commit-1".into(),
+    })
+  }
+
+  #[test]
+  fn create_commit_refuses_when_there_is_nothing_to_commit() {
+    let error = create_commit_in_fresh_repo("nothing").unwrap_err();
+    assert!(
+      error.starts_with("invalid_arguments:") && error.contains("nothing to commit"),
+      "{error}"
+    );
+  }
+
+  #[test]
+  fn create_commit_rejects_whitespace_only_message() {
+    let error = create_commit_in_fresh_repo("   ").unwrap_err();
+    assert!(
+      error.starts_with("invalid_arguments:") && error.contains("message"),
+      "{error}"
+    );
+  }
+
+  #[test]
+  fn concurrent_creates_commit_one_dirty_working_copy_once() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo = repo_dir.path().to_str().unwrap().to_string();
+    execute_local_request(TreqCommandRequest::InitRepo {
+      repo: repo.clone(),
+      idempotency_key: "init-1".into(),
+    })
+    .unwrap();
+    std::fs::write(repo_dir.path().join("a.txt"), "a\n").unwrap();
+
+    let start = std::sync::Barrier::new(5);
+    let results: Vec<_> = std::thread::scope(|scope| {
+      let handles: Vec<_> = (0..5)
+        .map(|i| {
+          let (repo, start) = (repo.clone(), &start);
+          scope.spawn(move || {
+            start.wait();
+            execute_local_request(TreqCommandRequest::CreateCommit {
+              repo,
+              workspace: None,
+              message: format!("parallel {i}"),
+              base_change_id: None,
+              idempotency_key: format!("par-{i}"),
+            })
+          })
+        })
+        .collect();
+      handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    assert_eq!(
+      results.iter().filter(|r| r.is_ok()).count(),
+      1,
+      "{results:?}"
+    );
+    for error in results.iter().filter_map(|r| r.as_ref().err()) {
+      assert!(error.contains("nothing to commit"), "{error}");
+    }
   }
 
   #[test]

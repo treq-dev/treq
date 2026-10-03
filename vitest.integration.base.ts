@@ -21,8 +21,16 @@ export const integrationBaseTest: ViteUserConfig["test"] = {
   // again. The on-disk module cache lets later runs skip the transform and
   // part of the import cost; CI restores it between runs (see ci.yml).
   experimental: { fsModuleCache: true },
-  testTimeout: 5_000,
-  hookTimeout: 5_000,
+  // GitHub's ubuntu-22.04 runners are not all equally fast: the same commit
+  // has run this suite in 298s on one runner and 501s on another, and `npm
+  // ci` (before any test code runs) takes 7-9s on the fast ones and 11-18s
+  // on the slow ones. Tests that take ~3s on a fast runner take 5-6s on a
+  // slow one, so a 5s budget failed whichever tests happened to land on the
+  // edge. 10s covers the slowest default-timeout test seen on a slow runner
+  // (5.8s) with headroom. Multi-step UI flows still set their own, larger
+  // timeouts.
+  testTimeout: 10_000,
+  hookTimeout: 10_000,
 };
 
 export const integrationPlugins = [

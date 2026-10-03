@@ -6,6 +6,7 @@ import {
   GitMerge,
   GitPullRequest,
   GitPullRequestDraft,
+  Loader2,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
@@ -206,6 +207,9 @@ export function PrListItem({
           </div>
           <div className="flex items-center gap-2 mt-1 min-w-0 text-base text-muted-foreground">
             <StateChip state={pr.state} isDraft={Boolean(pr.is_draft)} />
+            <span className="truncate max-w-[10rem]" title="Author">
+              {pr.author.login}
+            </span>
             {!hideBranches && (
               <span className="font-mono inline-flex items-center gap-1 min-w-0">
                 <span
@@ -229,6 +233,59 @@ export function PrListItem({
         <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
       </div>
     </button>
+  );
+}
+
+/** Segmented Draft/Open/Closed/All control for the issue and PR lists. */
+export function StateFilterButtons<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { label: string; value: T }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 border border-border rounded-md p-0.5 bg-muted/30">
+      {options.map((btn) => (
+        <button
+          key={btn.value}
+          type="button"
+          onClick={() => onChange(btn.value)}
+          aria-pressed={value === btn.value}
+          className={`text-base px-2 py-0.5 rounded transition-colors ${
+            value === btn.value
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {btn.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function LoadMoreButton({
+  loading,
+  onClick,
+}: {
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div className="p-3">
+      <Button
+        variant="outline"
+        className="w-full text-base"
+        disabled={loading}
+        onClick={onClick}
+      >
+        {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+        Load more
+      </Button>
+    </div>
   );
 }
 

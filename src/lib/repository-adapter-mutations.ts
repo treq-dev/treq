@@ -38,6 +38,9 @@ interface MoveResult {
 
 const ALREADY_APPLIED = "Already applied before the connection dropped";
 
+/** A rejected remote rename arrives as `invalid_arguments: <reason>`, with the code repeated over SSH. */
+const REJECTED = /^(?:invalid_arguments: )+/;
+
 async function findWorkspace(
   repo: ActiveRepository,
   predicate: (workspace: Workspace) => boolean,
@@ -140,14 +143,25 @@ export async function transportRenameWorkspace(
   // No typed dry-run command exists; the real rename below still returns the
   // remote's structured validation error.
   if (dryRun) return accepted;
-  const result = await remoteMutation<RenameWorkspaceResult>(repo, {
-    kind: "RenameWorkspace",
-    repo: repo.canonicalPath,
-    workspace: String(workspaceId),
-    new_name: newBranchName,
-    idempotency_key: newIdempotencyKey(),
-  });
-  return result ?? { ...accepted, message: ALREADY_APPLIED };
+  try {
+    const result = await remoteMutation<RenameWorkspaceResult>(repo, {
+      kind: "RenameWorkspace",
+      repo: repo.canonicalPath,
+      workspace: String(workspaceId),
+      new_name: newBranchName,
+      idempotency_key: newIdempotencyKey(),
+    });
+    return result ?? { ...accepted, message: ALREADY_APPLIED };
+  } catch (error) {
+    // The CLI exits non-zero on a rejected rename; report it like a local one.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!REJECTED.test(message)) throw error;
+    return {
+      ...accepted,
+      success: false,
+      message: message.replace(REJECTED, ""),
+    };
+  }
 }
 
 export async function transportPushWorkspace(

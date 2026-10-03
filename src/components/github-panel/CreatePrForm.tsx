@@ -32,7 +32,70 @@ const PR_TYPES = {
   },
 } as const;
 
-type PrType = keyof typeof PR_TYPES;
+export type PrType = keyof typeof PR_TYPES;
+
+/** GitHub-style split button: the main part creates, the menu picks draft or ready. */
+export function PrTypeSplitButton({
+  prType,
+  onPrTypeChange,
+  pending,
+  disabled,
+  onCreate,
+}: {
+  prType: PrType;
+  onPrTypeChange: (type: PrType) => void;
+  pending: boolean;
+  disabled: boolean;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="inline-flex items-center">
+      <Button
+        size="sm"
+        className="text-base rounded-r-none"
+        disabled={disabled || pending}
+        onClick={onCreate}
+      >
+        {pending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+        {PR_TYPES[prType].button}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="sm"
+            className="rounded-l-none border-l border-white/20 px-1.5"
+            disabled={pending}
+            aria-label="Pull request type"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" sideOffset={4} className="w-80">
+          <DropdownMenuRadioGroup
+            value={prType}
+            onValueChange={(value) => onPrTypeChange(value as PrType)}
+          >
+            {(Object.keys(PR_TYPES) as PrType[]).map((type) => (
+              <DropdownMenuRadioItem
+                key={type}
+                value={type}
+                closeOnClick
+                className="items-start"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-medium">{PR_TYPES[type].item}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {PR_TYPES[type].description}
+                  </span>
+                </div>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
 
 export function CreatePrForm({
   repoPath,
@@ -70,8 +133,7 @@ export function CreatePrForm({
   });
 
   return (
-    <div className="p-4 space-y-3 border-b border-border">
-      <h3 className="text-base font-semibold">New Pull Request</h3>
+    <div className="space-y-3">
       <Input
         placeholder="Title"
         value={title}
@@ -101,55 +163,13 @@ export function CreatePrForm({
         className="text-base"
       />
       <div className="flex gap-2">
-        <div className="inline-flex items-center">
-          <Button
-            size="sm"
-            className="text-base rounded-r-none"
-            disabled={
-              !title.trim() || !head.trim() || !base.trim() || create.isPending
-            }
-            onClick={() => create.mutate()}
-          >
-            {create.isPending ? (
-              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-            ) : null}
-            {PR_TYPES[prType].button}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                className="rounded-l-none border-l border-white/20 px-1.5"
-                disabled={create.isPending}
-                aria-label="Pull request type"
-              >
-                <ChevronDown className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={4} className="w-80">
-              <DropdownMenuRadioGroup
-                value={prType}
-                onValueChange={(value) => setPrType(value as PrType)}
-              >
-                {(Object.keys(PR_TYPES) as PrType[]).map((type) => (
-                  <DropdownMenuRadioItem
-                    key={type}
-                    value={type}
-                    closeOnClick
-                    className="items-start"
-                  >
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-medium">{PR_TYPES[type].item}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {PR_TYPES[type].description}
-                      </span>
-                    </div>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <PrTypeSplitButton
+          prType={prType}
+          onPrTypeChange={setPrType}
+          pending={create.isPending}
+          disabled={!title.trim() || !head.trim() || !base.trim()}
+          onCreate={() => create.mutate()}
+        />
         <Button
           size="sm"
           variant="ghost"

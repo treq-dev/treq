@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock("./supabase", () => ({ supabase: { functions: { invoke } } }));
+
 import {
   CertificateRenewalManager,
   classifyRenewalError,
@@ -6,6 +10,22 @@ import {
   RENEWAL_REMAINING_LIFETIME_FRACTION,
 } from "./remote-cert-lifecycle";
 import type { IssueCertificateResponse } from "./api-types-remote";
+import { issueCertificate } from "./remote-control-plane";
+
+/** Fails `issueCertificate` the way supabase-js reports a non-2xx Edge
+ * Function response, and returns what the real client wrapper throws. */
+async function renewalFailure(status: number, error: string): Promise<unknown> {
+  invoke.mockResolvedValueOnce({
+    data: null,
+    error: {
+      message: "Edge Function returned a non-2xx status code",
+      context: new Response(JSON.stringify({ error }), { status }),
+    },
+  });
+  return issueCertificate({ instance_id: "i", key_id: "k" }).catch(
+    (thrown: unknown) => thrown,
+  );
+}
 
 function response(expiresAt: number): IssueCertificateResponse {
   return {
@@ -46,35 +66,46 @@ describe("renewalDelayMs", () => {
 });
 
 describe("classifyRenewalError", () => {
-  it("treats an expired Supabase session (401) as non-retryable", () => {
+  it("treats an expired Supabase session (401) as non-retryable", async () => {
+    expect(
+      classifyRenewalError(await renewalFailure(401, "Unauthorized")),
+    ).toBe("session_ended");
+  });
+
+  it("treats a revoked or deleted key as non-retryable", async () => {
+    expect(
+      classifyRenewalError(await renewalFailure(409, "Key has been revoked")),
+    ).toBe("key_revoked");
+    expect(
+      classifyRenewalError(
+        await renewalFailure(404, "Key does not belong to this user"),
+      ),
+    ).toBe("key_revoked");
+  });
+
+  it("treats an inaccessible instance (404, or a 409 for other reasons) as non-retryable", async () => {
+    expect(
+      classifyRenewalError(
+        await renewalFailure(404, "Instance does not belong to this user"),
+      ),
+    ).toBe("instance_inaccessible");
+    expect(
+      classifyRenewalError(
+        await renewalFailure(409, "Instance is not ready (status: suspended)"),
+      ),
+    ).toBe("instance_inaccessible");
+  });
+
+  it("still reads a raw supabase-js error's response status", () => {
     expect(classifyRenewalError({ context: { status: 401 } })).toBe(
       "session_ended",
     );
   });
 
-  it("treats a revoked key (409, message mentions revoked) as non-retryable", () => {
-    expect(
-      classifyRenewalError({
-        context: { status: 409 },
-        message: "Key has been revoked",
-      }),
-    ).toBe("key_revoked");
-  });
-
-  it("treats an inaccessible instance (404, or a 409 for other reasons) as non-retryable", () => {
-    expect(classifyRenewalError({ context: { status: 404 } })).toBe(
-      "instance_inaccessible",
+  it("treats a transient network/5xx failure as retryable", async () => {
+    expect(classifyRenewalError(await renewalFailure(503, "busy"))).toBe(
+      "retry",
     );
-    expect(
-      classifyRenewalError({
-        context: { status: 409 },
-        message: "Instance is not ready (status: suspended)",
-      }),
-    ).toBe("instance_inaccessible");
-  });
-
-  it("treats a transient network/5xx failure as retryable", () => {
-    expect(classifyRenewalError({ context: { status: 503 } })).toBe("retry");
     expect(classifyRenewalError(new TypeError("Failed to fetch"))).toBe(
       "retry",
     );

@@ -14,6 +14,7 @@ import {
   mergeWorkspace,
   moveWorkspaceChanges,
   readFile,
+  renameWorkspace,
   saveFileBrowserReview,
   searchWorkspaceFiles,
   setWorkspaceTargetBranch,
@@ -30,6 +31,7 @@ import {
   type TreqCommandRequest,
 } from "./remote-dispatch";
 import { transportCreateCommit } from "./repository-adapter";
+import { useRemoteCutoffStore } from "../stores/remoteCutoffStore";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -167,6 +169,23 @@ describe("remote repository reads", () => {
   });
 });
 
+describe("remote cutoff errors", () => {
+  it.each([
+    ["client key revoked", "key_revoked"],
+    ["session ended", "session_ended"],
+    ["instance no longer accessible", "instance_inaccessible"],
+    ["certificate expired without renewal", "certificate_expired"],
+  ])("records a %s cutoff under its own reason", async (text, reason) => {
+    useRemoteCutoffStore.setState({ cutoffs: {} });
+    vi.mocked(dispatch).mockRejectedValueOnce(
+      `credential_cut_off: endpoint endpoint-1 (${text})`,
+    );
+
+    await expect(getCommitDiff(ROOT, null, "abc")).rejects.toBeDefined();
+    expect(useRemoteCutoffStore.getState().cutoffs["endpoint-1"]).toBe(reason);
+  });
+});
+
 describe("remote repository mutations", () => {
   it("sends CreateCommit over SSH with a fresh idempotency key per call", async () => {
     await createCommit(ROOT, 7, "wip");
@@ -210,6 +229,27 @@ describe("remote repository mutations", () => {
       source_branch: "main",
       metadata: '{"title":"T"}',
     });
+  });
+
+  it("returns a rename the remote rejected as an unsuccessful result", async () => {
+    vi.mocked(dispatchMutationOverSsh).mockRejectedValueOnce(
+      "invalid_arguments: invalid_arguments: Branch 'feat-b' already exists locally",
+    );
+    await expect(renameWorkspace(ROOT, 7, "feat-b", false)).resolves.toEqual({
+      success: false,
+      message: "Branch 'feat-b' already exists locally",
+      workspace: null,
+      updated_children_ids: [],
+    });
+  });
+
+  it("still throws a remote rename that failed for another reason", async () => {
+    vi.mocked(dispatchMutationOverSsh).mockRejectedValueOnce(
+      "transport_error: connection reset",
+    );
+    await expect(renameWorkspace(ROOT, 7, "feat-b", false)).rejects.toBe(
+      "transport_error: connection reset",
+    );
   });
 
   it("keeps files and hunks when moving workspace changes", async () => {

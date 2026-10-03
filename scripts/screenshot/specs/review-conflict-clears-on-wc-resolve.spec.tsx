@@ -73,9 +73,9 @@ it("clears Conflicts UI when markers are resolved in the working copy", async ()
 	await captureDocument(document, {
 		name: "review-conflict-clears-on-wc-resolve-01-before",
 		expectations: [
-			'The Review tab shows a red "Conflicts" section listing README.md.',
+			'The Changes tab shows a red "Conflicts" section listing README.md.',
 			'A red "Resolve conflicts" action bar is visible above the commit area.',
-			"The Review tab badge is red (conflict tone).",
+			"The Changes tab badge is red (conflict tone).",
 		],
 	});
 
@@ -114,14 +114,14 @@ it("clears Conflicts UI when markers are resolved in the working copy", async ()
 		expect(pill.className).toMatch(/yellow/);
 		expect(pill.className).not.toMatch(/destructive/);
 	});
-	expect(screen.getByText("Changes")).toBeTruthy();
+	expect(screen.getByRole("button", { name: /^Changes/ })).toBeTruthy();
 
 	await captureDocument(document, {
 		name: "review-conflict-clears-on-wc-resolve-02-after",
 		expectations: [
 			'The red "Conflicts" section is gone; README.md appears under Changes.',
 			'The "Resolve conflicts" action bar is no longer shown.',
-			"The Review tab badge is yellow (uncommitted changes).",
+			"The Changes tab badge is yellow (uncommitted changes).",
 		],
 	});
 }, 90000);

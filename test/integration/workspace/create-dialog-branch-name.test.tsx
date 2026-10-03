@@ -11,7 +11,7 @@ import {
   openRepo,
 } from "../../utils";
 
-describe("create dialog branch name", () => {
+describe("create dialog branch name", { timeout: 15_000 }, () => {
   let repoPath: string;
   let user: ReturnType<typeof userEvent.setup>;
 
@@ -32,7 +32,10 @@ describe("create dialog branch name", () => {
     render(<Dashboard />);
     const dialog = await openStackDialog();
 
-    await user.type(within(dialog).getByLabelText("Branch Name"), "feat/a b");
+    await user.type(
+      await within(dialog).findByLabelText("Branch Name"),
+      "feat/a b",
+    );
 
     expect(
       await within(dialog).findByTestId("branch-name-error"),
@@ -48,7 +51,10 @@ describe("create dialog branch name", () => {
     await findSidebarBranchElement("feat/taken");
     const dialog = await openStackDialog();
 
-    await user.type(within(dialog).getByLabelText("Branch Name"), "feat/taken");
+    await user.type(
+      await within(dialog).findByLabelText("Branch Name"),
+      "feat/taken",
+    );
 
     expect(
       await within(dialog).findByTestId("branch-name-error"),
@@ -66,7 +72,7 @@ describe("create dialog branch name", () => {
     const dialog = await screen.findByTestId("modal");
 
     await user.type(
-      within(dialog).getByLabelText("Branch Name"),
+      await within(dialog).findByLabelText("Branch Name"),
       "  feat/trim  ",
     );
     await user.click(

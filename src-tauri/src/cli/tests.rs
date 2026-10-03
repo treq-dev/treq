@@ -24,12 +24,6 @@ fn make_subcommand(name: &str) -> SubcommandMatches {
 }
 
 #[test]
-fn help_is_handled_by_cli_dispatch() {
-  let subcommand = make_subcommand("help");
-  assert!(handle_cli_command(&subcommand).is_some());
-}
-
-#[test]
 fn unknown_subcommand_is_not_handled_by_cli_dispatch() {
   let subcommand = make_subcommand("open");
   assert!(handle_cli_command(&subcommand).is_none());
@@ -48,7 +42,6 @@ fn supports_new_top_level_commands() {
   assert!(is_supported_cli_command("file"));
   assert!(is_supported_cli_command("commits"));
   assert!(is_supported_cli_command("conflicts"));
-  assert!(is_supported_cli_command("help"));
   assert!(!is_supported_cli_command("open"));
 }
 
@@ -794,6 +787,40 @@ fn describe_commit_allows_missing_idempotency_key_at_cli_boundary() {
   .unwrap();
 }
 
+fn create_workspace_metadata(pairs: &[(&str, &str)]) -> Result<Option<String>, String> {
+  let mut all = vec![
+    ("action", "create"),
+    ("repo", "/tmp/r"),
+    ("value", "feat"),
+    ("idempotency-key", "k1"),
+  ];
+  all.extend_from_slice(pairs);
+  match parse_remote_command_request("workspace", &remote_matches(&all))? {
+    crate::core::remote::TreqCommandRequest::CreateWorkspace { metadata, .. } => Ok(metadata),
+    other => panic!("unexpected request {other:?}"),
+  }
+}
+
+#[test]
+fn workspace_create_applies_the_title_flag() {
+  let metadata = create_workspace_metadata(&[
+    ("title", "My title"),
+    ("metadata", r#"{"description":"d"}"#),
+  ])
+  .unwrap();
+  let parsed = crate::core::workspaces::parse_workspace_metadata(metadata.as_deref());
+  assert_eq!(parsed.title.as_deref(), Some("My title"));
+  assert_eq!(parsed.description.as_deref(), Some("d"));
+}
+
+#[test]
+fn workspace_create_rejects_invalid_metadata_json() {
+  for bad in ["not json", "[1]"] {
+    let error = create_workspace_metadata(&[("metadata", bad)]).unwrap_err();
+    assert!(error.starts_with("invalid_arguments:"), "{error}");
+  }
+}
+
 /// One sample of every typed remote command, used to check the wire format
 /// end to end: `cli_args` must only emit flags the remote CLI declares, and
 /// parsing those args back must give the same request.
@@ -1145,6 +1172,15 @@ mod commit_outcomes {
   }
 
   #[test]
+  fn refuses_a_whitespace_only_message() {
+    let repo = TestRepo::new().unwrap();
+    let ws = repo.create_workspace_simple("feat/blank").unwrap();
+    TestRepo::write_workspace_file(&repo.workspace_full_path(&ws), "a.txt", "a\n").unwrap();
+    let err = commit_workspace_for_cli(&repo.repo_path, &ws, "   ", false).unwrap_err();
+    assert!(err.contains("message"), "{err}");
+  }
+
+  #[test]
   fn a_failed_push_says_the_commit_landed() {
     let repo = TestRepo::new().unwrap();
     let ws = repo.create_workspace_simple("feat/push").unwrap();
@@ -1284,5 +1320,178 @@ mod structured_errors {
     let (ok, out, err) = run(&[("format", "json")], Ok(()));
     assert!(ok);
     assert!(out.is_empty() && err.is_empty());
+  }
+}
+
+mod repo_arg_resolution {
+  use super::*;
+
+  fn parsed_repo(repo: &str) -> String {
+    match parse_remote_command_request(
+      "changes",
+      &remote_matches(&[("action", "list"), ("repo", repo)]),
+    )
+    .unwrap()
+    {
+      crate::core::remote::TreqCommandRequest::ListChanges { repo, .. } => repo,
+      other => panic!("unexpected request {other:?}"),
+    }
+  }
+
+  #[test]
+  fn a_workspace_path_resolves_to_its_home_repo() {
+    assert_eq!(parsed_repo("/srv/r/.treq/workspaces/feat-a"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/r/.treq/workspaces/feat-a/src"), "/srv/r");
+  }
+
+  #[test]
+  fn repo_paths_are_absolute_without_dots_or_trailing_slashes() {
+    assert_eq!(parsed_repo("/srv/r"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/r/"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/./x/../r"), "/srv/r");
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(parsed_repo("."), cwd.to_str().unwrap());
+  }
+
+  #[test]
+  fn a_clone_destination_inside_a_workspace_is_kept() {
+    let request = parse_remote_command_request(
+      "repo",
+      &remote_matches(&[
+        ("action", "clone"),
+        ("repo", "/srv/r/.treq/workspaces/feat-a/vendor/"),
+        ("value", "git@ex:x.git"),
+        ("idempotency-key", "k1"),
+      ]),
+    )
+    .unwrap();
+    assert!(matches!(
+      request,
+      crate::core::remote::TreqCommandRequest::CloneRepo { destination, .. }
+        if destination == "/srv/r/.treq/workspaces/feat-a/vendor"
+    ));
+  }
+}
+
+mod help_text {
+  use super::*;
+  use crate::cli::args::subcommand_help;
+
+  fn cli_commands() -> serde_json::Map<String, Value> {
+    let config =
+      fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json")).unwrap();
+    let json: Value = serde_json::from_str(&config).unwrap();
+    json["plugins"]["cli"]["subcommands"]
+      .as_object()
+      .unwrap()
+      .clone()
+  }
+
+  #[test]
+  fn every_command_and_arg_is_described() {
+    for (name, command) in cli_commands() {
+      assert!(
+        command["description"].is_string(),
+        "{name} has no description"
+      );
+      for arg in command["args"].as_array().into_iter().flatten() {
+        assert!(
+          arg["description"].is_string(),
+          "{name} {} has no description",
+          arg["name"]
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn structured_command_help_lists_every_action_and_an_example() {
+    let mut actions: Vec<(String, String)> = every_typed_remote_request()
+      .iter()
+      .map(|request| {
+        let args = request.cli_args().unwrap();
+        (args[0].clone(), args[1].clone())
+      })
+      .collect();
+    for action in ["add", "list", "resolve", "delete"] {
+      actions.push(("agent-review".into(), action.into()));
+    }
+    for (command, action) in actions {
+      let help = subcommand_help(&command);
+      assert!(
+        help.contains(action.as_str()),
+        "`treq {command} --help` omits {action}"
+      );
+      assert!(
+        help.contains("Example"),
+        "`treq {command} --help` has no example"
+      );
+    }
+  }
+
+  #[test]
+  fn diff_help_says_it_shows_conflicts_not_a_diff() {
+    assert!(subcommand_help("diff").contains("changes workspace-diff"));
+  }
+}
+
+mod numeric_args {
+  use super::*;
+
+  fn file_read(extra: &[(&str, &str)]) -> Result<crate::core::remote::TreqCommandRequest, String> {
+    let mut args = vec![("action", "read"), ("repo", "/tmp/r"), ("path", "a.rs")];
+    args.extend_from_slice(extra);
+    parse_remote_command_request("file", &remote_matches(&args))
+  }
+
+  #[test]
+  fn file_read_rejects_line_zero_and_reversed_ranges() {
+    file_read(&[("start-line", "2"), ("end-line", "2")]).unwrap();
+    for extra in [
+      &[("start-line", "0")][..],
+      &[("end-line", "0")][..],
+      &[("start-line", "5"), ("end-line", "2")][..],
+    ] {
+      let error = file_read(extra).unwrap_err();
+      assert!(
+        error.starts_with("invalid_arguments:"),
+        "{extra:?}: {error}"
+      );
+    }
+  }
+
+  #[test]
+  fn file_search_rejects_a_zero_limit() {
+    let error = parse_remote_command_request(
+      "file",
+      &remote_matches(&[("action", "search"), ("repo", "/tmp/r"), ("limit", "0")]),
+    )
+    .unwrap_err();
+    assert!(
+      error.contains("--limit must be a positive integer"),
+      "{error}"
+    );
+  }
+
+  #[test]
+  fn negative_numbers_parse_as_values_and_are_rejected() {
+    let matches = crate::cli::args::parse([
+      "treq",
+      "file",
+      "read",
+      "--repo",
+      "/tmp/r",
+      "--path",
+      "a.rs",
+      "--start-line",
+      "-1",
+    ])
+    .unwrap();
+    let sub = matches.subcommand.unwrap();
+    let error = parse_remote_command_request("file", &sub.matches).unwrap_err();
+    assert!(
+      error.contains("--start-line must be a positive integer"),
+      "{error}"
+    );
   }
 }

@@ -38,6 +38,8 @@ struct ArgConfig {
 #[serde(deny_unknown_fields)]
 struct CommandConfig {
   description: Option<String>,
+  #[serde(rename = "afterHelp")]
+  after_help: Option<String>,
   #[serde(default)]
   args: Vec<ArgConfig>,
   #[serde(default)]
@@ -55,8 +57,14 @@ fn build_command(name: &str, config: &CommandConfig) -> Command {
   if let Some(description) = &config.description {
     command = command.about(description.clone());
   }
+  if let Some(after_help) = &config.after_help {
+    command = command.after_help(after_help.clone());
+  }
   for arg in &config.args {
-    let mut clap_arg = ClapArg::new(arg.name.clone()).required(arg.required);
+    // Numeric values like `-1` parse as values (then fail validation), not flags.
+    let mut clap_arg = ClapArg::new(arg.name.clone())
+      .required(arg.required)
+      .allow_negative_numbers(arg.takes_value || arg.multiple);
     match arg.index {
       Some(index) => clap_arg = clap_arg.index(index),
       None => {
@@ -131,6 +139,15 @@ where
   let command = build_command("treq", &config).version(env!("CARGO_PKG_VERSION"));
   let matches = command.try_get_matches_from(args)?;
   Ok(to_matches(&config, &matches))
+}
+
+/// `treq <name> --help` text, for tests.
+#[cfg(test)]
+pub(super) fn subcommand_help(name: &str) -> String {
+  let mut command = build_command("treq", &cli_config());
+  command.build();
+  let sub = command.find_subcommand_mut(name).expect("known subcommand");
+  sub.render_long_help().to_string()
 }
 
 /// Runs one CLI invocation and returns the process exit status.

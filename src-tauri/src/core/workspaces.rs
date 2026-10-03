@@ -544,6 +544,10 @@ pub fn open_or_create_workspace_from_pr(
     return Err("PR base branch is required".to_string());
   }
 
+  // Prune rows whose directory or jj registration is gone first; otherwise a
+  // stale row is "opened" while the sidebar, which lists jj workspaces, shows nothing.
+  sync_workspaces(repo_path)?;
+
   if let Some(existing) = local_db::get_workspace_by_branch(repo_path, head_branch)
     .map_err(|e| format!("Failed to check existing workspace: {e}"))?
   {
@@ -606,6 +610,7 @@ pub fn open_or_create_workspace_from_issue(
   title: &str,
   description: Option<&str>,
 ) -> Result<(local_db::Workspace, bool), String> {
+  sync_workspaces(repo_path)?;
   if let Some(existing) = local_db::get_workspace_by_branch(repo_path, branch_name)
     .map_err(|e| format!("Failed to check existing workspace: {e}"))?
   {
@@ -773,6 +778,7 @@ pub fn create_workspace_with_symlinked_dirs(
   };
 
   let new_branch: bool = !branch_exists || resolved_source_branch.as_deref() == Some(&remote_ref);
+  let prior_bookmark = branch_exists.then(|| jj::jj_get_commit_id(repo_path, branch_name));
   let workspace_name = jj::create_workspace(
     repo_path,
     branch_name,
@@ -927,6 +933,19 @@ pub fn create_workspace_with_symlinked_dirs(
   })();
 
   if result.is_err() {
+    // jj::create_workspace pointed the bookmark at the new working copy; put it back.
+    let restored = match prior_bookmark {
+      None => jj::jj_delete_bookmark(repo_path, branch_name),
+      Some(Ok(commit)) => jj::jj_set_bookmark(repo_path, branch_name, &commit),
+      Some(Err(e)) => Err(e),
+    };
+    if let Err(e) = restored {
+      tracing::warn!(
+        "Rollback: failed to restore bookmark {}: {}",
+        branch_name,
+        e
+      );
+    }
     let workspace_dir = Path::new(repo_path)
       .join(".treq")
       .join("workspaces")
@@ -1761,10 +1780,86 @@ mod tests {
     assert!(super::list_workspaces(&repo_path)
       .expect("list workspaces")
       .is_empty());
+    assert!(crate::jj::jj_get_commit_id(&repo_path, "fix/rollback").is_err());
+    assert!(gix::open(&repo_path)
+      .expect("open git")
+      .try_find_reference("refs/heads/fix/rollback")
+      .expect("find ref")
+      .is_none());
 
     let retried = super::create_workspace(&repo_path, "fix/rollback", None, None, None, None, None)
       .expect("retry after rollback");
     assert_eq!(retried.branch_name, "fix/rollback");
+  }
+
+  #[test]
+  fn create_workspace_rollback_restores_an_existing_bookmark() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    fs::write(temp.path().join("tracked.txt"), "tracked").expect("write tracked file");
+    for args in [
+      vec!["commit", "-m", "add tracked file"],
+      vec!["bookmark", "set", "main", "fix/existing", "-r", "@-"],
+    ] {
+      let status = Command::new("jj")
+        .current_dir(temp.path())
+        .args(&args)
+        .status()
+        .expect("jj");
+      assert!(status.success(), "jj {:?}", args);
+    }
+    let before = crate::jj::jj_get_commit_id(&repo_path, "fix/existing").expect("bookmark");
+
+    super::create_workspace_with_symlinked_dirs(
+      &repo_path,
+      "fix/existing",
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(vec!["tracked.txt".to_string()]),
+    )
+    .expect_err("symlink over a tracked file must fail");
+
+    assert_eq!(
+      crate::jj::jj_get_commit_id(&repo_path, "fix/existing").expect("bookmark kept"),
+      before
+    );
+  }
+
+  #[test]
+  fn create_workspace_rollback_warns_when_conflicted_bookmark_cannot_be_restored() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    fs::write(temp.path().join("tracked.txt"), "tracked").expect("write tracked file");
+    for args in [
+      vec!["commit", "-m", "add tracked file"],
+      vec!["bookmark", "set", "fix/conflicted", "-r", "@-"],
+      vec!["bookmark", "set", "fix/conflicted", "-r", "@"],
+      vec!["--at-op", "@-", "bookmark", "forget", "fix/conflicted"],
+    ] {
+      let status = Command::new("jj")
+        .current_dir(temp.path())
+        .args(&args)
+        .status();
+      assert!(status.expect("jj").success(), "jj {:?}", args);
+    }
+    let log = std::sync::Arc::new(fs::File::create(temp.path().join("log")).expect("log"));
+    let _g = tracing::subscriber::set_default(tracing_subscriber::fmt().with_writer(log).finish());
+    super::create_workspace_with_symlinked_dirs(
+      &repo_path,
+      "fix/conflicted",
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(vec!["tracked.txt".to_string()]),
+    )
+    .expect_err("symlink over a tracked file must fail");
+    let log = fs::read_to_string(temp.path().join("log")).expect("read log");
+    assert!(log.contains("restore bookmark fix/conflicted"), "{log}");
   }
 
   #[test]
@@ -2096,6 +2191,28 @@ mod tests {
   }
 
   #[test]
+  fn open_or_create_workspace_from_pr_recreates_workspace_with_missing_directory() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    let first = super::create_workspace(&repo_path, "fix/pr", None, None, None, None, None)
+      .expect("create workspace");
+    let workspace_dir = temp
+      .path()
+      .join(".treq/workspaces")
+      .join(&first.workspace_path);
+    fs::remove_dir_all(&workspace_dir).expect("remove workspace directory");
+
+    let (workspace, created) =
+      super::open_or_create_workspace_from_pr(&repo_path, "fix/pr", "main", None, None)
+        .expect("open PR workspace");
+
+    assert!(created);
+    assert!(workspace_dir.exists());
+    let listed = super::list_workspace_statuses(&repo_path).expect("list statuses");
+    assert!(listed.iter().any(|s| s.current.id == workspace.id));
+  }
+
+  #[test]
   fn open_or_create_workspace_from_issue_ignores_archived_workspace() {
     let temp = TempDir::new().expect("tempdir");
     let repo_path = init_workspace_creation_repo(&temp);
@@ -2125,6 +2242,47 @@ mod tests {
 
     assert_eq!(created.branch_name, "fix/partial");
     assert!(!partial.join("partial").exists());
+  }
+
+  #[test]
+  fn create_workspace_recovers_workspace_registered_by_interrupted_create() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+    // A create killed after jj registered the workspace but before it moved
+    // the working copy off the root commit and set the bookmark.
+    fs::create_dir_all(temp.path().join(".treq/workspaces")).expect("workspaces dir");
+    let status = Command::new("jj")
+      .current_dir(temp.path())
+      .args(["workspace", "add", "--name", "fix-killed", "-r", "root()"])
+      .arg(".treq/workspaces/fix-killed")
+      .status()
+      .expect("jj workspace add");
+    assert!(status.success());
+
+    let created = super::create_workspace(&repo_path, "fix/killed", None, None, None, None, None)
+      .expect("retry recovers the interrupted create");
+
+    assert_eq!(created.workspace_path, "fix-killed");
+    assert!(crate::jj::jj_get_commit_id(&repo_path, "fix/killed").is_ok());
+  }
+
+  #[test]
+  fn create_workspace_leaves_no_directory_when_source_is_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    let repo_path = init_workspace_creation_repo(&temp);
+
+    super::create_workspace(
+      &repo_path,
+      "fix/bad-source",
+      None,
+      None,
+      Some("nonexistent"),
+      None,
+      None,
+    )
+    .expect_err("missing source must fail");
+
+    assert!(!temp.path().join(".treq/workspaces/fix-bad-source").exists());
   }
 
   #[test]
@@ -2913,10 +3071,18 @@ pub fn apply_workspace_target_branch(
 
   let _ = jj::jj_git_fetch(repo_path);
 
-  let rebase_result = jj::jj_rebase_workspace_bookmark_onto(
+  // Lifting off a parent workspace must leave that parent's commits in place.
+  let parent_workspace = workspace.target_branch.as_deref().filter(|parent| {
+    matches!(
+      local_db::get_workspace_by_branch(repo_path, parent),
+      Ok(Some(_))
+    )
+  });
+  let rebase_result = jj::jj_retarget_workspace_bookmark(
     workspace_path_str,
     &workspace.branch_name,
     target_branch,
+    parent_workspace,
   )
   .map_err(|e| format!("Failed to rebase workspace: {}", e))?;
 
@@ -3210,29 +3376,19 @@ pub fn rename_workspace(
     .to_str()
     .ok_or("Failed to convert workspace path to string")?;
 
-  // 7. Check if old bookmark was tracked
-  let was_tracked =
-    jj::is_bookmark_tracked(workspace_path_str, old_branch_name, "origin").unwrap_or(false);
-
-  // 8-9. Move the bookmark in one jj transaction so a failure cannot leave
-  // both names (or neither) behind.
+  // 7. Rename the bookmark in one jj transaction so a failure can't leave both names or neither.
   jj::jj_rename_bookmark(workspace_path_str, old_branch_name, new_branch_name)
     .map_err(|e| format!("Failed to rename bookmark: {}", e))?;
 
-  // 10. If was tracked, best-effort track new bookmark
-  if was_tracked {
-    let _ = jj::jj_bookmark_track(workspace_path_str, new_branch_name, "origin");
-  }
-
-  // 11. Update branch name in DB
+  // 8. Update branch name in DB
   local_db::update_workspace_branch_name(repo_path, workspace_id, new_branch_name)
     .map_err(|e| format!("Failed to update branch name in DB: {}", e))?;
 
-  // 12. Mark as not_on_remote (new name hasn't been pushed)
+  // 9. Mark as not_on_remote (new name hasn't been pushed)
   local_db::update_workspace_not_on_remote(repo_path, workspace_id, true)
     .map_err(|e| format!("Failed to update not_on_remote: {}", e))?;
 
-  // 13. Update children targeting the old branch name
+  // 10. Update children targeting the old branch name
   let children = local_db::get_workspaces_by_target_branch(repo_path, old_branch_name)
     .map_err(|e| format!("Failed to get child workspaces: {}", e))?;
 
@@ -3243,7 +3399,7 @@ pub fn rename_workspace(
     updated_children_ids.push(child.id);
   }
 
-  // 14. Return updated workspace
+  // 11. Return updated workspace
   let updated_workspace = local_db::get_workspace_by_id(repo_path, workspace_id)
     .map_err(|e| format!("Failed to get updated workspace: {}", e))?;
 
@@ -4152,8 +4308,25 @@ pub fn commit_workspace_with_auto_push<T>(
 where
   T: Into<Option<i64>>,
 {
-  let workspace_id = workspace_id.into();
-  let result = commit_workspace(repo_path, workspace_id, message)?;
+  commit_with_auto_push(repo_path, workspace_id.into(), message, false)
+}
+
+/// `commit_workspace_changes` followed by the auto-push.
+pub fn commit_workspace_changes_with_auto_push(
+  repo_path: &str,
+  workspace_id: Option<i64>,
+  message: &str,
+) -> Result<String, String> {
+  commit_with_auto_push(repo_path, workspace_id, message, true)
+}
+
+fn commit_with_auto_push(
+  repo_path: &str,
+  workspace_id: Option<i64>,
+  message: &str,
+  require_changes: bool,
+) -> Result<String, String> {
+  let result = commit_workspace_locked(repo_path, workspace_id, message, require_changes)?;
 
   if resolve_auto_push(repo_path) {
     push_workspace_to_remote(repo_path, workspace_id)?;
@@ -4161,6 +4334,9 @@ where
 
   Ok(result)
 }
+
+/// Error from a `require_changes` commit whose working copy has no changes.
+pub const NOTHING_TO_COMMIT: &str = "nothing to commit in the working copy";
 
 pub fn commit_workspace<T>(
   repo_path: &str,
@@ -4170,10 +4346,35 @@ pub fn commit_workspace<T>(
 where
   T: Into<Option<i64>>,
 {
-  let workspace_id = workspace_id.into();
+  commit_workspace_locked(repo_path, workspace_id.into(), message, false)
+}
+
+/// Like `commit_workspace`, but fails with `NOTHING_TO_COMMIT` when the working
+/// copy is clean.
+pub fn commit_workspace_changes(
+  repo_path: &str,
+  workspace_id: Option<i64>,
+  message: &str,
+) -> Result<String, String> {
+  commit_workspace_locked(repo_path, workspace_id, message, true)
+}
+
+fn commit_workspace_locked(
+  repo_path: &str,
+  workspace_id: Option<i64>,
+  message: &str,
+  require_changes: bool,
+) -> Result<String, String> {
   let repo_commit_lock = commit_lock_for_repo(repo_path);
   let _repo_commit_guard = repo_commit_lock.lock_or_recover();
   let workspace_root = resolve_workspace_root(repo_path, workspace_id)?;
+  // The mutex above only covers this process; CLI calls run in separate processes.
+  let _workspace_commit_lock = jj_lib::lock::FileLock::lock(
+    Path::new(&workspace_root)
+      .join(".jj")
+      .join("treq-commit.lock"),
+  )
+  .map_err(|e| format!("Failed to lock workspace for commit: {}", e))?;
   let (committed_branch, target_branch) = if let Some(id) = workspace_id {
     let workspace = local_db::get_workspace_by_id(repo_path, id)
       .map_err(|e| format!("Failed to get workspace: {}", e))?
@@ -4190,6 +4391,15 @@ where
     (branch, target_branch)
   };
 
+  // Checked under the commit lock: a check made before it races with a
+  // concurrent commit that empties the working copy first.
+  if require_changes
+    && jj::jj_get_changed_files(&workspace_root)
+      .map_err(|e| format!("Failed to list changed files: {}", e))?
+      .is_empty()
+  {
+    return Err(NOTHING_TO_COMMIT.to_string());
+  }
   let result = jj::jj_commit(&workspace_root, message)
     .map_err(|e| format!("Failed to create commit: {}", e))?;
   // Check-pass autosaves are checkpoints. Fold them away once the user commits.
