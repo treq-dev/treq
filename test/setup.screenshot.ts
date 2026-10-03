@@ -29,9 +29,8 @@ import {
 process.env.TREQ_DISABLE_AUTO_REBASE = "1";
 process.env.TREQ_DISABLE_AUTO_UPDATE = "1";
 
-const testDbPath = path.join(os.tmpdir(), `treq-screenshot-${Date.now()}.db`);
-process.env.TREQ_APP_DB_PATH = testDbPath;
-process.env.TREQ_APP_DATA_DIR = path.dirname(testDbPath);
+const testAppDataDir = path.join(os.tmpdir(), `treq-screenshot-${Date.now()}`);
+process.env.TREQ_APP_DATA_DIR = testAppDataDir;
 
 const require = createRequire(import.meta.url);
 const tauriTest = require("../src-tauri/target") as {
@@ -67,7 +66,7 @@ afterEach(() => {
 
 afterAll(() => {
   try {
-    if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+    fs.rmSync(testAppDataDir, { recursive: true, force: true });
   } catch {
     // ignore
   }

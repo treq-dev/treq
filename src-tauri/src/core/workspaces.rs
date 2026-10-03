@@ -1593,13 +1593,7 @@ mod tests {
   use rusqlite::Connection;
   use std::fs;
   use std::process::Command;
-  use std::sync::{Mutex, OnceLock};
   use tempfile::TempDir;
-
-  fn env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-  }
 
   fn test_workspace(id: i64, branch: &str, target: Option<&str>) -> Workspace {
     Workspace {
@@ -2383,7 +2377,6 @@ mod tests {
 
   #[test]
   fn resolve_workspace_diff_conflict_marker_style_defaults_when_settings_table_missing() {
-    let _guard = env_lock().lock().unwrap();
     let temp_dir = TempDir::new().expect("temp dir should be created");
     let db_path = temp_dir.path().join("treq.db");
     Connection::open(&db_path)
@@ -2391,9 +2384,8 @@ mod tests {
       .execute("CREATE TABLE unrelated (id INTEGER PRIMARY KEY)", [])
       .expect("setup table should succeed");
 
-    std::env::set_var("TREQ_APP_DB_PATH", db_path.to_string_lossy().to_string());
+    let _app_data_dir = crate::core::AppDataDirGuard::set(temp_dir.path());
     let style = resolve_workspace_diff_conflict_marker_style("/unused/repo/path");
-    std::env::remove_var("TREQ_APP_DB_PATH");
 
     assert_eq!(
       style.expect("should resolve style"),

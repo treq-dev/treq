@@ -8,7 +8,6 @@
 
 use napi_derive::napi;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::binary_paths;
@@ -20,17 +19,15 @@ use crate::AppState;
 use crate::e2e_test_helpers::TestRepo;
 
 pub fn init_test_state() -> Result<AppState, String> {
-  let db_path = std::env::var("TREQ_APP_DB_PATH")
-    .map(PathBuf::from)
-    .unwrap_or_else(|_| {
-      std::env::temp_dir().join(format!("treq-tauri-test-{}.db", std::process::id()))
-    });
-
-  if let Some(parent) = db_path.parent() {
-    std::env::set_var("TREQ_APP_DATA_DIR", parent.to_string_lossy().to_string());
-    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-  }
-  std::env::set_var("TREQ_APP_DB_PATH", db_path.to_string_lossy().to_string());
+  let app_data_dir = crate::core::app_data_dir().unwrap_or_else(|| {
+    std::env::temp_dir().join(format!("treq-tauri-test-{}", std::process::id()))
+  });
+  std::fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
+  std::env::set_var(
+    "TREQ_APP_DATA_DIR",
+    app_data_dir.to_string_lossy().to_string(),
+  );
+  let db_path = app_data_dir.join(crate::core::APP_DB_FILE_NAME);
 
   let db = Database::new(db_path).map_err(|e| format!("Failed to open database: {e}"))?;
   db.init()
