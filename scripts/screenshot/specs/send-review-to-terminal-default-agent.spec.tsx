@@ -9,8 +9,8 @@
 import * as React from "react";
 import { expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { createTestRepo, openRepo, resolveWorkspacePath, writeWorkspaceFile } from "../../../test/utils";
-import { render, screen, waitFor } from "../../../test/test-utils";
+import { createTestRepo, findSidebarWorkspaceRow, openRepo, resolveWorkspacePath, writeWorkspaceFile } from "../../../test/utils";
+import { render, screen, waitFor, within } from "../../../test/test-utils";
 import { Dashboard } from "../../../src/components/Dashboard";
 import {
 	createWorkspace,
@@ -52,15 +52,11 @@ it("send review to terminal opens a codex terminal when repo default_agent=codex
 
 	// Open an agent terminal before starting the review. Once it is no longer
 	// streaming, this is the existing idle terminal that Edit must reuse.
-	await user.click(await screen.findByLabelText("New agent terminal"));
-	const existingAgentItem = await waitFor(() => {
-		const item = document.querySelector(
-			'[data-testid^="terminal-session-item-claude-"]',
-		);
-		expect(item).not.toBeNull();
-		return item as HTMLElement;
-	});
-	await user.click(existingAgentItem);
+	await user.click(
+		within(await findSidebarWorkspaceRow(BRANCH_NAME)).getByRole("button", {
+			name: "Start agent",
+		}),
+	);
 	await waitFor(() => {
 		expect(document.querySelector('[data-terminal-id^="agent-"]')).not.toBeNull();
 	});

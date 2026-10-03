@@ -8,6 +8,24 @@
 // any response it receives - see the edge functions themselves.
 
 import { supabase } from "./supabase";
+
+/**
+ * A failed Edge Function call. Keeps the HTTP status and error code as
+ * fields so callers such as `classifyRenewalError` can tell a refused
+ * authorization (401/404/409) from a transient failure without parsing the
+ * message.
+ */
+export class RemoteFunctionError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "RemoteFunctionError";
+  }
+}
+
 export async function remoteFunctionError(error: unknown): Promise<Error> {
   const fallback =
     error instanceof Error ? error.message : "Remote server request failed";
@@ -41,7 +59,11 @@ export async function remoteFunctionError(error: unknown): Promise<Error> {
   const detail = correlationId
     ? `HTTP ${status} · Correlation ID: ${correlationId}`
     : `HTTP ${status}`;
-  return new Error(`[${code}] ${message}\n${detail}`);
+  return new RemoteFunctionError(
+    `[${code}] ${message}\n${detail}`,
+    status,
+    code,
+  );
 }
 
 import type {

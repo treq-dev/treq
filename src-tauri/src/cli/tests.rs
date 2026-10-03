@@ -794,6 +794,40 @@ fn describe_commit_allows_missing_idempotency_key_at_cli_boundary() {
   .unwrap();
 }
 
+fn create_workspace_metadata(pairs: &[(&str, &str)]) -> Result<Option<String>, String> {
+  let mut all = vec![
+    ("action", "create"),
+    ("repo", "/tmp/r"),
+    ("value", "feat"),
+    ("idempotency-key", "k1"),
+  ];
+  all.extend_from_slice(pairs);
+  match parse_remote_command_request("workspace", &remote_matches(&all))? {
+    crate::core::remote::TreqCommandRequest::CreateWorkspace { metadata, .. } => Ok(metadata),
+    other => panic!("unexpected request {other:?}"),
+  }
+}
+
+#[test]
+fn workspace_create_applies_the_title_flag() {
+  let metadata = create_workspace_metadata(&[
+    ("title", "My title"),
+    ("metadata", r#"{"description":"d"}"#),
+  ])
+  .unwrap();
+  let parsed = crate::core::workspaces::parse_workspace_metadata(metadata.as_deref());
+  assert_eq!(parsed.title.as_deref(), Some("My title"));
+  assert_eq!(parsed.description.as_deref(), Some("d"));
+}
+
+#[test]
+fn workspace_create_rejects_invalid_metadata_json() {
+  for bad in ["not json", "[1]"] {
+    let error = create_workspace_metadata(&[("metadata", bad)]).unwrap_err();
+    assert!(error.starts_with("invalid_arguments:"), "{error}");
+  }
+}
+
 /// One sample of every typed remote command, used to check the wire format
 /// end to end: `cli_args` must only emit flags the remote CLI declares, and
 /// parsing those args back must give the same request.
@@ -1284,5 +1318,55 @@ mod structured_errors {
     let (ok, out, err) = run(&[("format", "json")], Ok(()));
     assert!(ok);
     assert!(out.is_empty() && err.is_empty());
+  }
+}
+
+mod repo_arg_resolution {
+  use super::*;
+
+  fn parsed_repo(repo: &str) -> String {
+    match parse_remote_command_request(
+      "changes",
+      &remote_matches(&[("action", "list"), ("repo", repo)]),
+    )
+    .unwrap()
+    {
+      crate::core::remote::TreqCommandRequest::ListChanges { repo, .. } => repo,
+      other => panic!("unexpected request {other:?}"),
+    }
+  }
+
+  #[test]
+  fn a_workspace_path_resolves_to_its_home_repo() {
+    assert_eq!(parsed_repo("/srv/r/.treq/workspaces/feat-a"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/r/.treq/workspaces/feat-a/src"), "/srv/r");
+  }
+
+  #[test]
+  fn repo_paths_are_absolute_without_dots_or_trailing_slashes() {
+    assert_eq!(parsed_repo("/srv/r"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/r/"), "/srv/r");
+    assert_eq!(parsed_repo("/srv/./x/../r"), "/srv/r");
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(parsed_repo("."), cwd.to_str().unwrap());
+  }
+
+  #[test]
+  fn a_clone_destination_inside_a_workspace_is_kept() {
+    let request = parse_remote_command_request(
+      "repo",
+      &remote_matches(&[
+        ("action", "clone"),
+        ("repo", "/srv/r/.treq/workspaces/feat-a/vendor/"),
+        ("value", "git@ex:x.git"),
+        ("idempotency-key", "k1"),
+      ]),
+    )
+    .unwrap();
+    assert!(matches!(
+      request,
+      crate::core::remote::TreqCommandRequest::CloneRepo { destination, .. }
+        if destination == "/srv/r/.treq/workspaces/feat-a/vendor"
+    ));
   }
 }

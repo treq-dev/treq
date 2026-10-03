@@ -31,14 +31,17 @@ it("captures the Agent chats log source group", async () => {
   const user = userEvent.setup();
   render(<Dashboard />);
   await user.click(await screen.findByRole("tab", { name: /^Logs/ }));
-  await user.click(await screen.findByRole("button", { name: /Agent chats/i }));
+  await user.selectOptions(
+    await screen.findByLabelText("Log source"),
+    "agent-chats",
+  );
   await screen.findByText("explain the stack");
   await screen.findByText(/This stack has two workspaces/i);
 
   await captureDocument(document, {
     name: "logs-tab-agent-chats-01",
     expectations: [
-      'The source-group toggle shows "Checks logs" and "Agent chats", with Agent chats selected.',
+      'The "Log source" select in the header reads "Agent".',
       'A dropdown lists the "Claude · claude" agent terminal; Browse/Logs Explorer are not shown.',
       "Conversation lines show a Role column (user/agent) plus the cleaned message text.",
     ],
