@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@theme/Layout';
-import Head from '@docusaurus/Head';
 import Link from '@docusaurus/Link';
 import { useColorMode } from '@docusaurus/theme-common';
 import { Highlight, themes } from 'prism-react-renderer';
@@ -33,9 +32,6 @@ function pickDefaultFile(files: SkillFile[]): SkillFile | null {
 export default function SkillDetailPage({ skill }: { skill: Skill }) {
   return (
     <Layout title={skill.name} description={skill.description}>
-      <Head>
-        <link rel="canonical" href={skill.url} />
-      </Head>
       <SkillDetailContent skill={skill} />
     </Layout>
   );
