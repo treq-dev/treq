@@ -87,11 +87,6 @@ const COMPARISON_ROWS: ComparisonRow[] = [
 
 const FAQ_ITEMS = [
   {
-    question: 'Who is Free for?',
-    answer:
-      'Anyone who runs locally. You get the full desktop workspace manager, plus GitHub through your local gh CLI and Linear through your own API key.',
-  },
-  {
     question: 'Is the desktop app still free on Pro?',
     answer:
       'Yes. Pro is a cloud subscription on top of the same open source desktop app. Your local workspaces stay on your machine either way.',
