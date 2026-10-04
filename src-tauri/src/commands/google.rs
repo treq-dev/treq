@@ -163,9 +163,10 @@ pub async fn google_discard_unposted_findings(
   state: State<'_, AppState>,
   repo_path: String,
   file_id: String,
+  finding_ids: Vec<String>,
 ) -> Result<(), String> {
   crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
-  crate::core::google_review::discard_unposted_findings(&repo_path, &file_id)
+  crate::core::google_review::discard_unposted_findings(&repo_path, &file_id, &finding_ids)
 }
 
 /// All open (unposted) Google Doc findings in the repo.

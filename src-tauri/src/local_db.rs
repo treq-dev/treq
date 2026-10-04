@@ -2120,19 +2120,24 @@ pub fn reopen_agent_review_comment_in_target(
 }
 
 /// Deletes the open comments of one target; resolved ones are kept.
+/// Deletes the listed comments if they are still open and belong to the
+/// target. Ids not matching are ignored.
 pub fn delete_open_agent_review_comments_in_target(
   repo_path: &str,
   target_type: &str,
   target_id: &str,
+  ids: &[String],
 ) -> Result<(), String> {
   let conn = get_connection(repo_path)?;
-  conn
-    .execute(
-      "DELETE FROM agent_review_comments
-       WHERE repo_path = ?1 AND target_type = ?2 AND target_id = ?3 AND status = 'open'",
-      params![repo_path, target_type, target_id],
-    )
-    .map_err(|e| format!("Failed to delete agent review comments: {}", e))?;
+  for id in ids {
+    conn
+      .execute(
+        "DELETE FROM agent_review_comments
+         WHERE id = ?1 AND repo_path = ?2 AND target_type = ?3 AND target_id = ?4 AND status = 'open'",
+        params![id, repo_path, target_type, target_id],
+      )
+      .map_err(|e| format!("Failed to delete agent review comments: {}", e))?;
+  }
   Ok(())
 }
 

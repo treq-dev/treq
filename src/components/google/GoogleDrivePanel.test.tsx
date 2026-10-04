@@ -103,6 +103,7 @@ describe("GoogleDrivePanel", () => {
         root: "/r",
         file_name: "Spec.md",
         line_count: 1,
+        stale_finding_ids: ["old-1"],
       };
     });
     api.googleDiscardUnpostedFindings.mockImplementation(async () => {
@@ -116,9 +117,11 @@ describe("GoogleDrivePanel", () => {
     await vi.waitFor(() =>
       expect(order).toEqual(["prepare", "launch", "discard"]),
     );
+    // Only findings from before the export are discarded.
     expect(api.googleDiscardUnpostedFindings).toHaveBeenCalledWith(
       "/repo",
       "a",
+      ["old-1"],
     );
   });
 

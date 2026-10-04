@@ -45,6 +45,8 @@ export type PreparedDocReview = {
   root: string;
   file_name: string;
   line_count: number;
+  /** Open findings from before this export; discard exactly these after launch. */
+  stale_finding_ids: string[];
 };
 
 /** Agent review comments on an exported Drive file use this target type. */
@@ -142,8 +144,9 @@ export const googlePostReviewComments = (
 export const googleDiscardUnpostedFindings = (
   repoPath: string,
   fileId: string,
+  findingIds: string[],
 ): Promise<void> =>
-  invoke("google_discard_unposted_findings", { repoPath, fileId });
+  invoke("google_discard_unposted_findings", { repoPath, fileId, findingIds });
 
 /** Every open Google doc finding in the repository, for all files at once. */
 export const googleListDocFindings = (

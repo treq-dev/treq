@@ -14,6 +14,7 @@ const review = {
   root: "/home/me/Documents/treq/exports/doc_1",
   file_name: "Q3-plan.md",
   line_count: 12,
+  stale_finding_ids: [],
 };
 
 describe("buildDocReviewPrompt", () => {

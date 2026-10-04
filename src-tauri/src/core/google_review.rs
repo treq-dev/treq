@@ -105,6 +105,10 @@ pub struct PreparedDocReview {
   /// File name inside `root`.
   pub file_name: String,
   pub line_count: usize,
+  /// Open findings that existed before this export. The caller discards
+  /// exactly these once the new review has launched, so findings the new
+  /// agent writes in the meantime are never deleted.
+  pub stale_finding_ids: Vec<String>,
 }
 
 /// Exports the file into the review directory, replacing an earlier export.
@@ -123,7 +127,14 @@ pub async fn prepare_doc_review(
   std::fs::create_dir_all(&root).map_err(|e| format!("Failed to create review directory: {e}"))?;
   std::fs::write(root.join(&file_name), &text)
     .map_err(|e| format!("Failed to write exported document: {e}"))?;
+  let stale_finding_ids =
+    crate::local_db::list_agent_review_comments(repo_path, REVIEW_TARGET_TYPE, file_id)?
+      .into_iter()
+      .filter(|c| c.status == "open")
+      .map(|c| c.id)
+      .collect();
   Ok(PreparedDocReview {
+    stale_finding_ids,
     line_count: text.lines().count(),
     root: root.to_string_lossy().into_owned(),
     file_name,
@@ -183,11 +194,16 @@ pub fn comment_content(comment: &crate::local_db::AgentReviewComment) -> String 
 /// Deletes the unposted findings for `file_id`. They point at lines of an
 /// earlier export, so the caller runs this once a new review has launched;
 /// `prepare_doc_review` keeps them so a failed launch loses nothing.
-pub fn discard_unposted_findings(repo_path: &str, file_id: &str) -> Result<(), String> {
+pub fn discard_unposted_findings(
+  repo_path: &str,
+  file_id: &str,
+  finding_ids: &[String],
+) -> Result<(), String> {
   crate::local_db::delete_open_agent_review_comments_in_target(
     repo_path,
     REVIEW_TARGET_TYPE,
     file_id,
+    finding_ids,
   )
 }
 
@@ -464,15 +480,27 @@ mod tests {
       .unwrap();
     assert_eq!(prepared.file_name, "Spec.md");
     assert_eq!(list_doc_findings(repo).unwrap().len(), 1);
+    assert_eq!(prepared.stale_finding_ids.len(), 1);
     add_comment(repo, "doc2", "other");
-    discard_unposted_findings(repo, "doc1").unwrap();
+    // Written by the new agent after prepare: must survive the discard.
+    add_comment(repo, "doc1", "fresh");
+    discard_unposted_findings(repo, "doc1", &prepared.stale_finding_ids).unwrap();
+    let mut doc1 = statuses(repo, "doc1");
+    doc1.sort();
     assert_eq!(
-      statuses(repo, "doc1"),
-      [("posted".into(), "resolved".into())]
+      doc1,
+      [
+        ("fresh".into(), "open".into()),
+        ("posted".into(), "resolved".into())
+      ]
     );
-    let open = list_doc_findings(repo).unwrap();
-    assert_eq!(open.len(), 1);
-    assert_eq!(open[0].target_id, "doc2");
+    let mut open: Vec<_> = list_doc_findings(repo)
+      .unwrap()
+      .into_iter()
+      .map(|c| c.target_id)
+      .collect();
+    open.sort();
+    assert_eq!(open, ["doc1", "doc2"]);
   }
 
   #[test]

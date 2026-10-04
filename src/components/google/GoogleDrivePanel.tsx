@@ -82,7 +82,11 @@ export const GoogleDrivePanel: React.FC<{
         title: `Review: ${file.name}`,
       });
       try {
-        await googleDiscardUnpostedFindings(repoPath, file.id);
+        await googleDiscardUnpostedFindings(
+          repoPath,
+          file.id,
+          prepared.stale_finding_ids,
+        );
       } catch (e) {
         addToast({
           title: "Review started, but old findings were not cleared",
