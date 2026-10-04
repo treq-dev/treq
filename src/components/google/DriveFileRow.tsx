@@ -1,31 +1,17 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  FileText,
-  Loader2,
-  Send,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { ExternalLink, FileText, Loader2, Sparkles } from "lucide-react";
 import { useState } from "react";
-import { deleteAgentReviewComment } from "../../lib/api";
-import { googlePostReviewComments, type DriveFile } from "../../lib/api-google";
+import type { DriveFile } from "../../lib/api-google";
 import type { AgentReviewComment } from "../../lib/api-types-review";
-import { errorText } from "../../lib/errorText";
-import { isNotFoundError } from "../../lib/google-tasks";
-import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
 
 /**
- * One Drive file: open it, review it, and read, drop or post the review's
- * findings. Findings are shown here first so nothing reaches the shared
- * document without the user seeing it.
+ * One Drive file: open it in Drive, review it, or open its review in the
+ * document review viewer. Findings are read there first, so nothing reaches
+ * the shared document without the user seeing it.
  */
 export const DriveFileRow: React.FC<{
   file: DriveFile;
-  repoPath: string;
   /** Open findings for this file, fetched once for the whole panel. */
   findings: AgentReviewComment[];
   /** Refetches the panel's findings. */
@@ -33,27 +19,23 @@ export const DriveFileRow: React.FC<{
   /** A review (of any file) is being prepared: its export may change. */
   disabled: boolean;
   onReview: (file: DriveFile) => Promise<void>;
+  /** Opens the file in the document review viewer. */
+  onOpenReview: (file: DriveFile) => void;
 }> = ({
   file,
-  repoPath,
   findings,
   onFindingsChanged: mutate,
   disabled,
   onReview,
+  onOpenReview,
 }) => {
-  const { addToast } = useToastStore();
-  const [expanded, setExpanded] = useState(false);
   /** The findings count the re-review confirmation was asked with. */
   const [confirmedCount, setConfirmedCount] = useState<number | null>(null);
   // The confirmation names a count; it lapses if that count changes.
   const confirmRerun = confirmedCount === findings.length;
   const setConfirmRerun = (on: boolean) =>
     setConfirmedCount(on ? findings.length : null);
-  const [busy, setBusy] = useState<"review" | "post" | null>(null);
-  /** Findings with a drop in flight. */
-  const [dropping, setDropping] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [busy, setBusy] = useState(false);
 
   const review = async () => {
     // A new export replaces the old one, and unposted findings with it.
@@ -62,67 +44,13 @@ export const DriveFileRow: React.FC<{
       return;
     }
     setConfirmRerun(false);
-    setBusy("review");
+    setBusy(true);
     try {
       await onReview(file);
       await mutate();
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
-  };
-
-  const post = async () => {
-    setBusy("post");
-    try {
-      const { posted, errors } = await googlePostReviewComments(
-        repoPath,
-        file.id,
-      );
-      if (errors.length > 0) {
-        addToast({
-          title: `Posted ${posted}, ${errors.length} failed`,
-          description: `${errors[0]} Failed findings stay listed; post again to retry.`,
-          type: "warning",
-        });
-      } else {
-        addToast({
-          title: `Posted ${posted} comment${posted === 1 ? "" : "s"}`,
-          description: file.name,
-          type: "success",
-        });
-      }
-    } catch (e) {
-      addToast({
-        title: "Failed to post comments",
-        description: errorText(e),
-        type: "error",
-      });
-    } finally {
-      await mutate();
-      setBusy(null);
-    }
-  };
-
-  const drop = async (id: string) => {
-    if (dropping.has(id)) return;
-    setDropping((prev) => new Set(prev).add(id));
-    try {
-      await deleteAgentReviewComment(repoPath, id);
-    } catch (e) {
-      // Already gone (posted or dropped elsewhere): nothing left to do.
-      if (!isNotFoundError(e))
-        addToast({
-          title: "Failed to remove finding",
-          description: errorText(e),
-          type: "error",
-        });
-    }
-    await mutate();
-    setDropping((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
   };
 
   return (
@@ -151,25 +79,17 @@ export const DriveFileRow: React.FC<{
             <ExternalLink className="w-4 h-4" />
           </Button>
         )}
-        {findings.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {expanded ? (
-              <ChevronDown className="w-4 h-4" />
-            ) : (
-              <ChevronRight className="w-4 h-4" />
-            )}
-            {findings.length} finding{findings.length === 1 ? "" : "s"}
+        {file.reviewable && (
+          <Button variant="ghost" size="sm" onClick={() => onOpenReview(file)}>
+            {findings.length > 0
+              ? `${findings.length} finding${findings.length === 1 ? "" : "s"}`
+              : "Open review"}
           </Button>
         )}
         <Button
           variant="outline"
           size="sm"
-          disabled={!file.reviewable || disabled || busy !== null}
+          disabled={!file.reviewable || disabled || busy}
           title={
             file.reviewable
               ? undefined
@@ -177,7 +97,7 @@ export const DriveFileRow: React.FC<{
           }
           onClick={() => void review()}
         >
-          {busy === "review" ? (
+          {busy ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <Sparkles className="w-4 h-4" />
@@ -202,59 +122,6 @@ export const DriveFileRow: React.FC<{
             onClick={() => setConfirmRerun(false)}
           >
             Cancel
-          </Button>
-        </div>
-      )}
-
-      {expanded && findings.length > 0 && (
-        <div className="ml-7 mt-2 space-y-2">
-          <ul className="space-y-2">
-            {findings.map((finding) => (
-              <li
-                key={finding.id}
-                className="rounded-md border border-border p-2 text-sm"
-              >
-                <div className="flex items-start gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground">
-                      Lines {finding.start_line}–{finding.end_line}
-                    </p>
-                    <p className="whitespace-pre-wrap break-words">
-                      {finding.comment_text}
-                    </p>
-                    {finding.suggested_replacement && (
-                      <p className="mt-1 text-xs whitespace-pre-wrap break-words text-muted-foreground">
-                        Suggested: {finding.suggested_replacement}
-                      </p>
-                    )}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Drop finding"
-                    disabled={
-                      disabled || busy !== null || dropping.has(finding.id)
-                    }
-                    onClick={() => void drop(finding.id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <Button
-            size="sm"
-            disabled={disabled || busy !== null || dropping.size > 0}
-            onClick={() => void post()}
-          >
-            {busy === "post" ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
-            Post {findings.length} comment{findings.length === 1 ? "" : "s"} to
-            Drive
           </Button>
         </div>
       )}

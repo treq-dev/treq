@@ -1,22 +1,15 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
-import {
-  googleConnectionStatus,
-  googleDisconnectLocal,
-  googleOAuthBegin,
-  googleOAuthCancel,
-  googleOAuthComplete,
-} from "../../lib/api-google";
-import { getRepoSetting, getSetting, setRepoSetting } from "../../lib/api";
+import { googleConnectionStatus } from "../../lib/api-google";
+import { getRepoSetting, setRepoSetting } from "../../lib/api";
 import { ensureProxySessionSync } from "../../lib/proxy-session-sync";
 import { isProSubscription } from "../../lib/subscription";
 import { supabase } from "../../lib/supabase";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
+import { GoogleWorkspaceUpsell } from "./GoogleWorkspaceUpsell";
 import { Textarea } from "../ui/textarea";
 import { errorText } from "../../lib/errorText";
 import { functionsErrorText } from "../../lib/functionsErrorText";
@@ -49,11 +42,9 @@ const SettingRow: React.FC<{
 export const PRO_POLL_INTERVAL_MS = 3_000;
 export const PRO_POLL_TIMEOUT_MS = 120_000;
 
-type DisconnectTarget = "local" | "proxy";
-
 /**
- * Free plan: the user's own Google Cloud desktop OAuth client, run through a
- * loopback redirect. Pro plan: treq's OAuth app, held server side.
+ * Google Workspace is a Pro feature: treq's OAuth app connects the account and
+ * the grant is held server side. Other plans see an upsell.
  */
 export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   repoPath,
@@ -61,15 +52,10 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   const { subscription, user } = useAuthStore();
   const isPro = isProSubscription(subscription);
   const { addToast } = useToastStore();
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
   const [reviewPrompt, setReviewPrompt] = useState("");
   const [busy, setBusy] = useState(false);
-  /** The sign-in page of a pending local connect. */
-  const [signInUrl, setSignInUrl] = useState<string | null>(null);
   const [waitingForPro, setWaitingForPro] = useState(false);
-  const [confirming, setConfirming] = useState<DisconnectTarget | null>(null);
-  const cancelled = useRef(false);
+  const [confirming, setConfirming] = useState(false);
   const mounted = useRef(true);
   /** Bumped to stop the running Pro poll (cancel or unmount). */
   const pollRun = useRef(0);
@@ -94,48 +80,12 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
     { revalidateOnFocus: true },
   );
 
-  // Seed the inputs once; never overwrite what the user has typed.
-  useEffect(() => {
-    void getSetting("google_client_id")
-      .then((saved) => setClientId((current) => current || (saved ?? "")))
-      .catch(() => undefined);
-  }, []);
   useEffect(() => {
     if (!repoPath) return;
     void getRepoSetting(repoPath, "google_review_prompt")
       .then((saved) => setReviewPrompt((current) => current || (saved ?? "")))
       .catch(() => undefined);
   }, [repoPath]);
-
-  const connectLocal = async () => {
-    setBusy(true);
-    cancelled.current = false;
-    try {
-      const url = await googleOAuthBegin(clientId, clientSecret || undefined);
-      setSignInUrl(url);
-      await openUrl(url);
-      await googleOAuthComplete();
-      setClientSecret("");
-      await mutate();
-      addToast({ title: "Google Workspace connected", type: "success" });
-    } catch (e) {
-      if (!cancelled.current) {
-        addToast({
-          title: "Google sign-in failed",
-          description: errorText(e),
-          type: "error",
-        });
-      }
-    } finally {
-      setSignInUrl(null);
-      setBusy(false);
-    }
-  };
-
-  const cancelLocal = async () => {
-    cancelled.current = true;
-    await googleOAuthCancel().catch(() => undefined);
-  };
 
   /** Waits for the browser sign-in to store the grant server side. */
   const waitForProxy = async () => {
@@ -175,8 +125,6 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   };
 
   const connectPro = async () => {
-    // The local client takes precedence, so a Pro grant would never show.
-    if (status?.mode === "local") return;
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke(
@@ -198,23 +146,6 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
       if (mounted.current) setBusy(false);
     }
     if (mounted.current) await waitForProxy();
-  };
-
-  const disconnectLocal = async () => {
-    setBusy(true);
-    try {
-      await googleDisconnectLocal();
-      await mutate();
-      addToast({ title: "Google Workspace disconnected", type: "success" });
-    } catch (e) {
-      addToast({
-        title: "Failed to disconnect Google",
-        description: errorText(e),
-        type: "error",
-      });
-    } finally {
-      setBusy(false);
-    }
   };
 
   // Not Pro-gated: a lapsed plan must still be able to remove its grant.
@@ -259,10 +190,8 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   };
 
   const confirmDisconnect = () => {
-    const target = confirming;
-    setConfirming(null);
-    if (target === "local") void disconnectLocal();
-    if (target === "proxy") void disconnectPro();
+    setConfirming(false);
+    void disconnectPro();
   };
 
   const mode = status?.mode;
@@ -271,11 +200,9 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
       ? `Couldn't check the connection: ${errorText(statusError)}`
       : !status
         ? "Checking…"
-        : mode === "local"
-          ? "Connected with your own OAuth client"
-          : mode === "proxy"
-            ? "Connected through treq (Pro)"
-            : "Not connected";
+        : mode === "proxy"
+          ? "Connected through treq (Pro)"
+          : "Not connected";
 
   return (
     <section>
@@ -285,148 +212,107 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
           Tasks, Docs and Drive
         </span>
       </div>
-      <div className="divide-y divide-border">
-        <SettingRow title="Status" description={modeLabel}>
-          {!status && statusError && (
-            <Button size="sm" variant="outline" onClick={() => void mutate()}>
-              Retry
-            </Button>
-          )}
-          {(mode === "local" || (mode === "proxy" && user)) && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setConfirming(mode)}
-              disabled={busy}
-            >
-              Disconnect
-            </Button>
-          )}
-        </SettingRow>
-
+      {!isPro ? (
         <div className="py-3 space-y-2">
-          <p className="font-medium">Your own OAuth client (free)</p>
-          <p className="text-base text-muted-foreground">
-            Create a Desktop OAuth client in Google Cloud with the Tasks and
-            Drive APIs enabled, then paste its client ID and secret. Tokens stay
-            on this device.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Input
-              className="w-80"
-              placeholder="Client ID"
-              aria-label="Google OAuth client ID"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              disabled={busy}
-            />
-            <Input
-              className="w-64"
-              type="password"
-              placeholder="Client secret"
-              aria-label="Google OAuth client secret"
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.target.value)}
-              disabled={busy}
-            />
-            <Button
-              size="sm"
-              onClick={connectLocal}
-              disabled={busy || !clientId.trim()}
-            >
-              {busy && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
-              Connect
-            </Button>
-          </div>
-          {signInUrl && (
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="text-muted-foreground">
-                Waiting for Google sign-in in your browser…
-              </span>
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => void openUrl(signInUrl)}
-              >
-                Reopen sign-in page
-              </button>
-              <Button size="sm" variant="outline" onClick={cancelLocal}>
-                Cancel
-              </Button>
-            </div>
-          )}
-        </div>
-
-        <SettingRow
-          title="Connect via treq"
-          description={
-            waitingForPro
-              ? "Waiting for Google sign-in in your browser…"
-              : mode === "local"
-                ? "Your own OAuth client is connected and takes precedence. Disconnect it to connect through treq."
-                : isPro
-                  ? "Use treq's Google app. No Cloud project needed."
-                  : "Pro plan: connect without your own Google Cloud project."
-          }
-        >
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={connectPro}
-            disabled={!isPro || busy || waitingForPro || mode === "local"}
-          >
-            Connect with Google
-          </Button>
-          {waitingForPro && (
-            <Button size="sm" variant="ghost" onClick={cancelPro}>
-              Cancel
-            </Button>
-          )}
-        </SettingRow>
-        {user && mode !== "proxy" && (
-          <div className="pb-3">
+          <GoogleWorkspaceUpsell />
+          {user && (
             <button
               type="button"
               className="text-sm text-muted-foreground underline"
-              onClick={() => setConfirming("proxy")}
+              onClick={() => setConfirming(true)}
               disabled={busy}
             >
               Remove Google from your treq account
             </button>
-          </div>
-        )}
+          )}
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          <SettingRow title="Status" description={modeLabel}>
+            {!status && statusError && (
+              <Button size="sm" variant="outline" onClick={() => void mutate()}>
+                Retry
+              </Button>
+            )}
+            {mode === "proxy" && user && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirming(true)}
+                disabled={busy}
+              >
+                Disconnect
+              </Button>
+            )}
+          </SettingRow>
 
-        {repoPath && (
-          <div className="py-3 space-y-2">
-            <p className="font-medium">Document review instructions</p>
-            <p className="text-base text-muted-foreground">
-              Added to the review agent&apos;s prompt when reviewing Docs and
-              Drive files for this repository.
-            </p>
-            <Textarea
-              value={reviewPrompt}
-              onChange={(e) => setReviewPrompt(e.target.value)}
-              placeholder="e.g. Check that every claim cites a source."
-              aria-label="Document review instructions"
-            />
-            <Button size="sm" onClick={saveReviewPrompt}>
-              Save
-            </Button>
-          </div>
-        )}
-      </div>
+          {mode !== "proxy" && (
+            <SettingRow
+              title="Connect via treq"
+              description={
+                waitingForPro
+                  ? "Waiting for Google sign-in in your browser…"
+                  : "Sign in with Google to use Tasks, Docs and Drive in treq."
+              }
+            >
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={connectPro}
+                disabled={busy || waitingForPro}
+              >
+                Connect with Google
+              </Button>
+              {waitingForPro && (
+                <Button size="sm" variant="ghost" onClick={cancelPro}>
+                  Cancel
+                </Button>
+              )}
+            </SettingRow>
+          )}
+          {user && mode !== "proxy" && (
+            <div className="pb-3">
+              <button
+                type="button"
+                className="text-sm text-muted-foreground underline"
+                onClick={() => setConfirming(true)}
+                disabled={busy}
+              >
+                Remove Google from your treq account
+              </button>
+            </div>
+          )}
+
+          {repoPath && (
+            <div className="py-3 space-y-2">
+              <p className="font-medium">Document review instructions</p>
+              <p className="text-base text-muted-foreground">
+                Added to the review agent&apos;s prompt when reviewing Docs and
+                Drive files for this repository.
+              </p>
+              <Textarea
+                value={reviewPrompt}
+                onChange={(e) => setReviewPrompt(e.target.value)}
+                placeholder="e.g. Check that every claim cites a source."
+                aria-label="Document review instructions"
+              />
+              <Button size="sm" onClick={saveReviewPrompt}>
+                Save
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       <AlertDialog
-        open={confirming !== null}
-        onOpenChange={(open) => !open && setConfirming(null)}
+        open={confirming}
+        onOpenChange={(open) => !open && setConfirming(false)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect Google Workspace?</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirming === "local"
-                ? "treq deletes the Google tokens stored on this device."
-                : "treq removes the Google grant it holds for your account."}
+              treq removes the Google grant it holds for your account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -14,6 +14,7 @@ import { buildDocReviewPrompt } from "../../lib/google-doc-review";
 import { useToastStore } from "../../stores/toastStore";
 import { Input } from "../ui/input";
 import { errorText } from "../../lib/errorText";
+import { DocReviewViewer } from "./DocReviewViewer";
 import { DriveFileRow } from "./DriveFileRow";
 import { GoogleErrorState } from "./GoogleErrorState";
 
@@ -38,6 +39,8 @@ export const GoogleDrivePanel: React.FC<{
   const [query, setQuery] = useState("");
   const [docsOnly, setDocsOnly] = useState(true);
   const [reviewing, setReviewing] = useState(false);
+  /** The file open in the document review viewer. */
+  const [viewing, setViewing] = useState<DriveFile | null>(null);
 
   const {
     data: files,
@@ -106,6 +109,20 @@ export const GoogleDrivePanel: React.FC<{
     }
   };
 
+  if (viewing) {
+    return (
+      <DocReviewViewer
+        file={viewing}
+        repoPath={repoPath}
+        findings={findingsByFile.get(viewing.id) ?? []}
+        onFindingsChanged={refetchFindings}
+        reviewDisabled={reviewing}
+        onReview={startReview}
+        onClose={() => setViewing(null)}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0 px-4 pb-4">
       <form
@@ -160,11 +177,11 @@ export const GoogleDrivePanel: React.FC<{
           <DriveFileRow
             key={file.id}
             file={file}
-            repoPath={repoPath}
             findings={(file.reviewable && findingsByFile.get(file.id)) || []}
             onFindingsChanged={refetchFindings}
             disabled={reviewing}
             onReview={startReview}
+            onOpenReview={setViewing}
           />
         ))}
       </ul>

@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { AgentReviewComment } from "./api-types-review";
 
 export type GoogleConnectionStatus = {
-  /** `local` (own OAuth client), `proxy` (treq Pro) or `none`. */
-  mode: "local" | "proxy" | "none";
+  /** `proxy` (connected through treq Pro) or `none`. */
+  mode: "proxy" | "none";
 };
 
 export type GoogleTaskList = { id: string; title: string };
@@ -54,21 +54,6 @@ export const GOOGLE_DOC_REVIEW_TARGET = "google_doc";
 
 export const googleConnectionStatus = (): Promise<GoogleConnectionStatus> =>
   invoke("google_connection_status");
-
-export const googleOAuthBegin = (
-  clientId: string,
-  clientSecret?: string,
-): Promise<string> => invoke("google_oauth_begin", { clientId, clientSecret });
-
-/** Stops a pending local sign-in; `googleOAuthComplete` then rejects. */
-export const googleOAuthCancel = (): Promise<void> =>
-  invoke("google_oauth_cancel");
-
-export const googleOAuthComplete = (): Promise<void> =>
-  invoke("google_oauth_complete");
-
-export const googleDisconnectLocal = (): Promise<void> =>
-  invoke("google_disconnect_local");
 
 export const googleListTaskLists = (): Promise<GoogleTaskList[]> =>
   invoke("google_list_task_lists");
@@ -153,3 +138,46 @@ export const googleListDocFindings = (
   repoPath: string,
 ): Promise<AgentReviewComment[]> =>
   invoke("google_list_doc_findings", { repoPath });
+
+export type GoogleTaskWorkspace = { workspace_id: number; created: boolean };
+
+/** Opens the workspace linked to a Google Task, or creates and links one. */
+export const googleOpenOrCreateWorkspaceFromTask = (
+  repoPath: string,
+  listId: string,
+  taskId: string,
+): Promise<GoogleTaskWorkspace> =>
+  invoke("google_open_or_create_workspace_from_task", {
+    repoPath,
+    listId,
+    taskId,
+  });
+
+export const googleLinkTaskToWorkspace = (link: {
+  repoPath: string;
+  workspaceId: number;
+  listId: string;
+  taskId: string;
+}): Promise<void> => invoke("google_link_task_to_workspace", link);
+
+export const googleUnlinkTask = (
+  repoPath: string,
+  workspaceId: number,
+): Promise<void> => invoke("google_unlink_task", { repoPath, workspaceId });
+
+export type GoogleDocExport = { file_name: string; text: string };
+
+/** The text of a Drive file's last review export. */
+export const googleReadDocExport = (
+  repoPath: string,
+  fileId: string,
+): Promise<GoogleDocExport> =>
+  invoke("google_read_doc_export", { repoPath, fileId });
+
+/** Payload of the `google-task-completed` Tauri event. */
+export type GoogleTaskCompletedEvent = {
+  repo_path: string;
+  workspace_id: number;
+  list_id: string;
+  task_id: string;
+};

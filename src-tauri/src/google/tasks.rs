@@ -310,3 +310,31 @@ pub async fn create_task_list(
     title: str_field(&value, "title").unwrap_or_default(),
   })
 }
+
+pub async fn get_task(
+  source: &GoogleSource,
+  list_id: &str,
+  task_id: &str,
+) -> Result<GoogleTask, String> {
+  let value = send_json(
+    source,
+    reqwest::Method::GET,
+    &format!("{TASKS_API}/lists/{}/tasks/{}", seg(list_id), seg(task_id)),
+    None,
+  )
+  .await?;
+  map_task(list_id, &value).ok_or_else(|| "Google returned an invalid task".to_string())
+}
+
+/// Marks a task completed.
+pub async fn complete_task(
+  source: &GoogleSource,
+  list_id: &str,
+  task_id: &str,
+) -> Result<GoogleTask, String> {
+  let input = TaskInput {
+    status: Some("completed".into()),
+    ..Default::default()
+  };
+  update_task(source, list_id, task_id, &input).await
+}

@@ -2,7 +2,11 @@ import { FileText, ListChecks, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { googleConnectionStatus } from "../../lib/api-google";
+import type { IssueAttachment } from "../../lib/promptAttachments";
 import { ensureProxySessionSync } from "../../lib/proxy-session-sync";
+import { isProSubscription } from "../../lib/subscription";
+import { useAuthStore } from "../../stores/authStore";
+import { GoogleWorkspaceUpsell } from "./GoogleWorkspaceUpsell";
 import { Button } from "../ui/button";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { GoogleErrorState } from "./GoogleErrorState";
@@ -14,10 +18,11 @@ type GoogleTab = "tasks" | "drive";
 export const GoogleWorkspacePanel: React.FC<{
   repoPath: string;
   onStartDocReview: (launch: DocReviewLaunch) => void | Promise<void>;
-  onKickoffTask: (prompt: string) => void;
+  onKickoffTask: (issue: IssueAttachment, prompt: string) => void;
   /** Opens Settings on the Integrations tab. */
   onOpenSettings?: () => void;
 }> = ({ repoPath, onStartDocReview, onKickoffTask, onOpenSettings }) => {
+  const isPro = isProSubscription(useAuthStore((s) => s.subscription));
   const [tab, setTab] = useState<GoogleTab>("tasks");
   const [proxyReady, setProxyReady] = useState(false);
   useEffect(() => {
@@ -30,7 +35,7 @@ export const GoogleWorkspacePanel: React.FC<{
     error,
     mutate,
   } = useSWR(
-    proxyReady ? ["google-connection-status"] : null,
+    proxyReady && isPro ? ["google-connection-status"] : null,
     googleConnectionStatus,
     { revalidateOnFocus: true, shouldRetryOnError: false },
   );
@@ -60,19 +65,21 @@ export const GoogleWorkspacePanel: React.FC<{
         </Tabs>
       </div>
       <div className="flex-1 min-h-0">
-        {error && !status ? (
+        {!isPro ? (
+          <GoogleWorkspaceUpsell />
+        ) : error && !status ? (
           <GoogleErrorState error={error} onRetry={() => void mutate()} />
         ) : !status ? (
           <Loader2 className="w-4 h-4 m-6 animate-spin text-muted-foreground" />
         ) : status.mode === "none" ? (
           <div className="px-4 space-y-2">
             <p className="text-sm text-muted-foreground">
-              Google Workspace is not connected. Connect it in Settings &gt;
-              Integrations.
+              Google Workspace is not connected. Connect your Google account to
+              use Tasks, Docs and Drive here.
             </p>
             {onOpenSettings && (
               <Button size="sm" onClick={onOpenSettings}>
-                Open Settings
+                Connect Google Workspace
               </Button>
             )}
           </div>

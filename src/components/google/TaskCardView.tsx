@@ -1,6 +1,13 @@
-import { CheckCircle2, Circle, ExternalLink, MoreVertical } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  ExternalLink,
+  GitBranch,
+  MoreVertical,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import type { GoogleTask } from "../../lib/api-google";
+import type { Workspace } from "../../lib/api-types";
 import {
   formatDue,
   isValidDueInput,
@@ -20,11 +27,19 @@ export const DRAG_TYPE = "application/x-treq-google-task";
 export type DragPayload = { listId: string; taskId: string };
 
 /** Card actions the board handles with a dialog or by leaving the panel. */
-export type TaskAction = "kickoff" | "edit" | "subtask" | "linear";
+export type TaskAction =
+  | "kickoff"
+  | "edit"
+  | "subtask"
+  | "linear"
+  | "link"
+  | "unlink";
 
 export const TaskCardView: React.FC<{
   card: TaskCard;
   listId: string;
+  /** The workspace this task is linked to, if any. */
+  linkedWorkspace?: Workspace;
   onToggle: (task: GoogleTask) => void;
   onDelete: (task: GoogleTask) => void;
   onSetDue: (task: GoogleTask, value: string) => void;
@@ -33,6 +48,7 @@ export const TaskCardView: React.FC<{
 }> = ({
   card,
   listId,
+  linkedWorkspace,
   onToggle,
   onDelete,
   onSetDue,
@@ -136,6 +152,18 @@ export const TaskCardView: React.FC<{
               </span>
             )
           )}
+          {linkedWorkspace && (
+            <span
+              data-testid={`google-task-workspace-${task.id}`}
+              title={linkedWorkspace.branch_name}
+              className="flex w-fit max-w-full items-center gap-1 text-xs mt-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+            >
+              <GitBranch className="w-3 h-3 shrink-0" />
+              <span className="truncate">
+                {linkedWorkspace.title?.trim() || linkedWorkspace.branch_name}
+              </span>
+            </span>
+          )}
           {subtasks.length > 0 && (
             <ul className="mt-2 space-y-1">
               {subtasks.map((sub) => (
@@ -185,6 +213,14 @@ export const TaskCardView: React.FC<{
             <DropdownMenuItem onSelect={() => onAction("kickoff", task)}>
               Kick off agent
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onAction("link", task)}>
+              Link to workspace…
+            </DropdownMenuItem>
+            {linkedWorkspace && (
+              <DropdownMenuItem onSelect={() => onAction("unlink", task)}>
+                Unlink workspace
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => onAction("edit", task)}>
               Edit
             </DropdownMenuItem>

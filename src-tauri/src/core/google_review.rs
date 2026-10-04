@@ -142,6 +142,26 @@ pub async fn prepare_doc_review(
   })
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DocExport {
+  pub file_name: String,
+  pub text: String,
+}
+
+/// The current review export of `file_id` for this repo.
+pub fn read_doc_export(repo_path: &str, file_id: &str) -> Result<DocExport, String> {
+  const MISSING: &str = "No export of this document yet. Start a review to export it.";
+  let root = review_root(repo_path, file_id)?;
+  let entries = std::fs::read_dir(&root).map_err(|_| MISSING.to_string())?;
+  for entry in entries.flatten() {
+    let file_name = entry.file_name().to_string_lossy().into_owned();
+    if let Some(text) = read_export(&root, &file_name) {
+      return Ok(DocExport { file_name, text });
+    }
+  }
+  Err(MISSING.to_string())
+}
+
 /// Reads a file of the export at post time, checked again rather than
 /// trusting the path validated when the comment was added: the file could
 /// since have been swapped for a symlink to something outside the export,
@@ -300,6 +320,30 @@ mod tests {
         .join(repo_key("/repo"))
         .join("abc_D-1")
     );
+  }
+
+  #[test]
+  fn read_doc_export_returns_current_export() {
+    let exports = tempfile::tempdir().unwrap();
+    use_test_exports_dir(exports.path());
+    let root = review_root("/repo", "doc1").unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("Spec.md"), "# Spec\n").unwrap();
+    assert_eq!(
+      read_doc_export("/repo", "doc1").unwrap(),
+      DocExport {
+        file_name: "Spec.md".into(),
+        text: "# Spec\n".into()
+      }
+    );
+  }
+
+  #[test]
+  fn read_doc_export_errors_without_export() {
+    let exports = tempfile::tempdir().unwrap();
+    use_test_exports_dir(exports.path());
+    assert!(read_doc_export("/repo", "doc1").is_err());
+    assert!(read_doc_export("/repo", "../x").is_err());
   }
 
   #[test]

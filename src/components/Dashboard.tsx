@@ -187,6 +187,7 @@ import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { LinearPanel } from "./LinearPanel";
 import type { DocReviewLaunch } from "./google/GoogleDrivePanel";
 import { GoogleWorkspacePanel } from "./google/GoogleWorkspacePanel";
+import { useGoogleTaskCompletedToasts } from "../hooks/useGoogleTaskCompletedToasts";
 import { TrackerPanel } from "./TrackerPanel";
 import { MergePreviewPage } from "./MergePreviewPage";
 import { Onboarding } from "./Onboarding";
@@ -1564,6 +1565,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     { refreshInterval: pollMs(10000) },
   );
 
+  useGoogleTaskCompletedToasts(workspaces);
+
   // `workspaces` is refetched (e.g. after a push, or on its 10s interval) and
   // returns fresh object references every time, but `selectedWorkspace` is a
   // point-in-time snapshot. Without this, fields like `not_on_remote` on the
@@ -2177,8 +2180,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Every tracker panel starts a prompt the same way: attach the issue and
   // open the shared prompt dialog.
-  const handleStartPromptFromIssue = (issue: IssueAttachment) => {
-    setRunPromptRequest({ workspaceId: null, issue });
+  const handleStartPromptFromIssue = (
+    issue: IssueAttachment,
+    prompt?: string,
+  ) => {
+    setRunPromptRequest({ workspaceId: null, issue, prompt });
     setShowAgentPromptDialog(true);
   };
 
@@ -3427,7 +3433,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   repoPath={dataRepoPath}
                   onStartDocReview={handleStartDocReview}
                   onOpenSettings={() => openSettings("integrations")}
-                  onKickoffTask={(prompt) => handleRunPrompt(prompt, null)}
+                  onKickoffTask={handleStartPromptFromIssue}
                 />
               )}
 

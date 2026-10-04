@@ -7,12 +7,17 @@ const trackerApi = vi.hoisted(() => ({
   trackerOpenOrCreateWorkspaceFromItem: vi.fn(),
 }));
 
+const googleApi = vi.hoisted(() => ({
+  googleOpenOrCreateWorkspaceFromTask: vi.fn(),
+}));
+
 vi.mock("./api-linear", () => linearApi);
+vi.mock("./api-google", () => googleApi);
 vi.mock("./api-tracker", () => trackerApi);
 vi.mock("./api", () => ({ githubOpenOrCreateWorkspaceFromIssue: vi.fn() }));
 
 import { openOrCreateIssueWorkspace } from "./issueWorkspace";
-import type { IssueAttachment } from "./promptAttachments";
+import { type IssueAttachment, issueFromGoogleTask } from "./promptAttachments";
 
 function linearIssue(
   overrides: Partial<IssueAttachment> = {},
@@ -189,5 +194,29 @@ describe("openOrCreateIssueWorkspace", () => {
       ["/repo", { provider: "jira", id: "ENG-43" }],
     ]);
     expect(backend.maxInFlight()).toBe(1);
+  });
+
+  it("opens a Google Task's workspace from its list and task ids", async () => {
+    googleApi.googleOpenOrCreateWorkspaceFromTask.mockResolvedValue({
+      workspace_id: 7,
+      created: true,
+    });
+    const issue = issueFromGoogleTask({
+      listId: "list-1",
+      taskId: "task:with:colons",
+      title: "Write spec",
+      url: null,
+    });
+    const result = await openOrCreateIssueWorkspace("/repo", issue);
+    expect(googleApi.googleOpenOrCreateWorkspaceFromTask).toHaveBeenCalledWith(
+      "/repo",
+      "list-1",
+      "task:with:colons",
+    );
+    expect(result).toEqual({
+      workspaceId: 7,
+      subItemResults: [],
+      subItemFailures: [],
+    });
   });
 });

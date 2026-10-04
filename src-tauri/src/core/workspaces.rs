@@ -184,6 +184,17 @@ pub struct WorkspaceMetadata {
   pub tracker_item_url: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub tracker_item_title: Option<String>,
+  /// Google Task linked to this workspace; completed when its PR merges.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub google_task_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub google_tasklist_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub google_task_title: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub google_task_url: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub google_task_completed: Option<bool>,
 }
 
 /// Parse the creation metadata JSON sent by the frontend/NAPI callers.
@@ -405,6 +416,57 @@ pub fn merge_tracker_item_metadata(
 
   local_db::get_workspace_by_id(repo_path, workspace_id)?
     .ok_or_else(|| format!("Workspace not found after update: {workspace_id}"))
+}
+
+/// The Google Task fields to write, or `None` to unlink.
+pub struct GoogleTaskLink<'a> {
+  pub list_id: &'a str,
+  pub task_id: &'a str,
+  pub title: &'a str,
+  pub url: Option<&'a str>,
+}
+
+/// Links (replacing any earlier link and its completed flag) or unlinks.
+pub fn merge_google_task_metadata_json(
+  existing: Option<&str>,
+  link: Option<&GoogleTaskLink<'_>>,
+) -> Result<String, String> {
+  let mut metadata = parse_workspace_metadata(existing);
+  metadata.google_task_id = link.map(|l| l.task_id.to_string());
+  metadata.google_tasklist_id = link.map(|l| l.list_id.to_string());
+  metadata.google_task_title = link.map(|l| l.title.to_string());
+  metadata.google_task_url = link.and_then(|l| l.url.map(str::to_string));
+  metadata.google_task_completed = None;
+  serde_json::to_string(&metadata).map_err(|e| format!("Failed to serialize metadata: {e}"))
+}
+
+pub fn merge_google_task_metadata(
+  repo_path: &str,
+  workspace_id: i64,
+  link: Option<&GoogleTaskLink<'_>>,
+) -> Result<local_db::Workspace, String> {
+  let existing_workspace = local_db::get_workspace_by_id(repo_path, workspace_id)?
+    .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+  let new_json = merge_google_task_metadata_json(existing_workspace.metadata.as_deref(), link)?;
+  local_db::set_workspace_metadata(repo_path, workspace_id, &new_json)?;
+  local_db::get_workspace_by_id(repo_path, workspace_id)?
+    .ok_or_else(|| format!("Workspace not found after update: {workspace_id}"))
+}
+
+/// Records that the linked Google Task was marked completed, unless the
+/// link changed to another task meanwhile.
+pub fn mark_google_task_completed_json(
+  existing: Option<&str>,
+  task_id: &str,
+) -> Result<Option<String>, String> {
+  let mut metadata = parse_workspace_metadata(existing);
+  if metadata.google_task_id.as_deref() != Some(task_id) {
+    return Ok(None);
+  }
+  metadata.google_task_completed = Some(true);
+  serde_json::to_string(&metadata)
+    .map(Some)
+    .map_err(|e| format!("Failed to serialize metadata: {e}"))
 }
 
 pub fn parse_hunk_spec(raw: &str) -> Result<HunkSpec, String> {
@@ -2669,6 +2731,50 @@ mod tests {
     let repo_path = temp_dir.path().to_str().unwrap();
     assert!(schedule_workspaces(repo_path, &[], Some("2026-12-01T09:00:00Z")).is_err());
     assert!(schedule_workspaces(repo_path, &[1], Some("tomorrow")).is_err());
+  }
+
+  #[test]
+  fn merge_google_task_metadata_links_and_resets_completed() {
+    use super::{merge_google_task_metadata_json, GoogleTaskLink};
+    let existing = merge_linear_issue_metadata_json(None, "ENG-1", "u", "L").unwrap();
+    let existing = existing.replace(
+      '}',
+      r#","google_task_id":"old","google_task_completed":true}"#,
+    );
+    let link = GoogleTaskLink {
+      list_id: "L1",
+      task_id: "t1",
+      title: "Ship",
+      url: Some("https://t/1"),
+    };
+    let json = merge_google_task_metadata_json(Some(&existing), Some(&link)).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["linear_issue_key"], "ENG-1");
+    assert_eq!(value["google_task_id"], "t1");
+    assert_eq!(value["google_tasklist_id"], "L1");
+    assert_eq!(value["google_task_title"], "Ship");
+    assert_eq!(value["google_task_url"], "https://t/1");
+    assert!(value.get("google_task_completed").is_none());
+  }
+
+  #[test]
+  fn merge_google_task_metadata_unlinks() {
+    let existing = r#"{"title":"x","google_task_id":"t1","google_tasklist_id":"L1","google_task_title":"T","google_task_completed":true}"#;
+    let json = super::merge_google_task_metadata_json(Some(existing), None).unwrap();
+    assert_eq!(json, r#"{"title":"x"}"#);
+  }
+
+  #[test]
+  fn mark_google_task_completed_only_for_same_task() {
+    let existing = r#"{"google_task_id":"t1","google_tasklist_id":"L1"}"#;
+    let json = super::mark_google_task_completed_json(Some(existing), "t1")
+      .unwrap()
+      .unwrap();
+    assert!(json.contains(r#""google_task_completed":true"#));
+    assert_eq!(
+      super::mark_google_task_completed_json(Some(existing), "other").unwrap(),
+      None
+    );
   }
 
   #[test]

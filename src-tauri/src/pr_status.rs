@@ -627,8 +627,118 @@ pub fn set_app_handle(app: tauri::AppHandle) {
         "ci_statuses": ci_statuses,
     });
     let _ = app.emit("pr-statuses-updated", payload);
+    complete_merged_google_tasks(&app, repo_path, statuses);
   }));
   global().ensure_started();
+}
+
+/// A Google Task to mark completed because its workspace's PR merged.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GoogleTaskCompletion {
+  pub repo_path: String,
+  pub workspace_id: i64,
+  pub list_id: String,
+  pub task_id: String,
+}
+
+/// Which linked Google Tasks need completing: those whose workspace's own PR
+/// (head branch = workspace branch) is MERGED and that are not yet marked
+/// completed. Being state-based, it covers a transition seen by the poller,
+/// a PR first observed already merged, and retries after a failed PATCH.
+pub fn google_tasks_to_complete(
+  repo_path: &str,
+  statuses: &RepoPrCache,
+  workspaces: &[crate::local_db::Workspace],
+) -> Vec<GoogleTaskCompletion> {
+  workspaces
+    .iter()
+    .filter(|ws| {
+      matches!(
+        statuses.get(&ws.branch_name),
+        Some(Some(pr)) if pr.state == "MERGED" && pr.head_ref_name == ws.branch_name
+      )
+    })
+    .filter_map(|ws| {
+      let meta = crate::core::parse_workspace_metadata(ws.metadata.as_deref());
+      if meta.google_task_completed == Some(true) {
+        return None;
+      }
+      Some(GoogleTaskCompletion {
+        repo_path: repo_path.to_string(),
+        workspace_id: ws.id,
+        list_id: meta.google_tasklist_id.filter(|s| !s.is_empty())?,
+        task_id: meta.google_task_id.filter(|s| !s.is_empty())?,
+      })
+    })
+    .collect()
+}
+
+/// Completions in flight, keyed by `repo_path\0workspace_id`, so overlapping
+/// polls never PATCH the same task twice at once.
+static GOOGLE_COMPLETIONS_INFLIGHT: std::sync::LazyLock<Mutex<HashSet<String>>> =
+  std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn complete_merged_google_tasks(app: &tauri::AppHandle, repo_path: &str, statuses: &RepoPrCache) {
+  let any_merged = statuses
+    .values()
+    .any(|pr| pr.as_ref().is_some_and(|pr| pr.state == "MERGED"));
+  if !any_merged {
+    return;
+  }
+  // No Pro session: skip; a later poll retries once there is one.
+  let Some(session) = crate::proxy_session::get() else {
+    return;
+  };
+  let workspaces = match crate::local_db::get_workspaces(repo_path) {
+    Ok(ws) => ws,
+    Err(e) => {
+      log::warn!("Failed to list workspaces for Google Task completion: {e}");
+      return;
+    }
+  };
+  for job in google_tasks_to_complete(repo_path, statuses, &workspaces) {
+    let key = format!("{}\0{}", job.repo_path, job.workspace_id);
+    if !GOOGLE_COMPLETIONS_INFLIGHT
+      .lock_or_recover()
+      .insert(key.clone())
+    {
+      continue;
+    }
+    let app = app.clone();
+    let source = crate::google::GoogleSource::Proxy(session.clone());
+    tauri::async_runtime::spawn(async move {
+      complete_google_task(&app, &source, &job).await;
+      GOOGLE_COMPLETIONS_INFLIGHT.lock_or_recover().remove(&key);
+    });
+  }
+}
+
+async fn complete_google_task(
+  app: &tauri::AppHandle,
+  source: &crate::google::GoogleSource,
+  job: &GoogleTaskCompletion,
+) {
+  use tauri::Emitter;
+  if let Err(e) = crate::google::complete_task(source, &job.list_id, &job.task_id).await {
+    log::warn!(
+      "Failed to complete Google Task {} for workspace {}: {e}",
+      job.task_id,
+      job.workspace_id
+    );
+    return;
+  }
+  let recorded =
+    crate::local_db::get_workspace_by_id(&job.repo_path, job.workspace_id).and_then(|ws| {
+      let ws = ws.ok_or_else(|| format!("Workspace not found: {}", job.workspace_id))?;
+      match crate::core::mark_google_task_completed_json(ws.metadata.as_deref(), &job.task_id)? {
+        Some(json) => crate::local_db::set_workspace_metadata(&job.repo_path, ws.id, &json),
+        None => Ok(()),
+      }
+    });
+  if let Err(e) = recorded {
+    log::warn!("Failed to record Google Task completion: {e}");
+  }
+  let _ = app.emit("google-task-completed", job);
 }
 
 #[cfg(test)]
@@ -1147,5 +1257,84 @@ mod tests {
       42
     );
     mgr.shutdown();
+  }
+
+  fn workspace(id: i64, branch: &str, metadata: Option<&str>) -> crate::local_db::Workspace {
+    crate::local_db::Workspace {
+      id,
+      repo_path: "/r".into(),
+      workspace_name: branch.into(),
+      workspace_path: branch.into(),
+      branch_name: branch.into(),
+      created_at: String::new(),
+      refreshed_at: None,
+      metadata: metadata.map(str::to_string),
+      target_branch: None,
+      title: branch.into(),
+      description: None,
+      moved_files: None,
+      not_on_remote: false,
+      sparse_patterns: None,
+      hidden_until: None,
+      archived: false,
+    }
+  }
+
+  fn pr_with_state(branch: &str, state: &str) -> Option<PrInfo> {
+    let mut pr = sample_pr(1, branch);
+    pr.state = state.into();
+    Some(pr)
+  }
+
+  const LINKED: &str = r#"{"google_task_id":"t1","google_tasklist_id":"L1"}"#;
+
+  #[test]
+  fn google_tasks_to_complete_picks_merged_linked_workspaces() {
+    let statuses: RepoPrCache = [
+      ("a".to_string(), pr_with_state("a", "MERGED")),
+      ("b".to_string(), pr_with_state("b", "OPEN")),
+      ("c".to_string(), pr_with_state("c", "MERGED")),
+      ("d".to_string(), None),
+    ]
+    .into();
+    let workspaces = [
+      workspace(1, "a", Some(LINKED)),
+      workspace(2, "b", Some(LINKED)),
+      workspace(3, "c", None),
+      workspace(4, "d", Some(LINKED)),
+    ];
+    assert_eq!(
+      google_tasks_to_complete("/r", &statuses, &workspaces),
+      vec![GoogleTaskCompletion {
+        repo_path: "/r".into(),
+        workspace_id: 1,
+        list_id: "L1".into(),
+        task_id: "t1".into(),
+      }]
+    );
+  }
+
+  #[test]
+  fn google_tasks_to_complete_skips_already_completed() {
+    let statuses: RepoPrCache = [("a".to_string(), pr_with_state("a", "MERGED"))].into();
+    let done = r#"{"google_task_id":"t1","google_tasklist_id":"L1","google_task_completed":true}"#;
+    assert!(google_tasks_to_complete("/r", &statuses, &[workspace(1, "a", Some(done))]).is_empty());
+  }
+
+  #[test]
+  fn google_tasks_to_complete_ignores_prs_from_other_branches() {
+    // `gh pr view <branch>` can resolve to a PR whose head is another branch.
+    let statuses: RepoPrCache = [("a".to_string(), pr_with_state("other", "MERGED"))].into();
+    assert!(
+      google_tasks_to_complete("/r", &statuses, &[workspace(1, "a", Some(LINKED))]).is_empty()
+    );
+  }
+
+  #[test]
+  fn google_tasks_to_complete_skips_closed_unmerged() {
+    let statuses: RepoPrCache = [("a".to_string(), pr_with_state("a", "CLOSED"))].into();
+    assert!(
+      google_tasks_to_complete("/r", &statuses, &[workspace(1, "a", Some(LINKED))]).is_empty()
+    );
   }
 }

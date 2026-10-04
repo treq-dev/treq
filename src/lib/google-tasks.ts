@@ -1,4 +1,5 @@
 import type { GoogleTask } from "./api-google";
+import type { Workspace } from "./api-types";
 
 export type TaskCard = {
   task: GoogleTask;
@@ -179,4 +180,48 @@ export function createLimiter(limit: number) {
       });
       next();
     });
+}
+
+/** Google Task fields a linked workspace carries in its `metadata` JSON. */
+export interface GoogleTaskWorkspaceMetadata {
+  google_task_id?: string;
+  google_tasklist_id?: string;
+  google_task_title?: string;
+  google_task_url?: string;
+  google_task_completed?: boolean;
+}
+
+function googleTaskMetadata(
+  workspace: Workspace,
+): GoogleTaskWorkspaceMetadata | null {
+  if (!workspace.metadata) return null;
+  try {
+    const parsed: unknown = JSON.parse(workspace.metadata);
+    return parsed && typeof parsed === "object"
+      ? (parsed as GoogleTaskWorkspaceMetadata)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The workspace each Google Task is linked to, keyed by task id. Archived
+ * workspaces are skipped; Google Task ids are unique across lists.
+ */
+export function linkedWorkspacesByTask(
+  workspaces: Workspace[],
+): Map<string, Workspace> {
+  const linked = new Map<string, Workspace>();
+  for (const workspace of workspaces) {
+    if (workspace.archived) continue;
+    const taskId = googleTaskMetadata(workspace)?.google_task_id;
+    if (taskId && !linked.has(taskId)) linked.set(taskId, workspace);
+  }
+  return linked;
+}
+
+/** The task title a linked workspace recorded, for messages about it. */
+export function linkedTaskTitle(workspace: Workspace): string | undefined {
+  return googleTaskMetadata(workspace)?.google_task_title;
 }

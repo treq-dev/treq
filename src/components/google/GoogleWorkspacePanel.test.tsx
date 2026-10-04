@@ -1,6 +1,7 @@
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "../../../test/test-utils";
+import { useAuthStore } from "../../stores/authStore";
 import { GoogleWorkspacePanel } from "./GoogleWorkspacePanel";
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +11,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../lib/proxy-session-sync", () => ({
   ensureProxySessionSync: () => Promise.resolve(),
+}));
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
+  getWorkspaces: () => Promise.resolve([]),
 }));
 vi.mock("../../lib/api-google", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api-google")>()),
@@ -32,6 +37,20 @@ describe("GoogleWorkspacePanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.googleListTaskLists.mockResolvedValue([]);
+    useAuthStore.setState({
+      subscription: { plan: "pro", status: "active" } as never,
+    });
+  });
+
+  it("shows the Pro upsell instead of the board on a free plan", async () => {
+    useAuthStore.setState({ subscription: null });
+    mocks.googleConnectionStatus.mockResolvedValue({ mode: "proxy" });
+    renderPanel();
+    expect(
+      await screen.findByText("Unlock Google Workspace"),
+    ).toBeInTheDocument();
+    expect(mocks.googleConnectionStatus).not.toHaveBeenCalled();
+    expect(mocks.googleListTaskLists).not.toHaveBeenCalled();
   });
 
   it("shows a status error with Retry instead of spinning", async () => {
@@ -45,11 +64,11 @@ describe("GoogleWorkspacePanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens Settings from the not-connected state", async () => {
+  it("offers to connect from the not-connected state", async () => {
     mocks.googleConnectionStatus.mockResolvedValue({ mode: "none" });
     const onOpenSettings = renderPanel();
     await userEvent.click(
-      await screen.findByRole("button", { name: "Open Settings" }),
+      await screen.findByRole("button", { name: "Connect Google Workspace" }),
     );
     expect(onOpenSettings).toHaveBeenCalled();
   });

@@ -1,7 +1,11 @@
 import { githubOpenOrCreateWorkspaceFromIssue } from "./api";
+import { googleOpenOrCreateWorkspaceFromTask } from "./api-google";
 import { linearOpenOrCreateWorkspaceFromIssue } from "./api-linear";
 import { trackerOpenOrCreateWorkspaceFromItem } from "./api-tracker";
-import type { IssueAttachment } from "./promptAttachments";
+import {
+  type IssueAttachment,
+  parseGoogleTaskIssueId,
+} from "./promptAttachments";
 
 export type SubItemResult = {
   id: string;
@@ -48,6 +52,15 @@ async function openOne(
     }
     case "linear": {
       const result = await linearOpenOrCreateWorkspaceFromIssue(repoPath, id);
+      return { workspaceId: result.workspace_id, created: result.created };
+    }
+    case "google_task": {
+      const { listId, taskId } = parseGoogleTaskIssueId(id);
+      const result = await googleOpenOrCreateWorkspaceFromTask(
+        repoPath,
+        listId,
+        taskId,
+      );
       return { workspaceId: result.workspace_id, created: result.created };
     }
     default: {

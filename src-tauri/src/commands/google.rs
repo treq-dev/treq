@@ -2,20 +2,13 @@ use crate::core::feature_preview::PreviewFeature;
 use crate::google::{
   DriveFile, GoogleConnectionStatus, GoogleSource, GoogleTask, GoogleTaskList, TaskInput,
 };
-use crate::lock_ext::LockExt;
 use crate::AppState;
 use tauri::State;
 
-/// Checks the preview flag and resolves credentials. The db lock is released
-/// before returning so callers can await network requests.
+/// Checks the preview flag and resolves the Pro proxy session.
 fn source_for(state: &State<'_, AppState>) -> Result<GoogleSource, String> {
   crate::commands::feature_preview::require(state, PreviewFeature::GoogleWorkspace)?;
-  resolve(state)
-}
-
-fn resolve(state: &State<'_, AppState>) -> Result<GoogleSource, String> {
-  let db = state.db.lock_or_recover();
-  crate::google::resolve_source(&db, crate::core::resolve_app_db_path(""))
+  crate::google::resolve_source()
 }
 
 #[tauri::command]
@@ -23,48 +16,63 @@ pub async fn google_connection_status(
   state: State<'_, AppState>,
 ) -> Result<GoogleConnectionStatus, String> {
   crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
-  Ok(crate::google::connection_status(resolve(&state)).await)
+  Ok(crate::google::connection_status(crate::google::resolve_source()).await)
 }
 
-/// Starts the loopback OAuth flow and returns the URL to open.
+/// Opens, or creates, the workspace for a Google Task and links it.
 #[tauri::command]
-pub async fn google_oauth_begin(
+pub async fn google_open_or_create_workspace_from_task(
   state: State<'_, AppState>,
-  client_id: String,
-  client_secret: Option<String>,
-) -> Result<String, String> {
-  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
-  let client_id = client_id.trim().to_string();
-  if client_id.is_empty() {
-    return Err("Enter a Google OAuth client ID first".to_string());
-  }
-  crate::google::begin_local_oauth(client_id, client_secret).await
+  repo_path: String,
+  list_id: String,
+  task_id: String,
+) -> Result<crate::core::google_tasks::GoogleTaskKickoffResult, String> {
+  let source = source_for(&state)?;
+  crate::core::google_tasks::open_or_create_workspace_from_task(
+    &source, &repo_path, &list_id, &task_id,
+  )
+  .await
 }
 
-/// Cancels a sign-in begun with `google_oauth_begin`; a waiting
-/// `google_oauth_complete` returns "Google sign-in was cancelled".
+/// Links a Google Task to a workspace, replacing any earlier link.
 #[tauri::command]
-pub async fn google_oauth_cancel(state: State<'_, AppState>) -> Result<(), String> {
-  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
-  crate::google::cancel_local_oauth().await;
-  Ok(())
+pub async fn google_link_task_to_workspace(
+  state: State<'_, AppState>,
+  repo_path: String,
+  workspace_id: i64,
+  list_id: String,
+  task_id: String,
+) -> Result<(), String> {
+  let source = source_for(&state)?;
+  crate::core::google_tasks::link_task_to_workspace(
+    &source,
+    &repo_path,
+    workspace_id,
+    &list_id,
+    &task_id,
+  )
+  .await
 }
 
-/// Waits for the browser redirect and stores the client and tokens.
 #[tauri::command]
-pub async fn google_oauth_complete(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn google_unlink_task(
+  state: State<'_, AppState>,
+  repo_path: String,
+  workspace_id: i64,
+) -> Result<(), String> {
   crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
-  let (tokens, client_id, client_secret) = crate::google::complete_local_oauth().await?;
-  let db = state.db.lock_or_recover();
-  crate::google::store_local_grant(&db, &tokens, &client_id, client_secret.as_deref())
+  crate::core::merge_google_task_metadata(&repo_path, workspace_id, None).map(|_| ())
 }
 
-/// Forgets the locally stored tokens. Not gated, so turning the preview off
-/// never strands a grant. Pro grants are removed by `disconnect-google`.
+/// The current review export of a Drive file for this repo.
 #[tauri::command]
-pub fn google_disconnect_local(state: State<'_, AppState>) -> Result<(), String> {
-  let db = state.db.lock_or_recover();
-  crate::google::disconnect_local(&db)
+pub async fn google_read_doc_export(
+  state: State<'_, AppState>,
+  repo_path: String,
+  file_id: String,
+) -> Result<crate::core::google_review::DocExport, String> {
+  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
+  crate::core::google_review::read_doc_export(&repo_path, &file_id)
 }
 
 #[tauri::command]

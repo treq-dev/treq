@@ -5,7 +5,7 @@ import { TRACKER_PROVIDERS, type TrackerProvider } from "./trackers";
  * Trello, Jira) uses this one shape, so the prompt dialog, chip, prompt text
  * and "open the issue's workspace" step behave the same for all of them.
  */
-export type IssueSource = "github" | "linear" | TrackerProvider;
+export type IssueSource = "github" | "linear" | "google_task" | TrackerProvider;
 
 export interface IssueAttachment {
   source: IssueSource;
@@ -27,6 +27,11 @@ export const ISSUE_SOURCES: Record<
 > = {
   github: { label: "GitHub", itemNoun: "issue", subItemNoun: "sub-issues" },
   linear: { label: "Linear", itemNoun: "issue", subItemNoun: "sub-issues" },
+  google_task: {
+    label: "Google Tasks",
+    itemNoun: "task",
+    subItemNoun: "subtasks",
+  },
   trello: {
     label: TRACKER_PROVIDERS.trello.label,
     itemNoun: TRACKER_PROVIDERS.trello.itemNoun,
@@ -100,6 +105,50 @@ export const issueFromTrackerItem = (
   includeSubItems: item.includeSubItems,
   subItemIds: item.subItemIds ?? [],
 });
+
+/** The chip label for a Google Task: its title, cut short. */
+const GOOGLE_TASK_KEY_LIMIT = 24;
+
+export interface GoogleTaskAttachment {
+  listId: string;
+  taskId: string;
+  title: string;
+  url: string | null;
+}
+
+/**
+ * A Google Task as an attached issue. Subtasks travel in the prompt text, not
+ * as sub-items, so they never get workspaces of their own.
+ */
+export const issueFromGoogleTask = (
+  task: GoogleTaskAttachment,
+): IssueAttachment => {
+  const title = task.title.trim() || "(untitled task)";
+  return {
+    source: "google_task",
+    id: `${task.listId}:${task.taskId}`,
+    key:
+      title.length > GOOGLE_TASK_KEY_LIMIT
+        ? `${title.slice(0, GOOGLE_TASK_KEY_LIMIT - 1)}…`
+        : title,
+    url: task.url ?? "",
+    title,
+    includeSubItems: false,
+    subItemIds: [],
+  };
+};
+
+/** Splits a `google_task` attachment id back into its list and task ids. */
+export function parseGoogleTaskIssueId(id: string): {
+  listId: string;
+  taskId: string;
+} {
+  const sep = id.indexOf(":");
+  if (sep <= 0 || sep === id.length - 1) {
+    throw new Error(`Malformed Google Task id: ${id}`);
+  }
+  return { listId: id.slice(0, sep), taskId: id.slice(sep + 1) };
+}
 
 export function formatPromptWithIssue(
   text: string,

@@ -1,17 +1,17 @@
-//! Authenticated requests to Google, directly or through `google-proxy`.
+//! Requests to Google through `google-proxy`.
 
 use super::*;
 
 #[cfg(test)]
 thread_local! {
-  // Rewrites `https://…googleapis.com` and the token URL to a mock server.
+  // Rewrites `https://…googleapis.com` to a mock server.
   pub(crate) static TEST_BASE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
+#[cfg(test)]
 pub(crate) fn rewrite(url: &str) -> String {
-  #[cfg(test)]
   if let Some(base) = TEST_BASE.with(|b| b.borrow().clone()) {
-    for prefix in [TASKS_API, DRIVE_API, TOKEN_URL] {
+    for prefix in [TASKS_API, DRIVE_API] {
       if let Some(rest) = url.strip_prefix(prefix) {
         let path = url::Url::parse(prefix)
           .expect("static URL")
@@ -22,10 +22,6 @@ pub(crate) fn rewrite(url: &str) -> String {
     }
   }
   url.to_string()
-}
-
-pub(crate) fn token_url() -> String {
-  rewrite(TOKEN_URL)
 }
 
 pub(crate) fn http_client() -> &'static reqwest::Client {
@@ -48,25 +44,18 @@ pub(crate) async fn send_raw(
   body: Option<&Value>,
 ) -> Result<String, String> {
   let request = match source {
-    GoogleSource::Local {
-      tokens,
-      client_id,
-      client_secret,
-      token_db,
-    } => {
-      let token = local_access_token(tokens, client_id, client_secret, token_db).await?;
-      let mut req = http_client()
-        .request(method, rewrite(url))
-        .bearer_auth(token);
-      if let Some(body) = body {
-        req = req.json(body);
-      }
-      req
-    }
     GoogleSource::Proxy(session) => http_client()
       .post(session.function_url("google-proxy"))
       .bearer_auth(&session.access_token)
       .json(&json!({ "method": method.as_str(), "url": url, "body": body })),
+    #[cfg(test)]
+    GoogleSource::Direct => {
+      let req = http_client().request(method, rewrite(url));
+      match body {
+        Some(body) => req.json(body),
+        None => req,
+      }
+    }
   };
   let mut response = request.timeout(REQUEST_TIMEOUT).send().await.map_err(|e| {
     if e.is_timeout() {

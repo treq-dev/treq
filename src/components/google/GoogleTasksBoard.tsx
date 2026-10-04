@@ -25,6 +25,11 @@ import {
   isNotFoundError,
   taskKickoffPrompt,
 } from "../../lib/google-tasks";
+import type { Workspace } from "../../lib/api-types";
+import {
+  type IssueAttachment,
+  issueFromGoogleTask,
+} from "../../lib/promptAttachments";
 import { errorText } from "../../lib/errorText";
 import { cn } from "../../lib/utils";
 import { useToastStore } from "../../stores/toastStore";
@@ -38,6 +43,10 @@ import {
   TaskCardView,
 } from "./TaskCardView";
 import { TaskEditDialog } from "./TaskEditDialog";
+import {
+  LinkTaskWorkspaceDialog,
+  useTaskWorkspaceLinks,
+} from "./LinkTaskWorkspaceDialog";
 import { GoogleErrorState } from "./GoogleErrorState";
 import {
   AlertDialog,
@@ -65,12 +74,17 @@ const fetchTasks = (listId: string) =>
  */
 export const GoogleTasksBoard: React.FC<{
   repoPath: string;
-  /** Opens the agent prompt seeded with a task, like tracker kickoffs. */
-  onKickoff: (prompt: string) => void;
+  /**
+   * Opens the agent prompt with the task attached, like tracker kickoffs.
+   * `prompt` carries the task's notes and open subtasks.
+   */
+  onKickoff: (issue: IssueAttachment, prompt: string) => void;
   /** Opens Settings on the Integrations tab, to reconnect Google. */
   onOpenSettings?: () => void;
 }> = ({ repoPath, onKickoff, onOpenSettings }) => {
   const { addToast } = useToastStore();
+  const { workspaces, linked, unlink } = useTaskWorkspaceLinks(repoPath);
+
   const {
     data: lists,
     error,
@@ -86,7 +100,7 @@ export const GoogleTasksBoard: React.FC<{
     Promise.all(listIds.map((id) => mutate(taskListKey(id))));
   const [newListTitle, setNewListTitle] = useState("");
   const [dialog, setDialog] = useState<{
-    action: Exclude<TaskAction, "kickoff">;
+    action: Exclude<TaskAction, "kickoff" | "unlink">;
     task: GoogleTask;
   } | null>(null);
 
@@ -178,8 +192,13 @@ export const GoogleTasksBoard: React.FC<{
             key={list.id}
             list={list}
             onDrop={handleDrop}
+            linked={linked}
             onKickoff={onKickoff}
-            onAction={(action, task) => setDialog({ action, task })}
+            onAction={(action, task) =>
+              action === "unlink"
+                ? void unlink(task)
+                : setDialog({ action, task })
+            }
             onOpenSettings={onOpenSettings}
           />
         ))}
@@ -209,6 +228,12 @@ export const GoogleTasksBoard: React.FC<{
         onClose={() => setDialog(null)}
         onLinked={(listId) => void refreshColumns(listId)}
       />
+      <LinkTaskWorkspaceDialog
+        repoPath={repoPath}
+        task={dialog?.action === "link" ? dialog.task : null}
+        workspaces={workspaces}
+        onClose={() => setDialog(null)}
+      />
       {(dialog?.action === "edit" || dialog?.action === "subtask") && (
         <TaskEditDialog
           key={`${dialog.action}:${dialog.task.id}`}
@@ -225,10 +250,11 @@ export const GoogleTasksBoard: React.FC<{
 const TaskColumn: React.FC<{
   list: GoogleTaskList;
   onDrop: (payload: DragPayload, listId: string, previous?: string) => void;
-  onKickoff: (prompt: string) => void;
+  linked: Map<string, Workspace>;
+  onKickoff: (issue: IssueAttachment, prompt: string) => void;
   onAction: (action: Exclude<TaskAction, "kickoff">, task: GoogleTask) => void;
   onOpenSettings?: () => void;
-}> = ({ list, onDrop, onKickoff, onAction, onOpenSettings }) => {
+}> = ({ list, linked, onDrop, onKickoff, onAction, onOpenSettings }) => {
   const { addToast } = useToastStore();
   const {
     data: tasks = [],
@@ -342,7 +368,15 @@ const TaskColumn: React.FC<{
       const card = [...column.open, ...column.completed].find(
         (c) => c.task.id === task.id,
       );
-      onKickoff(taskKickoffPrompt(task, card?.subtasks ?? []));
+      onKickoff(
+        issueFromGoogleTask({
+          listId: list.id,
+          taskId: task.id,
+          title: task.title,
+          url: task.web_link,
+        }),
+        taskKickoffPrompt(task, card?.subtasks ?? []),
+      );
     },
   };
 
@@ -433,6 +467,7 @@ const TaskColumn: React.FC<{
           <TaskCardView
             key={card.task.id}
             card={card}
+            linkedWorkspace={linked.get(card.task.id)}
             listId={list.id}
             {...cardHandlers}
           />
@@ -456,6 +491,7 @@ const TaskColumn: React.FC<{
                 <TaskCardView
                   key={card.task.id}
                   card={card}
+                  linkedWorkspace={linked.get(card.task.id)}
                   listId={list.id}
                   {...cardHandlers}
                 />

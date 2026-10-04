@@ -15,7 +15,8 @@ interface AgentReviewCommentCardProps {
   originalText?: string;
   onResolve: (commentId: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
-  onApplySuggestion: (commentId: string) => Promise<void>;
+  /** Absent where a suggestion cannot be applied in place (e.g. a Drive doc). */
+  onApplySuggestion?: (commentId: string) => Promise<void>;
   onSendToAgent?: (comment: AgentReviewComment) => Promise<void>;
   onError: (message: string) => void;
 }
@@ -129,7 +130,7 @@ export function AgentReviewCommentCard({
       )}
 
       <div className="flex items-center gap-2">
-        {comment.suggested_replacement != null && (
+        {comment.suggested_replacement != null && onApplySuggestion && (
           <Button
             size="sm"
             variant="default"

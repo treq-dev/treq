@@ -14,6 +14,13 @@ const api = vi.hoisted(() => ({
   googleMoveTask: vi.fn(),
   googleDeleteTask: vi.fn(),
   googleCreateTaskList: vi.fn(),
+  googleLinkTaskToWorkspace: vi.fn(),
+  googleUnlinkTask: vi.fn(),
+}));
+const workspaceApi = vi.hoisted(() => ({ getWorkspaces: vi.fn() }));
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
+  ...workspaceApi,
 }));
 
 vi.mock("../../lib/api-google", async (importOriginal) => ({
@@ -60,6 +67,9 @@ describe("GoogleTasksBoard", () => {
     });
     api.googleDeleteTask.mockResolvedValue(undefined);
     useToastStore.setState({ toasts: [] });
+    workspaceApi.getWorkspaces.mockResolvedValue([]);
+    api.googleLinkTaskToWorkspace.mockResolvedValue(undefined);
+    api.googleUnlinkTask.mockResolvedValue(undefined);
   });
 
   it("shows one column per task list with completed tasks collapsed", async () => {
@@ -170,6 +180,11 @@ describe("GoogleTasksBoard", () => {
     );
     await userEvent.click(await screen.findByText("Kick off agent"));
     expect(onKickoff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "google_task",
+        id: "inbox:t1",
+        title: "Write spec",
+      }),
       "Write spec\n\nSteps:\n- Draft outline",
     );
   });
@@ -270,6 +285,7 @@ describe("GoogleTasksBoard", () => {
     );
     await userEvent.click(await screen.findByText("Kick off agent"));
     expect(onKickoff).toHaveBeenCalledWith(
+      expect.anything(),
       "Write spec\n\nSteps:\n- Draft outline\n- Find sources",
     );
   });
@@ -383,5 +399,52 @@ describe("GoogleTasksBoard", () => {
       expect(api.googleListTasks).toHaveBeenCalledTimes(12),
     );
     expect(peak).toBeLessThanOrEqual(TASK_FETCH_CONCURRENCY);
+  });
+
+  const workspace = (id: number, title: string, metadata?: object) => ({
+    id,
+    repo_path: "/repo",
+    workspace_name: `ws-${id}`,
+    workspace_path: `/repo/.treq/ws-${id}`,
+    branch_name: `feat/${id}`,
+    created_at: "",
+    title,
+    not_on_remote: false,
+    metadata: metadata ? JSON.stringify(metadata) : undefined,
+  });
+
+  it("links a task to a chosen workspace", async () => {
+    workspaceApi.getWorkspaces.mockResolvedValue([workspace(4, "Auth work")]);
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Link to workspace…"));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /Auth work/ }),
+    );
+    expect(api.googleLinkTaskToWorkspace).toHaveBeenCalledWith({
+      repoPath: "/repo",
+      workspaceId: 4,
+      listId: "inbox",
+      taskId: "t1",
+    });
+  });
+
+  it("shows the linked workspace on the card and unlinks it", async () => {
+    workspaceApi.getWorkspaces.mockResolvedValue([
+      workspace(9, "Spec work", {
+        google_task_id: "t1",
+        google_tasklist_id: "inbox",
+      }),
+    ]);
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    expect(
+      await screen.findByTestId("google-task-workspace-t1"),
+    ).toHaveTextContent("Spec work");
+    await userEvent.click(screen.getByLabelText("Actions for Write spec"));
+    await userEvent.click(await screen.findByText("Unlink workspace"));
+    expect(api.googleUnlinkTask).toHaveBeenCalledWith("/repo", 9);
   });
 });

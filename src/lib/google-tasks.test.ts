@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { GoogleTask } from "./api-google";
+import type { Workspace } from "./api-types";
 import {
   buildTaskColumn,
+  linkedWorkspacesByTask,
   taskKickoffPrompt,
   createLimiter,
   isNotFoundError,
@@ -189,5 +191,23 @@ describe("createLimiter", () => {
       });
     await Promise.all(Array.from({ length: 6 }, job));
     expect(peak).toBe(2);
+  });
+});
+
+describe("linkedWorkspacesByTask", () => {
+  const ws = (id: number, metadata?: string, archived = false): Workspace =>
+    ({ id, metadata, archived }) as Workspace;
+
+  it("maps task ids to live workspaces and ignores bad metadata", () => {
+    const linked = linkedWorkspacesByTask([
+      ws(1, JSON.stringify({ google_task_id: "t1", google_tasklist_id: "l" })),
+      ws(2, JSON.stringify({ google_task_id: "t2" }), true),
+      ws(3, "not json"),
+      ws(4),
+      ws(5, JSON.stringify({ google_task_id: "t1" })),
+    ]);
+    expect([...linked.entries()].map(([k, w]) => [k, w.id])).toEqual([
+      ["t1", 1],
+    ]);
   });
 });
