@@ -12,7 +12,7 @@ const PRICING_SCHEMA = {
   '@type': 'Product',
   name: 'Treq',
   description:
-    'AI workspace manager for developers. Free for open source developers on public GitHub repos. Pro adds private repos.',
+    'AI workspace manager for developers. Free desktop app with local GitHub and Linear integrations. Pro adds cloud GitHub and Linear integrations.',
   url: 'https://treq.dev/pricing',
   brand: {
     '@type': 'Brand',
@@ -25,7 +25,7 @@ const PRICING_SCHEMA = {
       price: '0',
       priceCurrency: 'USD',
       description:
-        'Desktop app for open source developers, with GitHub integration for public repositories.',
+        'Desktop app with local GitHub (via the gh CLI) and Linear (via your API key) integrations.',
     },
     {
       '@type': 'Offer',
@@ -34,7 +34,7 @@ const PRICING_SCHEMA = {
       priceCurrency: 'USD',
       unitText: 'user/month',
       description:
-        'GitHub integration for all repositories. Billed per user per month.',
+        'Cloud GitHub and Linear integrations, with no local CLI or API key. Billed per user per month.',
     },
   ],
 };
@@ -46,15 +46,14 @@ type PlanFeature = {
 
 const FREE_FEATURES: PlanFeature[] = [
   {text: 'Full desktop app', included: true},
-  {
-    text: 'GitHub integration (public repos only)',
-    included: true,
-  },
+  {text: 'Local GitHub integration (gh CLI)', included: true},
+  {text: 'Local Linear integration (your API key)', included: true},
 ];
 
 const PRO_FEATURES: PlanFeature[] = [
   {text: 'Full desktop app', included: true},
-  {text: 'GitHub integration for all repos', included: true},
+  {text: 'Cloud GitHub integration', included: true},
+  {text: 'Cloud Linear integration', included: true},
 ];
 
 type ComparisonCell = {
@@ -76,8 +75,13 @@ const COMPARISON_ROWS: ComparisonRow[] = [
   },
   {
     feature: 'GitHub integration',
-    free: {included: true, detail: 'Public repos only'},
-    pro: {included: true, detail: 'All repos'},
+    free: {included: true, detail: 'Local, via gh CLI'},
+    pro: {included: true, detail: 'Cloud, no CLI needed'},
+  },
+  {
+    feature: 'Linear integration',
+    free: {included: true, detail: 'Local, via your API key'},
+    pro: {included: true, detail: 'Cloud, no API key needed'},
   },
 ];
 
@@ -85,7 +89,7 @@ const FAQ_ITEMS = [
   {
     question: 'Who is Free for?',
     answer:
-      'Free covers open source developers. You get the full desktop workspace manager and GitHub integration for public repositories.',
+      'Anyone who runs locally. You get the full desktop workspace manager, plus GitHub through your local gh CLI and Linear through your own API key.',
   },
   {
     question: 'Is the desktop app still free on Pro?',
