@@ -203,7 +203,8 @@ async fn moves_task_to_another_list() {
     .await;
   let task = move_task(&local("tok"), "L1", "t1", Some("L2"), None, None)
     .await
-    .unwrap();
+    .unwrap()
+    .task;
   assert_eq!(task.list_id, "L2");
 }
 
@@ -651,6 +652,53 @@ async fn cancel_ends_a_waiting_sign_in() {
     complete_local_oauth().await.unwrap_err(),
     "Google sign-in was cancelled"
   );
+
+  // Cancelled while the code is being exchanged: the exchange is abandoned.
+  // Kept in this test because sign-in state is global.
+  let server = mock().await;
+  Mock::given(method("POST"))
+    .and(path("/token"))
+    .respond_with(
+      ResponseTemplate::new(200)
+        .set_delay(Duration::from_secs(10))
+        .set_body_json(json!({"access_token": "a", "expires_in": 3600})),
+    )
+    .mount(&server)
+    .await;
+  let url = begin_local_oauth("cid".into(), None).await.unwrap();
+  let url = url::Url::parse(&url).unwrap();
+  let param = |k: &str| {
+    url
+      .query_pairs()
+      .find(|(key, _)| key == k)
+      .unwrap()
+      .1
+      .into_owned()
+  };
+  let redirect = url::Url::parse(&param("redirect_uri")).unwrap();
+  let waiter = tokio::spawn(complete_local_oauth());
+  tokio::time::sleep(Duration::from_millis(50)).await;
+  let mut s = tokio::net::TcpStream::connect(("127.0.0.1", redirect.port().unwrap()))
+    .await
+    .unwrap();
+  use tokio::io::AsyncWriteExt;
+  s.write_all(format!("GET /?state={}&code=c HTTP/1.1\r\n\r\n", param("state")).as_bytes())
+    .await
+    .unwrap();
+  // Wait until the exchange request reaches the token endpoint.
+  for _ in 0..100 {
+    if !server.received_requests().await.unwrap().is_empty() {
+      break;
+    }
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
+  cancel_local_oauth().await;
+  let result = tokio::time::timeout(Duration::from_secs(5), waiter)
+    .await
+    .unwrap()
+    .unwrap();
+  assert_eq!(result.unwrap_err(), "Google sign-in was cancelled");
+  assert!(active_slot().is_none());
 }
 
 #[tokio::test]
@@ -661,6 +709,7 @@ async fn cross_list_move_brings_subtasks_along() {
     .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [
       {"id": "t1", "position": "1"},
       {"id": "s1", "parent": "t1", "position": "2"},
+      {"id": "s2", "parent": "t1", "position": "2b"},
       {"id": "other", "position": "3"}
     ]})))
     .mount(&server)
@@ -680,10 +729,17 @@ async fn cross_list_move_brings_subtasks_along() {
     .expect(1)
     .mount(&server)
     .await;
-  let task = move_task(&local("tok"), "L1", "t1", Some("L2"), None, None)
+  Mock::given(method("POST"))
+    .and(path("/tasks/v1/lists/L1/tasks/s2/move"))
+    .respond_with(ResponseTemplate::new(500).set_body_json(json!({"error": {"message": "boom"}})))
+    .expect(1)
+    .mount(&server)
+    .await;
+  let moved = move_task(&local("tok"), "L1", "t1", Some("L2"), None, None)
     .await
     .unwrap();
-  assert_eq!(task.list_id, "L2");
+  assert_eq!(moved.task.list_id, "L2");
+  assert_eq!(moved.failed_subtask_ids, ["s2"]);
 }
 
 #[test]

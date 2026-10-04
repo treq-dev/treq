@@ -11,6 +11,7 @@ import {
 } from "../../lib/api-google";
 import { getRepoSetting, getSetting, setRepoSetting } from "../../lib/api";
 import { ensureProxySessionSync } from "../../lib/proxy-session-sync";
+import { isProSubscription } from "../../lib/subscription";
 import { supabase } from "../../lib/supabase";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -58,8 +59,7 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   repoPath,
 }) => {
   const { subscription, user } = useAuthStore();
-  const isPro =
-    subscription?.plan === "pro" && subscription.status === "active";
+  const isPro = isProSubscription(subscription);
   const { addToast } = useToastStore();
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -71,14 +71,21 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
   const [confirming, setConfirming] = useState<DisconnectTarget | null>(null);
   const cancelled = useRef(false);
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  /** Bumped to stop the running Pro poll (cancel or unmount). */
+  const pollRun = useRef(0);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+      pollRun.current++;
+    };
+  }, []);
 
-  const { data: status, mutate } = useSWR(
+  const {
+    data: status,
+    error: statusError,
+    mutate,
+  } = useSWR(
     ["google-connection-status"],
     async () => {
       await ensureProxySessionSync().catch(() => undefined);
@@ -132,23 +139,44 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
 
   /** Waits for the browser sign-in to store the grant server side. */
   const waitForProxy = async () => {
+    const run = ++pollRun.current;
+    const live = () => mounted.current && pollRun.current === run;
     setWaitingForPro(true);
-    const poll = async (waited: number): Promise<void> => {
-      if (waited >= PRO_POLL_TIMEOUT_MS || !mounted.current) return;
+    // Recursive rather than a loop: each step waits on the one before.
+    const poll = async (waited: number): Promise<boolean> => {
+      if (waited >= PRO_POLL_TIMEOUT_MS) return false;
       await new Promise((r) => setTimeout(r, PRO_POLL_INTERVAL_MS));
+      if (!live()) return true;
       const next = await googleConnectionStatus().catch(() => null);
+      if (!live()) return true;
       if (next?.mode !== "proxy") return poll(waited + PRO_POLL_INTERVAL_MS);
       await mutate(next, { revalidate: false });
-      addToast({ title: "Google Workspace connected", type: "success" });
+      if (live()) {
+        addToast({ title: "Google Workspace connected", type: "success" });
+      }
+      return true;
     };
     try {
-      await poll(0);
+      if (await poll(0)) return;
+      addToast({
+        title: "Didn't hear back from Google sign-in",
+        description:
+          "If you finished signing in, check the status again in a moment. Otherwise click Connect with Google to try again.",
+        type: "warning",
+      });
     } finally {
-      if (mounted.current) setWaitingForPro(false);
+      if (live()) setWaitingForPro(false);
     }
   };
 
+  const cancelPro = () => {
+    pollRun.current++;
+    setWaitingForPro(false);
+  };
+
   const connectPro = async () => {
+    // The local client takes precedence, so a Pro grant would never show.
+    if (status?.mode === "local") return;
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke(
@@ -167,9 +195,9 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
       });
       return;
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
-    await waitForProxy();
+    if (mounted.current) await waitForProxy();
   };
 
   const disconnectLocal = async () => {
@@ -239,11 +267,15 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
 
   const mode = status?.mode;
   const modeLabel =
-    mode === "local"
-      ? "Connected with your own OAuth client"
-      : mode === "proxy"
-        ? "Connected through treq (Pro)"
-        : "Not connected";
+    !status && statusError
+      ? `Couldn't check the connection: ${errorText(statusError)}`
+      : !status
+        ? "Checking…"
+        : mode === "local"
+          ? "Connected with your own OAuth client"
+          : mode === "proxy"
+            ? "Connected through treq (Pro)"
+            : "Not connected";
 
   return (
     <section>
@@ -255,6 +287,11 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
       </div>
       <div className="divide-y divide-border">
         <SettingRow title="Status" description={modeLabel}>
+          {!status && statusError && (
+            <Button size="sm" variant="outline" onClick={() => void mutate()}>
+              Retry
+            </Button>
+          )}
           {(mode === "local" || (mode === "proxy" && user)) && (
             <Button
               size="sm"
@@ -325,19 +362,26 @@ export const GoogleIntegrationSettings: React.FC<{ repoPath?: string }> = ({
           description={
             waitingForPro
               ? "Waiting for Google sign-in in your browser…"
-              : isPro
-                ? "Use treq's Google app. No Cloud project needed."
-                : "Pro plan: connect without your own Google Cloud project."
+              : mode === "local"
+                ? "Your own OAuth client is connected and takes precedence. Disconnect it to connect through treq."
+                : isPro
+                  ? "Use treq's Google app. No Cloud project needed."
+                  : "Pro plan: connect without your own Google Cloud project."
           }
         >
           <Button
             size="sm"
             variant="outline"
             onClick={connectPro}
-            disabled={!isPro || busy || waitingForPro}
+            disabled={!isPro || busy || waitingForPro || mode === "local"}
           >
             Connect with Google
           </Button>
+          {waitingForPro && (
+            <Button size="sm" variant="ghost" onClick={cancelPro}>
+              Cancel
+            </Button>
+          )}
         </SettingRow>
         {user && mode !== "proxy" && (
           <div className="pb-3">

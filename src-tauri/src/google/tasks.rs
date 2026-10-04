@@ -233,6 +233,13 @@ pub(crate) fn move_task_url(
   url
 }
 
+/// A moved task, plus the subtasks that could not follow it to the new list.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct MoveTaskResult {
+  pub task: GoogleTask,
+  pub failed_subtask_ids: Vec<String>,
+}
+
 /// Moves a task to another list (a Kanban column), under `parent` and/or
 /// after a sibling. Moving to another list brings its subtasks along.
 pub async fn move_task(
@@ -242,7 +249,7 @@ pub async fn move_task(
   destination_list_id: Option<&str>,
   parent: Option<&str>,
   previous_task_id: Option<&str>,
-) -> Result<GoogleTask, String> {
+) -> Result<MoveTaskResult, String> {
   let destination = destination_list_id.filter(|d| *d != list_id);
   // Google may leave subtasks behind in the old list, so note them first.
   let subtasks: Vec<GoogleTask> = match destination {
@@ -264,6 +271,7 @@ pub async fn move_task(
   let task =
     map_task(final_list, &value).ok_or_else(|| "Google returned an invalid task".to_string())?;
   let mut previous: Option<String> = None;
+  let mut failed_subtask_ids = Vec::new();
   for subtask in subtasks {
     let url = move_task_url(
       list_id,
@@ -274,11 +282,16 @@ pub async fn move_task(
     );
     match send_json(source, reqwest::Method::POST, &url, None).await {
       Ok(_) => previous = Some(subtask.id),
-      // Already moved with its parent, or gone: nothing left to fix.
-      Err(e) => tracing::warn!("Failed to move subtask {} with its parent: {e}", subtask.id),
+      Err(e) => {
+        tracing::warn!("Failed to move subtask {} with its parent: {e}", subtask.id);
+        failed_subtask_ids.push(subtask.id);
+      }
     }
   }
-  Ok(task)
+  Ok(MoveTaskResult {
+    task,
+    failed_subtask_ids,
+  })
 }
 
 pub async fn create_task_list(

@@ -42,14 +42,9 @@ import { Slider } from "./ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { useToast } from "./ui/toast";
 import { AgentOptions } from "./AgentOptions";
+import { resolveSettingsTab, type SettingsTab } from "../lib/settings-tabs";
 
-type TabValue =
-  | "application"
-  | "repository"
-  | "account"
-  | "integrations"
-  | "skills"
-  | "preview";
+type TabValue = SettingsTab;
 
 interface SettingsPageProps {
   repoPath: string;
@@ -67,8 +62,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   cloudWorkspace,
   initialTab,
 }) => {
-  const [currentTab, setCurrentTab] = useState<TabValue>(
-    (initialTab as TabValue | undefined) ?? "repository",
+  const skillsInstallation = usePreviewFeature("skillsInstallation");
+  const [currentTab, setCurrentTab] = useState<TabValue>(() =>
+    resolveSettingsTab(initialTab, { skillsInstallation }),
   );
   const [modelDraft, setModelDraft] = useState<string | null>(null);
   const [agentDraft, setAgentDraft] = useState<string | null>(null);
@@ -85,7 +81,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const setFontSize = useTerminalSettingsStore((s) => s.setFontSize);
   const zoom = useZoomSettingsStore((s) => s.zoom);
   const setZoom = useZoomSettingsStore((s) => s.setZoom);
-  const skillsInstallation = usePreviewFeature("skillsInstallation");
   const linearIntegration = usePreviewFeature("linearIntegration");
   const trelloIntegration = usePreviewFeature("trelloIntegration");
   const jiraIntegration = usePreviewFeature("jiraIntegration");

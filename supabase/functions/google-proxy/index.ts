@@ -2,6 +2,7 @@
 // stored grant from google_oauth_tokens, refreshing it near expiry. The
 // request logic lives in lib.ts so it can be unit tested.
 
+import { isProSubscription } from "../_shared/pro.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 import {
   proxyGoogleRequest,
@@ -66,10 +67,10 @@ Deno.serve(async (req) => {
     isPro: async () => {
       const { data, error } = await supabaseUser
         .from("subscriptions")
-        .select("plan, status")
+        .select("plan, status, current_period_end")
         .maybeSingle();
       if (error) throw new Error(error.message);
-      return data?.plan === "pro" && data?.status === "active";
+      return isProSubscription(data);
     },
     googleClient:
       clientId && clientSecret ? { id: clientId, secret: clientSecret } : null,

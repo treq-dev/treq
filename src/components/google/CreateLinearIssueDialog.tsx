@@ -1,7 +1,11 @@
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
-import { googleUpdateTask, type GoogleTask } from "../../lib/api-google";
+import {
+  googleListTasks,
+  googleUpdateTask,
+  type GoogleTask,
+} from "../../lib/api-google";
 import {
   linearCreateIssue,
   linearListTeams,
@@ -60,8 +64,14 @@ export const CreateLinearIssueDialog: React.FC<{
     onClose();
     setCreating(false);
     try {
+      // Re-read the notes right before writing: they may have been edited
+      // while the dialog was open, and the write replaces them.
+      const current = (await googleListTasks(task.list_id)).find(
+        (t) => t.id === task.id,
+      );
+      if (!current) throw new Error("The task no longer exists");
       await googleUpdateTask(task.list_id, task.id, {
-        notes: notesWithLinearLink(task.notes, issue.identifier, issue.url),
+        notes: notesWithLinearLink(current.notes, issue.identifier, issue.url),
       });
       addToast({
         title: `Created ${issue.identifier}`,

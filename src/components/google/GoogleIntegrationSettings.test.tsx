@@ -7,6 +7,7 @@ import { useToastStore } from "../../stores/toastStore";
 import {
   GoogleIntegrationSettings,
   PRO_POLL_INTERVAL_MS,
+  PRO_POLL_TIMEOUT_MS,
 } from "./GoogleIntegrationSettings";
 
 const mocks = vi.hoisted(() => ({
@@ -222,5 +223,98 @@ describe("GoogleIntegrationSettings", () => {
         useToastStore.getState().toasts.map((t) => t.description),
       ).toContain("Pro plan required"),
     );
+  });
+
+  const startProConnect = async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    useAuthStore.setState({
+      user: { id: "u1" } as never,
+      subscription: { plan: "pro", status: "active" } as never,
+    });
+    mocks.googleConnectionStatus.mockResolvedValue({ mode: "none" });
+    mocks.invoke.mockResolvedValue({
+      data: { authorize_url: "https://treq/authorize" },
+      error: null,
+    });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const view = render(<GoogleIntegrationSettings />);
+    await screen.findByText("Not connected");
+    await user.click(
+      screen.getByRole("button", { name: "Connect with Google" }),
+    );
+    await screen.findByText("Waiting for Google sign-in in your browser…");
+    return { user, view };
+  };
+
+  it("stops polling once unmounted", async () => {
+    const { view } = await startProConnect();
+    view.unmount();
+    const calls = mocks.googleConnectionStatus.mock.calls.length;
+    mocks.googleConnectionStatus.mockResolvedValue({ mode: "proxy" });
+    await vi.advanceTimersByTimeAsync(PRO_POLL_INTERVAL_MS * 3);
+    expect(mocks.googleConnectionStatus.mock.calls.length).toBe(calls);
+    expect(toastTitles()).not.toContain("Google Workspace connected");
+  });
+
+  it("tells the user when the Pro sign-in times out", async () => {
+    await startProConnect();
+    await vi.advanceTimersByTimeAsync(PRO_POLL_TIMEOUT_MS + 1);
+    expect(toastTitles()).toContain("Didn't hear back from Google sign-in");
+    expect(
+      screen.queryByText("Waiting for Google sign-in in your browser…"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("cancels waiting for a Pro sign-in", async () => {
+    const { user } = await startProConnect();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.queryByText("Waiting for Google sign-in in your browser…"),
+    ).not.toBeInTheDocument();
+    const calls = mocks.googleConnectionStatus.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(PRO_POLL_INTERVAL_MS * 3);
+    expect(mocks.googleConnectionStatus.mock.calls.length).toBe(calls);
+  });
+
+  it("explains that a local client takes precedence over Pro", async () => {
+    useAuthStore.setState({
+      user: { id: "u1" } as never,
+      subscription: { plan: "pro", status: "active" } as never,
+    });
+    mocks.googleConnectionStatus.mockResolvedValue({ mode: "local" });
+    render(<GoogleIntegrationSettings />);
+    expect(await screen.findByText(/takes precedence/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Connect with Google" }),
+    ).toBeDisabled();
+  });
+
+  it("treats a canceled plan inside its paid period as Pro", async () => {
+    useAuthStore.setState({
+      user: { id: "u1" } as never,
+      subscription: {
+        plan: "pro",
+        status: "canceled",
+        current_period_end: new Date(Date.now() + 86_400_000).toISOString(),
+      } as never,
+    });
+    mocks.googleConnectionStatus.mockResolvedValue({ mode: "none" });
+    render(<GoogleIntegrationSettings />);
+    await screen.findByText("Not connected");
+    expect(
+      screen.getByRole("button", { name: "Connect with Google" }),
+    ).toBeEnabled();
+  });
+
+  it("shows a status error with Retry instead of Not connected", async () => {
+    mocks.googleConnectionStatus.mockRejectedValue("keychain locked");
+    render(<GoogleIntegrationSettings />);
+    expect(
+      await screen.findByText(/Couldn't check the connection: keychain locked/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
+    mocks.googleConnectionStatus.mockResolvedValue({ mode: "none" });
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Not connected")).toBeInTheDocument();
   });
 });

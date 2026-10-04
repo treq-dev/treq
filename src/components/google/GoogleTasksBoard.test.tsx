@@ -3,7 +3,8 @@ import { fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "../../../test/test-utils";
 import type { GoogleTask } from "../../lib/api-google";
-import { GoogleTasksBoard } from "./GoogleTasksBoard";
+import { useToastStore } from "../../stores/toastStore";
+import { GoogleTasksBoard, TASK_FETCH_CONCURRENCY } from "./GoogleTasksBoard";
 
 const api = vi.hoisted(() => ({
   googleListTaskLists: vi.fn(),
@@ -53,7 +54,12 @@ describe("GoogleTasksBoard", () => {
     );
     api.googleCreateTask.mockResolvedValue(task({ id: "new" }));
     api.googleUpdateTask.mockResolvedValue(task({}));
-    api.googleMoveTask.mockResolvedValue(task({ list_id: "doing" }));
+    api.googleMoveTask.mockResolvedValue({
+      task: task({ list_id: "doing" }),
+      failed_subtask_ids: [],
+    });
+    api.googleDeleteTask.mockResolvedValue(undefined);
+    useToastStore.setState({ toasts: [] });
   });
 
   it("shows one column per task list with completed tasks collapsed", async () => {
@@ -200,5 +206,182 @@ describe("GoogleTasksBoard", () => {
       notes: undefined,
       parent: "t1",
     });
+  });
+
+  const toastTitles = () => useToastStore.getState().toasts.map((t) => t.title);
+
+  const dragTo = async (target: HTMLElement) => {
+    const card = await screen.findByTestId("google-task-t1");
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      setData: (k: string, v: string) => data.set(k, v),
+      getData: (k: string) => data.get(k) ?? "",
+      get types() {
+        return [...data.keys()];
+      },
+    };
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.dragOver(target, { dataTransfer });
+    fireEvent.drop(target, { dataTransfer });
+  };
+
+  it("warns and refreshes both columns when subtasks could not move", async () => {
+    api.googleMoveTask.mockResolvedValue({
+      task: task({ list_id: "doing" }),
+      failed_subtask_ids: ["sub", "sub2"],
+    });
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await screen.findByTestId("google-task-t1");
+    api.googleListTasks.mockClear();
+    await dragTo(screen.getByRole("region", { name: "Doing" }));
+    await vi.waitFor(() =>
+      expect(toastTitles()).toContain("2 subtasks could not be moved"),
+    );
+    await vi.waitFor(() => {
+      const lists = api.googleListTasks.mock.calls.map((c) => c[0]);
+      expect(lists).toEqual(expect.arrayContaining(["inbox", "doing"]));
+    });
+  });
+
+  it("kicks off with grandchildren and without duplicates", async () => {
+    api.googleListTasks.mockImplementation(async (listId: string) =>
+      listId === "inbox"
+        ? [
+            task({}),
+            task({
+              id: "sub",
+              title: "Draft outline",
+              parent: "t1",
+              position: "2",
+            }),
+            task({
+              id: "gc",
+              title: "Find sources",
+              parent: "sub",
+              position: "3",
+            }),
+            task({ id: "sub", title: "Dup", parent: "t1", position: "4" }),
+          ]
+        : [],
+    );
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Kick off agent"));
+    expect(onKickoff).toHaveBeenCalledWith(
+      "Write spec\n\nSteps:\n- Draft outline\n- Find sources",
+    );
+  });
+
+  const openDueInput = async () => {
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Set due date"));
+    return (await screen.findByLabelText(
+      "Due date for Write spec",
+    )) as HTMLInputElement;
+  };
+
+  it("saves a due date on Enter, not on the first change", async () => {
+    const input = await openDueInput();
+    fireEvent.change(input, { target: { value: "2026-10-20" } });
+    expect(api.googleUpdateTask).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Enter}");
+    expect(api.googleUpdateTask).toHaveBeenCalledTimes(1);
+    expect(api.googleUpdateTask).toHaveBeenCalledWith("inbox", "t1", {
+      due: "2026-10-20T00:00:00.000Z",
+    });
+  });
+
+  it("does not save a partial or pre-1970 due date, and Escape cancels", async () => {
+    const input = await openDueInput();
+    fireEvent.change(input, { target: { value: "0002-10-20" } });
+    await userEvent.keyboard("{Enter}");
+    expect(api.googleUpdateTask).not.toHaveBeenCalled();
+    const again = await openDueInputAgain();
+    fireEvent.change(again, { target: { value: "2026-10-20" } });
+    await userEvent.keyboard("{Escape}");
+    expect(
+      screen.queryByLabelText("Due date for Write spec"),
+    ).not.toBeInTheDocument();
+    expect(api.googleUpdateTask).not.toHaveBeenCalled();
+  });
+
+  const openDueInputAgain = async () => {
+    await userEvent.click(screen.getByLabelText("Actions for Write spec"));
+    await userEvent.click(await screen.findByText("Set due date"));
+    return (await screen.findByLabelText(
+      "Due date for Write spec",
+    )) as HTMLInputElement;
+  };
+
+  it("confirms a delete, mentioning subtasks", async () => {
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Delete"));
+    expect(api.googleDeleteTask).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Its 1 subtask is deleted too");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Delete" }),
+    );
+    expect(api.googleDeleteTask).toHaveBeenCalledWith("inbox", "t1");
+  });
+
+  it("treats a task already deleted elsewhere as deleted", async () => {
+    api.googleDeleteTask.mockRejectedValue("Google API error 404: Not Found");
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await userEvent.click(
+      await screen.findByLabelText("Actions for Write spec"),
+    );
+    await userEvent.click(await screen.findByText("Delete"));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Delete" }),
+    );
+    await vi.waitFor(() => expect(api.googleDeleteTask).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(toastTitles()).not.toContain("Failed to delete task");
+  });
+
+  it("ignores a second toggle while the first is in flight", async () => {
+    let finish!: () => void;
+    api.googleUpdateTask.mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve(task({}));
+      }),
+    );
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    const toggle = await screen.findByLabelText("Complete Write spec");
+    await userEvent.click(toggle);
+    await userEvent.click(toggle);
+    expect(api.googleUpdateTask).toHaveBeenCalledTimes(1);
+    finish();
+  });
+
+  it("fetches at most a few columns at once", async () => {
+    api.googleListTaskLists.mockResolvedValue(
+      Array.from({ length: 12 }, (_, i) => ({ id: `l${i}`, title: `L${i}` })),
+    );
+    let active = 0;
+    let peak = 0;
+    api.googleListTasks.mockImplementation(async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+      return [];
+    });
+    render(<GoogleTasksBoard repoPath="/repo" onKickoff={onKickoff} />);
+    await screen.findByRole("region", { name: "L11" });
+    await vi.waitFor(() =>
+      expect(api.googleListTasks).toHaveBeenCalledTimes(12),
+    );
+    expect(peak).toBeLessThanOrEqual(TASK_FETCH_CONCURRENCY);
   });
 });

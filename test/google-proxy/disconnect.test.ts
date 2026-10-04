@@ -52,4 +52,57 @@ describe("disconnectGoogle", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
   });
+
+  it("deletes the row before revoking", async () => {
+    const order: string[] = [];
+    const deps = {
+      store: {
+        load: async () => ({ access_token: "a", refresh_token: "r" }),
+        remove: vi.fn(async () => {
+          order.push("remove");
+        }),
+      },
+      fetch: (async () => {
+        order.push("revoke");
+        return new Response("", { status: 200 });
+      }) as unknown as typeof fetch,
+    };
+    await disconnectGoogle(deps);
+    expect(order).toEqual(["remove", "revoke"]);
+  });
+
+  it("does not hang when the revoke never settles", async () => {
+    const remove = vi.fn(async () => {});
+    const result = await disconnectGoogle({
+      store: {
+        load: async () => ({ access_token: "a", refresh_token: "r" }),
+        remove,
+      },
+      fetch: (() => new Promise<Response>(() => {})) as unknown as typeof fetch,
+      revokeTimeoutMs: 20,
+    });
+    expect(result.body).toEqual({ disconnected: true, revoked: false });
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
+  it("passes an abort signal to the revoke", async () => {
+    const { deps, fetchMock } = setup({
+      access_token: "a",
+      refresh_token: "r",
+    });
+    await disconnectGoogle(deps);
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("fails without revoking when the delete fails", async () => {
+    const { fetchMock, deps } = setup({
+      access_token: "a",
+      refresh_token: "r",
+    });
+    deps.store.remove = vi.fn(async () => {
+      throw new Error("db down");
+    });
+    await expect(disconnectGoogle(deps)).rejects.toThrow("db down");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

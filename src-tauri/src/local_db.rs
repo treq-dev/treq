@@ -2017,6 +2017,30 @@ pub fn list_agent_review_comments(
   Ok(comments)
 }
 
+/// Open local review comments of one target type across a repo, grouped by
+/// target and ordered like `list_agent_review_comments`.
+pub fn list_open_agent_review_comments_of_type(
+  repo_path: &str,
+  target_type: &str,
+) -> Result<Vec<AgentReviewComment>, String> {
+  let conn = get_connection(repo_path)?;
+  let mut stmt = conn
+    .prepare(&format!(
+      "{AGENT_REVIEW_COMMENT_SELECT}
+             WHERE repo_path = ?1 AND target_type = ?2 AND status = 'open'
+             ORDER BY target_id ASC, file_path ASC, start_line ASC, created_at ASC"
+    ))
+    .map_err(|e| format!("Failed to prepare query: {}", e))?;
+  let comments = stmt
+    .query_map(params![repo_path, target_type], |row| {
+      agent_review_comment_from_row(row)
+    })
+    .map_err(|e| format!("Failed to list agent review comments: {}", e))?
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .map_err(|e| format!("Failed to read agent review comments: {}", e))?;
+  Ok(comments)
+}
+
 /// Fetch one local review comment by id.
 pub fn get_agent_review_comment(
   repo_path: &str,

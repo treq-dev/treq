@@ -2,17 +2,16 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "../../../test/test-utils";
 import type { DriveFile } from "../../lib/api-google";
+import { useToastStore } from "../../stores/toastStore";
 import { DriveFileRow } from "./DriveFileRow";
 
 const api = vi.hoisted(() => ({
-  listAgentReviewComments: vi.fn(),
   deleteAgentReviewComment: vi.fn(),
   googlePostReviewComments: vi.fn(),
 }));
 
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
-  listAgentReviewComments: api.listAgentReviewComments,
   deleteAgentReviewComment: api.deleteAgentReviewComment,
 }));
 vi.mock("../../lib/api-google", async (importOriginal) => ({
@@ -48,30 +47,43 @@ const finding = {
   resolved_at: null,
 };
 
-const renderRow = (onReview = vi.fn(async () => {})) => {
-  render(
-    <ul>
-      <DriveFileRow
-        file={file}
-        repoPath="/repo"
-        disabled={false}
-        onReview={onReview}
-      />
-    </ul>,
-  );
-  return onReview;
+const onFindingsChanged = vi.fn(async () => {});
+
+const row = (
+  findings: (typeof finding)[],
+  disabled: boolean,
+  onReview: (f: DriveFile) => Promise<void>,
+) => (
+  <ul>
+    <DriveFileRow
+      file={file}
+      repoPath="/repo"
+      findings={findings as never}
+      onFindingsChanged={onFindingsChanged}
+      disabled={disabled}
+      onReview={onReview}
+    />
+  </ul>
+);
+
+const renderRow = (
+  onReview = vi.fn<(f: DriveFile) => Promise<void>>(async () => {}),
+  disabled = false,
+) => {
+  const view = render(row([finding], disabled, onReview));
+  return Object.assign(onReview, { view });
 };
 
 describe("DriveFileRow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.listAgentReviewComments.mockResolvedValue([finding]);
+    api.deleteAgentReviewComment.mockResolvedValue(undefined);
     api.googlePostReviewComments.mockResolvedValue({ posted: 1, errors: [] });
   });
 
   it("shows findings before they are posted, and posts them", async () => {
     renderRow();
-    await userEvent.click(await screen.findByText("1 finding"));
+    await userEvent.click(screen.getByText("1 finding"));
     expect(
       screen.getByText("This date contradicts section 2"),
     ).toBeInTheDocument();
@@ -82,14 +94,13 @@ describe("DriveFileRow", () => {
 
   it("drops a finding", async () => {
     renderRow();
-    await userEvent.click(await screen.findByText("1 finding"));
+    await userEvent.click(screen.getByText("1 finding"));
     await userEvent.click(screen.getByLabelText("Drop finding"));
     expect(api.deleteAgentReviewComment).toHaveBeenCalledWith("/repo", "c1");
   });
 
   it("asks before a new review discards unposted findings", async () => {
     const onReview = renderRow();
-    await screen.findByText("1 finding");
     await userEvent.click(screen.getByRole("button", { name: "Review" }));
     expect(onReview).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -97,5 +108,44 @@ describe("DriveFileRow", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
     expect(onReview).toHaveBeenCalledWith(file);
+  });
+
+  it("asks again when the findings count changes", async () => {
+    const onReview = renderRow();
+    await userEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    onReview.view.rerender(
+      row([finding, { ...finding, id: "c2" }], false, onReview),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("treats a finding already gone as dropped, and drops it once", async () => {
+    let fail!: (e: unknown) => void;
+    api.deleteAgentReviewComment.mockReturnValue(
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+    );
+    renderRow();
+    await userEvent.click(screen.getByText("1 finding"));
+    const dropButton = screen.getByLabelText("Drop finding");
+    await userEvent.click(dropButton);
+    await userEvent.click(dropButton);
+    expect(api.deleteAgentReviewComment).toHaveBeenCalledTimes(1);
+    fail("Comment not found");
+    await vi.waitFor(() => expect(onFindingsChanged).toHaveBeenCalled());
+    expect(useToastStore.getState().toasts.map((t) => t.title)).not.toContain(
+      "Failed to remove finding",
+    );
+  });
+
+  it("disables Post and Drop while a review is preparing", async () => {
+    renderRow(undefined, true);
+    await userEvent.click(screen.getByText("1 finding"));
+    expect(screen.getByLabelText("Drop finding")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Post 1 comment/ }),
+    ).toBeDisabled();
   });
 });

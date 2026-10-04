@@ -123,8 +123,6 @@ pub async fn prepare_doc_review(
   std::fs::create_dir_all(&root).map_err(|e| format!("Failed to create review directory: {e}"))?;
   std::fs::write(root.join(&file_name), &text)
     .map_err(|e| format!("Failed to write exported document: {e}"))?;
-  // Unposted comments point at lines of the export just replaced.
-  discard_open_comments(repo_path, file_id)?;
   Ok(PreparedDocReview {
     line_count: text.lines().count(),
     root: root.to_string_lossy().into_owned(),
@@ -182,7 +180,10 @@ pub fn comment_content(comment: &crate::local_db::AgentReviewComment) -> String 
   content
 }
 
-fn discard_open_comments(repo_path: &str, file_id: &str) -> Result<(), String> {
+/// Deletes the unposted findings for `file_id`. They point at lines of an
+/// earlier export, so the caller runs this once a new review has launched;
+/// `prepare_doc_review` keeps them so a failed launch loses nothing.
+pub fn discard_unposted_findings(repo_path: &str, file_id: &str) -> Result<(), String> {
   crate::local_db::delete_open_agent_review_comments_in_target(
     repo_path,
     REVIEW_TARGET_TYPE,
@@ -195,6 +196,13 @@ pub struct PostCommentsResult {
   pub posted: usize,
   /// One message per comment that was not posted; those stay open.
   pub errors: Vec<String>,
+}
+
+/// All open (unposted) agent findings on Google Docs in this repo.
+pub fn list_doc_findings(
+  repo_path: &str,
+) -> Result<Vec<crate::local_db::AgentReviewComment>, String> {
+  crate::local_db::list_open_agent_review_comments_of_type(repo_path, REVIEW_TARGET_TYPE)
 }
 
 /// Posts the open agent comments for `file_id` to Drive. A failure does not
@@ -427,7 +435,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn re_export_discards_unposted_comments_only() {
+  async fn re_export_keeps_findings_until_discarded() {
     let server = mock().await;
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().to_str().unwrap();
@@ -455,10 +463,16 @@ mod tests {
       .await
       .unwrap();
     assert_eq!(prepared.file_name, "Spec.md");
+    assert_eq!(list_doc_findings(repo).unwrap().len(), 1);
+    add_comment(repo, "doc2", "other");
+    discard_unposted_findings(repo, "doc1").unwrap();
     assert_eq!(
       statuses(repo, "doc1"),
       [("posted".into(), "resolved".into())]
     );
+    let open = list_doc_findings(repo).unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].target_id, "doc2");
   }
 
   #[test]

@@ -933,6 +933,8 @@ pub fn run() {
       commands::google_move_task,
       commands::google_list_drive_files,
       commands::google_prepare_doc_review,
+      commands::google_discard_unposted_findings,
+      commands::google_list_doc_findings,
       commands::google_post_review_comments,
       commands::linear_list_projects,
       commands::linear_list_project_documents,

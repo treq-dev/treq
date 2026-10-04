@@ -126,7 +126,7 @@ pub async fn google_move_task(
   destination_list_id: Option<String>,
   parent: Option<String>,
   previous_task_id: Option<String>,
-) -> Result<GoogleTask, String> {
+) -> Result<crate::google::MoveTaskResult, String> {
   crate::google::move_task(
     &source_for(&state)?,
     &list_id,
@@ -155,6 +155,27 @@ pub async fn google_prepare_doc_review(
   file_id: String,
 ) -> Result<crate::core::google_review::PreparedDocReview, String> {
   crate::core::google_review::prepare_doc_review(&source_for(&state)?, &repo_path, &file_id).await
+}
+
+/// Deletes the unposted findings for a file; call after a new review launched.
+#[tauri::command]
+pub async fn google_discard_unposted_findings(
+  state: State<'_, AppState>,
+  repo_path: String,
+  file_id: String,
+) -> Result<(), String> {
+  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
+  crate::core::google_review::discard_unposted_findings(&repo_path, &file_id)
+}
+
+/// All open (unposted) Google Doc findings in the repo.
+#[tauri::command]
+pub async fn google_list_doc_findings(
+  state: State<'_, AppState>,
+  repo_path: String,
+) -> Result<Vec<crate::local_db::AgentReviewComment>, String> {
+  crate::commands::feature_preview::require(&state, PreviewFeature::GoogleWorkspace)?;
+  crate::core::google_review::list_doc_findings(&repo_path)
 }
 
 /// Posts the agent's open comments to the Drive file and resolves them.

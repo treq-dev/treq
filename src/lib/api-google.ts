@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { AgentReviewComment } from "./api-types-review";
 
 export type GoogleConnectionStatus = {
   /** `local` (own OAuth client), `proxy` (treq Pro) or `none`. */
@@ -102,7 +103,13 @@ export const googleMoveTask = (move: {
   previousTaskId?: string;
   /** Task to nest under; omit to move to the top level. */
   parent?: string;
-}): Promise<GoogleTask> => invoke("google_move_task", move);
+}): Promise<MoveTaskResult> => invoke("google_move_task", move);
+
+export type MoveTaskResult = {
+  task: GoogleTask;
+  /** Subtasks a cross-list move could not bring along. */
+  failed_subtask_ids: string[];
+};
 
 export const googleListDriveFiles = (
   search: string | undefined,
@@ -127,3 +134,19 @@ export const googlePostReviewComments = (
   fileId: string,
 ): Promise<PostCommentsResult> =>
   invoke("google_post_review_comments", { repoPath, fileId });
+
+/**
+ * Drops a file's unposted findings. Call it only once the new review session
+ * has started, so a failed launch keeps the old findings.
+ */
+export const googleDiscardUnpostedFindings = (
+  repoPath: string,
+  fileId: string,
+): Promise<void> =>
+  invoke("google_discard_unposted_findings", { repoPath, fileId });
+
+/** Every open Google doc finding in the repository, for all files at once. */
+export const googleListDocFindings = (
+  repoPath: string,
+): Promise<AgentReviewComment[]> =>
+  invoke("google_list_doc_findings", { repoPath });

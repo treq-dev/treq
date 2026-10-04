@@ -103,16 +103,80 @@ export function notesWithLinearLink(
   return current ? `${current}\n\n${line}` : line;
 }
 
-/** Prompt that kicks off an agent from a task, like tracker kickoffs do. */
+export const KICKOFF_NOTES_LIMIT = 4000;
+export const KICKOFF_STEPS_LIMIT = 50;
+
+/**
+ * Prompt that kicks off an agent from a task, like tracker kickoffs do.
+ * `subtasks` are the card's subtasks from `buildTaskColumn`. Notes and steps
+ * are capped so a huge task cannot flood the prompt.
+ */
 export function taskKickoffPrompt(
   task: GoogleTask,
   subtasks: GoogleTask[],
 ): string {
-  const parts = [task.title.trim()];
-  if (task.notes?.trim()) parts.push(task.notes.trim());
-  const open = subtasks.filter((s) => s.status !== "completed");
-  if (open.length > 0) {
-    parts.push(`Steps:\n${open.map((s) => `- ${s.title}`).join("\n")}`);
+  const parts = [task.title.trim() || "(untitled task)"];
+  const notes = task.notes?.trim() ?? "";
+  if (notes) {
+    parts.push(
+      notes.length > KICKOFF_NOTES_LIMIT
+        ? `${notes.slice(0, KICKOFF_NOTES_LIMIT)}\n… (notes truncated)`
+        : notes,
+    );
+  }
+  const steps = subtasks
+    .filter((s) => s.status !== "completed")
+    .map((s) => s.title.trim())
+    .filter(Boolean);
+  if (steps.length > 0) {
+    const shown = steps.slice(0, KICKOFF_STEPS_LIMIT).map((t) => `- ${t}`);
+    const more = steps.length - KICKOFF_STEPS_LIMIT;
+    if (more > 0) shown.push(`- …and ${more} more`);
+    parts.push(`Steps:\n${shown.join("\n")}`);
   }
   return parts.join("\n\n");
+}
+
+/** `YYYY-MM-DD` with a real calendar date and a year from 1970 on. */
+export function isValidDueInput(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day] = match.slice(1).map(Number);
+  if (year < 1970) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/** A Google "not found" error: the thing is already gone. */
+export function isNotFoundError(e: unknown): boolean {
+  const text = e instanceof Error ? e.message : String(e);
+  return /\b404\b|not found/i.test(text);
+}
+
+/**
+ * Runs `tasks` with at most `limit` in flight; resolves when all settle.
+ * Errors are left to each task to handle.
+ */
+export function createLimiter(limit: number) {
+  let active = 0;
+  const queue: (() => void)[] = [];
+  const next = () => {
+    if (active >= limit) return;
+    const start = queue.shift();
+    if (start) start();
+  };
+  return <T>(task: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      queue.push(() => {
+        active++;
+        Promise.resolve()
+          .then(task)
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            next();
+          });
+      });
+      next();
+    });
 }

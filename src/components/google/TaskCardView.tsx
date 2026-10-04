@@ -1,7 +1,11 @@
 import { CheckCircle2, Circle, ExternalLink, MoreVertical } from "lucide-react";
 import { useRef, useState } from "react";
 import type { GoogleTask } from "../../lib/api-google";
-import { formatDue, type TaskCard } from "../../lib/google-tasks";
+import {
+  formatDue,
+  isValidDueInput,
+  type TaskCard,
+} from "../../lib/google-tasks";
 import { cn } from "../../lib/utils";
 import { usePreviewFeature } from "../../stores/featurePreviewStore";
 import {
@@ -41,6 +45,16 @@ export const TaskCardView: React.FC<{
   // so close) the date input the "Set due date" item just opened.
   const dueRequested = useRef(false);
   const dueInput = useRef<HTMLInputElement>(null);
+  /** Set once the input has saved or been cancelled, so blur is a no-op. */
+  const dueClosed = useRef(false);
+  const commitDue = (value: string) => {
+    if (dueClosed.current) return;
+    dueClosed.current = true;
+    setEditingDue(false);
+    if (isValidDueInput(value) && value !== task.due?.slice(0, 10)) {
+      onSetDue(task, value);
+    }
+  };
   const linearIntegration = usePreviewFeature("linearIntegration");
   const done = task.status === "completed";
   const due = formatDue(task.due);
@@ -101,10 +115,18 @@ export const TaskCardView: React.FC<{
               aria-label={`Due date for ${task.title}`}
               defaultValue={task.due?.slice(0, 10) ?? ""}
               className="mt-1 text-xs bg-background border border-border rounded px-1"
-              onBlur={() => setEditingDue(false)}
-              onChange={(e) => {
-                setEditingDue(false);
-                onSetDue(task, e.target.value);
+              // A date input fires change on every segment typed, so save
+              // only on Enter or blur, and only a full, valid date.
+              onBlur={(e) => commitDue(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitDue(e.currentTarget.value);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  dueClosed.current = true;
+                  setEditingDue(false);
+                }
               }}
             />
           ) : (
@@ -179,6 +201,7 @@ export const TaskCardView: React.FC<{
             <DropdownMenuItem
               onSelect={() => {
                 dueRequested.current = true;
+                dueClosed.current = false;
                 setEditingDue(true);
               }}
             >

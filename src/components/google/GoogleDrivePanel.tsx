@@ -1,11 +1,14 @@
 import { Loader2, Search } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import {
+  googleDiscardUnpostedFindings,
+  googleListDocFindings,
   googleListDriveFiles,
   googlePrepareDocReview,
   type DriveFile,
 } from "../../lib/api-google";
+import type { AgentReviewComment } from "../../lib/api-types-review";
 import { getRepoSetting } from "../../lib/api";
 import { buildDocReviewPrompt } from "../../lib/google-doc-review";
 import { useToastStore } from "../../stores/toastStore";
@@ -47,6 +50,23 @@ export const GoogleDrivePanel: React.FC<{
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 
+  // One fetch for every file's findings, grouped per row.
+  const { data: allFindings, mutate: refetchFindings } = useSWR(
+    ["google-doc-findings", repoPath],
+    () => googleListDocFindings(repoPath),
+    { revalidateOnFocus: false },
+  );
+  const findingsByFile = useMemo(() => {
+    const byFile = new Map<string, AgentReviewComment[]>();
+    for (const finding of allFindings ?? []) {
+      if (finding.status !== "open") continue;
+      const list = byFile.get(finding.target_id) ?? [];
+      list.push(finding);
+      byFile.set(finding.target_id, list);
+    }
+    return byFile;
+  }, [allFindings]);
+
   const startReview = async (file: DriveFile) => {
     setReviewing(true);
     try {
@@ -55,11 +75,22 @@ export const GoogleDrivePanel: React.FC<{
         getRepoSetting(repoPath, "google_review_prompt").catch(() => null),
         getRepoSetting(repoPath, "review_agent").catch(() => null),
       ]);
+      // Launch first: if it fails, the old findings stay.
       await onStartReview({
         prompt: buildDocReviewPrompt(prepared, instructions),
         agent: agent || undefined,
         title: `Review: ${file.name}`,
       });
+      try {
+        await googleDiscardUnpostedFindings(repoPath, file.id);
+      } catch (e) {
+        addToast({
+          title: "Review started, but old findings were not cleared",
+          description: errorText(e),
+          type: "warning",
+        });
+      }
+      await refetchFindings();
     } catch (e) {
       addToast({
         title: "Failed to start review",
@@ -126,6 +157,8 @@ export const GoogleDrivePanel: React.FC<{
             key={file.id}
             file={file}
             repoPath={repoPath}
+            findings={(file.reviewable && findingsByFile.get(file.id)) || []}
+            onFindingsChanged={refetchFindings}
             disabled={reviewing}
             onReview={startReview}
           />

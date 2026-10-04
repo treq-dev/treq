@@ -63,17 +63,36 @@ pub(crate) static PENDING: tokio::sync::Mutex<Option<Result<PendingOAuth, String
   tokio::sync::Mutex::const_new(None);
 
 /// Ends the `complete_local_oauth` that is waiting, with the reason sent.
-static ACTIVE: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<String>>> =
+/// The `u64` tells one waiter's registration from a later one's.
+static ACTIVE: std::sync::Mutex<Option<(u64, tokio::sync::oneshot::Sender<String>)>> =
   std::sync::Mutex::new(None);
+static NEXT_ACTIVE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub(crate) fn active_slot(
+) -> std::sync::MutexGuard<'static, Option<(u64, tokio::sync::oneshot::Sender<String>)>> {
+  ACTIVE
+    .lock()
+    .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Clears `ACTIVE` when `complete_local_oauth` returns, unless a later
+/// sign-in has registered since.
+struct ActiveGuard(u64);
+
+impl Drop for ActiveGuard {
+  fn drop(&mut self) {
+    let mut slot = active_slot();
+    if slot.as_ref().is_some_and(|(id, _)| *id == self.0) {
+      *slot = None;
+    }
+  }
+}
 
 const CANCELLED: &str = "Google sign-in was cancelled";
 
 fn end_active(reason: &str) {
-  let sender = match ACTIVE.lock() {
-    Ok(mut guard) => guard.take(),
-    Err(poisoned) => poisoned.into_inner().take(),
-  };
-  if let Some(sender) = sender {
+  let sender = active_slot().take();
+  if let Some((_, sender)) = sender {
     let _ = sender.send(reason.to_string());
   }
 }
@@ -263,23 +282,22 @@ pub(crate) async fn wait_for_code(
 /// Waits (up to five minutes) for the browser redirect, exchanges the code
 /// and returns the tokens to store.
 pub async fn complete_local_oauth() -> Result<(StoredTokens, String, Option<String>), String> {
-  let (ended_tx, ended) = tokio::sync::oneshot::channel::<String>();
+  let (ended_tx, mut ended) = tokio::sync::oneshot::channel::<String>();
+  let active_id = NEXT_ACTIVE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let _active = ActiveGuard(active_id);
   let pending = {
     let mut slot = PENDING.lock().await;
     let pending = slot.take().ok_or("No Google sign-in in progress")??;
     // Registered under the PENDING lock so a later begin or cancel sees it.
     end_active("Google sign-in was restarted");
-    match ACTIVE.lock() {
-      Ok(mut guard) => *guard = Some(ended_tx),
-      Err(poisoned) => *poisoned.into_inner() = Some(ended_tx),
-    }
+    *active_slot() = Some((active_id, ended_tx));
     pending
   };
   let code = tokio::select! {
     result = tokio::time::timeout(SIGN_IN_TIMEOUT, wait_for_code(&pending.listener, &pending.state)) => {
       result.map_err(|_| "Timed out waiting for Google sign-in".to_string())??
     }
-    reason = ended => return Err(reason.unwrap_or_else(|_| CANCELLED.to_string())),
+    reason = &mut ended => return Err(reason.unwrap_or_else(|_| CANCELLED.to_string())),
   };
 
   let mut form = vec![
@@ -292,7 +310,11 @@ pub async fn complete_local_oauth() -> Result<(StoredTokens, String, Option<Stri
   if let Some(secret) = &pending.client_secret {
     form.push(("client_secret", secret.clone()));
   }
-  let grant = token_request(&form).await?;
+  // A cancel or restart during the exchange must win: its caller has moved on.
+  let grant = tokio::select! {
+    grant = token_request(&form) => grant?,
+    reason = &mut ended => return Err(reason.unwrap_or_else(|_| CANCELLED.to_string())),
+  };
   let tokens = tokens_from_grant(&grant, None)?;
   Ok((tokens, pending.client_id, pending.client_secret))
 }

@@ -10,17 +10,11 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
-import useSWR from "swr";
-import {
-  deleteAgentReviewComment,
-  listAgentReviewComments,
-} from "../../lib/api";
-import {
-  GOOGLE_DOC_REVIEW_TARGET,
-  googlePostReviewComments,
-  type DriveFile,
-} from "../../lib/api-google";
+import { deleteAgentReviewComment } from "../../lib/api";
+import { googlePostReviewComments, type DriveFile } from "../../lib/api-google";
+import type { AgentReviewComment } from "../../lib/api-types-review";
 import { errorText } from "../../lib/errorText";
+import { isNotFoundError } from "../../lib/google-tasks";
 import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
 
@@ -32,25 +26,33 @@ import { Button } from "../ui/button";
 export const DriveFileRow: React.FC<{
   file: DriveFile;
   repoPath: string;
+  /** Open findings for this file, fetched once for the whole panel. */
+  findings: AgentReviewComment[];
+  /** Refetches the panel's findings. */
+  onFindingsChanged: () => Promise<unknown>;
+  /** A review (of any file) is being prepared: its export may change. */
   disabled: boolean;
   onReview: (file: DriveFile) => Promise<void>;
-}> = ({ file, repoPath, disabled, onReview }) => {
+}> = ({
+  file,
+  repoPath,
+  findings,
+  onFindingsChanged: mutate,
+  disabled,
+  onReview,
+}) => {
   const { addToast } = useToastStore();
   const [expanded, setExpanded] = useState(false);
-  const [confirmRerun, setConfirmRerun] = useState(false);
+  /** The findings count the re-review confirmation was asked with. */
+  const [confirmedCount, setConfirmedCount] = useState<number | null>(null);
+  // The confirmation names a count; it lapses if that count changes.
+  const confirmRerun = confirmedCount === findings.length;
+  const setConfirmRerun = (on: boolean) =>
+    setConfirmedCount(on ? findings.length : null);
   const [busy, setBusy] = useState<"review" | "post" | null>(null);
-
-  const { data: findings = [], mutate } = useSWR(
-    file.reviewable ? ["google-doc-findings", repoPath, file.id] : null,
-    async () =>
-      (
-        await listAgentReviewComments(
-          repoPath,
-          GOOGLE_DOC_REVIEW_TARGET,
-          file.id,
-        )
-      ).filter((c) => c.status === "open"),
-    { revalidateOnFocus: true },
+  /** Findings with a drop in flight. */
+  const [dropping, setDropping] = useState<ReadonlySet<string>>(
+    () => new Set(),
   );
 
   const review = async () => {
@@ -102,16 +104,25 @@ export const DriveFileRow: React.FC<{
   };
 
   const drop = async (id: string) => {
+    if (dropping.has(id)) return;
+    setDropping((prev) => new Set(prev).add(id));
     try {
       await deleteAgentReviewComment(repoPath, id);
     } catch (e) {
-      addToast({
-        title: "Failed to remove finding",
-        description: errorText(e),
-        type: "error",
-      });
+      // Already gone (posted or dropped elsewhere): nothing left to do.
+      if (!isNotFoundError(e))
+        addToast({
+          title: "Failed to remove finding",
+          description: errorText(e),
+          type: "error",
+        });
     }
     await mutate();
+    setDropping((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   };
 
   return (
@@ -221,6 +232,9 @@ export const DriveFileRow: React.FC<{
                     variant="ghost"
                     size="sm"
                     aria-label="Drop finding"
+                    disabled={
+                      disabled || busy !== null || dropping.has(finding.id)
+                    }
                     onClick={() => void drop(finding.id)}
                   >
                     <Trash2 className="w-4 h-4" />
@@ -231,7 +245,7 @@ export const DriveFileRow: React.FC<{
           </ul>
           <Button
             size="sm"
-            disabled={busy !== null}
+            disabled={disabled || busy !== null || dropping.size > 0}
             onClick={() => void post()}
           >
             {busy === "post" ? (

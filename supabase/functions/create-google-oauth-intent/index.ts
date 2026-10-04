@@ -2,6 +2,7 @@
 // returns the Google authorize URL. Only the SHA-256 hash of the state is
 // stored. Free users connect with their own OAuth client from the desktop app.
 
+import { isProSubscription } from "../_shared/pro.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 
 const INTENT_TTL_MINUTES = 15;
@@ -64,9 +65,9 @@ Deno.serve(async (req) => {
 
   const { data: subscription } = await supabaseUser
     .from("subscriptions")
-    .select("plan, status")
+    .select("plan, status, current_period_end")
     .maybeSingle();
-  if (subscription?.plan !== "pro" || subscription?.status !== "active") {
+  if (!isProSubscription(subscription)) {
     return json(
       { error: "Connecting Google through treq needs a Pro plan" },
       403,

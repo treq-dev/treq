@@ -5,7 +5,7 @@ import {
   Plus,
   RefreshCw,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import {
   googleCreateTask,
@@ -20,7 +20,9 @@ import {
 } from "../../lib/api-google";
 import {
   buildTaskColumn,
+  createLimiter,
   dueFromDateInput,
+  isNotFoundError,
   taskKickoffPrompt,
 } from "../../lib/google-tasks";
 import { errorText } from "../../lib/errorText";
@@ -37,8 +39,24 @@ import {
 } from "./TaskCardView";
 import { TaskEditDialog } from "./TaskEditDialog";
 import { GoogleErrorState } from "./GoogleErrorState";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 
 const taskListKey = (listId: string) => ["google-tasks", listId];
+
+/** Column fetches in flight at once, so 200 lists don't fire 200 requests. */
+export const TASK_FETCH_CONCURRENCY = 4;
+const limitFetch = createLimiter(TASK_FETCH_CONCURRENCY);
+const fetchTasks = (listId: string) =>
+  limitFetch(() => googleListTasks(listId));
 
 /**
  * Google Tasks as a Kanban board: one column per task list, like the
@@ -79,14 +97,22 @@ export const GoogleTasksBoard: React.FC<{
   ) => {
     if (previousTaskId === payload.taskId) return;
     try {
-      await googleMoveTask({
+      const { failed_subtask_ids: failed } = await googleMoveTask({
         listId: payload.listId,
         taskId: payload.taskId,
         destinationListId,
         previousTaskId,
       });
+      if (failed.length > 0) {
+        addToast({
+          title: `${failed.length} subtask${failed.length === 1 ? "" : "s"} could not be moved`,
+          description: "They stay in the original list.",
+          type: "warning",
+        });
+      }
       await refreshColumns(payload.listId, destinationListId);
     } catch (e) {
+      void refreshColumns(payload.listId, destinationListId);
       addToast({
         title: "Failed to move task",
         description: errorText(e),
@@ -209,11 +235,22 @@ const TaskColumn: React.FC<{
     isLoading,
     error,
     mutate,
-  } = useSWR(taskListKey(list.id), () => googleListTasks(list.id), {
+  } = useSWR(taskListKey(list.id), () => fetchTasks(list.id), {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
   const column = useMemo(() => buildTaskColumn(tasks), [tasks]);
+  // Handlers read the newest cache, not the copy a card rendered with.
+  const latestTasks = useRef(tasks);
+  useEffect(() => {
+    latestTasks.current = tasks;
+  }, [tasks]);
+  /** Tasks with a toggle or delete in flight; a second click is ignored. */
+  const pending = useRef(new Set<string>());
+  const [confirmDelete, setConfirmDelete] = useState<{
+    task: GoogleTask;
+    subtaskCount: number;
+  } | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
@@ -248,15 +285,49 @@ const TaskColumn: React.FC<{
     }
   };
 
+  const guarded = async (taskId: string, action: () => Promise<void>) => {
+    if (pending.current.has(taskId)) return;
+    pending.current.add(taskId);
+    try {
+      await action();
+    } finally {
+      pending.current.delete(taskId);
+    }
+  };
+
+  const deleteTask = (task: GoogleTask) =>
+    guarded(task.id, () =>
+      run("Failed to delete task", async () => {
+        try {
+          await googleDeleteTask(list.id, task.id);
+        } catch (e) {
+          // Already gone (deleted elsewhere): that is what the user wanted.
+          if (!isNotFoundError(e)) throw e;
+        }
+      }),
+    );
+
   const cardHandlers = {
     onToggle: (task: GoogleTask) =>
-      run("Failed to update task", () =>
-        googleUpdateTask(list.id, task.id, {
-          status: task.status === "completed" ? "needsAction" : "completed",
+      guarded(task.id, () =>
+        run("Failed to update task", () => {
+          const current =
+            latestTasks.current.find((t) => t.id === task.id) ?? task;
+          return googleUpdateTask(list.id, task.id, {
+            status:
+              current.status === "completed" ? "needsAction" : "completed",
+          });
         }),
       ),
-    onDelete: (task: GoogleTask) =>
-      run("Failed to delete task", () => googleDeleteTask(list.id, task.id)),
+    onDelete: (task: GoogleTask) => {
+      const card = [...column.open, ...column.completed].find(
+        (c) => c.task.id === task.id,
+      );
+      const subtaskCount =
+        card?.subtasks.length ??
+        latestTasks.current.filter((t) => t.parent === task.id).length;
+      setConfirmDelete({ task, subtaskCount });
+    },
     onSetDue: (task: GoogleTask, value: string) =>
       run("Failed to update task", () =>
         googleUpdateTask(list.id, task.id, { due: dueFromDateInput(value) }),
@@ -267,8 +338,11 @@ const TaskColumn: React.FC<{
     },
     onAction: (action: TaskAction, task: GoogleTask) => {
       if (action !== "kickoff") return onAction(action, task);
-      const subtasks = tasks.filter((t) => t.parent === task.id);
-      onKickoff(taskKickoffPrompt(task, subtasks));
+      // The card's own subtasks: deduped, grandchildren included.
+      const card = [...column.open, ...column.completed].find(
+        (c) => c.task.id === task.id,
+      );
+      onKickoff(taskKickoffPrompt(task, card?.subtasks ?? []));
     },
   };
 
@@ -389,6 +463,34 @@ const TaskColumn: React.FC<{
           </>
         )}
       </div>
+      <AlertDialog
+        open={confirmDelete !== null}
+        onOpenChange={(open) => !open && setConfirmDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete task?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {`“${confirmDelete?.task.title || "(untitled)"}” is deleted from Google Tasks.`}
+              {confirmDelete && confirmDelete.subtaskCount > 0
+                ? ` Its ${confirmDelete.subtaskCount} subtask${confirmDelete.subtaskCount === 1 ? " is" : "s are"} deleted too.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const target = confirmDelete?.task;
+                setConfirmDelete(null);
+                if (target) void deleteTask(target);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 };

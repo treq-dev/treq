@@ -3,6 +3,10 @@ import type { GoogleTask } from "./api-google";
 import {
   buildTaskColumn,
   taskKickoffPrompt,
+  createLimiter,
+  isNotFoundError,
+  isValidDueInput,
+  KICKOFF_NOTES_LIMIT,
   dueFromDateInput,
   formatDue,
   notesWithLinearLink,
@@ -114,5 +118,76 @@ describe("taskKickoffPrompt", () => {
         task({ id: "s2", title: "Done already", status: "completed" }),
       ]),
     ).toBe("Ship it\n\nBefore Friday\n\nSteps:\n- Write tests");
+  });
+});
+
+describe("taskKickoffPrompt limits", () => {
+  it("names an untitled task and skips blank steps", () => {
+    expect(
+      taskKickoffPrompt(task({ title: "  ", notes: "  " }), [
+        task({ id: "s1", title: " " }),
+        task({ id: "s2", title: "Real step" }),
+      ]),
+    ).toBe("(untitled task)\n\nSteps:\n- Real step");
+  });
+
+  it("caps notes and steps", () => {
+    const prompt = taskKickoffPrompt(
+      task({ notes: "x".repeat(KICKOFF_NOTES_LIMIT + 10) }),
+      Array.from({ length: 60 }, (_, i) =>
+        task({ id: `s${i}`, title: `S${i}` }),
+      ),
+    );
+    expect(prompt).toContain("(notes truncated)");
+    expect(prompt).not.toContain("x".repeat(KICKOFF_NOTES_LIMIT + 1));
+    expect(prompt).toContain("- S49\n- …and 10 more");
+    expect(prompt).not.toContain("- S50");
+  });
+
+  it("includes grandchildren from the card built by buildTaskColumn", () => {
+    const { open } = buildTaskColumn([
+      task({ id: "a", title: "A", position: "1" }),
+      task({ id: "a1", title: "Child", parent: "a", position: "2" }),
+      task({ id: "a2", title: "Grandchild", parent: "a1", position: "3" }),
+      task({ id: "a1", title: "Duplicate", parent: "a", position: "4" }),
+    ]);
+    expect(taskKickoffPrompt(open[0].task, open[0].subtasks)).toBe(
+      "A\n\nSteps:\n- Child\n- Grandchild",
+    );
+  });
+});
+
+describe("isValidDueInput", () => {
+  it("accepts full dates from 1970 on", () => {
+    expect(isValidDueInput("2026-10-04")).toBe(true);
+    expect(isValidDueInput("0002-10-04")).toBe(false);
+    expect(isValidDueInput("1969-12-31")).toBe(false);
+    expect(isValidDueInput("2026-02-30")).toBe(false);
+    expect(isValidDueInput("")).toBe(false);
+  });
+});
+
+describe("isNotFoundError", () => {
+  it("matches 404 and not-found messages", () => {
+    expect(isNotFoundError("Google API error 404: gone")).toBe(true);
+    expect(isNotFoundError(new Error("Comment not found"))).toBe(true);
+    expect(isNotFoundError("500 internal")).toBe(false);
+  });
+});
+
+describe("createLimiter", () => {
+  it("never runs more than the limit at once", async () => {
+    const limit = createLimiter(2);
+    let active = 0;
+    let peak = 0;
+    const job = () =>
+      limit(async () => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((r) => setTimeout(r, 1));
+        active--;
+      });
+    await Promise.all(Array.from({ length: 6 }, job));
+    expect(peak).toBe(2);
   });
 });
