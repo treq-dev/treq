@@ -2119,7 +2119,6 @@ pub fn reopen_agent_review_comment_in_target(
   Ok(())
 }
 
-/// Deletes the open comments of one target; resolved ones are kept.
 /// Deletes the listed comments if they are still open and belong to the
 /// target. Ids not matching are ignored.
 pub fn delete_open_agent_review_comments_in_target(
