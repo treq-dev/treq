@@ -12,7 +12,7 @@ const PRICING_SCHEMA = {
   '@type': 'Product',
   name: 'Treq',
   description:
-    'AI workspace manager for developers. Free for open source developers on public GitHub repos. Pro adds private repos.',
+    'AI workspace manager for developers. Free desktop app with local GitHub and Linear integrations. Pro adds cloud GitHub and Linear integrations.',
   url: 'https://treq.dev/pricing',
   brand: {
     '@type': 'Brand',
@@ -25,7 +25,7 @@ const PRICING_SCHEMA = {
       price: '0',
       priceCurrency: 'USD',
       description:
-        'Desktop app for open source developers, with GitHub integration for public repositories.',
+        'Desktop app with local GitHub (via the gh CLI) and Linear (via your API key) integrations.',
     },
     {
       '@type': 'Offer',
@@ -34,7 +34,7 @@ const PRICING_SCHEMA = {
       priceCurrency: 'USD',
       unitText: 'user/month',
       description:
-        'GitHub integration for all repositories. Billed per user per month.',
+        'Cloud GitHub and Linear integrations, with no local CLI or API key. Billed per user per month.',
     },
   ],
 };
@@ -42,21 +42,18 @@ const PRICING_SCHEMA = {
 type PlanFeature = {
   text: string;
   included: boolean;
-  comingSoon?: boolean;
 };
 
 const FREE_FEATURES: PlanFeature[] = [
   {text: 'Full desktop app', included: true},
-  {
-    text: 'GitHub integration (public repos only)',
-    included: true,
-    comingSoon: true,
-  },
+  {text: 'Local GitHub integration (gh CLI)', included: true},
+  {text: 'Local Linear integration (your API key)', included: true},
 ];
 
 const PRO_FEATURES: PlanFeature[] = [
   {text: 'Full desktop app', included: true},
-  {text: 'GitHub integration for all repos', included: true, comingSoon: true},
+  {text: 'Cloud GitHub integration', included: true},
+  {text: 'Cloud Linear integration', included: true},
 ];
 
 type ComparisonCell = {
@@ -66,7 +63,6 @@ type ComparisonCell = {
 
 type ComparisonRow = {
   feature: string;
-  comingSoon?: boolean;
   free: ComparisonCell;
   pro: ComparisonCell;
 };
@@ -79,18 +75,17 @@ const COMPARISON_ROWS: ComparisonRow[] = [
   },
   {
     feature: 'GitHub integration',
-    comingSoon: true,
-    free: {included: true, detail: 'Public repos only'},
-    pro: {included: true, detail: 'All repos'},
+    free: {included: true, detail: 'Local, via gh CLI'},
+    pro: {included: true, detail: 'Cloud, no CLI needed'},
+  },
+  {
+    feature: 'Linear integration',
+    free: {included: true, detail: 'Local, via your API key'},
+    pro: {included: true, detail: 'Cloud, no API key needed'},
   },
 ];
 
 const FAQ_ITEMS = [
-  {
-    question: 'Who is Free for?',
-    answer:
-      'Free covers open source developers. You get the full desktop workspace manager and GitHub integration for public repositories. GitHub integration is coming soon.',
-  },
   {
     question: 'Is the desktop app still free on Pro?',
     answer:
@@ -102,10 +97,6 @@ const FAQ_ITEMS = [
       'Create an account, then start a Pro subscription from the dashboard. You can move back to Free if you cancel.',
   },
 ] as const;
-
-function ComingSoonBadge(): ReactNode {
-  return <span className={styles.comingSoonBadge}>Coming soon</span>;
-}
 
 function FeatureList({features}: {features: PlanFeature[]}): ReactNode {
   return (
@@ -123,7 +114,6 @@ function FeatureList({features}: {features: PlanFeature[]}): ReactNode {
           </span>
           <span className={styles.featureText}>
             <span>{feature.text}</span>
-            {feature.comingSoon ? <ComingSoonBadge /> : null}
           </span>
         </li>
       ))}
@@ -154,24 +144,18 @@ function PlansSection(): ReactNode {
         <Heading as="h2" className={styles.planName}>
           Pro
         </Heading>
-        <p className={styles.planSeats}>1 user</p>
+        <p className={styles.planSeats}>Per user</p>
         <p className={styles.planPrice}>
           <span className={styles.priceAmount}>$15</span>
-          <span className={styles.priceUnit}>/month</span>
+          <span className={styles.priceUnit}>/user/month</span>
         </p>
         <FeatureList features={PRO_FEATURES} />
-        <span
-          className={clsx(
-            'button',
-            styles.planButton,
-            styles.planButtonPrimary,
-            styles.planButtonDisabled,
-          )}
-          aria-disabled="true"
+        <Link
+          className={clsx('button', styles.planButton, styles.planButtonPrimary)}
+          to="/dashboard"
         >
-          <span>Upgrade to Pro</span>
-          <span className={styles.planButtonNote}>Coming soon</span>
-        </span>
+          Upgrade to Pro
+        </Link>
       </article>
     </section>
   );
@@ -244,7 +228,6 @@ function ComparisonSection(): ReactNode {
                 <th scope="row" className={styles.comparisonFeatureCell}>
                   <span className={styles.comparisonFeatureLabel}>
                     <span>{row.feature}</span>
-                    {row.comingSoon ? <ComingSoonBadge /> : null}
                   </span>
                 </th>
                 <td className={styles.comparisonDataCell}>

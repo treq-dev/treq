@@ -624,7 +624,7 @@ function ResourcesSection(): ReactNode {
           <Link className={styles.resourceCard} to="/roadmap">
             <span className={styles.resourceKind}>Roadmap</span>
             <Heading as="h3" className={styles.resourceTitle}>What ships next</Heading>
-            <p>Public milestones. Pro billing is still in progress.</p>
+            <p>Public milestones for the desktop app and Pro.</p>
           </Link>
         </div>
       </div>
