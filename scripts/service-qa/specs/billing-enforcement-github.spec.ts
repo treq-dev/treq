@@ -124,7 +124,12 @@ it("requires Pro to start and to complete a GitHub App installation", async () =
     );
     expect(proComplete).toEqual({
       status: 200,
-      body: { ok: true, account_login: login },
+      body: {
+        ok: true,
+        account_login: login,
+        account_type: "Organization",
+        organization_id: null,
+      },
     });
     const linked = await admin
       .from("github_app_installations")

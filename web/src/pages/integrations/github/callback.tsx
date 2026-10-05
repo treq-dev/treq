@@ -2,11 +2,18 @@ import React, { useEffect, useState } from "react";
 import Layout from "@theme/Layout";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
+import { functionErrorMessage } from "../../../lib/billing";
 import { proRequiredMessage } from "../../../lib/pro-required";
 import { supabase } from "../../../lib/supabase";
 import { signInHrefFor } from "../../../lib/utils";
 
-type State = "loading" | "success" | "error" | "needs_pro" | "unauthenticated";
+type State =
+  | "loading"
+  | "success"
+  | "choose_organization"
+  | "error"
+  | "needs_pro"
+  | "unauthenticated";
 
 function CallbackContent() {
   const [state, setState] = useState<State>("loading");
@@ -64,16 +71,28 @@ function CallbackContent() {
       }
       if (error || data?.error) {
         setState("error");
-        setMessage(data?.error ?? error?.message ?? "Unknown error");
+        setMessage(
+          data?.error ??
+            (await functionErrorMessage(error, error?.message ?? "Unknown error"))
+        );
         return;
       }
 
-      setState("success");
+      // A GitHub organization's installation that no Treq organization owns
+      // yet: an owner chooses one on the Team tab.
+      const chooseOrganization =
+        data?.account_type === "Organization" && !data?.organization_id;
+      setState(chooseOrganization ? "choose_organization" : "success");
 
       // Redirect to dashboard after a brief pause
-      setTimeout(() => {
-        window.location.href = "/dashboard?tab=integrations";
-      }, 2000);
+      setTimeout(
+        () => {
+          window.location.href = chooseOrganization
+            ? "/dashboard?tab=team"
+            : "/dashboard?tab=integrations";
+        },
+        chooseOrganization ? 4000 : 2000
+      );
     };
 
     run();
@@ -94,6 +113,20 @@ function CallbackContent() {
           <p style={styles.text}>
             GitHub App connected successfully! Redirecting to your dashboard…
           </p>
+        </>
+      )}
+
+      {state === "choose_organization" && (
+        <>
+          <div style={styles.icon}>✓</div>
+          <p style={styles.text}>
+            GitHub App connected. It belongs to a GitHub organization, so choose
+            which Treq organization owns it by attaching it on the Team tab.
+            Until then it stays linked to your account.
+          </p>
+          <a href="/dashboard?tab=team" style={styles.link}>
+            Go to the Team tab
+          </a>
         </>
       )}
 

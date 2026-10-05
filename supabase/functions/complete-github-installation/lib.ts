@@ -6,6 +6,12 @@
 // runs before the intent is consumed, so a user who upgrades can retry with
 // the same unexpired intent. An installation already linked stays linked
 // when Pro ends; only new links are refused.
+//
+// An installation that belongs to a Treq organization can only be relinked
+// by an owner of that organization (github_link_installation in
+// 028_organizations_team.sql). Any other installation keeps the old rule:
+// the last user to link it owns it, and an owner can then attach it to an
+// organization from the dashboard's Team tab.
 
 import {
   PRO_REQUIRED_MESSAGES,
@@ -20,6 +26,14 @@ export type GitHubInstallation = {
   app_id: number;
 };
 
+export type LinkResult = {
+  result: "linked" | "organization_owner_required";
+  organization_id: string | null;
+};
+
+export const ORGANIZATION_OWNER_REQUIRED =
+  "This GitHub App installation belongs to a Treq organization. Only an owner of that organization can relink it.";
+
 export interface InstallationLinkStore {
   /**
    * Consumes the caller's unexpired, unconsumed intent with this state hash.
@@ -30,7 +44,10 @@ export interface InstallationLinkStore {
     stateHash: string,
     nowIso: string,
   ): Promise<{ id: string } | null>;
-  linkInstallation(installation: GitHubInstallation, userId: string): Promise<void>;
+  linkInstallation(
+    installation: GitHubInstallation,
+    userId: string,
+  ): Promise<LinkResult>;
 }
 
 export type CompleteInstallationDeps = {
@@ -99,11 +116,28 @@ export async function completeInstallation(
     return { status: 404, body: { error: "Installation not found on GitHub" } };
   }
 
+  let link: LinkResult;
   try {
-    await deps.store.linkInstallation(installation, deps.userId);
+    link = await deps.store.linkInstallation(installation, deps.userId);
   } catch (err) {
     console.error("[complete-github-installation] link failed:", errorMessage(err));
     return { status: 500, body: { error: "Failed to link installation" } };
+  }
+  if (link.result === "organization_owner_required") {
+    console.log(
+      JSON.stringify({
+        operation: "installation_relink_refused",
+        installation_id: installation.id,
+        user_id: deps.userId,
+      }),
+    );
+    return {
+      status: 403,
+      body: {
+        error: ORGANIZATION_OWNER_REQUIRED,
+        code: "organization_owner_required",
+      },
+    };
   }
 
   console.log(
@@ -114,9 +148,16 @@ export async function completeInstallation(
       user_id: deps.userId,
     }),
   );
+  // The callback page sends a GitHub organization's installation that no
+  // Treq organization owns yet to the Team tab, where an owner attaches it.
   return {
     status: 200,
-    body: { ok: true, account_login: installation.account.login },
+    body: {
+      ok: true,
+      account_login: installation.account.login,
+      account_type: installation.account.type,
+      organization_id: link.organization_id,
+    },
   };
 }
 
@@ -138,19 +179,16 @@ export function installationLinkStore(
       return (data as { id: string } | null) ?? null;
     },
     async linkInstallation(installation, userId) {
-      const { error } = await client.from("github_app_installations").upsert(
-        {
-          id: installation.id,
-          account_login: installation.account.login,
-          account_type: installation.account.type,
-          account_avatar_url: installation.account.avatar_url ?? null,
-          app_id: installation.app_id,
-          linked_user_id: userId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id" },
-      );
+      const { data, error } = await client.rpc("github_link_installation", {
+        p_actor: userId,
+        p_installation_id: installation.id,
+        p_account_login: installation.account.login,
+        p_account_type: installation.account.type,
+        p_account_avatar_url: installation.account.avatar_url ?? null,
+        p_app_id: installation.app_id,
+      });
       if (error) throw new Error(error.message);
+      return data as LinkResult;
     },
   };
 }
