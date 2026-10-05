@@ -3,6 +3,7 @@ import type {
   GhListPage,
   GhPullRequest,
   GhReviewThread,
+  StackCommentOutcome,
 } from "./api-types";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -140,3 +141,11 @@ export const ghCreatePr = (
     headBranch,
     draft,
   });
+
+/** Post or refresh the stack comment on every open PR in `headBranch`'s stack. */
+export const ghSyncStackComments = (
+  repoPath: string,
+  repoFullName: string,
+  headBranch: string,
+): Promise<StackCommentOutcome> =>
+  invoke("gh_sync_stack_comments", { repoPath, repoFullName, headBranch });

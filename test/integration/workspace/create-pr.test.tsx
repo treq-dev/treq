@@ -11,6 +11,7 @@ import {
   ghCreatePr,
   getPrInfoViaGh,
   getWorkspaceStatus,
+  ghSyncStackComments,
   pushWorkspaceToRemote,
   updateWorkspace,
 } from "../../../src/lib/api";
@@ -40,6 +41,7 @@ vi.mock("../../../src/lib/api", async (importOriginal) => {
     refreshPrStatuses: vi.fn(async () => undefined),
     getPrChecksForPr: vi.fn().mockResolvedValue(null),
     ghCreatePr: vi.fn().mockResolvedValue(42),
+    ghSyncStackComments: vi.fn(),
     ghListPrs: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
     ghListIssues: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
     pushWorkspaceToRemote: vi.fn(
@@ -65,6 +67,9 @@ describe("ShowWorkspace - Create PR", () => {
     vi.mocked(getCachedPrInfo).mockReset().mockResolvedValue(null);
     vi.mocked(getPrInfoViaGh).mockReset().mockResolvedValue(null);
     vi.mocked(ghCreatePr).mockReset().mockResolvedValue(42);
+    vi.mocked(ghSyncStackComments)
+      .mockReset()
+      .mockResolvedValue({ status: "not_stacked" });
     vi.mocked(openUrl).mockReset();
   });
 
@@ -339,6 +344,42 @@ describe("ShowWorkspace - Create PR", () => {
     expect(
       within(header).queryByRole("button", { name: /^create pr$/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("updates the stack comment after the PR is created", async () => {
+    await setupPushedWorkspaceWithGitHub();
+    render(<Dashboard />);
+
+    const header = await openWorkspace("feat/create-pr");
+    await user.click(await findEnabledCreatePr(header));
+
+    expect(await screen.findByText("Pull request created")).toBeVisible();
+    await waitFor(() => {
+      expect(ghSyncStackComments).toHaveBeenCalledWith(
+        repoPath,
+        "acme/treq",
+        "feat/create-pr",
+      );
+    });
+    expect(vi.mocked(ghCreatePr).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(ghSyncStackComments).mock.invocationCallOrder[0],
+    );
+  });
+
+  it("keeps the created PR when the stack comment fails", async () => {
+    vi.mocked(ghSyncStackComments).mockRejectedValue(
+      new Error("gh exited with error: HTTP 403"),
+    );
+    await setupPushedWorkspaceWithGitHub();
+    render(<Dashboard />);
+
+    const header = await openWorkspace("feat/create-pr");
+    await user.click(await findEnabledCreatePr(header));
+
+    expect(await screen.findByText("Pull request created")).toBeVisible();
+    expect(await screen.findByText("Stack comment not updated")).toBeVisible();
+    expect(screen.getByText("gh exited with error: HTTP 403")).toBeVisible();
+    expect(screen.queryByText("Failed to create PR")).toBeNull();
   });
 
   it("creates a PR with the workspace title and description", async () => {

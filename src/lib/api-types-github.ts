@@ -73,3 +73,9 @@ export interface GhReviewThread {
   diff_side: string;
   comments: GhReviewComment[];
 }
+
+/** What `gh_sync_stack_comments` did after a PR was created. */
+export type StackCommentOutcome =
+  | { status: "disabled" }
+  | { status: "not_stacked" }
+  | { status: "posted"; created: number; updated: number; unchanged: number };

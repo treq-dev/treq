@@ -4,13 +4,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createTestRepo, openRepo } from "../utils";
 import { render, screen } from "../test-utils";
 import { Dashboard } from "../../src/components/Dashboard";
+import { getRepoSetting } from "../../src/lib/api";
 import userEvent from "@testing-library/user-event";
 
 describe("Settings integration", () => {
   let user: ReturnType<typeof userEvent.setup>;
+  let repoPath: string;
 
   beforeEach(() => {
-    const { repoPath } = createTestRepo(false);
+    ({ repoPath } = createTestRepo(false));
     openRepo(repoPath);
     user = userEvent.setup();
   });
@@ -59,6 +61,29 @@ describe("Settings integration", () => {
       screen.queryByLabelText(/symlinked directories/i),
     ).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
+  });
+
+  it("posts stack comments by default and saves the setting when turned off", async () => {
+    render(<Dashboard />);
+
+    await user.click(await screen.findByLabelText("Settings"));
+    const toggle = await screen.findByRole("switch", {
+      name: /post stack comments on pull requests/i,
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await screen.findByText("Settings saved");
+    expect(await getRepoSetting(repoPath, "post_stack_comments")).toBe("false");
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(await screen.findByLabelText("Settings"));
+    expect(
+      await screen.findByRole("switch", {
+        name: /post stack comments on pull requests/i,
+      }),
+    ).toHaveAttribute("aria-checked", "false");
   });
 
   it("returns to the previous page when settings is closed", async () => {

@@ -55,3 +55,7 @@ Audit the code yourself, or follow the public history of changes. These files ar
 - [Connecting GitHub](/docs/how-to/connecting-github)
 - [CLI](/docs/reference/cli)
 - [Contributing](/docs/reference/contributing)
+
+## Stack Comments on GitHub
+
+When you create a pull request for a stacked workspace, Treq posts a comment on each open pull request in the stack through your `gh` login. The comment lists the stack's pull requests and links to treq.dev, and anyone who can open those pull requests can read it. To stop it, switch off **Post stack comments on pull requests** in the repository's Settings. See [Stack Comments](/docs/concepts/github-integration#stack-comments).

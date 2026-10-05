@@ -19,6 +19,7 @@ const api = vi.hoisted(() => ({
   getPrInfoViaGh: vi.fn(),
   getPrChecksViaGh: vi.fn(),
   ghCreatePr: vi.fn(),
+  ghSyncStackComments: vi.fn(),
   getWorkspaces: vi.fn(),
   openOrCreateWorkspaceFromPr: vi.fn(),
 }));
@@ -38,6 +39,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
     getPrInfoViaGh: api.getPrInfoViaGh,
     getPrChecksViaGh: api.getPrChecksViaGh,
     ghCreatePr: api.ghCreatePr,
+    ghSyncStackComments: api.ghSyncStackComments,
     getWorkspaces: api.getWorkspaces,
     openOrCreateWorkspaceFromPr: api.openOrCreateWorkspaceFromPr,
   };
@@ -423,6 +425,9 @@ describe("CreatePrForm", () => {
   beforeEach(() => {
     user = userEvent.setup();
     api.ghCreatePr.mockReset().mockResolvedValue(7);
+    api.ghSyncStackComments
+      .mockReset()
+      .mockResolvedValue({ status: "not_stacked" });
   });
 
   async function fillForm() {
@@ -497,6 +502,30 @@ describe("CreatePrForm", () => {
       );
     });
     expect(onSuccess).toHaveBeenCalledWith(7);
+  });
+
+  it("updates the stack comment for the new PR's head branch", async () => {
+    render(
+      <CreatePrForm
+        repoPath="/tmp/repo"
+        repoFullName="acme/treq"
+        onSuccess={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await fillForm();
+    await user.click(
+      screen.getByRole("button", { name: /^create pull request$/i }),
+    );
+
+    await waitFor(() => {
+      expect(api.ghSyncStackComments).toHaveBeenCalledWith(
+        "/tmp/repo",
+        "acme/treq",
+        "feat/thing",
+      );
+    });
   });
 
   it("shows the gh error message without an Error prefix", async () => {

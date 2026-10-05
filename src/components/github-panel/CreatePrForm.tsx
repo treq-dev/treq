@@ -4,7 +4,9 @@ import { ChevronDown, Loader2 } from "lucide-react";
 import { useMutation } from "../../hooks/useMutation";
 import { invalidatePrStatuses } from "../../hooks/useMergeQueueStatus";
 import { getRepoDefaultBranch, ghCreatePr } from "../../lib/api";
+import { syncStackCommentsAfterPrCreate } from "../../lib/stack-comments";
 import { invalidateQueries } from "../../lib/swr-cache";
+import { useToastStore } from "../../stores/toastStore";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -116,6 +118,7 @@ export function CreatePrForm({
   const [head, setHead] = useState("");
   const [prType, setPrType] = useState<PrType>("ready");
   const draft = prType === "draft";
+  const addToast = useToastStore((s) => s.addToast);
 
   const { data: defaultBranch } = useSWR(
     repoPath ? ["repo-default-branch", repoPath] : null,
@@ -129,6 +132,10 @@ export function CreatePrForm({
       void invalidateQueries(["gh-prs", repoFullName]);
       void invalidatePrStatuses(repoPath, head);
       onSuccess(prNumber);
+      void syncStackCommentsAfterPrCreate(
+        { repoPath, repoFullName, headBranch: head },
+        addToast,
+      );
     },
   });
 

@@ -908,6 +908,7 @@ pub fn run() {
       commands::gh_reopen_pr,
       commands::gh_set_pr_draft,
       commands::gh_create_pr,
+      commands::gh_sync_stack_comments,
       commands::gh_list_pr_review_threads,
       commands::linear_list_teams,
       commands::linear_list_issues,

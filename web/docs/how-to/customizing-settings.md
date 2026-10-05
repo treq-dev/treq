@@ -26,6 +26,8 @@ Release builds start from the shipped default. Dev builds start with every previ
 
 **Auto-push to remote** pushes after every commit in this repository when enabled. It is off by default. Turn it on when you want each commit on the remote without a separate push step. Create PR still pushes on its own when the branch is missing remotely.
 
+**Post stack comments on pull requests** is on by default. When Treq creates a pull request for a stacked workspace, it comments on each open pull request in the stack. Switch it off to stop posting and editing those comments. See [Stack Comments](/docs/concepts/github-integration#stack-comments).
+
 **Branch naming pattern** builds branch names from variables.
 
 | Variable | Value |

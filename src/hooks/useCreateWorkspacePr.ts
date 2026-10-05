@@ -1,5 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ghCreatePr } from "../lib/api";
+import { syncStackCommentsAfterPrCreate } from "../lib/stack-comments";
 import { invalidateQueries } from "../lib/swr-cache";
 import { useToastStore } from "../stores/toastStore";
 import {
@@ -73,6 +74,16 @@ export function useCreateWorkspacePr(
           onClick: () => openUrl(prUrl),
         },
       });
+      if (repoPath) {
+        void syncStackCommentsAfterPrCreate(
+          {
+            repoPath,
+            repoFullName: request.repoFullName,
+            headBranch: request.branchName,
+          },
+          addToast,
+        );
+      }
       return number;
     } catch (error) {
       addToast({

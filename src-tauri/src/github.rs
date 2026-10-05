@@ -789,6 +789,171 @@ pub fn gh_create_pr_impl(
   Err(format!("Could not parse PR number from output: {text}"))
 }
 
+/// An open pull request, as `gh pr list` reports it.
+#[derive(serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenPr {
+  pub number: u64,
+  pub title: String,
+  pub base_ref_name: String,
+}
+
+/// The open PR in `repo_full_name` whose head is `branch`, if there is one.
+pub fn gh_find_open_pr_for_branch_impl(
+  gh_path: &str,
+  repo_full_name: &str,
+  branch: &str,
+  extended_path: &str,
+) -> Result<Option<OpenPr>, String> {
+  // One `--head=<branch>` argument, so a branch that starts with `-` stays a value.
+  let head = format!("--head={branch}");
+  let out = run_gh(
+    gh_path,
+    &[
+      "pr",
+      "list",
+      "--repo",
+      repo_full_name,
+      &head,
+      "--state",
+      "open",
+      "--json",
+      "number,title,baseRefName",
+      "--limit",
+      "1",
+    ],
+    extended_path,
+  )?;
+  let bytes = check_gh_output(out)?;
+  let prs: Vec<OpenPr> =
+    serde_json::from_slice(&bytes).map_err(|e| format!("Failed to parse gh output: {e}"))?;
+  Ok(prs.into_iter().next())
+}
+
+/// The login of the GitHub account `gh` is signed in as.
+pub fn gh_authenticated_login_impl(gh_path: &str, extended_path: &str) -> Result<String, String> {
+  let out = run_gh(gh_path, &["api", "user", "--jq", ".login"], extended_path)?;
+  let bytes = check_gh_output(out)?;
+  let login = String::from_utf8_lossy(&bytes).trim().to_string();
+  if login.is_empty() {
+    return Err("gh did not report a signed-in GitHub user".to_string());
+  }
+  Ok(login)
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct GhApiUser {
+  pub login: String,
+}
+
+/// An issue or PR conversation comment from the REST API.
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct GhApiComment {
+  pub id: u64,
+  #[serde(default)]
+  pub body: String,
+  /// `null` when the author's account was deleted.
+  pub user: Option<GhApiUser>,
+}
+
+fn checked_repo_full_name(repo_full_name: &str) -> Result<&str, String> {
+  valid_repo_path(repo_full_name)
+    .map(|_| repo_full_name)
+    .ok_or_else(|| format!("Invalid GitHub repository: {repo_full_name}"))
+}
+
+/// Every conversation comment on issue or PR `number`, across all pages.
+pub fn gh_list_issue_comments_impl(
+  gh_path: &str,
+  repo_full_name: &str,
+  number: u64,
+  extended_path: &str,
+) -> Result<Vec<GhApiComment>, String> {
+  let repo = checked_repo_full_name(repo_full_name)?;
+  let endpoint = format!("repos/{repo}/issues/{number}/comments?per_page=100");
+  let out = run_gh(gh_path, &["api", "--paginate", &endpoint], extended_path)?;
+  let bytes = check_gh_output(out)?;
+  // `--paginate` prints one JSON array per page, back to back.
+  let mut comments = Vec::new();
+  for page in serde_json::Deserializer::from_slice(&bytes).into_iter::<Vec<GhApiComment>>() {
+    comments.extend(page.map_err(|e| format!("Failed to parse gh output: {e}"))?);
+  }
+  Ok(comments)
+}
+
+/// Replace the body of conversation comment `comment_id`. The body travels
+/// over stdin as JSON, never as an argv value.
+fn gh_update_issue_comment_impl(
+  gh_path: &str,
+  repo_full_name: &str,
+  comment_id: u64,
+  body: &str,
+  extended_path: &str,
+) -> Result<(), String> {
+  let repo = checked_repo_full_name(repo_full_name)?;
+  let endpoint = format!("repos/{repo}/issues/comments/{comment_id}");
+  let payload = serde_json::json!({ "body": body }).to_string();
+  let out = run_gh_with_stdin(
+    gh_path,
+    &["api", "--method", "PATCH", &endpoint, "--input", "-"],
+    &payload,
+    extended_path,
+  )?;
+  check_gh_output(out).map(|_| ())
+}
+
+/// What [`upsert_marked_pr_comment_impl`] did on GitHub.
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommentWrite {
+  Created,
+  Updated,
+  Unchanged,
+}
+
+/// The first comment `login` wrote on the PR that contains `marker`.
+/// GitHub logins are case-insensitive.
+fn find_marked_comment<'a>(
+  comments: &'a [GhApiComment],
+  login: &str,
+  marker: &str,
+) -> Option<&'a GhApiComment> {
+  comments.iter().find(|comment| {
+    comment
+      .user
+      .as_ref()
+      .is_some_and(|user| user.login.eq_ignore_ascii_case(login))
+      && comment.body.contains(marker)
+  })
+}
+
+/// Keep exactly one `marker` comment from `login` on PR `pr_number`: edit it
+/// when it exists, post it when it does not, and skip the write when the
+/// body is already current. Repeat runs never add a second comment.
+pub fn upsert_marked_pr_comment_impl(
+  gh_path: &str,
+  repo_full_name: &str,
+  pr_number: u64,
+  login: &str,
+  marker: &str,
+  body: &str,
+  extended_path: &str,
+) -> Result<CommentWrite, String> {
+  let comments = gh_list_issue_comments_impl(gh_path, repo_full_name, pr_number, extended_path)?;
+  match find_marked_comment(&comments, login, marker) {
+    Some(existing) if existing.body.replace("\r\n", "\n").trim_end() == body.trim_end() => {
+      Ok(CommentWrite::Unchanged)
+    }
+    Some(existing) => {
+      gh_update_issue_comment_impl(gh_path, repo_full_name, existing.id, body, extended_path)?;
+      Ok(CommentWrite::Updated)
+    }
+    None => {
+      gh_create_pr_comment_impl(gh_path, repo_full_name, pr_number, body, extended_path)?;
+      Ok(CommentWrite::Created)
+    }
+  }
+}
+
 const CHECK_JSON_FIELDS: &str = "name,bucket,link,startedAt,completedAt";
 
 /// Compute elapsed seconds for a check run from `gh pr checks` timestamps.
@@ -2562,5 +2727,194 @@ esac
     let result = gh_list_pr_review_threads_impl(&gh_path, "owner", "repo", 1, "/usr/bin:/bin");
 
     assert!(result.is_err());
+  }
+
+  const STACK_MARKER: &str = "<!-- treq:stack-comment -->";
+  const COMMENTS_ON_5: &str = "api --paginate repos/owner/repo/issues/5/comments?per_page=100";
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_find_open_pr_for_branch_passes_the_branch_as_one_head_value() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      r#"test "$*" = "pr list --repo owner/repo --head=--web --state open --json number,title,baseRefName --limit 1" || exit 9
+echo '[{"number":12,"title":"Refactor parser","baseRefName":"feat/a"}]'"#,
+    );
+
+    let pr =
+      gh_find_open_pr_for_branch_impl(&gh_path, "owner/repo", "--web", "/usr/bin:/bin").unwrap();
+
+    assert_eq!(
+      pr,
+      Some(OpenPr {
+        number: 12,
+        title: "Refactor parser".to_string(),
+        base_ref_name: "feat/a".to_string(),
+      })
+    );
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_find_open_pr_for_branch_returns_none_without_an_open_pr() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(&bin_dir, "echo '[]'");
+
+    let pr =
+      gh_find_open_pr_for_branch_impl(&gh_path, "owner/repo", "feat/a", "/usr/bin:/bin").unwrap();
+
+    assert_eq!(pr, None);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_authenticated_login_reads_the_user_login() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      "test \"$*\" = \"api user --jq .login\" || exit 9\necho alice",
+    );
+
+    let login = gh_authenticated_login_impl(&gh_path, "/usr/bin:/bin").unwrap();
+
+    assert_eq!(login, "alice");
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn gh_list_issue_comments_reads_every_page() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        r#"test "$*" = "{COMMENTS_ON_5}" || exit 9
+printf '%s' '[{{"id":1,"body":"a","user":{{"login":"alice"}}}}][{{"id":2,"body":"b","user":null}}]'"#
+      ),
+    );
+
+    let comments = gh_list_issue_comments_impl(&gh_path, "owner/repo", 5, "/usr/bin:/bin").unwrap();
+
+    let ids: Vec<u64> = comments.iter().map(|c| c.id).collect();
+    assert_eq!(ids, vec![1, 2]);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn upsert_marked_pr_comment_edits_the_users_existing_comment() {
+    let bin_dir = TempDir::new().unwrap();
+    let body_path = bin_dir.path().join("body");
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        r#"case "$*" in
+  "{COMMENTS_ON_5}")
+    echo '[{{"id":11,"body":"old {STACK_MARKER}","user":{{"login":"bob"}}}},{{"id":12,"body":"old {STACK_MARKER}","user":{{"login":"Alice"}}}}]' ;;
+  "api --method PATCH repos/owner/repo/issues/comments/12 --input -")
+    cat > '{}' ;;
+  *) exit 9 ;;
+esac"#,
+        body_path.display()
+      ),
+    );
+    let body = format!("new {STACK_MARKER}");
+
+    let write = upsert_marked_pr_comment_impl(
+      &gh_path,
+      "owner/repo",
+      5,
+      "alice",
+      STACK_MARKER,
+      &body,
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    assert_eq!(write, CommentWrite::Updated);
+    let sent: serde_json::Value =
+      serde_json::from_str(&fs::read_to_string(&body_path).unwrap()).unwrap();
+    assert_eq!(sent, serde_json::json!({ "body": body }));
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn upsert_marked_pr_comment_posts_when_the_user_has_no_marked_comment() {
+    let bin_dir = TempDir::new().unwrap();
+    let body_path = bin_dir.path().join("body");
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        r#"case "$*" in
+  "{COMMENTS_ON_5}")
+    echo '[{{"id":11,"body":"{STACK_MARKER}","user":{{"login":"bob"}}}},{{"id":12,"body":"LGTM","user":{{"login":"alice"}}}}]' ;;
+  "pr comment 5 --repo owner/repo --body-file -")
+    cat > '{}' ;;
+  *) exit 9 ;;
+esac"#,
+        body_path.display()
+      ),
+    );
+    let body = format!("new {STACK_MARKER}");
+
+    let write = upsert_marked_pr_comment_impl(
+      &gh_path,
+      "owner/repo",
+      5,
+      "alice",
+      STACK_MARKER,
+      &body,
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    assert_eq!(write, CommentWrite::Created);
+    assert_eq!(fs::read_to_string(&body_path).unwrap(), body);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn upsert_marked_pr_comment_leaves_an_unchanged_comment_alone() {
+    let bin_dir = TempDir::new().unwrap();
+    let gh_path = write_fake_gh(
+      &bin_dir,
+      &format!(
+        r#"test "$*" = "{COMMENTS_ON_5}" || exit 9
+echo '[{{"id":12,"body":"same {STACK_MARKER}","user":{{"login":"alice"}}}}]'"#
+      ),
+    );
+
+    let write = upsert_marked_pr_comment_impl(
+      &gh_path,
+      "owner/repo",
+      5,
+      "alice",
+      STACK_MARKER,
+      &format!("same {STACK_MARKER}"),
+      "/usr/bin:/bin",
+    )
+    .unwrap();
+
+    assert_eq!(write, CommentWrite::Unchanged);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn upsert_marked_pr_comment_rejects_a_malformed_repo_without_running_gh() {
+    let bin_dir = TempDir::new().unwrap();
+    let ran = bin_dir.path().join("ran");
+    let gh_path = write_fake_gh(&bin_dir, &format!("touch '{}'", ran.display()));
+
+    let result = upsert_marked_pr_comment_impl(
+      &gh_path,
+      "owner/repo/../../user",
+      5,
+      "alice",
+      STACK_MARKER,
+      STACK_MARKER,
+      "/usr/bin:/bin",
+    );
+
+    assert!(result.is_err());
+    assert!(!ran.exists());
   }
 }

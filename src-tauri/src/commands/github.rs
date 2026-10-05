@@ -404,6 +404,31 @@ pub async fn gh_create_pr(
   .map_err(|e| format!("Failed to join gh_create_pr task: {}", e))?
 }
 
+/// Post or refresh the stack comment on every open PR in `head_branch`'s
+/// stack. The frontend calls this only after `gh_create_pr` has returned,
+/// so a failure here cannot fail PR creation.
+#[tauri::command]
+pub async fn gh_sync_stack_comments(
+  repo_path: String,
+  repo_full_name: String,
+  head_branch: String,
+) -> Result<crate::core::stack_comments::StackCommentOutcome, String> {
+  // A missing `gh` is only an error once the core finds a stack to comment on.
+  let gh = gh_bin().ok();
+  let extended_path = get_extended_path();
+  tauri::async_runtime::spawn_blocking(move || {
+    crate::core::stack_comments::sync_stack_comments(
+      &repo_path,
+      &repo_full_name,
+      &head_branch,
+      gh.as_deref(),
+      &extended_path,
+    )
+  })
+  .await
+  .map_err(|e| format!("Failed to join gh_sync_stack_comments task: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
   use std::fs;

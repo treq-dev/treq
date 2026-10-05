@@ -27,6 +27,7 @@ pub mod repo;
 pub mod resolve;
 pub mod sessions;
 pub mod skills;
+pub mod stack_comments;
 pub mod stash;
 pub mod submodules;
 pub mod workspaces;

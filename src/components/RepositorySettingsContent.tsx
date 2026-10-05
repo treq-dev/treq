@@ -51,6 +51,7 @@ export const RepositorySettingsContent = ({
     defaultAgent: string;
     autoPush: boolean;
     ignoreGeneratedAgentFiles: boolean;
+    postStackComments: boolean;
     reviewPrompt: string;
     reviewAgent: string;
     autoReviewTrigger: string;
@@ -68,6 +69,7 @@ export const RepositorySettingsContent = ({
       agent,
       autoPushSetting,
       ignoreGeneratedSetting,
+      postStackCommentsSetting,
       reviewPromptSetting,
       reviewAgentSetting,
       autoReviewTriggerSetting,
@@ -78,6 +80,7 @@ export const RepositorySettingsContent = ({
       getRepoSetting(repoPath, "default_agent"),
       getRepoSetting(repoPath, "auto_push"),
       getRepoSetting(repoPath, "ignore_generated_treq_paths"),
+      getRepoSetting(repoPath, "post_stack_comments"),
       getRepoSetting(repoPath, "review_prompt"),
       getRepoSetting(repoPath, "review_agent"),
       getRepoSetting(repoPath, "auto_review_trigger"),
@@ -89,6 +92,7 @@ export const RepositorySettingsContent = ({
       defaultAgent: agent || "",
       autoPush: autoPushSetting === "true",
       ignoreGeneratedAgentFiles: ignoreGeneratedSetting === "true",
+      postStackComments: postStackCommentsSetting !== "false",
       reviewPrompt: reviewPromptSetting || "",
       reviewAgent: reviewAgentSetting || "",
       autoReviewTrigger: normalizeAutoReviewTrigger(autoReviewTriggerSetting),
@@ -105,6 +109,7 @@ export const RepositorySettingsContent = ({
           defaultAgent: "",
           autoPush: false,
           ignoreGeneratedAgentFiles: false,
+          postStackComments: true,
           reviewPrompt: "",
           reviewAgent: "",
           autoReviewTrigger: "off",
@@ -116,6 +121,7 @@ export const RepositorySettingsContent = ({
     defaultAgent,
     autoPush,
     ignoreGeneratedAgentFiles,
+    postStackComments,
     reviewPrompt,
     reviewAgent,
     autoReviewTrigger,
@@ -145,6 +151,7 @@ export const RepositorySettingsContent = ({
       defaultAgent: string;
       autoPush: boolean;
       ignoreGeneratedAgentFiles: boolean;
+      postStackComments: boolean;
       reviewPrompt: string;
       reviewAgent: string;
       autoReviewTrigger: string;
@@ -158,6 +165,7 @@ export const RepositorySettingsContent = ({
       defaultAgent,
       autoPush,
       ignoreGeneratedAgentFiles,
+      postStackComments,
       reviewPrompt,
       reviewAgent,
       autoReviewTrigger,
@@ -173,6 +181,8 @@ export const RepositorySettingsContent = ({
   const setAutoPush = (v: boolean) => updateDraft({ autoPush: v });
   const setIgnoreGeneratedAgentFiles = (v: boolean) =>
     updateDraft({ ignoreGeneratedAgentFiles: v });
+  const setPostStackComments = (v: boolean) =>
+    updateDraft({ postStackComments: v });
   const setReviewPrompt = (v: string) => updateDraft({ reviewPrompt: v });
   const setReviewAgent = (v: string) => updateDraft({ reviewAgent: v });
   const setAutoReviewTrigger = (v: string) =>
@@ -192,6 +202,11 @@ export const RepositorySettingsContent = ({
           repoPath,
           "ignore_generated_treq_paths",
           ignoreGeneratedAgentFiles ? "true" : "false",
+        ),
+        setRepoSetting(
+          repoPath,
+          "post_stack_comments",
+          postStackComments ? "true" : "false",
         ),
         setRepoSetting(repoPath, "review_prompt", reviewPrompt),
         setRepoSetting(repoPath, "review_agent", reviewAgent),
@@ -329,6 +344,24 @@ export const RepositorySettingsContent = ({
           id="ignore-generated-agent-files"
           checked={ignoreGeneratedAgentFiles}
           onCheckedChange={setIgnoreGeneratedAgentFiles}
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <Label htmlFor="post-stack-comments">
+            Post stack comments on pull requests
+          </Label>
+          <p className="text-sm text-muted-foreground mt-1">
+            When Treq creates a stacked pull request, it comments on each open
+            pull request in the stack with the merge order. Everyone who can see
+            the pull request on GitHub sees the comment.
+          </p>
+        </div>
+        <Switch
+          id="post-stack-comments"
+          checked={postStackComments}
+          onCheckedChange={setPostStackComments}
         />
       </div>
 

@@ -40,6 +40,24 @@ The Review tab Commit control can **Commit and create PR** or **Commit and push*
 
 For the full create and view flow, see [Creating and Viewing Pull Requests](/docs/how-to/creating-and-viewing-pull-requests).
 
+## Stack Comments
+
+A workspace belongs to a stack when its target is another workspace, or when another workspace targets it. See [Workspaces](/docs/concepts/workspaces). When Treq creates a pull request for a stacked workspace, it comments on each open pull request in that stack. The comment lists the stack newest first, marks the pull request it sits on, and ends with the base branch:
+
+```markdown
+**Stack** (merge from the bottom up)
+- #103 Add tests
+- **#102 Refactor parser** ← this PR
+- #101 Extract module
+- `main`
+```
+
+A short footer links to treq.dev. Treq posts the comment through your `gh` login, so it appears under your GitHub account. Every reviewer who can open the pull request can read it, including people who do not use Treq.
+
+Each pull request keeps one stack comment. When you create another pull request in the stack, Treq edits the existing comments instead of adding new ones. Treq posts nothing when only one pull request in the stack is open. If a comment fails to post, the pull request still exists and Treq shows a warning.
+
+Stack comments are on by default. To turn them off for a repository, open Settings, switch off **Post stack comments on pull requests** on the Repository tab, and click **Save Settings**. With the setting off, Treq neither posts nor edits stack comments in that repository.
+
 ## GitHub Panel
 
 Open **GitHub** in the workspace sidebar to reach Issues and Pull Requests. The panel uses hash routes such as `#/github/prs/open` so the `?repo=` query stays intact.
