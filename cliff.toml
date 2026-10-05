@@ -2,7 +2,7 @@
 header = "# Changelog\n\n"
 body = """
 {% if version %}\
-## [{{ version | trim_start_matches(pat="v") }}](https://github.com/Ziinc/treq/releases/tag/{{ version }}) - {{ timestamp | date(format="%-d %B %Y") }}
+## [{{ version | trim_start_matches(pat="v") }}](https://github.com/treq-dev/treq/releases/tag/{{ version }}) - {{ timestamp | date(format="%-d %B %Y") }}
 {% else %}\
 ## [Unreleased]
 {% endif %}\
@@ -10,7 +10,7 @@ body = """
 ### {{ group | upper_first }}
 {% for commit in commits %}
 {%- if commit.remote.pr_number %}
-- {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.remote.pr_title | default(value=commit.message) | split(pat="\n") | first | trim | trim_start_matches(pat="feat: ") | trim_start_matches(pat="feature: ") | trim_start_matches(pat="fix: ") | trim_start_matches(pat="chore: ") | upper_first }} ([#{{ commit.remote.pr_number }}](https://github.com/Ziinc/treq/pull/{{ commit.remote.pr_number }}))
+- {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.remote.pr_title | default(value=commit.message) | split(pat="\n") | first | trim | trim_start_matches(pat="feat: ") | trim_start_matches(pat="feature: ") | trim_start_matches(pat="fix: ") | trim_start_matches(pat="chore: ") | upper_first }} ([#{{ commit.remote.pr_number }}](https://github.com/treq-dev/treq/pull/{{ commit.remote.pr_number }}))
 {%- endif %}
 {%- endfor %}
 {% endfor %}\n
@@ -42,5 +42,5 @@ topo_order = false
 sort_commits = "oldest"
 
 [remote.github]
-owner = "Ziinc"
+owner = "treq-dev"
 repo = "treq"

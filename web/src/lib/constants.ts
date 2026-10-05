@@ -4,7 +4,6 @@ export const PAYMENT_LINK_URL =
     : "https://buy.stripe.com/test_aFa4gzacLbZ40lHdPNbAs01";
 
 export const APP_DEEP_LINK = "treq://";
-export const APP_DOWNLOAD_URL = "/docs/getting-started/installation";
 
 // GitHub App — update with your actual App slug after creating it at
 // https://github.com/settings/apps/new
