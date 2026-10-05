@@ -101,9 +101,10 @@ it("sells Team to an organization's owner and gives every member Pro", async () 
       },
       { userId: owner.user.id, rpc, webUrl: WEB_URL },
     );
-    const token = new URL(String(invited.body.accept_url)).searchParams.get(
-      "invite",
-    );
+    // Invite links carry the token in the fragment.
+    const token = new URLSearchParams(
+      new URL(String(invited.body.accept_url)).hash.slice(1),
+    ).get("invite");
     await handleOrganizationsRequest(
       { action: "accept", token },
       { userId: member.user.id, rpc, webUrl: WEB_URL },

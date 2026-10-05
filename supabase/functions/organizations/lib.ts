@@ -27,9 +27,13 @@ export type OrganizationsDeps = {
   webUrl: string;
 };
 
-/** The link an owner shares. The token in it is the whole invite. */
+/**
+ * The link an owner shares. The token in it is the whole invite, so it goes
+ * in the fragment, which browsers never send to a server. The dashboard
+ * reads it from location.hash and then clears it from the address bar.
+ */
 export function inviteAcceptUrl(webUrl: string, token: string): string {
-  return `${webUrl.replace(/\/+$/, "")}/dashboard?tab=team&invite=${token}`;
+  return `${webUrl.replace(/\/+$/, "")}/dashboard?tab=team#invite=${token}`;
 }
 
 type Fields = Record<string, unknown>;

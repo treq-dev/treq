@@ -47,7 +47,9 @@ function organizations(admin: SupabaseClient, user: TestUser) {
 }
 
 function tokenOf(acceptUrl: unknown): string {
-  const token = new URL(String(acceptUrl)).searchParams.get("invite");
+  const token = new URLSearchParams(
+    new URL(String(acceptUrl)).hash.slice(1),
+  ).get("invite");
   if (!token) throw new Error(`no invite token in ${String(acceptUrl)}`);
   return token;
 }
@@ -76,7 +78,7 @@ it("runs an organization: invites by token, a 10-seat cap and Team for every mem
     });
     expect(invited.status).toBe(200);
     expect(invited.body.accept_url).toMatch(
-      /^http:\/\/localhost:3001\/dashboard\?tab=team&invite=[0-9a-f]{64}$/,
+      /^http:\/\/localhost:3001\/dashboard\?tab=team#invite=[0-9a-f]{64}$/,
     );
     expect(invited.body).not.toHaveProperty("token");
     const token = tokenOf(invited.body.accept_url);

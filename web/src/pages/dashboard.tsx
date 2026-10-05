@@ -24,9 +24,12 @@ import {
   type Subscription,
 } from "../lib/subscription";
 import {
+  forgetPendingInvite,
+  invitePage,
   inviteTokenFromInput,
-  inviteTokenFromSearch,
+  pendingInviteToken,
   seatsUsed,
+  stashInviteForSignIn,
   TEAM_SEAT_LIMIT,
   type OrganizationAction,
 } from "../lib/teams";
@@ -1280,8 +1283,9 @@ function TeamTab({
 }) {
   const checkoutAvailable = stripePaymentsEnabled && STRIPE_PUBLISHABLE_KEY !== "";
   const [data, setData] = useState<TeamData | null>(null);
+  // From the invite link's #invite= fragment, or stashed before sign-in.
   const [inviteToken, setInviteToken] = useState<string | null>(() =>
-    inviteTokenFromSearch(window.location.search),
+    pendingInviteToken(invitePage()),
   );
   const [inviteLink, setInviteLink] = useState("");
   const [orgName, setOrgName] = useState("");
@@ -1301,6 +1305,11 @@ function TeamTab({
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Once read, the token leaves the address bar and the stash.
+  useEffect(() => {
+    forgetPendingInvite(invitePage());
+  }, []);
 
   // After embedded Checkout returns, Team appears once the stripe-webhook
   // function has recorded the subscription. Poll until then.
@@ -1359,7 +1368,6 @@ function TeamTab({
       }>({ action: "accept", token });
       setInviteToken(null);
       setInviteLink("");
-      clearSearchParams("invite");
       return joined.result === "already_member"
         ? `You are already a member of ${joined.organization.name}.`
         : `You joined ${joined.organization.name}. Every member of a team with Team has Pro.`;
@@ -1416,10 +1424,7 @@ function TeamTab({
             <button
               type="button"
               style={styles.secondaryButton}
-              onClick={() => {
-                setInviteToken(null);
-                clearSearchParams("invite");
-              }}
+              onClick={() => setInviteToken(null)}
             >
               Not now
             </button>
@@ -1462,7 +1467,7 @@ function TeamTab({
         >
           <input
             aria-label="Invite link"
-            placeholder="https://treq.dev/dashboard?tab=team&invite=…"
+            placeholder="https://treq.dev/dashboard?tab=team#invite=…"
             value={inviteLink}
             onChange={(e) => setInviteLink(e.target.value)}
             style={styles.input}
@@ -1534,8 +1539,10 @@ function DashboardContent() {
 
   useEffect(() => {
     // Sign-in brings the user back here, so an invite link opened while
-    // signed out still works.
+    // signed out still works. The redirect keeps the path and query; the
+    // invite token in the fragment waits in sessionStorage.
     const signIn = () => {
+      stashInviteForSignIn(invitePage());
       const here = `${window.location.pathname}${window.location.search}`;
       window.location.href = `/sign-in?redirect=${encodeURIComponent(here)}`;
     };

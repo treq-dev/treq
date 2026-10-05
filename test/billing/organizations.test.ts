@@ -30,10 +30,12 @@ function deps(result: RpcResult = { data: null, error: null }) {
 }
 
 describe("inviteAcceptUrl", () => {
-  it("points at the Team tab of the dashboard", () => {
-    expect(inviteAcceptUrl("https://treq.dev/", TOKEN)).toBe(
-      `https://treq.dev/dashboard?tab=team&invite=${TOKEN}`,
+  it("points at the Team tab with the token in the fragment, not the query", () => {
+    const url = new URL(inviteAcceptUrl("https://treq.dev/", TOKEN));
+    expect(url.href).toBe(
+      `https://treq.dev/dashboard?tab=team#invite=${TOKEN}`,
     );
+    expect(url.search).toBe("?tab=team");
   });
 });
 
@@ -124,7 +126,7 @@ describe("handleOrganizationsRequest", () => {
           email: "mia@example.com",
           expires_at: "2026-10-12T00:00:00Z",
         },
-        accept_url: `https://treq.dev/dashboard?tab=team&invite=${TOKEN}`,
+        accept_url: `https://treq.dev/dashboard?tab=team#invite=${TOKEN}`,
       },
     });
   });

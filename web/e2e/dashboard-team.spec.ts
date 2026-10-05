@@ -14,7 +14,10 @@ const ME = '6f1c1f4e-6a8f-4a39-9d55-2b1f0b3f9a10';
 const MIA = '7a2d2e5f-7b9a-4b4a-8e66-3c2a1c4f0b21';
 const ORG = '0b8d3f0e-2c1a-4f5e-9d7b-6a4c3e2f1a00';
 const TOKEN = '0123456789abcdef'.repeat(4);
-const ACCEPT_URL = `https://treq.dev/dashboard?tab=team&invite=${TOKEN}`;
+// Invite links carry the token in the fragment. Links in the older query
+// form are still accepted when pasted.
+const ACCEPT_URL = `https://treq.dev/dashboard?tab=team#invite=${TOKEN}`;
+const OLD_ACCEPT_URL = `https://treq.dev/dashboard?tab=team&invite=${TOKEN}`;
 
 const user = {
   id: ME,
@@ -406,13 +409,18 @@ test.describe('Dashboard team tab', () => {
     await close();
   });
 
-  test('an invited user joins with the link they were sent', async ({ browser }) => {
-    const { page, calls, close } = await openTeamTab(browser, emptyTeam());
-    await teamSection(page).getByRole('textbox', { name: 'Invite link', exact: true }).fill(ACCEPT_URL);
-    await teamSection(page).getByRole('button', { name: 'Join' }).click();
-    await expect(teamSection(page).getByRole('status')).toContainText('You joined Acme');
-    await expect(orgCard(page, 'Acme').getByRole('group', { name: 'Your role' })).toContainText('Member');
-    expect(calls.organizations).toContainEqual({ action: 'accept', token: TOKEN });
-    await close();
-  });
+  for (const [form, link] of [
+    ['fragment', ACCEPT_URL],
+    ['older query', OLD_ACCEPT_URL],
+  ]) {
+    test(`an invited user joins with the link they were sent (${form} form)`, async ({ browser }) => {
+      const { page, calls, close } = await openTeamTab(browser, emptyTeam());
+      await teamSection(page).getByRole('textbox', { name: 'Invite link', exact: true }).fill(link);
+      await teamSection(page).getByRole('button', { name: 'Join' }).click();
+      await expect(teamSection(page).getByRole('status')).toContainText('You joined Acme');
+      await expect(orgCard(page, 'Acme').getByRole('group', { name: 'Your role' })).toContainText('Member');
+      expect(calls.organizations).toContainEqual({ action: 'accept', token: TOKEN });
+      await close();
+    });
+  }
 });
