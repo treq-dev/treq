@@ -1,8 +1,9 @@
 // Organizations and Team seats (prds/billing-and-teams.md, "Organizations
 // and seats"). Called by the web dashboard with the user's Supabase JWT.
 // Body: { action, ... } where action is create, invite, accept,
-// revoke_invite, remove_member, leave or attach_installation. The logic
-// lives in lib.ts and the rules in 028_organizations_team.sql.
+// revoke_invite, remove_member, leave, promote_member, demote_owner,
+// delete_organization or attach_installation. The logic lives in lib.ts and
+// the rules in 028_organizations_team.sql and 029_organization_owners.sql.
 // Env: WEB_URL for invite links (default https://treq.dev).
 
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";

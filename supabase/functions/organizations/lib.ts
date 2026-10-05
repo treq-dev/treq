@@ -3,8 +3,9 @@
 // JWT and supplies an RPC function bound to the service role.
 //
 // Every rule (who may do what, the 10-seat cap, token expiry and single use,
-// last-owner protection, installation ownership) lives in the SQL functions
-// of 028_organizations_team.sql. This file checks the shape of the request,
+// last-owner protection, installation ownership, deleting an organization)
+// lives in the SQL functions of 028_organizations_team.sql and
+// 029_organization_owners.sql. This file checks the shape of the request,
 // calls one function as the verified user, and turns its refusals into HTTP
 // answers.
 
@@ -151,6 +152,31 @@ function callFor(
         respond: ok,
       };
     }
+    case "promote_member":
+    case "demote_owner": {
+      const orgId = uuid(fields, "organization_id");
+      const memberId = uuid(fields, "user_id");
+      if (orgId === null || memberId === null) {
+        return `${fields.action} needs organization_id and user_id`;
+      }
+      return {
+        fn:
+          fields.action === "promote_member"
+            ? "organization_promote_member"
+            : "organization_demote_owner",
+        args: { ...actor, p_org_id: orgId, p_user_id: memberId },
+        respond: (data) => ({ ok: true, result: data }),
+      };
+    }
+    case "delete_organization": {
+      const orgId = uuid(fields, "organization_id");
+      if (orgId === null) return "delete_organization needs organization_id";
+      return {
+        fn: "organization_delete",
+        args: { ...actor, p_org_id: orgId },
+        respond: ok,
+      };
+    }
     case "attach_installation": {
       const orgId = uuid(fields, "organization_id");
       const installationId = fields.installation_id;
@@ -169,7 +195,7 @@ function callFor(
       };
     }
     default:
-      return "action must be one of create, invite, accept, revoke_invite, remove_member, leave, attach_installation";
+      return "action must be one of create, invite, accept, revoke_invite, remove_member, leave, promote_member, demote_owner, delete_organization, attach_installation";
   }
 }
 

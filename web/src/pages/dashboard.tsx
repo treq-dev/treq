@@ -909,6 +909,7 @@ function OrganizationCard({
 }) {
   const members = data.memberships.filter((m) => m.org_id === org.id);
   const isOwner = members.some((m) => m.user_id === userId && m.role === "owner");
+  const ownerCount = members.filter((m) => m.role === "owner").length;
   const invites = data.invites.filter((i) => i.org_id === org.id);
   const subscription = data.subscriptions.find((s) => s.owner_id === org.id);
   const attached = data.installations.filter((i) => i.organization_id === org.id);
@@ -1072,6 +1073,52 @@ function OrganizationCard({
                 <span style={styles.teamMuted}>
                   {m.role === "owner" ? "Owner" : "Member"}
                 </span>
+                {isOwner && m.user_id !== userId && m.role === "member" && (
+                  <button
+                    type="button"
+                    aria-label={`Make ${name} an owner`}
+                    disabled={pending}
+                    style={styles.linkButton}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Make ${name} an owner of ${org.name}? Owners invite and remove members, manage billing, and can delete the organization.`,
+                        )
+                      ) {
+                        void run(() =>
+                          organizationsRequest({
+                            action: "promote_member",
+                            organization_id: org.id,
+                            user_id: m.user_id,
+                          }),
+                        );
+                      }
+                    }}
+                  >
+                    Make owner
+                  </button>
+                )}
+                {isOwner && m.user_id !== userId && m.role === "owner" && (
+                  <button
+                    type="button"
+                    aria-label={`Make ${name} a member`}
+                    disabled={pending}
+                    style={styles.linkButton}
+                    onClick={() => {
+                      if (window.confirm(`Make ${name} a member of ${org.name} instead of an owner?`)) {
+                        void run(() =>
+                          organizationsRequest({
+                            action: "demote_owner",
+                            organization_id: org.id,
+                            user_id: m.user_id,
+                          }),
+                        );
+                      }
+                    }}
+                  >
+                    Make member
+                  </button>
+                )}
                 {isOwner && m.user_id !== userId && (
                   <button
                     type="button"
@@ -1245,6 +1292,13 @@ function OrganizationCard({
         </div>
       )}
 
+      {isOwner && (
+        <p style={styles.inputHint}>
+          {ownerCount > 1
+            ? "To transfer ownership, make another member an owner, then leave."
+            : "You are the only owner. To transfer ownership, make another member an owner, then leave. To close the organization instead, delete it."}
+        </p>
+      )}
       <div style={styles.billingActions}>
         <button
           type="button"
@@ -1261,6 +1315,30 @@ function OrganizationCard({
         >
           Leave
         </button>
+        {isOwner && (
+          <button
+            type="button"
+            aria-label={`Delete ${org.name}`}
+            disabled={pending}
+            style={styles.dangerButton}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Delete ${org.name}? Every member loses access at once, pending invites stop working, and its GitHub App installations become yours. This cannot be undone.`,
+                )
+              ) {
+                void run(() =>
+                  organizationsRequest({
+                    action: "delete_organization",
+                    organization_id: org.id,
+                  }),
+                );
+              }
+            }}
+          >
+            Delete organization
+          </button>
+        )}
       </div>
     </section>
   );

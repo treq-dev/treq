@@ -117,4 +117,7 @@ export type OrganizationAction =
   | { action: "revoke_invite"; invite_id: string }
   | { action: "remove_member"; organization_id: string; user_id: string }
   | { action: "leave"; organization_id: string }
+  | { action: "promote_member"; organization_id: string; user_id: string }
+  | { action: "demote_owner"; organization_id: string; user_id: string }
+  | { action: "delete_organization"; organization_id: string }
   | { action: "attach_installation"; organization_id: string; installation_id: number };

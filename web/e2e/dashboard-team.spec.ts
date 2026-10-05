@@ -176,6 +176,21 @@ function handleOrganizations(team: Team, body: Record<string, unknown>) {
     case 'remove_member':
       team.memberships = team.memberships.filter((m) => m.user_id !== body.user_id);
       return { status: 200, body: { ok: true } };
+    case 'promote_member':
+    case 'demote_owner': {
+      const role = body.action === 'promote_member' ? 'owner' : 'member';
+      for (const m of team.memberships) {
+        if (m.org_id === body.organization_id && m.user_id === body.user_id) m.role = role;
+      }
+      return {
+        status: 200,
+        body: { ok: true, result: role === 'owner' ? 'promoted' : 'demoted' },
+      };
+    }
+    case 'delete_organization':
+      team.memberships = team.memberships.filter((m) => m.org_id !== body.organization_id);
+      team.organizations = team.organizations.filter((o) => o.id !== body.organization_id);
+      return { status: 200, body: { ok: true } };
     case 'attach_installation':
       for (const i of team.installations) {
         if (i.id === body.installation_id) i.organization_id = String(body.organization_id);
@@ -330,6 +345,82 @@ test.describe('Dashboard team tab', () => {
     await close();
   });
 
+  test('an owner makes a member an owner, and back', async ({ browser }) => {
+    const { page, calls, close } = await openTeamTab(browser, acmeTeam('owner'));
+    const acme = orgCard(page, 'Acme');
+    const mia = acme.getByRole('list', { name: 'Members' }).getByRole('listitem').filter({ hasText: 'Mia Member' });
+    await expect(acme).toContainText('You are the only owner. To transfer ownership, make another member an owner, then leave.');
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await acme.getByRole('button', { name: 'Make Mia Member an owner' }).click();
+    await expect(mia).toContainText('Owner');
+    await expect(acme).toContainText('To transfer ownership, make another member an owner, then leave.');
+    await expect(acme).not.toContainText('You are the only owner');
+    expect(calls.organizations).toContainEqual({
+      action: 'promote_member',
+      organization_id: ORG,
+      user_id: MIA,
+    });
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await acme.getByRole('button', { name: 'Make Mia Member a member' }).click();
+    await expect(acme.getByRole('button', { name: 'Make Mia Member an owner' })).toBeVisible();
+    expect(calls.organizations).toContainEqual({
+      action: 'demote_owner',
+      organization_id: ORG,
+      user_id: MIA,
+    });
+    await close();
+  });
+
+  test('the last owner is told why they cannot step down', async ({ browser }) => {
+    const team = acmeTeam('owner');
+    team.refuse = {
+      leave: {
+        status: 409,
+        error: 'An organization needs at least one owner.',
+        code: 'last_owner',
+      },
+    };
+    const { page, close } = await openTeamTab(browser, team);
+    const acme = orgCard(page, 'Acme');
+    page.once('dialog', (dialog) => dialog.accept());
+    await acme.getByRole('button', { name: 'Leave Acme' }).click();
+    await expect(acme.getByRole('alert')).toContainText('An organization needs at least one owner.');
+    await close();
+  });
+
+  test('an owner deletes the organization', async ({ browser }) => {
+    const { page, calls, close } = await openTeamTab(browser, acmeTeam('owner'));
+    page.once('dialog', (dialog) => dialog.accept());
+    await orgCard(page, 'Acme').getByRole('button', { name: 'Delete Acme' }).click();
+    await expect(orgCard(page, 'Acme')).toHaveCount(0);
+    expect(calls.organizations).toContainEqual({ action: 'delete_organization', organization_id: ORG });
+    await close();
+  });
+
+  test('deleting an organization that has Team says to cancel it first', async ({ browser }) => {
+    const team = acmeTeam('owner');
+    team.subscriptions = [
+      { owner_id: ORG, status: 'active', current_period_end: '2026-11-05T00:00:00', cancel_at_period_end: false },
+    ];
+    team.refuse = {
+      delete_organization: {
+        status: 409,
+        error:
+          'This organization has a Team subscription. Cancel it with Manage billing, then delete the organization once the subscription has ended.',
+        code: 'team_subscription_active',
+      },
+    };
+    const { page, close } = await openTeamTab(browser, team);
+    const acme = orgCard(page, 'Acme');
+    page.once('dialog', (dialog) => dialog.accept());
+    await acme.getByRole('button', { name: 'Delete Acme' }).click();
+    await expect(acme.getByRole('alert')).toContainText('Cancel it with Manage billing');
+    await expect(acme.getByRole('group', { name: 'Plan' })).toContainText('Team');
+    await close();
+  });
+
   test('buying Team stays closed while payments are off', async ({ browser }) => {
     test.skip(checkoutLive, 'stripePayments is on and the live key is set');
     const { page, calls, close } = await openTeamTab(browser, acmeTeam('owner'));
@@ -391,6 +482,8 @@ test.describe('Dashboard team tab', () => {
     await expect(acme.getByRole('list', { name: 'Members' })).toContainText('Mia Member');
     await expect(acme.getByRole('textbox', { name: 'Email to invite' })).toHaveCount(0);
     await expect(acme.getByRole('button', { name: /^Remove / })).toHaveCount(0);
+    await expect(acme.getByRole('button', { name: /^Make / })).toHaveCount(0);
+    await expect(acme.getByRole('button', { name: 'Delete Acme' })).toHaveCount(0);
     await expect(acme.getByRole('button', { name: 'Buy Team' })).toHaveCount(0);
 
     page.once('dialog', (dialog) => dialog.accept());
