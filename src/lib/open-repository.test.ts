@@ -24,7 +24,7 @@ describe("openRepositoryAtPath", () => {
   });
 
   it("initializes exactly one repository and reports success for a valid path", async () => {
-    vi.mocked(api.initRepo).mockResolvedValueOnce(undefined);
+    vi.mocked(api.initRepo).mockResolvedValueOnce(true);
     const onOpened = vi.fn();
     const addToast = vi.fn();
 
