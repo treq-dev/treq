@@ -16,6 +16,12 @@ The goal of Treq is to provide a full suite of high-productivity tooling with th
 
 Download the latest release [here](https://github.com/Ziinc/treq/releases). Install steps are in the [installation docs](https://treq.dev/docs/getting-started/installation).
 
+On macOS, from v0.3.0, you can also install Treq with Homebrew:
+
+```bash
+brew install --cask treq-dev/tap/treq
+```
+
 ## Features
 
 - Works with [Claude Code, Codex, and Cursor Agent](https://treq.dev/docs/concepts/agent-sessions).

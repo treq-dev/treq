@@ -1,0 +1,138 @@
+name: Homebrew Cask
+
+# Publishes Casks/treq.rb to treq-dev/homebrew-tap so users can run
+# `brew install --cask treq-dev/tap/treq`. Needs the HOMEBREW_TAP_TOKEN secret
+# (contents: write on treq-dev/homebrew-tap); without it the run is a no-op.
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, e.g. v0.3.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-cask
+  cancel-in-progress: false
+
+jobs:
+  check-token:
+    name: Check tap token
+    runs-on: ubuntu-latest
+    outputs:
+      has-token: ${{ steps.check.outputs.has-token }}
+    steps:
+      - name: Check HOMEBREW_TAP_TOKEN
+        id: check
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -n "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "has-token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Homebrew cask not published::HOMEBREW_TAP_TOKEN is not set. Add it as an Actions secret to publish Casks/treq.rb to treq-dev/homebrew-tap."
+            echo "has-token=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    name: Publish cask
+    needs: check-token
+    if: needs.check-token.outputs.has-token == 'true' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release
+        id: release
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease,assets > "$RUNNER_TEMP/release.json"
+
+          if [ "$(jq -r .isPrerelease "$RUNNER_TEMP/release.json")" = "true" ]; then
+            echo "::notice title=Homebrew cask not published::${TAG} is a prerelease."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(jq -r .isDraft "$RUNNER_TEMP/release.json")" = "true" ]; then
+            echo "::error::${TAG} is a draft, so its download URLs are not public yet."
+            exit 1
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag ${TAG} is not vX.Y.Z."
+            exit 1
+          fi
+          version="${TAG#v}"
+
+          # Pick each DMG by its arch suffix, then check it has the file name
+          # the cask's url stanza builds: treq_<version>_<arch>.dmg.
+          for arch in aarch64 x64; do
+            mapfile -t matches < <(jq -r --arg suffix "${arch}.dmg" \
+              '.assets[].name | select(endswith($suffix))' "$RUNNER_TEMP/release.json")
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected one *${arch}.dmg asset on ${TAG}, found ${#matches[@]}: ${matches[*]}"
+              exit 1
+            fi
+            expected="treq_${version}_${arch}.dmg"
+            if [ "${matches[0]}" != "$expected" ]; then
+              echo "::error::Found ${matches[0]}, but the cask url expects ${expected}. Update .github/homebrew/treq.rb.tmpl."
+              exit 1
+            fi
+          done
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Download DMGs and render cask
+        if: steps.release.outputs.skip == 'false'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          dmg_dir="$RUNNER_TEMP/dmg"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$dmg_dir" \
+            --pattern "treq_${VERSION}_aarch64.dmg" \
+            --pattern "treq_${VERSION}_x64.dmg"
+
+          .github/homebrew/render-cask.sh "$VERSION" \
+            "$dmg_dir/treq_${VERSION}_aarch64.dmg" \
+            "$dmg_dir/treq_${VERSION}_x64.dmg" > "$RUNNER_TEMP/treq.rb"
+          ruby -c "$RUNNER_TEMP/treq.rb"
+          cat "$RUNNER_TEMP/treq.rb"
+
+      - name: Check out tap
+        if: steps.release.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          repository: treq-dev/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Commit and push cask
+        if: steps.release.outputs.skip == 'false'
+        working-directory: homebrew-tap
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          mkdir -p Casks
+          cp "$RUNNER_TEMP/treq.rb" Casks/treq.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/treq.rb
+          if git diff --cached --quiet; then
+            echo "Casks/treq.rb is already at ${VERSION}."
+            exit 0
+          fi
+          git commit -m "treq ${VERSION}"
+          git push origin HEAD
