@@ -101,7 +101,7 @@ function CallbackContent() {
         <>
           <p style={styles.text}>You need to be signed in to link Linear.</p>
           <a
-            href={`/sign-in?redirect=${encodeURIComponent(window.location.href)}`}
+            href={`/sign-in?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
             style={styles.link}
           >
             Sign in

@@ -4,6 +4,7 @@ import Head from "@docusaurus/Head";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import { supabase } from "../../lib/supabase";
+import { safeRedirectPath } from "../../lib/utils";
 
 function CallbackContent() {
   const [status, setStatus] = useState<"loading" | "desktop" | "error">("loading");
@@ -68,6 +69,12 @@ function CallbackContent() {
 
         if (!session) {
           throw new Error("Failed to establish session");
+        }
+
+        // Web sign-ins stay on the web. Only the desktop app needs a token.
+        if (searchParams.get("source") !== "desktop") {
+          window.location.replace(safeRedirectPath(searchParams.get("redirect")));
+          return;
         }
 
         // Create a one-time token for desktop auth handoff

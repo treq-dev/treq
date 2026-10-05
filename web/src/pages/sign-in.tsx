@@ -3,7 +3,7 @@ import Layout from "@theme/Layout";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import { supabase } from "../lib/supabase";
-import { getAuthCallbackUrl } from "../lib/utils";
+import { getAuthCallbackUrl, safeRedirectPath } from "../lib/utils";
 
 type View = "sign-in" | "sign-up" | "forgot-password";
 
@@ -23,6 +23,13 @@ function LoginContent() {
 
   const params = new URLSearchParams(window.location.search);
   const source = params.get("source") || "";
+  const requestedRedirect = params.get("redirect");
+  const redirectPath = safeRedirectPath(requestedRedirect);
+
+  const goToNextPage = () => {
+    window.location.href =
+      source === "desktop" ? "/auth/callback?source=desktop" : redirectPath;
+  };
 
   // Keep users on sign-in when email signup is disabled
   useEffect(() => {
@@ -34,15 +41,9 @@ function LoginContent() {
   // Check if already logged in
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        if (source === "desktop") {
-          window.location.href = `/auth/callback?source=desktop`;
-        } else {
-          window.location.href = "/dashboard";
-        }
-      }
+      if (session) goToNextPage();
     });
-  }, [source]);
+  }, [source, redirectPath]);
 
   const callbackUrl = (query?: string) =>
     getAuthCallbackUrl({
@@ -51,7 +52,10 @@ function LoginContent() {
       isProduction: process.env.NODE_ENV === "production",
       query,
     });
-  const redirectTo = callbackUrl(source ? `source=${encodeURIComponent(source)}` : undefined);
+  const callbackQuery = new URLSearchParams();
+  if (source) callbackQuery.set("source", source);
+  if (requestedRedirect !== null) callbackQuery.set("redirect", redirectPath);
+  const redirectTo = callbackUrl(callbackQuery.toString() || undefined);
 
   const switchView = (v: View) => {
     if (v === "sign-up" && !emailSignupEnabled) return;
@@ -94,11 +98,7 @@ function LoginContent() {
     if (error) {
       setError(error.message);
     } else {
-      if (source === "desktop") {
-        window.location.href = `/auth/callback?source=desktop`;
-      } else {
-        window.location.href = "/dashboard";
-      }
+      goToNextPage();
     }
     setLoading(false);
   };
@@ -115,11 +115,7 @@ function LoginContent() {
       setError(error.message);
     } else if (data.session) {
       // Email confirmation disabled — user is signed in immediately
-      if (source === "desktop") {
-        window.location.href = `/auth/callback?source=desktop`;
-      } else {
-        window.location.href = "/dashboard";
-      }
+      goToNextPage();
     } else {
       // Email confirmation required
       setMessage("Account created! Check your email to confirm your account, then sign in.");
