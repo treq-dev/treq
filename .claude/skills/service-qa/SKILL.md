@@ -32,7 +32,8 @@ Do not substitute one for the other. A green `/app-qa` screenshot with a mocked
 service-qa RPC alone does not prove the desktop button wiring is correct — when
 the user asks for screenshots of the UI talking to Supabase, capture via the
 screenshot harness against `http://127.0.0.1:54321` (email/password session on
-the app singleton, Pro gate stubbed only if local Stripe FDW has no plan). Never
+the app singleton; for a Pro user, post signed Stripe events with
+`scripts/service-qa/stripe.ts` rather than stubbing the gate). Never
 paste terminal logs or outcome HTML as stand-ins for those UI captures.
 
 Pure `_shared/merge-queue` unit tests under `test/merge-queue/` stay in
@@ -118,9 +119,12 @@ false`), so password signup works without Inbucket. service-qa **overrides**
 creates users only via Auth email/password (`signUp` / `signInWithPassword`) —
 never OAuth.
 
-Stripe FDW (`002_stripe_fdw.sql`) uses a vault placeholder locally. Specs that
-read `subscriptions` must tolerate an empty/unavailable Stripe remote — prefer
-asserting Auth + treq tables/RPCs first.
+`public.subscriptions` and `has_pro` read `billing_subscriptions`, which only
+the `stripe-webhook` function writes (`025_billing_entitlement.sql`). To make a
+test user Pro, post signed `customer.subscription.*` and
+`checkout.session.completed` events with `postStripeEvent` from
+`scripts/service-qa/stripe.ts` (see `specs/stripe-webhook.spec.ts`). Local
+signing uses `STRIPE_WEBHOOK_SECRET` from `supabase/functions/.env`.
 
 ## Steps
 

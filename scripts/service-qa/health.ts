@@ -56,6 +56,11 @@ export async function assertLocalSupabaseUp(): Promise<void> {
     );
   }
 
+  // SERVICE_QA_NO_EDGE=1 is for a stack whose Edge runtime cannot boot
+  // functions (it cannot fetch `npm:` packages). Specs that need an Edge
+  // Function then fail on their own, and the Stripe webhook spec runs its
+  // handler in-process (see stripe.ts).
+  if (process.env.SERVICE_QA_NO_EDGE === "1") return;
   await warmEdgeFunctions();
 }
 

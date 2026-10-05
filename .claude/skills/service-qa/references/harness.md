@@ -19,6 +19,11 @@ Part of the `service-qa` skill.
    Edge Functions import `@supabase/supabase-js` from
    `supabase/functions/node_modules` (see `deno.json` import map); `service-qa:up`
    runs `npm install --prefix supabase/functions`.
+   If the local Edge runtime cannot fetch `npm:` packages at all, run specs
+   with `SERVICE_QA_NO_EDGE=1`. The health gate then skips the Edge warm-up,
+   and `scripts/service-qa/stripe.ts` runs the `stripe-webhook` handler
+   in-process against the same local database. Specs that call other Edge
+   Functions still need a working runtime.
 5. **`recordOutcome(name, { expectations, details })`** — writes
    `scripts/service-qa/.generated/<name>.json`. Like app-qa's
    `captureDocument` expectations, these are plain-English claims for the
