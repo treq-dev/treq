@@ -5,9 +5,9 @@
  * Runs the handlers (organizations/lib.ts, complete-github-installation/
  * lib.ts) in this process with a service-role RPC, so every rule runs in the
  * real SQL functions of 028_organizations_team.sql. Reads go through
- * signed-in clients, so RLS is the real one. Only the GitHub lookup of the
- * installation is a stub: local runs have no GitHub App key. Team comes from
- * the billing write functions (../billing.ts).
+ * signed-in clients, so RLS is the real one. Only GitHub is a stub
+ * (../github.ts): local runs have no GitHub App. Team comes from the billing
+ * write functions (../billing.ts).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { expect, it } from "vitest";
@@ -23,6 +23,7 @@ import {
 import { handleOrganizationsRequest } from "../../../supabase/functions/organizations/lib";
 import { clearBilling, grantPro, grantTeam } from "../billing";
 import { getServiceClient } from "../clients";
+import { stubGitHubInstallationAccess } from "../github";
 import { recordOutcome } from "../record";
 import {
   createTestUser,
@@ -268,11 +269,16 @@ it("lets only an organization's owners relink its GitHub App installation", asyn
     userId,
     hasPro: () => userHasPro(admin, userId),
     store: installationLinkStore(admin),
-    getInstallation: async (id: number) => ({
-      id,
-      account: { login, type: "Organization", avatar_url: null },
-      app_id: 1,
-    }),
+    // Everyone here authorizes as a GitHub user who can access the
+    // installation, so only the Treq organization rule decides.
+    github: stubGitHubInstallationAccess(
+      { "github-admin": [installationId] },
+      () => ({
+        login,
+        type: "Organization",
+        avatar_url: null,
+      }),
+    ),
   });
   async function linkAs(user: TestUser) {
     const intent = await createInstallIntent({
@@ -282,7 +288,11 @@ it("lets only an organization's owners relink its GitHub App installation", asyn
     });
     expect(intent.status).toBe(200);
     return completeInstallation(
-      { installation_id: installationId, state: intent.body.state },
+      {
+        installation_id: installationId,
+        state: intent.body.state,
+        code: "github-admin",
+      },
       linkDeps(user.user.id),
     );
   }

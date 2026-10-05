@@ -24,6 +24,10 @@ function CallbackContent() {
       const params = new URLSearchParams(window.location.search);
       const installationId = params.get("installation_id");
       const installState = params.get("state");
+      // GitHub adds `code` when the App requests user authorization during
+      // installation. The function exchanges it to confirm the GitHub user
+      // can access installation_id, and refuses without it.
+      const code = params.get("code");
 
       if (!installationId) {
         setState("error");
@@ -51,14 +55,15 @@ function CallbackContent() {
       }
 
       // Linking is completed server-side: the single-use state must match an
-      // unexpired intent created by this user, and the installation is
-      // verified against GitHub before it is linked.
+      // unexpired intent created by this user, and the installation must be
+      // one the authorizing GitHub user can access.
       const { data, error } = await supabase.functions.invoke(
         "complete-github-installation",
         {
           body: {
             installation_id: parseInt(installationId, 10),
             state: installState,
+            code,
           },
         }
       );
