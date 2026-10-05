@@ -31,6 +31,7 @@ libc = "0.2"
 tauri-plugin-cli = "2.4.1"
 # Parses CLI args before Tauri starts (see `cli::args`); same version the plugin uses.
 clap = "4"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [dependencies]
 tauri = { version = "2.10.3", features = ["protocol-asset", "unstable"] }
