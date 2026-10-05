@@ -6,13 +6,31 @@ sidebar_position: 2
 
 _How Treq handles your data, what it never sends, and which operations the CLI refuses to perform._
 
-Treq is privacy-focused by default. It is a local desktop application. Repository data, workspace metadata, and settings stay on your machine. The base application does not upload your code or usage data to Treq servers.
+Treq is privacy-focused by default. It is a local desktop application. Repository data, workspace metadata, and settings stay on your machine. The base application does not upload your code or feature usage to Treq servers.
 
 ## Telemetry
 
-Treq does not collect **telemetry**. The application does not send **feature usage**, **crash reports**, or **performance metrics** to Treq or any third party.
+Treq does not collect usage **telemetry**. The application does not send **feature usage**, **crash reports**, or **performance metrics** to Treq or any third party. It does send an anonymous [update check](#update-check), and treq.dev counts those checks to estimate how many desktop installs are active.
 
 **Local logs** can exist on disk for debugging. They stay on your machine and are not uploaded.
+
+## Update Check
+
+About 2.5 seconds after a Treq window loads, the app sends one `GET` request to `https://treq.dev/version`. The response is the version number of the latest release. **Help → Check for Updates...** sends the same request on demand.
+
+When that release is newer than your build, Treq shows a toast. On macOS, **Install and restart** downloads and installs it. On Windows and Linux, **Download** opens the [latest release](https://github.com/treq-dev/treq/releases/latest) on GitHub.
+
+The request identifies your build only through its `User-Agent` header:
+
+```text
+treq/0.3.0 (macos; aarch64)
+```
+
+The header holds the app version, the operating system, and the CPU architecture. The operating system is `macos`, `windows`, or `linux`. The request carries no cookies, account ID, or install ID, so it does not tell one install apart from another.
+
+treq.dev keeps only daily counts of update checks per version and platform. It does not store IP addresses.
+
+To stop the request, turn off **Check for updates** in Settings → Application. Setting the environment variable `TREQ_DISABLE_AUTO_UPDATE=1` before you launch Treq also stops it. With either one off, Treq sends nothing to `treq.dev/version`, and **Check for Updates...** reports that update checks are off.
 
 ## Local Data
 
@@ -45,6 +63,7 @@ Audit the code yourself, or follow the public history of changes. These files ar
 | Claim | Source |
 |---|---|
 | Telemetry stays on disk | [`src-tauri/src/telemetry.rs`](https://github.com/Ziinc/treq/blob/main/src-tauri/src/telemetry.rs) |
+| Update check request and `User-Agent` | [`src-tauri/src/core/auto_update.rs`](https://github.com/Ziinc/treq/blob/main/src-tauri/src/core/auto_update.rs) |
 | App and repository databases | [`src-tauri/src/db.rs`](https://github.com/Ziinc/treq/blob/main/src-tauri/src/db.rs), [`src-tauri/src/local_db.rs`](https://github.com/Ziinc/treq/blob/main/src-tauri/src/local_db.rs) |
 | CLI command set | [`src-tauri/src/cli/mod.rs`](https://github.com/Ziinc/treq/blob/main/src-tauri/src/cli/mod.rs) |
 

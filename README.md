@@ -34,7 +34,7 @@ Download the latest release [here](https://github.com/Ziinc/treq/releases). Inst
 - Manages [GitHub issues and pull requests](https://treq.dev/docs/concepts/github-integration) in the app, including starting an agent from an issue.
 - Runs shells and agents in [terminal sessions](https://treq.dev/docs/concepts/terminal-sessions) attached to the workspace, with automatic skill installation.
 - [Local by default](https://treq.dev/docs/security-and-privacy), with no code uploaded.
-- Sends [no telemetry](https://treq.dev/docs/security-and-privacy#telemetry), privacy focused with application logs kept local.
+- Sends [no usage telemetry](https://treq.dev/docs/security-and-privacy#telemetry), privacy focused with application logs kept local. It sends an [anonymous update check](https://treq.dev/docs/security-and-privacy#update-check) that you can turn off.
 - Uses [Jujutsu under the hood and is Jujitsu CLI compatible](https://treq.dev/docs/under-the-hood) while staying Git compatible.
 
 ## Developer

@@ -1,5 +1,6 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef } from "react";
 import {
   type AppUpdateCheckResult,
@@ -23,10 +24,18 @@ function isAutoUpdateDisabledInTests(): boolean {
   );
 }
 
+/** App setting the backend reads before the check. `"false"` turns it off. */
+export const CHECK_FOR_UPDATES_SETTING_KEY = "check_for_updates";
+
+/** Release page for builds that cannot install an update in place. */
+export const LATEST_RELEASE_URL =
+  "https://github.com/treq-dev/treq/releases/latest";
+
 /**
- * Mac-only auto-update: checks `/version` once on startup, prompts when a
- * newer release exists, and installs the GitHub `.app.tar.gz` artifact on
- * confirm. Users can also trigger a check from Help → Check for Updates….
+ * Checks `/version` once on startup and from Help → Check for Updates…, then
+ * shows a toast when a newer release exists. macOS installs the GitHub
+ * `.app.tar.gz` artifact on confirm. Windows and Linux open the release page.
+ * The backend skips the request when the "Check for updates" setting is off.
  */
 export function useAutoUpdate(options: UseAutoUpdateOptions = {}) {
   const { autoCheck = true, listenMenu = true } = options;
@@ -34,8 +43,8 @@ export function useAutoUpdate(options: UseAutoUpdateOptions = {}) {
   const checkingRef = useRef(false);
   const promptedVersionRef = useRef<string | null>(null);
 
-  const promptInstall = async (result: AppUpdateCheckResult) => {
-    if (!result.available || !result.downloadUrl || !result.latestVersion) {
+  const promptUpdate = (result: AppUpdateCheckResult) => {
+    if (!result.available || !result.latestVersion) {
       return;
     }
     const latest = result.latestVersion;
@@ -43,6 +52,20 @@ export function useAutoUpdate(options: UseAutoUpdateOptions = {}) {
       return;
     }
     promptedVersionRef.current = latest;
+
+    const { downloadUrl } = result;
+    if (!result.installSupported || !downloadUrl) {
+      addToast({
+        type: "info",
+        title: `Update available: v${latest}`,
+        description: `You're on v${result.currentVersion}. Download the latest release from GitHub.`,
+        action: {
+          label: "Download",
+          onClick: () => void openUrl(LATEST_RELEASE_URL),
+        },
+      });
+      return;
+    }
 
     addToast({
       type: "info",
@@ -70,7 +93,7 @@ export function useAutoUpdate(options: UseAutoUpdateOptions = {}) {
               description: `Downloading treq v${latest}`,
             });
             try {
-              await installAppUpdate(result.downloadUrl!);
+              await installAppUpdate(downloadUrl);
             } catch (error) {
               addToast({
                 type: "error",
@@ -92,13 +115,13 @@ export function useAutoUpdate(options: UseAutoUpdateOptions = {}) {
     checkingRef.current = true;
     try {
       const result = await checkForAppUpdate();
-      if (!result.supported) {
+      if (!result.checked) {
         if (opts?.manual) {
           addToast({
             type: "info",
-            title: "Auto-update unavailable",
+            title: "Update checks are off",
             description:
-              "Automatic updates are currently supported on macOS only.",
+              "Turn on Check for updates in Settings → Application to check treq.dev for a newer release.",
           });
         }
         return;
@@ -113,7 +136,7 @@ export function useAutoUpdate(options: UseAutoUpdateOptions = {}) {
         }
         return;
       }
-      await promptInstall(result);
+      promptUpdate(result);
     } catch (error) {
       if (opts?.manual) {
         addToast({

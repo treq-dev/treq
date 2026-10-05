@@ -96,7 +96,9 @@ Day-to-day create PR, CI, and review-thread actions on Free still use the local 
 
 ## Privacy
 
-Anonymous usage data covers feature statistics, error reports, and performance metrics. You can turn it off in Privacy settings. Plan history is stored in `.treq/plans/`. **Clear All Data** resets everything, and it cannot be undone.
+**Check for updates** in Application settings is on by default. Treq then asks `treq.dev/version` for the latest release each time a window opens. Turn it off to stop that request. [Security and Privacy](/docs/security-and-privacy#update-check) lists what the request sends.
+
+Plan history is stored in `.treq/plans/`. **Clear All Data** resets everything, and it cannot be undone.
 
 ## Advanced
 

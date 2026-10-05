@@ -306,8 +306,8 @@ const FACTS = [
     label: 'Desktop builds for macOS, Windows, and Linux ship on GitHub Releases. Open a Git repository you already have.',
   },
   {
-    value: 'No telemetry',
-    label: 'The app does not send feature usage, crash reports, or performance metrics. Docs-site analytics is separate.',
+    value: 'No usage telemetry',
+    label: 'The app sends no feature usage or crash reports. Its update check sends only the app version, OS, and CPU architecture.',
   },
 ];
 
@@ -394,7 +394,7 @@ function ProofSection(): ReactNode {
       </article>
       <article className={styles.proofLight}>
         <p className={styles.proofStat}>0</p>
-        <p className={styles.proofStatLabel}>telemetry events from the desktop app</p>
+        <p className={styles.proofStatLabel}>user or install IDs in the desktop update check</p>
       </article>
     </section>
   );

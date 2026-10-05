@@ -1,5 +1,7 @@
 use crate::core::auto_update::{self, UpdateCheckResult};
-use tauri::AppHandle;
+use crate::lock_ext::LockExt;
+use crate::AppState;
+use tauri::{AppHandle, State};
 
 fn version_base_url_from_env() -> String {
   // Allow tests / local builds to override the marketing site origin.
@@ -13,27 +15,27 @@ fn auto_update_disabled_via_env() -> bool {
     .unwrap_or(false)
 }
 
-fn no_update_result() -> UpdateCheckResult {
-  UpdateCheckResult {
-    supported: auto_update::auto_update_supported(),
-    available: false,
-    current_version: auto_update::app_version().to_string(),
-    latest_version: None,
-    download_url: None,
-  }
-}
-
 #[tauri::command]
-pub fn check_for_app_update() -> Result<UpdateCheckResult, String> {
-  if auto_update_disabled_via_env() || !auto_update::auto_update_supported() {
-    return Ok(no_update_result());
-  }
-  auto_update::check_for_update(auto_update::app_version(), &version_base_url_from_env())
+pub async fn check_for_app_update(state: State<'_, AppState>) -> Result<UpdateCheckResult, String> {
+  let setting = state
+    .db
+    .lock_or_recover()
+    .get_setting(auto_update::CHECK_FOR_UPDATES_SETTING_KEY)
+    .ok()
+    .flatten();
+  let enabled =
+    auto_update::update_checks_enabled(auto_update_disabled_via_env(), setting.as_deref());
+  auto_update::check_for_update(
+    enabled,
+    auto_update::app_version(),
+    &version_base_url_from_env(),
+  )
+  .await
 }
 
 #[tauri::command]
 pub fn install_app_update(app: AppHandle, download_url: String) -> Result<(), String> {
-  if !auto_update::auto_update_supported() {
+  if !auto_update::update_install_supported() {
     return Err("Auto-update install is only supported on macOS".to_string());
   }
   if download_url.trim().is_empty() {
@@ -50,8 +52,8 @@ pub fn install_app_update(app: AppHandle, download_url: String) -> Result<(), St
 
 #[cfg(test)]
 mod tests {
-  use super::{auto_update_disabled_via_env, no_update_result};
-  use crate::core::auto_update::{evaluate_update, parse_version_endpoint_body};
+  use super::auto_update_disabled_via_env;
+  use crate::core::auto_update::parse_version_endpoint_body;
 
   #[test]
   fn auto_update_disabled_via_env_recognizes_flag() {
@@ -70,14 +72,6 @@ mod tests {
   }
 
   #[test]
-  fn no_update_result_never_marks_available() {
-    let result = no_update_result();
-    assert!(!result.available);
-    assert!(result.latest_version.is_none());
-    assert!(result.download_url.is_none());
-  }
-
-  #[test]
   fn trusted_download_url_prefix_is_github_releases() {
     let ok = "https://github.com/treq-dev/treq/releases/download/v0.1.4/treq_aarch64.app.tar.gz";
     assert!(ok.starts_with("https://github.com/treq-dev/treq/releases/download/"));
@@ -87,13 +81,5 @@ mod tests {
   #[test]
   fn version_body_matches_endpoint_contract() {
     assert_eq!(parse_version_endpoint_body("0.1.3\n").unwrap(), "0.1.3");
-  }
-
-  #[test]
-  fn unsupported_platforms_never_mark_update_installable() {
-    let result = evaluate_update("0.1.0", "0.2.0", "aarch64", false);
-    assert!(!result.supported);
-    assert!(!result.available);
-    assert!(result.download_url.is_none());
   }
 }

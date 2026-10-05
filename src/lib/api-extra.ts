@@ -760,14 +760,21 @@ export const shiftMutableCommitsToNow = async (
 export const getTreqBinDir = (): Promise<string> => invoke("get_treq_bin_dir");
 
 export type AppUpdateCheckResult = {
-  supported: boolean;
+  /** False when the "Check for updates" setting or env var skipped the request. */
+  checked: boolean;
+  /** True on macOS, where the app can install the update in place. */
+  installSupported: boolean;
   available: boolean;
   currentVersion: string;
   latestVersion: string | null;
+  /** macOS updater archive. Null on Windows and Linux. */
   downloadUrl: string | null;
 };
 
-/** Compare the running build against https://treq.dev/version (Mac install only). */
+/**
+ * Compare the running build against https://treq.dev/version. Every desktop
+ * platform checks. Only macOS installs in place.
+ */
 export const checkForAppUpdate = (): Promise<AppUpdateCheckResult> =>
   invoke("check_for_app_update");
 

@@ -2,8 +2,9 @@
 import * as React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createTestRepo, openRepo } from "../utils";
-import { render, screen } from "../test-utils";
+import { render, screen, waitFor } from "../test-utils";
 import { Dashboard } from "../../src/components/Dashboard";
+import { getSetting } from "../../src/lib/api";
 import userEvent from "@testing-library/user-event";
 
 describe("Settings integration", () => {
@@ -59,6 +60,28 @@ describe("Settings integration", () => {
       screen.queryByLabelText(/symlinked directories/i),
     ).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
+  });
+
+  it("turns update checks off from the application tab", async () => {
+    render(<Dashboard />);
+
+    await user.click(await screen.findByLabelText("Settings"));
+    await user.click(await screen.findByRole("tab", { name: /application/i }));
+
+    const toggle = await screen.findByRole("switch", {
+      name: "Check for updates",
+    });
+    expect(toggle).toBeChecked();
+    const checkNow = screen.getByRole("button", { name: "Check now" });
+    expect(checkNow).toBeEnabled();
+
+    await user.click(toggle);
+
+    expect(toggle).not.toBeChecked();
+    expect(checkNow).toBeDisabled();
+    await waitFor(async () => {
+      expect(await getSetting("check_for_updates")).toBe("false");
+    });
   });
 
   it("returns to the previous page when settings is closed", async () => {
