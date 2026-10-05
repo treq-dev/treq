@@ -14,6 +14,7 @@ import {
 import useSWR from "swr";
 import { useLocation } from "wouter";
 import { useAutoUpdate } from "../hooks/useAutoUpdate";
+import { useWhatsNew } from "../hooks/useWhatsNew";
 import { useKeyboardShortcut } from "../hooks/useKeyboard";
 import { useMutation } from "../hooks/useMutation";
 import { useWorkspaceHierarchy } from "../hooks/useWorkspaceHierarchy";
@@ -1180,6 +1181,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     autoCheck: import.meta.env.MODE !== "test",
     listenMenu: import.meta.env.MODE !== "test",
   });
+  useWhatsNew({ enabled: import.meta.env.MODE !== "test" });
   const handleReturnToDashboard = () => {
     // Navigate to main repo ShowWorkspace > Code
     setSelectedWorkspace(null);
