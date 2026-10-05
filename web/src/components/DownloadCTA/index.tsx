@@ -16,12 +16,12 @@ export default function DownloadCTA({
         macOS, Windows, and Linux.
       </p>
       <div className={styles.actions}>
-        <DownloadButton className="button button--primary" />
+        <DownloadButton location="cta" className="button button--primary" />
         <Link className="button button--secondary" to="/pricing">
           See pricing
         </Link>
       </div>
-      <OtherDownloads className={styles.other} />
+      <OtherDownloads location="cta" className={styles.other} />
     </aside>
   );
 }
