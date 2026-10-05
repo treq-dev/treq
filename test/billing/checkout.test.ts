@@ -244,13 +244,10 @@ describe("createCheckout", () => {
   it("creates and records a customer, then offers the trial", async () => {
     const { stripe, calls } = fakeStripe(STRIPE_OK);
     const store = fakeStore({
-      getCustomer: vi
-        .fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          stripe_customer_id: "cus_new",
-          trial_used_at: null,
-        }),
+      getCustomer: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
+        stripe_customer_id: "cus_new",
+        trial_used_at: null,
+      }),
     });
     const result = await createCheckout(
       { plan: "pro" },
@@ -282,13 +279,10 @@ describe("createCheckout", () => {
     const { stripe, calls } = fakeStripe(STRIPE_OK);
     const store = fakeStore({
       attachCustomer: vi.fn(async () => "cus_won_race"),
-      getCustomer: vi
-        .fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          stripe_customer_id: "cus_won_race",
-          trial_used_at: null,
-        }),
+      getCustomer: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
+        stripe_customer_id: "cus_won_race",
+        trial_used_at: null,
+      }),
     });
     await createCheckout(
       { plan: "pro" },
