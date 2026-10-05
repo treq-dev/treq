@@ -293,6 +293,12 @@ verify_jwt = false
 # check inside the function (STRIPE_WEBHOOK_SECRET), not a Supabase JWT.
 verify_jwt = false
 
+[functions.alpha-unsubscribe]
+# Opened from the unsubscribe link in alpha waitlist emails, by a person or
+# by a mail provider's one-click POST. The token in the URL is the
+# credential, not a Supabase JWT.
+verify_jwt = false
+
 [functions.merge-queue-worker]
 # Invoked by cron / the webhook nudge with the service-role key.
 verify_jwt = true
