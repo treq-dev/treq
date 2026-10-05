@@ -3,6 +3,7 @@ import Layout from "@theme/Layout";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import { supabase } from "../../../lib/supabase";
+import { signInHrefFor } from "../../../lib/utils";
 
 type State = "loading" | "success" | "error" | "unauthenticated";
 
@@ -105,7 +106,7 @@ function CallbackContent() {
         <>
           <p style={styles.text}>You need to be signed in to link the GitHub App.</p>
           <a
-            href={`/sign-in?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+            href={signInHrefFor(window.location.pathname + window.location.search)}
             style={styles.link}
           >
             Sign in

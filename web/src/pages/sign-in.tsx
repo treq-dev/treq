@@ -3,7 +3,7 @@ import Layout from "@theme/Layout";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import { supabase } from "../lib/supabase";
-import { getAuthCallbackUrl, safeRedirectPath } from "../lib/utils";
+import { getAuthCallbackUrl, safeRedirectPath, signInCallbackQuery } from "../lib/utils";
 
 type View = "sign-in" | "sign-up" | "forgot-password";
 
@@ -52,10 +52,7 @@ function LoginContent() {
       isProduction: process.env.NODE_ENV === "production",
       query,
     });
-  const callbackQuery = new URLSearchParams();
-  if (source) callbackQuery.set("source", source);
-  if (requestedRedirect !== null) callbackQuery.set("redirect", redirectPath);
-  const redirectTo = callbackUrl(callbackQuery.toString() || undefined);
+  const redirectTo = callbackUrl(signInCallbackQuery(source, requestedRedirect));
 
   const switchView = (v: View) => {
     if (v === "sign-up" && !emailSignupEnabled) return;

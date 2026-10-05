@@ -49,3 +49,33 @@ export function safeRedirectPath(target: string | null | undefined): string {
   if (url.origin !== REDIRECT_CHECK_ORIGIN) return DEFAULT_REDIRECT_PATH;
   return `${url.pathname}${url.search}${url.hash}`;
 }
+
+/**
+ * Query string /sign-in adds to the OAuth callback URL. `redirect` is only
+ * carried when the caller asked for one, and it is always the checked path.
+ */
+export function signInCallbackQuery(
+  source: string,
+  requestedRedirect: string | null,
+): string | undefined {
+  const query = new URLSearchParams();
+  if (source) query.set("source", source);
+  if (requestedRedirect !== null) query.set("redirect", safeRedirectPath(requestedRedirect));
+  return query.toString() || undefined;
+}
+
+/**
+ * Where /auth/callback sends a signed-in user. Only the desktop app needs a
+ * one-time token, so web sign-ins go straight to the checked redirect path.
+ */
+export function authCallbackDestination(
+  params: URLSearchParams,
+): { kind: "desktop" } | { kind: "web"; path: string } {
+  if (params.get("source") === "desktop") return { kind: "desktop" };
+  return { kind: "web", path: safeRedirectPath(params.get("redirect")) };
+}
+
+/** Sign-in link that returns the user to `pathAndSearch` afterwards. */
+export function signInHrefFor(pathAndSearch: string): string {
+  return `/sign-in?redirect=${encodeURIComponent(pathAndSearch)}`;
+}
