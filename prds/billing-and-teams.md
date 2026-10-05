@@ -49,7 +49,7 @@ Stripe stays the source of truth for payment state. The webhook copies the field
 
 | Table | Purpose | Written by |
 | --- | --- | --- |
-| `billing_customers` | Maps an owner (`user` or `organization`) to a Stripe customer ID. Records `trial_used_at`. | Checkout function |
+| `billing_customers` | Maps an owner (`user` or `organization`) to a Stripe customer ID. Records `trial_used_at`. An owner keeps its first customer, and a customer keeps its first owner. | Checkout function and webhook |
 | `billing_subscriptions` | One row per Stripe subscription: owner, plan (`pro` or `team`), status, `current_period_end`, `cancel_at_period_end`, `trial_end`. | Webhook only |
 | `billing_events` | Stripe event IDs already processed, so a replayed event changes nothing. | Webhook only |
 | `organizations` | Name and owner. | Organization function |
@@ -70,6 +70,8 @@ Stripe stays the source of truth for payment state. The webhook copies the field
 | `organizations` | User JWT | Creates an organization, invites by email, accepts an invite by token, removes a member, and attaches a GitHub App installation the caller linked. |
 
 The Checkout session carries the owner type and ID in `metadata` and `client_reference_id`. The webhook reads the owner from the customer mapping, not from the email on the Stripe customer.
+
+The webhook trusts the owner in session `metadata` only when `client_reference_id` matches it, because a Payment Link accepts `client_reference_id` from its URL. A mapping that conflicts with an existing one is logged and ignored. Stripe does not deliver events in order, so each subscription row stores the creation time of the event that last wrote it. An older event never overwrites a newer one, and a canceled subscription is never revived.
 
 ## Enforcement
 
@@ -114,7 +116,7 @@ Desktop app:
 Each step ships on its own and leaves the product working.
 
 1. Migration, `has_pro`, the rewritten `subscriptions` view, and `stripe-webhook`. Nobody can buy yet, so nothing changes for users.
-2. `billing-checkout`, `billing-portal`, and the dashboard. Turn on `stripePayments`.
+2. `billing-checkout`, `billing-portal`, and the dashboard. The owner turns on `stripePayments` once the Stripe products, portal, webhook and secrets exist.
 3. Server-side enforcement. This step waits for step 2, so no user loses a feature they cannot buy.
 4. Organizations, Team checkout, and installation ownership.
 5. Pricing page copy for Pro as the cloud bundle, the trial, and Team.
