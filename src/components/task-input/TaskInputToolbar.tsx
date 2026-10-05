@@ -1,6 +1,9 @@
 import { ChevronDown, Paperclip, Plus } from "lucide-react";
+import { useId } from "react";
 import { AgentIcon } from "../icons/AgentIcons";
 import { Button } from "../ui/button";
+import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +32,11 @@ interface TaskInputToolbarProps {
   onAttachFromFinder: () => void;
   onAgentChange: (agent: AgentKind) => void;
   onSaveAsRepoDefaultChange: (checked: boolean) => void;
+  /** The home view's "Run in a new workspace" toggle; omitted elsewhere. */
+  newWorkspace?: {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+  };
   onSubmit: (mode: AgentPermissionMode) => void;
 }
 
@@ -43,9 +51,11 @@ export const TaskInputToolbar: React.FC<TaskInputToolbarProps> = ({
   onAttachFromFinder,
   onAgentChange,
   onSaveAsRepoDefaultChange,
+  newWorkspace,
   onSubmit,
 }) => {
   const supportsPlan = agentInfo(selectedAgent).hasPlanMode;
+  const newWorkspaceSwitchId = useId();
   return (
     <div className="px-2 pb-2 pt-1 flex min-w-0 flex-wrap items-center justify-between gap-1">
       <div className="flex items-center gap-1">
@@ -67,6 +77,21 @@ export const TaskInputToolbar: React.FC<TaskInputToolbarProps> = ({
           <Paperclip className="w-4 h-4" />
           Attach
         </Button>
+        {newWorkspace && (
+          <div className="ml-1 flex items-center gap-1.5">
+            <Switch
+              id={newWorkspaceSwitchId}
+              checked={newWorkspace.checked}
+              onCheckedChange={newWorkspace.onCheckedChange}
+            />
+            <Label
+              htmlFor={newWorkspaceSwitchId}
+              className="cursor-pointer text-xs font-normal text-muted-foreground"
+            >
+              Run in a new workspace
+            </Label>
+          </div>
+        )}
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">

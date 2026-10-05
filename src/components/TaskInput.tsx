@@ -30,6 +30,11 @@ import {
   type IssueWorkspace,
   openOrCreateIssueWorkspace,
 } from "../lib/issueWorkspace";
+import {
+  createTaskWorkspace,
+  isNewWorkspaceForTasksOn,
+  NEW_WORKSPACE_FOR_TASKS_SETTING,
+} from "../lib/taskWorkspace";
 import { useToast } from "./ui/toast";
 import { useDebounce } from "../hooks/useDebounce";
 import { cn } from "../lib/utils";
@@ -49,6 +54,11 @@ interface TaskInputProps {
    */
   initialIssue?: IssueAttachment | null;
   onIssueChange?: (issue: IssueAttachment | null) => void;
+  /**
+   * Home view only: show the "Run in a new workspace" toggle (on unless the
+   * repo turned it off), which starts each task in a workspace of its own.
+   */
+  offerNewWorkspace?: boolean;
 }
 
 export const TaskInput: React.FC<TaskInputProps> = ({
@@ -59,6 +69,7 @@ export const TaskInput: React.FC<TaskInputProps> = ({
   initialText,
   initialIssue = null,
   onIssueChange,
+  offerNewWorkspace = false,
 }) => {
   const [taskText, setTaskText] = useState(initialText ?? "");
   const [issue, setIssue] = useState<IssueAttachment | null>(initialIssue);
@@ -98,6 +109,34 @@ export const TaskInput: React.FC<TaskInputProps> = ({
     agentOverride ?? agentSettings?.agent ?? DEFAULT_AGENT;
   const configuredDefaultAgent: AgentKind = agentSettings?.agent ?? "claude";
   const setSelectedAgent = setAgentOverride;
+
+  const { data: newWorkspaceSetting, mutate: mutateNewWorkspaceSetting } =
+    useSWR(
+      offerNewWorkspace
+        ? ["repo-setting", repoPath, NEW_WORKSPACE_FOR_TASKS_SETTING]
+        : null,
+      () => getRepoSetting(repoPath, NEW_WORKSPACE_FOR_TASKS_SETTING),
+    );
+  const runInNewWorkspace =
+    offerNewWorkspace && isNewWorkspaceForTasksOn(newWorkspaceSetting);
+  const setRunInNewWorkspace = (on: boolean) =>
+    mutateNewWorkspaceSetting(
+      async () => {
+        await setRepoSetting(
+          repoPath,
+          NEW_WORKSPACE_FOR_TASKS_SETTING,
+          String(on),
+        );
+        return String(on);
+      },
+      { optimisticData: String(on), rollbackOnError: true },
+    ).catch((error: unknown) =>
+      addToast({
+        title: "Failed to save setting",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      }),
+    );
 
   useEffect(() => {
     setAgentOverride(null);
@@ -320,9 +359,16 @@ export const TaskInput: React.FC<TaskInputProps> = ({
         const issueWorkspace = issue
           ? await openOrCreateIssueWorkspace(repoPath, issue)
           : null;
-        const targetWorkspaceId = issueWorkspace
-          ? issueWorkspace.workspaceId
-          : workspaceId;
+        let targetWorkspaceId = workspaceId;
+        if (issueWorkspace) {
+          targetWorkspaceId = issueWorkspace.workspaceId;
+        } else if (runInNewWorkspace) {
+          targetWorkspaceId = await createTaskWorkspace(
+            repoPath,
+            pendingPrompt,
+            sessionName,
+          );
+        }
         if (issue && issueWorkspace)
           reportSubItemWorkspaces(issue.source, issueWorkspace);
 
@@ -460,6 +506,14 @@ export const TaskInput: React.FC<TaskInputProps> = ({
                 setShowSaveAsRepoDefault(nextAgent !== configuredDefaultAgent);
               }}
               onSaveAsRepoDefaultChange={setSaveAsRepoDefault}
+              newWorkspace={
+                offerNewWorkspace && !issue && newWorkspaceSetting !== undefined
+                  ? {
+                      checked: runInNewWorkspace,
+                      onCheckedChange: setRunInNewWorkspace,
+                    }
+                  : undefined
+              }
               onSubmit={handleSubmit}
             />
           </div>
