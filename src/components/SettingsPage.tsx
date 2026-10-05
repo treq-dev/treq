@@ -41,6 +41,7 @@ import { Slider } from "./ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { useToast } from "./ui/toast";
 import { AgentOptions } from "./AgentOptions";
+import { PrerequisiteChecklist } from "./PrerequisiteChecklist";
 
 type TabValue =
   | "application"
@@ -337,6 +338,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         Default agent for new sessions
                       </p>
                     </div>
+
+                    <PrerequisiteChecklist title="Command-line tools" />
 
                     <div>
                       <Label htmlFor="conflict-marker-style">

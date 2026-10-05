@@ -20,6 +20,7 @@ import type {
   LocalSshIdentity,
   MergeStrategy,
   PrCiStatus,
+  PrerequisiteStatus,
   PullWorkspaceResult,
   RenameWorkspaceResult,
   RepoBranch,
@@ -191,6 +192,9 @@ export const setWindowRepoPath = (repoPath: string): Promise<void> =>
 
 export const detectEditorApps = (): Promise<EditorAppsResponse> =>
   invoke("detect_editor_apps");
+
+export const checkPrerequisites = (): Promise<PrerequisiteStatus[]> =>
+  invoke("check_prerequisites");
 
 export const getGitRemoteUrl = (
   repoPath: string,

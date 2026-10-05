@@ -1,4 +1,5 @@
 import { FolderOpen, Server } from "lucide-react";
+import { PrerequisiteChecklist } from "./PrerequisiteChecklist";
 import { Button } from "./ui/button";
 import {
   Card,
@@ -42,6 +43,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({
             Open via SSH
           </Button>
         )}
+      </CardContent>
+      <CardContent className="border-t border-border/50 pt-4">
+        <PrerequisiteChecklist />
       </CardContent>
     </Card>
   </div>

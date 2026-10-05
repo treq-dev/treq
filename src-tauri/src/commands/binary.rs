@@ -88,6 +88,14 @@ pub fn detect_editor_apps(state: State<'_, AppState>) -> Result<EditorAppsRespon
   })
 }
 
+/// Installed state of Git, the agent CLIs and `gh`, for the first-run checklist.
+#[tauri::command]
+pub async fn check_prerequisites() -> Result<Vec<crate::core::PrerequisiteStatus>, String> {
+  tauri::async_runtime::spawn_blocking(crate::core::check_prerequisites)
+    .await
+    .map_err(|e| format!("Failed to join check_prerequisites task: {e}"))
+}
+
 /// Return the directory containing the running treq binary
 #[tauri::command]
 pub fn get_treq_bin_dir() -> Result<String, String> {
