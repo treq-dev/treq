@@ -146,6 +146,17 @@ export interface GitHubAdapter {
   >;
 }
 
+const TREQ_COMMENT_FOOTER =
+  "<sub>[Treq](https://treq.dev/?utm_source=github&utm_medium=merge_queue_comment&utm_campaign=merge_queue) runs this merge queue.</sub>";
+
+// Reviewers who don't use Treq see these comments, so each one links to the
+// site. The optional invisible marker stays last so a redelivered command can
+// find its earlier comment and not repeat itself.
+export function formatCommentBody(body: string, marker?: string): string {
+  const withFooter = `${body}\n\n${TREQ_COMMENT_FOOTER}`;
+  return marker ? `${withFooter}\n\n<!-- treq:${marker} -->` : withFooter;
+}
+
 export class GitHubRestAdapter implements GitHubAdapter {
   constructor(
     private readonly token: string,
@@ -276,11 +287,10 @@ export class GitHubRestAdapter implements GitHubAdapter {
     });
   }
 
-  // An optional invisible marker makes retried comments detectable so a
-  // redelivered command does not repeat itself.
   async createComment(prNumber: number, body: string, marker?: string): Promise<void> {
-    const fullBody = marker ? `${body}\n\n<!-- treq:${marker} -->` : body;
-    await this.request(`/issues/${prNumber}/comments`, "POST", { body: fullBody });
+    await this.request(`/issues/${prNumber}/comments`, "POST", {
+      body: formatCommentBody(body, marker),
+    });
   }
 
   async hasCommentWithMarker(prNumber: number, marker: string): Promise<boolean> {
