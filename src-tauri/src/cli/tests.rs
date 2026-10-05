@@ -1495,3 +1495,134 @@ mod numeric_args {
     );
   }
 }
+
+mod notify {
+  use super::{handle_cli_command, is_supported_cli_command, make_subcommand};
+  use crate::cli::workspace_handlers::parse_notify_args;
+  use crate::notify_dispatch::NotifyEvent;
+
+  fn notify_matches(args: &[&str]) -> tauri_plugin_cli::Matches {
+    let argv = ["treq", "notify"].into_iter().chain(args.iter().copied());
+    crate::cli::args::parse(argv)
+      .expect("notify arguments parse")
+      .subcommand
+      .expect("notify subcommand")
+      .matches
+  }
+
+  #[test]
+  fn notify_is_a_supported_cli_command() {
+    assert!(is_supported_cli_command("notify"));
+    assert!(handle_cli_command(&make_subcommand("notify")).is_some());
+  }
+
+  #[test]
+  fn parses_message_into_a_message_event() {
+    let matches = notify_matches(&["Tests pass.\nReady for review"]);
+    assert_eq!(
+      parse_notify_args(&matches),
+      Ok((
+        NotifyEvent::Message,
+        Some("Tests pass. Ready for review".to_string())
+      ))
+    );
+  }
+
+  #[test]
+  fn parses_agent_exited_flag_without_a_message() {
+    let matches = notify_matches(&["--agent-exited"]);
+    assert_eq!(
+      parse_notify_args(&matches),
+      Ok((NotifyEvent::AgentExited, None))
+    );
+  }
+
+  #[test]
+  fn rejects_missing_or_blank_message() {
+    assert!(parse_notify_args(&notify_matches(&[])).is_err());
+    assert!(parse_notify_args(&notify_matches(&["   "])).is_err());
+  }
+
+  #[test]
+  fn rejects_message_combined_with_agent_exited() {
+    let error = parse_notify_args(&notify_matches(&["hi", "--agent-exited"])).unwrap_err();
+    assert!(error.contains("--agent-exited"), "{error}");
+  }
+
+  #[test]
+  fn notify_without_arguments_exits_with_failure() {
+    assert_eq!(crate::cli::args::run(["treq", "notify"]), 1);
+  }
+
+  /// Dispatches to a fake app that replies `response`. Returns the result and the JSON it got.
+  fn dispatch_to_fake_app(
+    response: crate::agent_dispatch::AgentDispatchResponse,
+  ) -> (Result<Option<String>, String>, serde_json::Value) {
+    use crate::agent_dispatch::{
+      normalize_repo_path, now_millis, InstanceWindowSnapshot, RegisteredInstance,
+    };
+    use crate::notify_dispatch::{NotifyDispatchRequest, NOTIFY_KIND};
+    use std::io::{Read, Write};
+
+    let _guard = super::env_lock().lock().unwrap();
+    let temp = super::TempDir::new().expect("temp");
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(&repo).expect("mkdir");
+    let repo = repo.to_str().unwrap().to_string();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let endpoint = listener.local_addr().unwrap().to_string();
+    let app = std::thread::spawn(move || {
+      let (mut stream, _) = listener.accept().expect("accept");
+      let mut payload = String::new();
+      stream.read_to_string(&mut payload).expect("read");
+      let reply = serde_json::to_string(&response).expect("serialize");
+      stream.write_all(reply.as_bytes()).expect("write");
+      serde_json::from_str::<serde_json::Value>(&payload).expect("json")
+    });
+    super::seed_registry(
+      vec![RegisteredInstance {
+        instance_id: "instance-1".to_string(),
+        pid: 1,
+        started_at: 1,
+        last_heartbeat_at: now_millis(),
+        endpoint,
+        windows: vec![InstanceWindowSnapshot {
+          window_label: "main".to_string(),
+          normalized_repo_path: normalize_repo_path(&repo),
+          focused: false,
+          last_focused_at: None,
+        }],
+      }],
+      &repo,
+    );
+
+    let result = crate::cli::dispatch_notify_request(&NotifyDispatchRequest {
+      kind: NOTIFY_KIND.to_string(),
+      request_id: "notify-1".to_string(),
+      repo,
+      workspace: Some("feat/login".to_string()),
+      event: NotifyEvent::AgentExited,
+      message: None,
+    });
+    (result, app.join().expect("join"))
+  }
+
+  #[test]
+  fn dispatch_notify_request_sends_notify_json_to_the_app() {
+    let (result, payload) =
+      dispatch_to_fake_app(crate::agent_dispatch::AgentDispatchResponse::handled());
+    assert_eq!(result, Ok(None));
+    assert_eq!(payload["kind"], "notify");
+    assert_eq!(payload["event"], "agent_exited");
+    assert_eq!(payload["workspace"], "feat/login");
+  }
+
+  #[test]
+  fn dispatch_notify_request_returns_the_apps_skip_reason() {
+    let (result, _) = dispatch_to_fake_app(crate::agent_dispatch::AgentDispatchResponse::skipped(
+      "a Treq window is focused",
+    ));
+    assert_eq!(result, Ok(Some("a Treq window is focused".to_string())));
+  }
+}

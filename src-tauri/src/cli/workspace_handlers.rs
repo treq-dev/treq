@@ -11,9 +11,10 @@ use super::status_output::{
   format_workspace_stack_lines, print_workspace_partial_status, WorkspacePrStatus,
 };
 use super::{
-  detect_repo_path, dispatch_agent_request, dispatch_send_request, parse_agent_mode_or_default,
-  resolve_default_agent,
+  detect_repo_path, dispatch_agent_request, dispatch_notify_request, dispatch_send_request,
+  parse_agent_mode_or_default, resolve_default_agent,
 };
+use crate::notify_dispatch::{normalize_message, NotifyDispatchRequest, NotifyEvent, NOTIFY_KIND};
 
 fn get_arg_value(matches: &Matches, name: &str) -> Option<String> {
   matches.args.get(name).and_then(|arg| {
@@ -723,6 +724,66 @@ pub(super) fn handle_resolve(matches: &Matches) -> bool {
       false
     }
   }
+}
+
+/// Validates `treq notify` arguments: a message, or `--agent-exited` alone.
+pub(super) fn parse_notify_args(
+  matches: &Matches,
+) -> Result<(NotifyEvent, Option<String>), String> {
+  let message = get_arg_value(matches, "message");
+  if get_arg_flag(matches, "agent-exited") {
+    return match message {
+      Some(_) => Err("pass a message or --agent-exited, not both".to_string()),
+      None => Ok((NotifyEvent::AgentExited, None)),
+    };
+  }
+  let message = message
+    .as_deref()
+    .and_then(normalize_message)
+    .ok_or_else(|| "a message is required".to_string())?;
+  Ok((NotifyEvent::Message, Some(message)))
+}
+
+pub(super) fn handle_notify(matches: &Matches) -> bool {
+  let (event, message) = match parse_notify_args(matches) {
+    Ok(parsed) => parsed,
+    Err(error) => {
+      super::log_cli_error(&format!("Error: {}", error));
+      eprintln!("Usage: treq notify <message>");
+      return false;
+    }
+  };
+  let repo_path = match detect_repo_path() {
+    Ok(path) => path,
+    Err(error) => {
+      super::log_cli_error(&format!("Error: {}", error));
+      return false;
+    }
+  };
+  // Resolve like `treq st`, else the directory name of an unregistered workspace.
+  let workspace = super::lookup_workspace_from_cwd(&repo_path)
+    .map(|workspace| workspace.branch_name)
+    .or_else(|| {
+      let cwd = std::env::current_dir().ok()?;
+      super::workspace_dir_name_from_cwd(&cwd)
+    });
+  let request = NotifyDispatchRequest {
+    kind: NOTIFY_KIND.to_string(),
+    request_id: format!("notify-{}", chrono::Utc::now().timestamp_millis()),
+    repo: repo_path,
+    workspace,
+    event,
+    message,
+  };
+  match dispatch_notify_request(&request) {
+    Ok(None) => println!("Notification shown"),
+    Ok(Some(reason)) => println!("Notification skipped: {reason}"),
+    Err(error) => {
+      super::log_cli_error(&format!("Error dispatching notification: {}", error));
+      return false;
+    }
+  }
+  true
 }
 
 pub(super) fn handle_send(matches: &Matches) -> bool {

@@ -2,10 +2,11 @@
 name: treq
 description: >-
   Work inside a Treq agent terminal: use the treq CLI to create and inspect
-  workspaces, send files or text to the user in the Treq UI, and create
-  commits with treq commit. Use this skill for every Treq agent session,
-  whenever you need another workspace, should show the user a file or preview,
-  need to record a commit, or are finishing inplace conflict resolution.
+  workspaces, send files or text to the user in the Treq UI, notify the user
+  with treq notify, and create commits with treq commit. Use this skill for
+  every Treq agent session, whenever you need another workspace, should show
+  the user a file or preview, finish a task or need the user's input, need to
+  record a commit, or are finishing inplace conflict resolution.
 ---
 
 # Treq
@@ -17,7 +18,7 @@ manage other workspaces. Those commands may write under `.treq/workspaces/`
 outside the current working directory.
 
 Run `treq --help` if a flag is unclear. Prefer `treq` over raw `git` or `jj`
-for workspace, commit, send, and resolve operations.
+for workspace, commit, send, notify, and resolve operations.
 
 ## Workspaces
 
@@ -71,6 +72,23 @@ echo "notes" | treq send
 - Everything else opens as selectable text.
 - Piped stdin is staged under `.treq/send/` (gitignored).
 - Treq must already have this repository open.
+
+## Notify the user
+
+The user often runs several agents and switches to other work. When you finish
+a task or need their input, run `treq notify` with a one-line summary:
+
+```bash
+treq notify "Tests pass. Ready for review"
+treq notify "Need input: keep the v1 endpoint or remove it?"
+```
+
+- Treq shows an OS notification titled with the workspace name.
+- Treq skips it while a Treq window is focused, or when the user turned it
+  off in Settings. The command still succeeds.
+- Run it once per finished task or open question, not for progress updates.
+- Ask the full question in the terminal too. The notification only brings the
+  user back to this session.
 
 ## Commits
 

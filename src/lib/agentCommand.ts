@@ -90,6 +90,12 @@ const wrapWithTempFileCleanup = (command: string, paths: string[]): string => {
   return `( trap "rm -rf ${quoted}" EXIT; ${command} )`;
 };
 
+// Runs in the terminal's shell once the agent subshell ends, so the app can
+// notify "Agent finished". A status of 128 or more means a signal killed the
+// agent, which is how Treq closes or restarts a session, so it stays quiet.
+const NOTIFY_ON_AGENT_EXIT =
+  "[ $? -lt 128 ] && treq notify --agent-exited >/dev/null 2>&1";
+
 export const cursorPromptFileContents = (
   systemPrompt: string,
   pendingPrompt?: string | null,
@@ -165,7 +171,7 @@ export const buildAgentAutoCommand = ({
     }
   }
 
-  autoCommand = wrapWithTempFileCleanup(autoCommand, cleanupPaths);
+  autoCommand = `${wrapWithTempFileCleanup(autoCommand, cleanupPaths)}; ${NOTIFY_ON_AGENT_EXIT}`;
 
   if (treqBinDir) {
     autoCommand = `export PATH=${shellQuote(treqBinDir)}:$PATH; ${autoCommand}`;
