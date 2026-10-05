@@ -31,7 +31,7 @@ Approved by the owner on 2026-10-05:
 10. Treq posts a stack comment on stacked pull requests it creates. The comment is on by default, and a setting turns it off.
 11. The private alpha covers managed cloud workspaces and SSH Remote Development. Joining the waitlist requires a Treq account.
 12. Desktop usage is measured from aggregate counts of update checks. Service usage is measured from Supabase accounts.
-13. GitHub Discussions is the community channel.
+13. GitHub Discussions is the primary community channel. A Discord server is also a community channel, but it is deferred and not a priority.
 14. A stable release ships every two weeks.
 15. Homebrew cask is the only package manager channel.
 
@@ -127,7 +127,7 @@ The Team plan and the trial are approved decisions. Any further price change, di
 
 Organic search leads because it compounds and costs founder time, not cash. The free tools and the skills directory attract searchers who are not yet looking for Treq. Each of those pages must link to the relevant Learn article and to the download.
 
-Community posts are limited to launch moments. A post without new product substance spends reputation that the next launch needs. Questions and feedback go to GitHub Discussions, which the site and the app link to.
+Community posts are limited to launch moments. A post without new product substance spends reputation that the next launch needs. Questions and feedback go to GitHub Discussions, which the site and the app link to. A Discord server comes later, once Discussions has regular traffic, because live chat needs moderation time the four-hour budget does not cover.
 
 ## Growth loops
 
