@@ -69,6 +69,24 @@ webhook payloads.
   passes.
 - A moved head re-queues the entry at the new SHA instead of failing it.
 
+## Pro entitlement
+
+The merge queue is a Pro feature (`prds/billing-and-teams.md`,
+"Enforcement"). `installation_has_pro(installation_id)` answers for the
+installation's owner: today the user who linked it.
+
+- `set_merge_queue_enabled(..., true)` and any write that turns
+  `merge_queue_configs.enabled` on raise SQLSTATE `PT402` (HTTP 402, hint
+  `pro_required`) without Pro. Turning the queue off always works.
+- `enqueue-workspace` answers 402 `pro_required` to `enqueue`; `dequeue`
+  always works.
+- Before `queue.drive` or `ci.completed` tests or merges anything, the
+  worker checks the owner (`entitlement-pause.ts`). Without Pro it cancels
+  every lane, puts its PRs back to `queued`, and comments once on each
+  waiting PR (operation key and marker `pro-paused:{entryId}`). Later drives
+  of a paused queue only read the database. When Pro returns, the
+  reconciler's next drive starts lanes again.
+
 ## Retry & dead-letter policy
 
 - Retryable (GitHub 429/5xx/rate-limit 403, network, lease contention,
