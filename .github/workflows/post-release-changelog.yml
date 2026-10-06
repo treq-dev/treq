@@ -13,15 +13,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Install git-cliff
-        uses: taiki-e/install-action@v2
-        with:
-          tool: git-cliff
-
-      - name: Generate changelog
-        run: GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" git-cliff --output CHANGELOG.md
+      - name: Generate changelog from GitHub releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            printf '# Changelog\n\n'
+            gh api --paginate "repos/${{ github.repository }}/releases" \
+              --jq '.[] | select(.draft == false and .prerelease == false)
+                | "## [\(.name // .tag_name)](\(.html_url)) - \(.published_at | fromdateiso8601 | strftime("%e %B %Y") | ltrimstr(" "))\n\n\(.body // "" | gsub("\r"; "") | gsub("(?m)^#"; "##"))\n"'
+          } > CHANGELOG.md
 
       - name: Generate web changelog page
         run: |
@@ -32,7 +35,7 @@ jobs:
             printf "<ContentPageLayout toc={toc} breadcrumbs={[{label: 'Home', href: '/'}, {label: 'Changelog'}]}>\n\n"
             printf '# Changelog\n\n'
             printf '> Full release history for [Treq](https://github.com/Ziinc/treq/releases).\n\n'
-            tail -n +3 CHANGELOG.md
+            tail -n +3 CHANGELOG.md | sed -e 's/{/\\{/g; s/}/\\}/g; s/</\&lt;/g'
             printf '\n</ContentPageLayout>\n'
           } > web/src/pages/changelog.mdx
 
