@@ -94,7 +94,7 @@ Do not change prices, add discounts, or add plans through this document. Each of
 | Priority | Channel | Assets | Automation |
 | --- | --- | --- | --- |
 | 1 | Organic search | Learn articles, comparison pages, free tools under `/tools/`, skills directory | biz-tools daily keyword report and weekly Draft content PRs |
-| 2 | GitHub | README, release notes, changelog | Release notes follow `cliff.toml` |
+| 2 | GitHub | README, release notes, changelog | Release notes are GitHub auto-generated |
 | 3 | Private alpha list | Signup form on treq.dev, alpha invitations, alpha update emails | Signup counts reported in the GTM digest |
 | 4 | Developer communities | One post per launch moment, written for that community's rules | None. The owner posts by hand. |
 | 5 | Integration directories | Linear integration listing, GitHub App listing | None |
