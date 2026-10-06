@@ -60,7 +60,7 @@ make bump           # prompts for the new version
 make bump VERSION=0.1.3   # non-interactive
 ```
 
-Updates `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock` in one step.
+Updates `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `Cargo.lock` in one step.
 
 ```bash
 # to profile benchmark code
