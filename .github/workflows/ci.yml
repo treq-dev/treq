@@ -58,7 +58,38 @@ jobs:
               - "Cargo.toml"
               - "Cargo.lock"
 
+  detect-js-changes:
+    name: detect js changes
+    runs-on: ubuntu-22.04
+    outputs:
+      js_changed: ${{ steps.filter.outputs.js }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for JS/TS source and tooling config changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            js:
+              - "*.{js,ts,mjs,cjs,mts,cts}"
+              - "scripts/**"
+              - "src/**"
+              - "test/**"
+              - "eslint-rules/**"
+              - "package.json"
+              - "package-lock.json"
+              - "tsconfig*.json"
+              - "biome.json"
+              - ".oxlintrc.json"
+              - "knip.json"
+              - "sgconfig.yml"
+              - ".tool-versions"
+              - ".github/workflows/ci.yml"
+
   verify-js:
+    # lint runs ast-grep rules over src-tauri, so it also runs on Rust changes.
+    needs: [detect-js-changes, detect-rust-changes]
+    if: needs.detect-js-changes.outputs.js_changed == 'true' || needs.detect-rust-changes.outputs.rust_changed == 'true'
     timeout-minutes: ${{ matrix.timeout-minutes }}
     strategy:
       fail-fast: false
@@ -73,15 +104,21 @@ jobs:
           - platform: ubuntu-22.04
             task: lint
             timeout-minutes: 15
+            rust: true
           - platform: ubuntu-22.04
             task: knip
             timeout-minutes: 15
     name: verify-js / ${{ matrix.task }} / ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
+    env:
+      # Matrix entries flagged rust: true also run on Rust-only changes.
+      RUN_TASK: ${{ needs.detect-js-changes.outputs.js_changed == 'true' || matrix.rust == true }}
     steps:
       - uses: actions/checkout@v4
+        if: env.RUN_TASK == 'true'
 
       - name: Setup Node.js
+        if: env.RUN_TASK == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -89,12 +126,18 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
+        if: env.RUN_TASK == 'true'
         run: npm ci
 
       - name: Run JS task
+        if: env.RUN_TASK == 'true'
         run: npm run ${{ matrix.task }}
 
   test-js:
+    # test:integration drives the Rust commands via NAPI, so it also runs on
+    # Rust changes.
+    needs: [detect-js-changes, detect-rust-changes]
+    if: needs.detect-js-changes.outputs.js_changed == 'true' || needs.detect-rust-changes.outputs.rust_changed == 'true'
     timeout-minutes: ${{ matrix.timeout-minutes }}
     strategy:
       fail-fast: false
@@ -108,15 +151,21 @@ jobs:
           - platform: ubuntu-22.04
             task: test:integration
             timeout-minutes: 30
+            rust: true
           - platform: windows-latest
             task: test:unit
             timeout-minutes: 15
     name: test-js / ${{ matrix.task }} / ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
+    env:
+      # Matrix entries flagged rust: true also run on Rust-only changes.
+      RUN_TASK: ${{ needs.detect-js-changes.outputs.js_changed == 'true' || matrix.rust == true }}
     steps:
       - uses: actions/checkout@v4
+        if: env.RUN_TASK == 'true'
 
       - name: Setup Node.js
+        if: env.RUN_TASK == 'true'
         id: setup-node
         uses: actions/setup-node@v4
         with:
@@ -131,7 +180,7 @@ jobs:
       - name: install dependencies (ubuntu only)
         # WebKit/GTK is needed to *dlopen* libtreq_lib.so in integration tests
         # even on a NAPI cache hit.
-        if: matrix.platform == 'ubuntu-22.04' && matrix.task == 'test:integration'
+        if: env.RUN_TASK == 'true' && (matrix.platform == 'ubuntu-22.04' && matrix.task == 'test:integration')
         uses: awalsh128/cache-apt-pkgs-action@v1.6.1
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -142,7 +191,7 @@ jobs:
       # release binary (macOS brew of git/jj/gh was ~40s every run).
       - name: Resolve jj release tag
         id: jj
-        if: matrix.task == 'test:integration'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration')
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -154,14 +203,14 @@ jobs:
 
       - name: Restore jj CLI cache
         id: jj-cache
-        if: matrix.task == 'test:integration'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration')
         uses: actions/cache/restore@v4
         with:
           path: .ci-bin
           key: jj-${{ runner.os }}-${{ runner.arch }}-${{ steps.jj.outputs.tag }}
 
       - name: Install jj CLI
-        if: matrix.task == 'test:integration' && steps.jj-cache.outputs.cache-hit != 'true'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration' && steps.jj-cache.outputs.cache-hit != 'true')
         env:
           GITHUB_TOKEN: ${{ github.token }}
           JJ_TAG: ${{ steps.jj.outputs.tag }}
@@ -203,7 +252,7 @@ jobs:
           fi
 
       - name: Save jj CLI cache
-        if: matrix.task == 'test:integration' && steps.jj-cache.outputs.cache-hit != 'true'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration' && steps.jj-cache.outputs.cache-hit != 'true')
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -211,11 +260,11 @@ jobs:
           key: ${{ steps.jj-cache.outputs.cache-primary-key }}
 
       - name: Add jj to PATH
-        if: matrix.task == 'test:integration'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration')
         run: echo "$GITHUB_WORKSPACE/.ci-bin" >> "$GITHUB_PATH"
 
       - name: Verify tool versions
-        if: matrix.task == 'test:integration'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration')
         run: |
           git --version
           jj --version
@@ -225,13 +274,14 @@ jobs:
       # the same commit. Log the hardware so a slow run can be told apart
       # from a code regression.
       - name: Runner hardware
-        if: matrix.task == 'test:integration'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration')
         run: |
           nproc
           grep -m1 'model name' /proc/cpuinfo || true
           free -m
 
       - name: Install dependencies
+        if: env.RUN_TASK == 'true'
         run: npm ci
 
       # Vitest's on-disk module cache (experimental.fsModuleCache in
@@ -239,7 +289,7 @@ jobs:
       # node_modules. Entries are keyed by file content, so a cache from an
       # older commit is safe to reuse; the key only picks the newest one.
       - name: Vitest module cache
-        if: matrix.task == 'test:integration'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration')
         uses: actions/cache@v4
         with:
           path: node_modules/.experimental-vitest-cache
@@ -249,10 +299,11 @@ jobs:
 
       # Restores the addon built on main (napi-cache.yml) or builds it.
       - name: NAPI addon
-        if: matrix.task == 'test:integration'
+        if: env.RUN_TASK == 'true' && (matrix.task == 'test:integration')
         uses: ./.github/actions/napi-addon
 
       - name: Run JS task
+        if: env.RUN_TASK == 'true'
         run: |
           if [ "${{ matrix.task }}" = "test:integration" ]; then
             npm run test:integration:run
