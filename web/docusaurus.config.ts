@@ -157,7 +157,9 @@ const config: Config = {
           ignorePatterns: [
             '/dashboard',
             '/login',
+            '/sign-in',
             '/auth/**',
+            '/integrations/**',
           ],
         },
         ...(shouldLoadGoogleTag ? {
@@ -171,8 +173,6 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
-    // TODO: Replace with branded Treq social card (1200x630)
     image: 'img/treq-social-card.png',
     colorMode: {
       respectPrefersColorScheme: true,
