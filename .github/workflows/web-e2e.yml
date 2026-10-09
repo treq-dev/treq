@@ -50,6 +50,8 @@ jobs:
       - name: Build
         env:
           SKIP_LANDING_SCREENSHOTS: "1"
+          # Avoids GitHub API rate limits when fetching the latest release for /version.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build
       - name: Run e2e tests
         run: npm run test:e2e

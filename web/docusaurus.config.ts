@@ -11,7 +11,7 @@ const shouldLoadGoogleTag = process.env.DOCUSAURUS_ENABLE_GTAG === 'true';
 const config: Config = {
   plugins: [
     require.resolve('./plugins/rawMarkdownPlugin'),
-    require.resolve('./plugins/versionPlugin'),
+    require.resolve('./plugins/latestReleasePlugin'),
     require.resolve('./plugins/jsonLdPlugin'),
     require.resolve('./plugins/skillsPlugin'),
     require.resolve('./plugins/landingScreenshotsPlugin'),
