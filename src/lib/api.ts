@@ -69,7 +69,12 @@ export * from "./api-github";
 export * from "./api-remote-ssh";
 export * from "./api-types";
 
-export const initRepo = (repoPath: string): Promise<void> =>
+/**
+ * Sets up `.treq/` and jj for a repository. Rejects with a readable message
+ * (and writes nothing) when the folder is not a Git repository. Resolves
+ * `false` when jj setup failed for another reason; the repo still opens.
+ */
+export const initRepo = (repoPath: string): Promise<boolean> =>
   invoke("init_repo", { repoPath });
 
 // Database API

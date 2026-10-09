@@ -452,3 +452,24 @@ fn init_restores_required_gitignore_entries_when_reopening_an_initialized_repo()
   let gitignore = fs::read_to_string(&gitignore_path).expect("read .gitignore");
   assert_eq!(gitignore, ".jj/\n.treq/\n");
 }
+
+#[test]
+fn init_rejects_folder_that_is_not_a_git_repository() {
+  let dir = tempfile::TempDir::new().expect("create temp dir");
+  let path = dir.path().to_string_lossy().to_string();
+
+  let error = treq_lib::core::init(&path).expect_err("init must fail for a non-git folder");
+
+  assert_eq!(
+    error.to_string(),
+    format!("{path} is not a Git repository. Open a folder that contains a .git directory.")
+  );
+  assert!(
+    !dir.path().join(".treq").exists(),
+    ".treq must not be created"
+  );
+  assert!(
+    !dir.path().join(".gitignore").exists(),
+    ".gitignore must not be touched"
+  );
+}

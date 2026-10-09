@@ -130,6 +130,41 @@ pub fn ensure_workspace_rebased(
   Ok(result.is_some())
 }
 
+/// Why [`init`] could not set up a repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InitError {
+  /// The folder at this path has no `.git` (or `.jj`) to open.
+  NotGitRepository(String),
+  /// Creating the local database or `.treq` directories failed.
+  Setup(String),
+}
+
+impl std::fmt::Display for InitError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::NotGitRepository(path) => write!(
+        f,
+        "{path} is not a Git repository. Open a folder that contains a .git directory."
+      ),
+      Self::Setup(message) => f.write_str(message),
+    }
+  }
+}
+
+impl std::error::Error for InitError {}
+
+impl From<String> for InitError {
+  fn from(message: String) -> Self {
+    Self::Setup(message)
+  }
+}
+
+impl From<InitError> for String {
+  fn from(error: InitError) -> Self {
+    error.to_string()
+  }
+}
+
 /// Initializes a repository for use with Treq.
 ///
 /// Sets up both the local database (per-repo) and ensures JJ is initialized.
@@ -140,7 +175,13 @@ pub fn ensure_workspace_rebased(
 ///
 /// # Returns
 /// Returns true if successful or already initialized, false if JJ initialization failed.
-pub fn init(repo_path: &str) -> Result<bool, String> {
+/// Fails with [`InitError::NotGitRepository`], before writing anything, when the
+/// folder is not a Git (or jj) repository.
+pub fn init(repo_path: &str) -> Result<bool, InitError> {
+  if !Path::new(repo_path).join(".git").exists() && !jj::is_jj_workspace(repo_path) {
+    return Err(InitError::NotGitRepository(repo_path.to_string()));
+  }
+
   let db_path = local_db::init_local_db(repo_path)?;
   let db = Database::new(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
   db.init()
