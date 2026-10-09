@@ -288,6 +288,11 @@ deno_version = 2
 # check inside the function, not a Supabase JWT.
 verify_jwt = false
 
+[functions.stripe-webhook]
+# Stripe calls this endpoint directly; authentication is the Stripe-Signature
+# check inside the function (STRIPE_WEBHOOK_SECRET), not a Supabase JWT.
+verify_jwt = false
+
 [functions.merge-queue-worker]
 # Invoked by cron / the webhook nudge with the service-role key.
 verify_jwt = true

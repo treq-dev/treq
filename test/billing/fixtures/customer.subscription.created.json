@@ -1,0 +1,42 @@
+{
+  "id": "evt_1SubCreatedTrialing",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1790000000,
+  "livemode": false,
+  "type": "customer.subscription.created",
+  "data": {
+    "object": {
+      "id": "sub_1Trialing",
+      "object": "subscription",
+      "customer": "cus_Treq123",
+      "status": "trialing",
+      "cancel_at_period_end": false,
+      "cancel_at": null,
+      "canceled_at": null,
+      "trial_start": 1790000000,
+      "trial_end": 1791209600,
+      "metadata": {},
+      "items": {
+        "object": "list",
+        "data": [
+          {
+            "id": "si_1Pro",
+            "object": "subscription_item",
+            "current_period_start": 1790000000,
+            "current_period_end": 1791209600,
+            "price": {
+              "id": "price_1ProMonthly",
+              "object": "price",
+              "lookup_key": "treq_pro_monthly",
+              "recurring": { "interval": "month", "interval_count": 1 },
+              "unit_amount": 1500,
+              "currency": "usd"
+            },
+            "quantity": 1
+          }
+        ]
+      }
+    }
+  }
+}

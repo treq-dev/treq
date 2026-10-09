@@ -1,0 +1,43 @@
+{
+  "id": "evt_1SubUpdatedCanceling",
+  "object": "event",
+  "api_version": "2024-06-20",
+  "created": 1791300000,
+  "livemode": false,
+  "type": "customer.subscription.updated",
+  "data": {
+    "object": {
+      "id": "sub_1Trialing",
+      "object": "subscription",
+      "customer": "cus_Treq123",
+      "status": "active",
+      "current_period_start": 1791209600,
+      "current_period_end": 1793801600,
+      "cancel_at_period_end": true,
+      "cancel_at": 1793801600,
+      "canceled_at": 1791300000,
+      "trial_start": 1790000000,
+      "trial_end": 1791209600,
+      "items": {
+        "object": "list",
+        "data": [
+          {
+            "id": "si_1Pro",
+            "object": "subscription_item",
+            "price": {
+              "id": "price_1ProMonthly",
+              "object": "price",
+              "lookup_key": "treq_pro_monthly"
+            },
+            "quantity": 1
+          }
+        ]
+      }
+    },
+    "previous_attributes": {
+      "cancel_at_period_end": false,
+      "cancel_at": null,
+      "canceled_at": null
+    }
+  }
+}

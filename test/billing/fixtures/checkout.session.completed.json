@@ -1,0 +1,27 @@
+{
+  "id": "evt_1CheckoutCompleted",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1790000001,
+  "livemode": false,
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_1Checkout",
+      "object": "checkout.session",
+      "mode": "subscription",
+      "status": "complete",
+      "ui_mode": "embedded",
+      "payment_status": "no_payment_required",
+      "customer": "cus_Treq123",
+      "customer_details": { "email": "someone-else@example.com" },
+      "subscription": "sub_1Trialing",
+      "client_reference_id": "6f1c1f4e-6a8f-4a39-9d55-2b1f0b3f9a10",
+      "metadata": {
+        "owner_type": "user",
+        "owner_id": "6f1c1f4e-6a8f-4a39-9d55-2b1f0b3f9a10"
+      },
+      "payment_link": null
+    }
+  }
+}
