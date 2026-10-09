@@ -181,14 +181,8 @@ test("consent given before sign-in finishes the join once the visitor is back", 
   await page.getByRole("button", { name: "Sign in to join" }).click();
   await page.waitForURL((url) => url.pathname === "/sign-in");
   await page.getByRole("button", { name: "Continue with GitHub" }).click();
-  await page.waitForURL((url) => url.pathname === "/auth/callback" || url.pathname === "/alpha");
-
-  // Until /sign-in honours ?redirect= (#716), the callback page keeps the
-  // user there and tries to open the desktop app. The pending consent still
-  // completes on their next visit to /alpha in this tab.
-  if (new URL(page.url()).pathname !== "/alpha") {
-    await openAlphaFromFooter(page);
-  }
+  // /auth/callback sends a web sign-in back to the ?redirect= target.
+  await page.waitForURL((url) => url.pathname === "/alpha");
   await expect(page.getByRole("heading", { name: "You're on the waitlist" })).toBeVisible();
   expect(writes).toEqual([
     {
