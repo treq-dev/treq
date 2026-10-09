@@ -10,10 +10,17 @@ APK=$1
 OUT=${2:-target/android-smoke}
 PKG=dev.treq.gpui
 mkdir -p "$OUT"
+# Bound every adb call so a wedged device fails the run instead of hanging it.
+ADB_BIN=$(command -v adb)
+adb() { timeout 90 "$ADB_BIN" "$@"; }
 
-adb wait-for-device
+timeout 300 "$ADB_BIN" wait-for-device
 adb install -r -g "$APK"
 adb logcat -c
+# Keep a live capture so the logs survive an emulator crash.
+"$ADB_BIN" logcat > "$OUT/logcat-stream.txt" 2>&1 &
+LOGCAT_PID=$!
+trap 'kill "$LOGCAT_PID" 2>/dev/null || true' EXIT
 adb shell am start -n "$PKG/.MainActivity"
 
 failures=0
@@ -29,7 +36,11 @@ wait_for() {
   return 1
 }
 
-wait_for "treq-gpui: attached" 120 || true
+if ! wait_for "treq-gpui: attached" 120; then
+  # Keep the evidence when the app never attached, then carry on to the checks.
+  shot 00-not-attached || true
+  adb logcat -d > "$OUT/logcat.txt" || true
+fi
 sleep 6
 shot 01-home
 

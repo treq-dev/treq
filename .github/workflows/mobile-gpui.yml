@@ -21,6 +21,10 @@ on:
       - ".github/workflows/mobile-gpui.yml"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_INCREMENTAL: 0
   NDK_VERSION: 27.0.12077973
@@ -119,12 +123,15 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Run on the emulator
+        timeout-minutes: 20
+        # SwiftShader's Vulkan crashes the emulator on wgpu's shaders; without Vulkan
+        # wgpu uses GLES (phones keep Vulkan).
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -feature -Vulkan
           disable-animations: true
           script: mobile-gpui/scripts/android-smoke.sh ${{ runner.temp }}/apk/treq-gpui-debug.apk target/android-smoke
       - uses: actions/upload-artifact@v4
