@@ -245,6 +245,22 @@
             }
           ]
         },
+        "notify": {
+          "description": "Show an OS notification for the current workspace while no Treq window is focused",
+          "afterHelp": "Examples:\n  treq notify \"Tests pass. Ready for review\"\n  treq notify \"Need input: which API version?\"",
+          "args": [
+            {
+              "name": "message",
+              "index": 1,
+              "takesValue": true,
+              "description": "One-line message to show. The notification title is the workspace name"
+            },
+            {
+              "name": "agent-exited",
+              "description": "Report that this terminal's agent process exited. Treq agent sessions run this for you"
+            }
+          ]
+        },
         "repo": {
           "description": "Inspect, check, create or clone a repository",
           "afterHelp": "Examples:\n  treq repo inspect --repo . --format json\n  treq repo clone --repo ~/src/app --value git@github.com:org/app.git --idempotency-key k1",

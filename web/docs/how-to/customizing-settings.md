@@ -90,6 +90,10 @@ Settings → Integrations manages the Treq account link to the GitHub App for Pr
 
 Day-to-day create PR, CI, and review-thread actions on Free still use the local `gh` CLI. See [Connecting GitHub](/docs/how-to/connecting-github).
 
+## Notifications
+
+**Notify when an agent finishes** is in the Application tab and is on by default. Treq shows a system notification when an agent runs [`treq notify`](/docs/reference/cli#treq-notify) or exits on its own. It only does this while no Treq window is focused, so you hear about agents when you have switched away. **Save Settings** applies the change.
+
 ## Privacy
 
 Anonymous usage data covers feature statistics, error reports, and performance metrics. You can turn it off in Privacy settings. Plan history is stored in `.treq/plans/`. **Clear All Data** resets everything, and it cannot be undone.

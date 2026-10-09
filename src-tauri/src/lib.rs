@@ -19,6 +19,7 @@ pub mod jj;
 pub mod linear;
 pub mod local_db;
 pub mod lock_ext;
+pub mod notify_dispatch;
 mod open_new_window;
 pub mod pr_status;
 pub mod pty;
@@ -372,7 +373,8 @@ pub fn run() {
       )
       .plugin(tauri_plugin_opener::init())
       .plugin(tauri_plugin_dialog::init())
-      .plugin(tauri_plugin_deep_link::init());
+      .plugin(tauri_plugin_deep_link::init())
+      .plugin(tauri_plugin_notification::init());
     // Device-key storage for the mobile connectivity flow (mobile PRD,
     // "Security and key custody") - both plugins are `#[cfg(mobile)]`-gated
     // upstream and have no desktop implementation worth shipping, see

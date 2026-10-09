@@ -38,10 +38,13 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Slider } from "./ui/slider";
+import { Switch } from "./ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { useToast } from "./ui/toast";
 import { AgentOptions } from "./AgentOptions";
 import { PrerequisiteChecklist } from "./PrerequisiteChecklist";
+
+const NOTIFY_AGENT_FINISHED_SETTING = "notify_agent_finished";
 
 type TabValue =
   | "application"
@@ -68,6 +71,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [modelDraft, setModelDraft] = useState<string | null>(null);
   const [agentDraft, setAgentDraft] = useState<string | null>(null);
   const [conflictDraft, setConflictDraft] = useState<string | null>(null);
+  const [notifyDraft, setNotifyDraft] = useState<boolean | null>(null);
   const [fontDraft, setFontDraft] = useState<number | null>(null);
   const [zoomDraft, setZoomDraft] = useState<number | null>(null);
   const [savingRepository, setSavingRepository] = useState(false);
@@ -105,6 +109,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     ["setting", "conflict_marker_style"],
     () => getSetting("conflict_marker_style"),
   );
+  const { data: savedNotify, mutate: mutateSavedNotify } = useSWR(
+    ["setting", NOTIFY_AGENT_FINISHED_SETTING],
+    () => getSetting(NOTIFY_AGENT_FINISHED_SETTING),
+  );
+  // On unless explicitly turned off, matching the backend default.
+  const notifyAgentFinished = notifyDraft ?? savedNotify?.trim() !== "false";
   const defaultModel = modelDraft ?? savedModel ?? "";
   const defaultAgent = agentDraft ?? savedAgent ?? "";
   const conflictMarkerStyle = conflictDraft ?? savedConflict ?? "git";
@@ -122,6 +132,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       await setSetting("default_model", defaultModel);
       await setSetting("default_agent", defaultAgent);
       await setSetting("conflict_marker_style", conflictMarkerStyle);
+      const notifyValue = notifyAgentFinished ? "true" : "false";
+      await setSetting(NOTIFY_AGENT_FINISHED_SETTING, notifyValue);
+      await mutateSavedNotify(notifyValue, { revalidate: false });
       await setFontSize(localFontSize);
       await setZoom(localZoom);
 
@@ -359,6 +372,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         Style of conflict markers written to files during
                         rebase. Git Diff3 is compatible with most editors.
                       </p>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <Label htmlFor="notify-agent-finished">
+                          Notify when an agent finishes
+                        </Label>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Show an OS notification when an agent finishes or asks
+                          for input while no Treq window is focused.
+                        </p>
+                      </div>
+                      <Switch
+                        id="notify-agent-finished"
+                        aria-label="Notify when an agent finishes"
+                        checked={notifyAgentFinished}
+                        onCheckedChange={(checked) => setNotifyDraft(checked)}
+                        className="mt-1"
+                      />
                     </div>
 
                     <div>

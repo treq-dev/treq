@@ -217,4 +217,25 @@ describe("buildAgentAutoCommand", () => {
       `trap "rm -rf '/tmp/treq-agent-prompt-1.txt' '/tmp/treq-agent-skills-1' '/ws/.agents/skills/treq'" EXIT`,
     );
   });
+
+  it.each([
+    "claude",
+    "codex",
+    "cursor",
+    "copilot",
+  ] as const)("tells Treq when the %s process exits on its own", (agent) => {
+    const command = buildAgentAutoCommand({
+      agent,
+      treqBinDir: "/opt/treq/bin",
+      files,
+    });
+
+    expect(
+      command.startsWith("export PATH='/opt/treq/bin':$PATH; ( trap"),
+    ).toBe(true);
+    // Runs after the agent subshell, and not when Treq killed it (exit >= 128).
+    expect(command).toMatch(
+      /\); \[ \$\? -lt 128 \] && treq notify --agent-exited >\/dev\/null 2>&1$/,
+    );
+  });
 });

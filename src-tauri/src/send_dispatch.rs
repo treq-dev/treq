@@ -407,6 +407,11 @@ pub fn parse_ipc_payload(payload: &str) -> Result<IpcDispatchMessage, String> {
         serde_json::from_value(value).map_err(|e| format!("invalid send request json: {}", e))?;
       Ok(IpcDispatchMessage::Send(request))
     }
+    Some(crate::notify_dispatch::NOTIFY_KIND) => {
+      let request =
+        serde_json::from_value(value).map_err(|e| format!("invalid notify request json: {}", e))?;
+      Ok(IpcDispatchMessage::Notify(request))
+    }
     _ => {
       let request: agent_dispatch::AgentDispatchRequest =
         serde_json::from_value(value).map_err(|e| format!("invalid agent request json: {}", e))?;
@@ -419,6 +424,7 @@ pub fn parse_ipc_payload(payload: &str) -> Result<IpcDispatchMessage, String> {
 pub enum IpcDispatchMessage {
   Agent(agent_dispatch::AgentDispatchRequest),
   Send(SendDispatchRequest),
+  Notify(crate::notify_dispatch::NotifyDispatchRequest),
 }
 
 #[cfg(test)]
@@ -643,6 +649,24 @@ mod tests {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].media_type, MEDIA_BROWSER);
     assert_eq!(listed[0].path, "http://localhost:3000/app");
+  }
+
+  #[test]
+  fn parse_ipc_routes_notify_requests() {
+    use crate::notify_dispatch::{NotifyDispatchRequest, NotifyEvent, NOTIFY_KIND};
+    let notify = NotifyDispatchRequest {
+      kind: NOTIFY_KIND.to_string(),
+      request_id: "notify-1".into(),
+      repo: "/repo".into(),
+      workspace: Some("feat/login".into()),
+      event: NotifyEvent::Message,
+      message: Some("Ready for review".into()),
+    };
+    let json = serde_json::to_string(&notify).unwrap();
+    match parse_ipc_payload(&json).unwrap() {
+      IpcDispatchMessage::Notify(req) => assert_eq!(req, notify),
+      other => panic!("expected notify, got {:?}", other),
+    }
   }
 
   #[test]
