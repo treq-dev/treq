@@ -30,8 +30,8 @@ treq add <branch_name> [-d <description>] [-l <title>] [-s <source_branch>] [-p 
 - `-d, --description`: optional workspace description.
 - `-l, --title`: optional workspace title.
 - `-s, --source-branch`: branch to stack the new workspace on.
-- `-p, --sparse`: sparse checkout path prefix; repeatable. Only matching paths are materialized.
-- `-k, --symlink`: path to symlink from the home repo into the new workspace; repeatable (e.g. `node_modules`).
+- `-p, --sparse`: sparse checkout path prefix, repeatable. Only matching paths are materialized.
+- `-k, --symlink`: path to symlink from the home repo into the new workspace, repeatable (e.g. `node_modules`).
 
 Example:
 
@@ -125,13 +125,13 @@ echo '{"path/to/file": "replacement\n"}' | treq resolve <commit_id>
 
 - `commit_id`: change id or commit id of the conflicted revision. Required.
 - `sides`: optional conflict sides to take. Use `1`, `2`, `base`, or `both`.
-- Piped stdin: JSON object of path to full file content replacements. Treq reads stdin only if it delivers data or closes within one second, so a harness that leaves stdin open does not hang the command.
+- Piped stdin: JSON object of path to full file content replacements. Treq reads stdin only if it delivers data or closes within one second, so a tool that leaves stdin open does not hang the command.
 
 When the change is clean, Treq rewrites that commit in place and deletes its resolve directory. See [Resolve commit conflicts inplace](/docs/concepts/commit-management#resolve-commit-conflicts-inplace).
 
 ### `treq send`
 
-Send a file or stdin content to the open Treq window for preview. Images show as square thumbnails in the terminal that ran the command; click a thumbnail to open a modal. Text opens a read-only, selectable preview.
+Send a file or stdin content to the open Treq window for preview. Images show as square thumbnails in the terminal that ran the command. Click a thumbnail to open a modal. Text opens a read-only, selectable preview.
 
 ```bash
 treq send <path>
@@ -156,3 +156,18 @@ treq send --browser ./dist/index.html
 ```
 
 Only `http://localhost`, `http://127.0.0.1`, and `file://` URLs are allowed, matching the in-app browser's own scope. A filesystem path to an existing HTML file is resolved to a `file://` URL automatically. This switches the workspace to the Changes tab's Browser view and navigates there.
+
+### `treq notify`
+
+Show an OS notification for the current workspace. Agents run it when they finish a task or need input, so you can work elsewhere and come back when an agent needs you.
+
+```bash
+treq notify <message>
+```
+
+- `message`: one-line notification body. Treq joins multiple lines into one and cuts the text to 200 characters.
+- `--agent-exited`: report that the agent process in this terminal exited. The body reads `Agent finished in <workspace>`. Agent sessions started by Treq run this when the agent exits on its own, so you never pass it yourself.
+
+The notification title is the workspace branch name. In the home repository it is the repository directory name. Treq shows the notification only while no Treq window is focused. Turn notifications off with **Notify when an agent finishes** in **Settings › Application**. A skipped notification still exits with `0` and prints the reason.
+
+The [bundled Treq skill](/docs/concepts/agent-sessions#bundled-treq-skill) tells agents to run `treq notify` with a one-line summary. Treq must already have this repository open.

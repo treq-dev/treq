@@ -28,18 +28,15 @@ Approved by the owner on 2026-10-05:
 7. Managed cloud workspaces require Pro or Team.
 8. Pro has a 14-day trial. Checkout requires a card.
 9. A Team plan costs US$99 per month for up to 10 members. An organization owns the subscription and the GitHub App installation.
-10. Treq posts a stack comment on stacked pull requests it creates. The comment is on by default, and a setting turns it off.
-11. The private alpha covers managed cloud workspaces and SSH Remote Development. Joining the waitlist requires a Treq account.
-12. Desktop usage is measured from aggregate counts of update checks. Service usage is measured from Supabase accounts.
-13. GitHub Discussions is the primary community channel. A Discord server is also a community channel, but it is deferred and not a priority.
-14. A stable release ships every two weeks.
-15. Homebrew cask is the only package manager channel.
+10. The private alpha covers managed cloud workspaces and SSH Remote Development. Joining the waitlist requires a Treq account.
+11. Service usage is measured from Supabase accounts.
+12. GitHub Discussions is the primary community channel. A Discord server is also a community channel, but it is deferred and not a priority.
 
 ## Summary
 
 Treq is the open-source Stacking Agent Development Environment. Each coding agent gets its own workspace, branches stack, and Treq rebases dependent work when the base moves. The desktop app is free, including GitHub and Linear through local tools. Pro is a cloud subscription at US$15 per user per month with a 14-day trial. It adds the features that need a server: the GitHub App and its merge queue, managed cloud workspaces, mobile access, and Linear OAuth. Team covers up to 10 members for US$99 per month.
 
-Marketing has one job: bring engineers who run several coding agents on one repository to the download, and move the ones who want the cloud features onto Pro or Team. Organic search carries acquisition. Stack comments on pull requests show Treq to reviewers who do not use it yet. A release every two weeks supplies the launch moments. The alpha waitlist collects signed-in engineers who want cloud workspaces early. There is no cash budget, so every channel runs on founder time.
+Marketing has one job: bring engineers who run several coding agents on one repository to the download, and move the ones who want the cloud features onto Pro or Team. Organic search carries acquisition. Stack comments on pull requests show Treq to reviewers who do not use it yet. Roadmap milestones supply the launch moments. The alpha waitlist collects signed-in engineers who want cloud workspaces early. There is no cash budget, so every channel runs on founder time.
 
 ## Product truth
 
@@ -55,7 +52,7 @@ Shipped means available in the latest published release on GitHub Releases. Merg
 - Review, commit, push, and local merge from the app.
 - GitHub integration through the local `gh` CLI: create and view pull requests, CI status, and inline review threads.
 - Desktop builds for macOS on Apple silicon and Intel, distributed through GitHub Releases.
-- The desktop app sends no feature usage, crash reports, or performance data. Diffs, comments, and terminal metadata stay on the user's machine. The macOS app checks `treq.dev/version` for updates, and that request carries no user or install identifier.
+- The desktop app sends no feature usage, crash reports, or performance data. Diffs, comments, and terminal metadata stay on the user's machine.
 
 ### Merged, ships in v0.3.0
 
@@ -120,10 +117,10 @@ The Team plan and the trial are approved decisions. Any further price change, di
 | --- | --- | --- | --- |
 | 1 | Organic search | Learn articles, comparison pages, free tools under `/tools/`, skills directory | biz-tools daily keyword report and weekly Draft content PRs |
 | 2 | Stack comments | One comment on each stacked pull request Treq creates, linking to treq.dev | Posted by the app |
-| 3 | GitHub | README, release notes every two weeks, changelog, GitHub Discussions | Release notes follow `cliff.toml` |
+| 3 | GitHub | README, release notes, changelog, GitHub Discussions | Release notes are GitHub auto-generated |
 | 4 | Alpha waitlist | Join from the dashboard after sign-in, alpha invitations, alpha update emails | Waitlist counts reported in the GTM digest |
 | 5 | Developer communities | One post per launch moment, written for that community's rules | None. The owner posts by hand. |
-| 6 | Directories and package managers | GitHub Marketplace listing, Linear integration listing, Homebrew cask | None |
+| 6 | Integration directories | GitHub Marketplace listing, Linear integration listing | None |
 
 Organic search leads because it compounds and costs founder time, not cash. The free tools and the skills directory attract searchers who are not yet looking for Treq. Each of those pages must link to the relevant Learn article and to the download.
 
@@ -133,7 +130,7 @@ Community posts are limited to launch moments. A post without new product substa
 
 The funnel in [Offer and conversion](#offer-and-conversion) is one pass. These loops turn usage into new visitors without cash:
 
-1. **Stack comments.** Treq posts one comment on each stacked pull request it creates. The comment lists the stack and links to treq.dev with UTM parameters. Every reviewer on that pull request sees it, including reviewers who do not use Treq. The comment is on by default, and a repository setting turns it off. Security and Privacy discloses it.
+1. **Stack comments.** Treq posts one comment on each stacked pull request it creates. The comment lists the stack and links to treq.dev with UTM parameters. Every reviewer on that pull request sees it, including reviewers who do not use Treq. Security and Privacy discloses it.
 2. **Team invites.** The GitHub App installation belongs to the organization, not to one user. When a second member needs the merge queue, the owner moves to Team and invites them. Each invite brings a new user into the app.
 3. **Skills directory.** Each public skill page links to the download and opens the skill in Treq. Searchers who find a skill install the app to use it.
 
@@ -157,11 +154,11 @@ Close a draft that does not meet the bar. biz-tools records the query, so the pi
 
 ## Launch moments
 
-A stable release ships every two weeks. Each release gets a changelog entry and a GitHub Discussions post. A release that ships a milestone also gets the launch assets below:
+Each roadmap milestone gets one launch:
 
 | Milestone | Roadmap target | Launch assets |
 | --- | --- | --- |
-| Windows and Linux builds | v0.3.0 | Changelog entry, Homebrew cask, community post |
+| Windows and Linux builds | v0.3.0 | Changelog entry, community post |
 | Pro checkout and Team plan | After v0.3.0 | Changelog entry, pricing page, email to the alpha waitlist |
 | Workspace Checks | 2026 Q3 | Changelog entry, Learn article on quality gates for agent output, community post |
 | SSH Remote Development and cloud workspaces | 2026 Q4 | Changelog entry, docs, Learn article, community post, alpha invitations |
@@ -184,7 +181,7 @@ The phases match `gtm.phases` for `treq` in biz-tools `config.yaml`. The weekly 
 
 | Phase | Exit gates |
 | --- | --- |
-| Foundation: measurement and content engine | Search Console, Bing, and GA4 collection enabled in biz-tools. Stripe collection enabled for subscriptions. Every site-copy conflict in [Product truth](#product-truth) fixed. Alpha waitlist live with consent and unsubscribe. Draft content producing reviewed pull requests weekly for 4 consecutive weeks. A baseline of weekly organic clicks, weekly download clicks, and daily update checks recorded. |
+| Foundation: measurement and content engine | Search Console, Bing, and GA4 collection enabled in biz-tools. Stripe collection enabled for subscriptions. Every site-copy conflict in [Product truth](#product-truth) fixed. Alpha waitlist live with consent and unsubscribe. Draft content producing reviewed pull requests weekly for 4 consecutive weeks. A baseline of weekly organic clicks and weekly download clicks recorded. |
 | Acquisition: organic growth | Weekly organic clicks reach twice the foundation baseline. At least five Learn or comparison pages each bring 20 or more clicks per week. |
 | Conversion: Free to paid | The first 10 paying Pro or Team subscriptions. Monthly churn measured for three months. |
 
@@ -192,7 +189,7 @@ The acquisition and conversion thresholds are working proposals, pending approva
 
 ## Measurement
 
-The desktop app sends no telemetry. The funnel is measured at the site, at GitHub, at the update endpoint, and at the service.
+The desktop app has no telemetry, and marketing must not add any. The funnel is measured at the site, at GitHub, and at the service.
 
 | Step | Source | Metric |
 | --- | --- | --- |
@@ -201,7 +198,6 @@ The desktop app sends no telemetry. The funnel is measured at the site, at GitHu
 | Refer | GA4 | Sessions from UTM-tagged stack comment links |
 | Download intent | GA4 | Outbound clicks to GitHub Releases |
 | Download | GitHub Releases API | Asset download counts per release |
-| Use the app | Cloudflare analytics for `treq.dev/version` | Daily update checks by app version and platform |
 | Sign up | Supabase | New accounts per week |
 | Join alpha | Supabase | Waitlist joins and unsubscribes per week |
 | Connect | Supabase | Accounts and organizations with a GitHub App installation |
@@ -209,9 +205,7 @@ The desktop app sends no telemetry. The funnel is measured at the site, at GitHu
 | Buy | Stripe | New Pro and Team subscriptions, net revenue, refunds |
 | Retain | Stripe | Monthly churn by plan |
 
-Update checks count installs, not people. The request sends the app version and platform and nothing that identifies the install or the user. Until the Windows and Linux builds check for updates, the counts cover macOS only.
-
-Do not add fingerprinting or cross-site tracking. Do not store IP addresses from update checks. Report sample sizes with every rate. Never divide one source's count by another source's count and call the result a conversion rate unless both count the same people.
+Do not add fingerprinting or cross-site tracking. Report sample sizes with every rate. Never divide one source's count by another source's count and call the result a conversion rate unless both count the same people.
 
 ## Automation requirements
 
@@ -222,14 +216,13 @@ biz-tools has adapters for Search Console, Bing, GA4, and Stripe, and a daily ke
 3. A GitHub Releases adapter that records asset download counts per release.
 4. A Supabase adapter that reports weekly accounts, GitHub App installations, waitlist joins, and unsubscribes as aggregate counts. It must not export personal data.
 5. A Stripe adapter that reads subscriptions, so the digest can report trials, Pro and Team counts, and churn.
-6. A Cloudflare adapter that reports daily `treq.dev/version` requests by app version and platform.
-7. A GA4 outbound-click event for the download link, so the digest can count download intent.
-8. Metric gates in biz-tools config for the acquisition phase, once the baseline exists.
+6. A GA4 outbound-click event for the download link, so the digest can count download intent.
+7. Metric gates in biz-tools config for the acquisition phase, once the baseline exists.
 
 ## Non-goals
 
 - A user interview or positioning-test program before execution.
-- Telemetry in the desktop app beyond the update check described in [Measurement](#measurement).
+- Telemetry in the desktop app.
 - Any cash spend, including paid advertising and sponsorships.
 - Referral rewards, affiliate programs, or a custom marketing CMS.
 - Publishing drafted content without owner review.
@@ -240,7 +233,7 @@ biz-tools has adapters for Search Console, Bing, GA4, and Stripe, and a daily ke
 | ID | Decision | Options | Recommendation |
 | --- | --- | --- | --- |
 | T06 | Acquisition and conversion thresholds | The working proposals in [Phases and exit gates](#phases-and-exit-gates), or other numbers. | Approve the proposals and revisit them at the foundation exit. |
-| T08 | Roadmap targets | Workspace Checks targeted 2026 Q3, which has passed. Set new targets for it and for SSH Remote Development. | Set targets in release numbers, now that releases ship every two weeks. |
+| T08 | Roadmap targets | Workspace Checks targeted 2026 Q3, which has passed. Set new targets for it and for SSH Remote Development. | Set targets in release numbers. |
 
 ## Risks
 
@@ -251,6 +244,5 @@ biz-tools has adapters for Search Console, Bing, GA4, and Stripe, and a daily ke
 | Downloads without paid conversion | Accounts grow but subscriptions do not | Check whether trial users turn on the merge queue or create a cloud workspace. Revisit which features Pro includes. |
 | Stack comments read as spam | Maintainers complain, or more repositories turn the comment off | Shorten the comment. If complaints continue, make it opt-in. |
 | Cloud workspace cost outruns revenue | Monthly VM spend per paying account exceeds the Pro price | Lower the base allocation or price the cloud workspace as an add-on. |
-| Releases slip | Two scheduled releases missed in a row | Cut release scope, not the schedule. |
 | Competitor pages go stale | A competitor changes features or pricing | Re-check each comparison page once a quarter. |
 | Marketing work crowds out product work | Marketing time exceeds four hours per week for three weeks | Cut community posts first, then draft volume. |

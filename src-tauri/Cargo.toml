@@ -31,6 +31,7 @@ libc = "0.2"
 tauri-plugin-cli = "2.4.1"
 # Parses CLI args before Tauri starts (see `cli::args`); same version the plugin uses.
 clap = "4"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [dependencies]
 tauri = { version = "2.10.3", features = ["protocol-asset", "unstable"] }
@@ -41,6 +42,8 @@ tauri-plugin-opener = "2.5.2"
 tauri-plugin-dialog = "2.7.0"
 tauri-plugin-log = "2.8.0"
 tauri-plugin-deep-link = "2.4.7"
+# OS notifications when an agent finishes. 2.5 requires tauri 2.12.
+tauri-plugin-notification = "~2.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
@@ -123,25 +126,3 @@ harness = false
 [[bench]]
 name = "merge_workspace"
 harness = false
-
-# Development profile - faster compilation with minimal optimization
-[profile.dev]
-opt-level = 0                # No optimization (fastest compile)
-debug = true                 # Keep debug symbols for debugging
-incremental = true           # Enable incremental compilation
-split-debuginfo = "unpacked" # Skip dsymutil on macOS (faster linking)
-
-# Compile dependencies with higher optimization in dev mode
-# This makes dev builds faster by optimizing slow dependencies once
-[profile.dev.package."*"]
-opt-level = 3           # Optimize dependencies more aggressively
-debug = false           # Strip debug info from dependencies
-
-# Release profile - optimized for size and performance
-[profile.release]
-opt-level = "z"         # Optimize for size (alternative: "s" for slightly faster code)
-lto = "fat"             # Full Link Time Optimization across the whole dependency graph (smaller, slower build)
-codegen-units = 1       # Single codegen unit for better optimization (slower build, smaller binary)
-strip = true            # Strip symbols from binary (reduces size significantly)
-panic = "abort"         # Abort on panic instead of unwinding (smaller binary)
-incremental = false     # Disable incremental for release builds

@@ -635,6 +635,7 @@ pub fn handle_cli_command(subcommand: &SubcommandMatches) -> Option<i32> {
     "commit" => workspace_handlers::handle_workspace_commit(&subcommand.matches),
     "resolve" => workspace_handlers::handle_resolve(&subcommand.matches),
     "send" => workspace_handlers::handle_send(&subcommand.matches),
+    "notify" => workspace_handlers::handle_notify(&subcommand.matches),
     "repo" => run_structured(&subcommand.matches, |format| {
       handle_repo_command(&subcommand.matches, format)
     }),
@@ -705,6 +706,7 @@ pub(super) fn is_supported_cli_command(name: &str) -> bool {
       | "commit"
       | "resolve"
       | "send"
+      | "notify"
       | "repo"
       | "workspace"
       | "changes"
@@ -805,24 +807,21 @@ pub(super) fn dispatch_agent_request(
   ))
 }
 
-pub(super) fn dispatch_send_request(
-  request: &crate::send_dispatch::SendDispatchRequest,
-) -> Result<(), String> {
+/// Sends a JSON IPC request to the Treq instance that has `repo` open.
+fn dispatch_to_repo_instance<T: serde::Serialize>(
+  repo: &str,
+  request: &T,
+) -> Result<(String, agent_dispatch::AgentDispatchResponse), String> {
   let now = agent_dispatch::now_millis();
-  local_db::prune_stale_instance_registry(
-    &request.repo,
-    now,
-    agent_dispatch::HEARTBEAT_TIMEOUT_MS,
-  )?;
-  let instances = local_db::list_instance_registry(&request.repo)?;
+  local_db::prune_stale_instance_registry(repo, now, agent_dispatch::HEARTBEAT_TIMEOUT_MS)?;
+  let instances = local_db::list_instance_registry(repo)?;
 
-  let instance =
-    agent_dispatch::resolve_target_instance(&instances, &request.repo).ok_or_else(|| {
-      format!(
-        "No running Treq instance has repo '{}'. Open this repo in Treq first.",
-        request.repo
-      )
-    })?;
+  let instance = agent_dispatch::resolve_target_instance(&instances, repo).ok_or_else(|| {
+    format!(
+      "No running Treq instance has repo '{}'. Open this repo in Treq first.",
+      repo
+    )
+  })?;
 
   let response = send_json_dispatch_request(
     &instance.endpoint,
@@ -830,16 +829,42 @@ pub(super) fn dispatch_send_request(
     Duration::from_millis(250),
     Duration::from_millis(600),
   )?;
+  Ok((instance.instance_id.clone(), response))
+}
+
+pub(super) fn dispatch_send_request(
+  request: &crate::send_dispatch::SendDispatchRequest,
+) -> Result<(), String> {
+  let (instance_id, response) = dispatch_to_repo_instance(&request.repo, request)?;
   if response.status == "handled" {
     return Ok(());
   }
   Err(format!(
     "Send request not handled by instance '{}': {}",
-    instance.instance_id,
+    instance_id,
     response
       .reason
       .unwrap_or_else(|| "unknown dispatch failure".to_string())
   ))
+}
+
+/// `Ok(None)` when the app showed the notification, `Ok(Some(reason))` when
+/// it chose not to (for example because a Treq window is focused).
+pub(super) fn dispatch_notify_request(
+  request: &crate::notify_dispatch::NotifyDispatchRequest,
+) -> Result<Option<String>, String> {
+  let (instance_id, response) = dispatch_to_repo_instance(&request.repo, request)?;
+  match response.status.as_str() {
+    "handled" => Ok(None),
+    "skipped" => Ok(Some(response.reason.unwrap_or_default())),
+    _ => Err(format!(
+      "Notify request not handled by instance '{}': {}",
+      instance_id,
+      response
+        .reason
+        .unwrap_or_else(|| "unknown dispatch failure".to_string())
+    )),
+  }
 }
 
 fn send_json_dispatch_request<T: serde::Serialize>(

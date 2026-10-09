@@ -39,6 +39,14 @@ impl AgentDispatchResponse {
     }
   }
 
+  /// The app received the request and chose not to act on it.
+  pub fn skipped(reason: impl Into<String>) -> Self {
+    Self {
+      status: "skipped".to_string(),
+      reason: Some(reason.into()),
+    }
+  }
+
   pub fn error(reason: impl Into<String>) -> Self {
     Self {
       status: "error".to_string(),

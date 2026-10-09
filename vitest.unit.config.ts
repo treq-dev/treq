@@ -25,6 +25,7 @@ export default defineConfig({
       "src/**/*.test.{ts,tsx}",
       "test/merge-queue/**/*.test.ts",
       "test/linear-proxy/**/*.test.ts",
+      "test/billing/**/*.test.ts",
       "test/vitest-config.test.ts",
       "test/remote-ssh-traceability.test.ts",
     ],

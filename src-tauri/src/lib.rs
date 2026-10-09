@@ -19,6 +19,7 @@ pub mod jj;
 pub mod linear;
 pub mod local_db;
 pub mod lock_ext;
+pub mod notify_dispatch;
 mod open_new_window;
 pub mod pr_status;
 pub mod pty;
@@ -146,6 +147,47 @@ pub fn emit_to_focused<S: serde::Serialize + Clone>(app: &AppHandle, event: &str
     return;
   };
   let _ = app.emit_to(EventTarget::webview_window(&label), event, payload);
+}
+
+/// What a `treq://` deep link asks the app to do.
+#[cfg(desktop)]
+#[derive(Debug, PartialEq, Eq)]
+enum DeepLinkKind {
+  /// `treq://agent/start?...`: start an agent in the window open on a repo.
+  Agent,
+  /// `treq://auth/callback?token=...`: finish browser sign-in.
+  AuthCallback,
+  Unknown,
+}
+
+/// Sorts a deep link by what it asks for. An auth callback is matched by the
+/// same rule as `authCallbackToken` in `src/lib/auth-deep-link.ts`.
+#[cfg(desktop)]
+fn classify_deep_link(url: &str) -> DeepLinkKind {
+  if url.starts_with("treq://agent/start?") {
+    return DeepLinkKind::Agent;
+  }
+  match url::Url::parse(url) {
+    Ok(parsed)
+      if parsed.scheme() == "treq"
+        && parsed.host_str() == Some("auth")
+        && parsed.path() == "/callback" =>
+    {
+      DeepLinkKind::AuthCallback
+    }
+    _ => DeepLinkKind::Unknown,
+  }
+}
+
+/// Brings the window a menu event would target to the front.
+#[cfg(desktop)]
+fn focus_target_window(app: &AppHandle) {
+  let Some(window) = resolve_menu_target_label(app).and_then(|l| app.get_webview_window(&l)) else {
+    return;
+  };
+  let _ = window.unminimize();
+  let _ = window.show();
+  let _ = window.set_focus();
 }
 
 /// Handles the regular "Open..." menu action (CmdOrCtrl+O).
@@ -276,6 +318,16 @@ fn pick_folder_and_open_new_window(app: AppHandle) {
     });
 }
 
+/// Web page a menu item opens in the browser, on every desktop platform.
+/// Menu items handled inside the app return `None`.
+#[cfg(desktop)]
+fn menu_item_url(menu_id: &str) -> Option<&'static str> {
+  match menu_id {
+    "learn_more" => Some("https://treq.dev/docs"),
+    _ => None,
+  }
+}
+
 #[cfg(desktop)]
 fn is_cli_process<I, S>(args: I) -> bool
 where
@@ -298,8 +350,17 @@ pub fn run() {
   if is_cli_process(std::env::args_os()) {
     std::process::exit(cli::args::run(std::env::args_os()));
   }
+  let builder = tauri::Builder::default();
+  // Must be the first plugin. On Windows and Linux a `treq://` link starts a
+  // second process; this plugin makes it exit and hands its arguments to the
+  // running app. The `deep-link` feature passes the link on to `on_open_url`
+  // below, so the callback only brings the app to the front.
+  #[cfg(desktop)]
+  let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    focus_target_window(app);
+  }));
   let builder = {
-    let builder = tauri::Builder::default()
+    let builder = builder
       .plugin(
         tauri_plugin_log::Builder::new()
           .level(tauri_plugin_log::log::LevelFilter::Info)
@@ -312,7 +373,8 @@ pub fn run() {
       )
       .plugin(tauri_plugin_opener::init())
       .plugin(tauri_plugin_dialog::init())
-      .plugin(tauri_plugin_deep_link::init());
+      .plugin(tauri_plugin_deep_link::init())
+      .plugin(tauri_plugin_notification::init());
     // Device-key storage for the mobile connectivity flow (mobile PRD,
     // "Security and key custody") - both plugins are `#[cfg(mobile)]`-gated
     // upstream and have no desktop implementation worth shipping, see
@@ -439,21 +501,36 @@ pub fn run() {
       #[cfg(desktop)]
       {
         use tauri_plugin_deep_link::DeepLinkExt;
+        // Installers register `treq://` with the OS. An AppImage or a dev
+        // build is not installed, so it registers itself at startup.
+        #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+        if let Err(err) = app.deep_link().register_all() {
+          log::warn!("failed to register deep link schemes: {err}");
+        }
         let handle = app.handle().clone();
         app.deep_link().on_open_url(move |event| {
           let urls: Vec<String> = event.urls().into_iter().map(|u| u.to_string()).collect();
           for url in urls {
-            if let Some(request) = parse_agent_request_from_url(&url) {
-              let response = route_agent_dispatch_request(&handle, &request);
-              if response.status != "handled" {
-                log::info!(
-                  "agent deep link unmatched repo={} request_id={}",
-                  request.repo,
-                  request.request_id
-                );
+            match classify_deep_link(&url) {
+              // One window only: the sign-in token can be exchanged once.
+              DeepLinkKind::AuthCallback => {
+                emit_to_focused(&handle, "deep-link-received", vec![url]);
               }
-            } else if !route_agent_deep_link(&handle, url) {
-              log::info!("agent deep link ignored (no matching window/repo)");
+              DeepLinkKind::Agent => {
+                if let Some(request) = parse_agent_request_from_url(&url) {
+                  let response = route_agent_dispatch_request(&handle, &request);
+                  if response.status != "handled" {
+                    log::info!(
+                      "agent deep link unmatched repo={} request_id={}",
+                      request.repo,
+                      request.request_id
+                    );
+                  }
+                } else if !route_agent_deep_link(&handle, url) {
+                  log::info!("agent deep link ignored (no matching window/repo)");
+                }
+              }
+              DeepLinkKind::Unknown => log::info!("deep link ignored (unrecognized url)"),
             }
           }
         });
@@ -714,14 +791,12 @@ pub fn run() {
             }
           }
           "check_for_updates" => emit_to_focused(app, "menu-check-for-updates", ()),
-          "learn_more" => {
-            #[cfg(target_os = "macos")]
-            {
+          id => {
+            if let Some(url) = menu_item_url(id) {
               use tauri_plugin_opener::OpenerExt;
-              let _ = app.opener().open_url("https://treq.dev", None::<&str>);
+              let _ = app.opener().open_url(url, None::<&str>);
             }
           }
-          _ => {}
         });
       } // #[cfg(desktop)]
 
@@ -731,6 +806,7 @@ pub fn run() {
       commands::acknowledge_agent_dispatch,
       commands::detect_editor_apps,
       commands::get_treq_bin_dir,
+      commands::check_prerequisites,
       commands::get_workspaces,
       commands::create_workspace,
       commands::open_or_create_workspace_from_pr,
@@ -974,6 +1050,18 @@ mod tests {
     build_agent_deep_link_url, extract_repo_from_agent_deep_link, parse_agent_request_from_url,
   };
   use super::is_cli_process;
+  use super::menu_item_url;
+
+  #[test]
+  fn maps_learn_more_menu_item_to_docs_url() {
+    assert_eq!(menu_item_url("learn_more"), Some("https://treq.dev/docs"));
+  }
+
+  #[test]
+  fn returns_no_url_for_menu_items_handled_in_app() {
+    assert_eq!(menu_item_url("view_logs"), None);
+    assert_eq!(menu_item_url("settings"), None);
+  }
 
   #[test]
   fn identifies_cli_process_before_tauri_plugins_initialize() {
@@ -1000,6 +1088,38 @@ mod tests {
   fn ignores_non_agent_deep_link() {
     let url = "treq://auth/callback?token=abc";
     assert_eq!(extract_repo_from_agent_deep_link(url), None);
+  }
+
+  #[test]
+  fn classifies_agent_start_link_as_agent() {
+    let url = "treq://agent/start?repo=%2Ftmp%2Frepo&request_id=req-1";
+    assert_eq!(super::classify_deep_link(url), super::DeepLinkKind::Agent);
+  }
+
+  #[test]
+  fn classifies_auth_callback_link_as_auth_callback() {
+    let url = "treq://auth/callback?token=abc";
+    assert_eq!(
+      super::classify_deep_link(url),
+      super::DeepLinkKind::AuthCallback
+    );
+  }
+
+  #[test]
+  fn classifies_other_links_as_unknown() {
+    for url in [
+      "treq://auth/other?token=abc",
+      "treq://auth/callback/extra?token=abc",
+      "https://treq.dev/auth/callback?token=abc",
+      "treq://settings",
+      "not a url",
+    ] {
+      assert_eq!(
+        super::classify_deep_link(url),
+        super::DeepLinkKind::Unknown,
+        "{url}"
+      );
+    }
   }
 
   #[test]

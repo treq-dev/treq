@@ -135,6 +135,50 @@ pub(crate) fn route_send_dispatch_request(
   ))
 }
 
+/// Shows a `treq notify` request as an OS notification unless a Treq window
+/// is focused or the user turned agent notifications off.
+pub(crate) fn route_notify_dispatch_request(
+  app: &AppHandle,
+  request: &crate::notify_dispatch::NotifyDispatchRequest,
+) -> agent_dispatch::AgentDispatchResponse {
+  use crate::lock_ext::LockExt;
+  use crate::notify_dispatch::{decide, NotifyDecision, NOTIFY_SETTING_KEY};
+  use tauri_plugin_notification::{NotificationExt, PermissionState};
+
+  let any_window_focused = app
+    .webview_windows()
+    .values()
+    .any(|window| window.is_focused().unwrap_or(false));
+  let setting = app
+    .state::<AppState>()
+    .db
+    .lock_or_recover()
+    .get_setting(NOTIFY_SETTING_KEY)
+    .ok()
+    .flatten();
+  let notification = match decide(request, any_window_focused, setting.as_deref()) {
+    NotifyDecision::Skip(reason) => return agent_dispatch::AgentDispatchResponse::skipped(reason),
+    NotifyDecision::Show(notification) => notification,
+  };
+
+  let notifier = app.notification();
+  // Desktop always reports Granted. Mobile prompts until the user decides.
+  if !matches!(notifier.permission_state(), Ok(PermissionState::Granted)) {
+    let _ = notifier.request_permission();
+  }
+  match notifier
+    .builder()
+    .title(notification.title)
+    .body(notification.body)
+    .show()
+  {
+    Ok(()) => agent_dispatch::AgentDispatchResponse::handled(),
+    Err(error) => {
+      agent_dispatch::AgentDispatchResponse::error(format!("failed to show notification: {error}"))
+    }
+  }
+}
+
 pub(crate) fn start_agent_ipc_listener(app: AppHandle, listener: std::net::TcpListener) {
   std::thread::spawn(move || {
     for stream in listener.incoming() {
@@ -162,6 +206,9 @@ pub(crate) fn start_agent_ipc_listener(app: AppHandle, listener: std::net::TcpLi
         }
         Ok(crate::send_dispatch::IpcDispatchMessage::Send(request)) => {
           route_send_dispatch_request(&app, &request)
+        }
+        Ok(crate::send_dispatch::IpcDispatchMessage::Notify(request)) => {
+          route_notify_dispatch_request(&app, &request)
         }
         Err(error) => agent_dispatch::AgentDispatchResponse::error(error),
       };

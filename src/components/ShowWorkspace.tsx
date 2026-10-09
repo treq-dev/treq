@@ -1183,6 +1183,7 @@ export const ShowWorkspace = ({
                     workspaceId={workspace?.id ?? null}
                     workingDirectory={workingDirectory}
                     onSessionCreated={onSessionCreated}
+                    offerNewWorkspace={!workspace}
                   />
                   {/* Stack — shown for any workspace in a multi-workspace
 										    stack, including the root (whose target is the default

@@ -288,6 +288,11 @@ deno_version = 2
 # check inside the function, not a Supabase JWT.
 verify_jwt = false
 
+[functions.stripe-webhook]
+# Stripe calls this endpoint directly; authentication is the Stripe-Signature
+# check inside the function (STRIPE_WEBHOOK_SECRET), not a Supabase JWT.
+verify_jwt = false
+
 [functions.merge-queue-worker]
 # Invoked by cron / the webhook nudge with the service-role key.
 verify_jwt = true
@@ -300,6 +305,11 @@ verify_jwt = true
 # Supabase JWT in the Authorization header of the upgrade request, so the
 # gateway can verify it; the function verifies it again and checks ownership.
 verify_jwt = true
+
+[functions.gtm-metrics]
+# Called by biz-tools with the x-gtm-metrics-secret header, checked inside
+# the function against GTM_METRICS_SECRET. Returns aggregate counts only.
+verify_jwt = false
 
 [analytics]
 enabled = true
