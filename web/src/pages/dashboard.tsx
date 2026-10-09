@@ -48,7 +48,7 @@ interface QueueStatus {
   bisect_mode: boolean;
 }
 
-type Tab = "subscription" | "integrations" | "alpha";
+type Tab = "subscription" | "integrations";
 
 function defaultConfig(repoId: number, defaultBranch: string): MergeQueueConfig {
   return {
@@ -469,167 +469,6 @@ function IntegrationsTab() {
   );
 }
 
-// ── Alpha tab ────────────────────────────────────────────────────────────────
-
-// Stored with every consent. Change it whenever the consent wording below
-// changes, so each consent record names the text the user agreed to.
-const ALPHA_FORM_VERSION = "2026-10-alpha-v1";
-
-interface AlphaMembership {
-  consented_at: string;
-  unsubscribed_at: string | null;
-}
-
-// The page that sent the user here (`?from=/roadmap`), else this page. Only
-// a plain site path is kept, so nothing else can end up in the row.
-function alphaSourcePage(): string {
-  const from = new URLSearchParams(window.location.search).get("from");
-  return from && /^\/[\w\-/]{0,200}$/.test(from)
-    ? from
-    : window.location.pathname;
-}
-
-function AlphaTab({ user }: { user: User }) {
-  const [membership, setMembership] = useState<AlphaMembership | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [consent, setConsent] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // RLS returns only the signed-in user's row.
-  const load = useCallback(async () => {
-    const { data, error: loadError } = await supabase
-      .from("alpha_waitlist")
-      .select("consented_at, unsubscribed_at")
-      .maybeSingle();
-    if (loadError) setError(loadError.message);
-    setMembership((data as AlphaMembership | null) ?? null);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const save = async (
-    write: () => PromiseLike<{ error: { message: string } | null }>
-  ) => {
-    setSaving(true);
-    setError(null);
-    const { error: saveError } = await write();
-    if (saveError) {
-      setError(saveError.message);
-    } else {
-      setConsent(false);
-      await load();
-    }
-    setSaving(false);
-  };
-
-  // The database stamps consented_at, and a rejoin clears unsubscribed_at
-  // and records a new consent (023_alpha_waitlist.sql).
-  const join = () =>
-    save(() =>
-      supabase.from("alpha_waitlist").upsert(
-        {
-          user_id: user.id,
-          form_version: ALPHA_FORM_VERSION,
-          source_page: alphaSourcePage(),
-          unsubscribed_at: null,
-        },
-        { onConflict: "user_id" }
-      )
-    );
-
-  const leave = () =>
-    save(() =>
-      supabase
-        .from("alpha_waitlist")
-        .update({ unsubscribed_at: new Date().toISOString() })
-        .eq("user_id", user.id)
-    );
-
-  return (
-    <div>
-      <h2 style={styles.sectionTitle}>Private alpha</h2>
-      <div style={styles.card} data-testid="alpha-card">
-        <div style={styles.integrationName}>
-          Cloud workspaces and SSH Remote Development
-        </div>
-        <p style={styles.alphaText}>
-          The private alpha covers two features that are still in
-          development. Managed cloud workspaces run your Treq workspaces on a
-          machine that Treq hosts. SSH Remote Development opens a workspace on
-          your own server over SSH. Treq invites people from the waitlist in
-          batches.
-        </p>
-
-        {loading ? (
-          <div style={styles.loadingText}>Loading…</div>
-        ) : membership && !membership.unsubscribed_at ? (
-          <div>
-            <div style={styles.alphaStatusRow}>
-              <span style={styles.connectedBadge}>On the waitlist</span>
-              <span style={styles.alphaMuted}>
-                Joined {new Date(membership.consented_at).toLocaleDateString()}
-              </span>
-            </div>
-            <p style={styles.alphaText}>
-              Treq will email {user.email} with alpha invitations and updates.
-              Every email has an unsubscribe link.
-            </p>
-            <button
-              type="button"
-              onClick={leave}
-              disabled={saving}
-              style={styles.secondaryButton}
-            >
-              {saving ? "Leaving…" : "Leave the waitlist"}
-            </button>
-          </div>
-        ) : (
-          <div>
-            {membership?.unsubscribed_at && (
-              <p style={styles.alphaMuted}>
-                You left the waitlist on{" "}
-                {new Date(membership.unsubscribed_at).toLocaleDateString()}.
-                Treq will not send you alpha emails unless you join again.
-              </p>
-            )}
-            <p style={styles.alphaText}>
-              Joining lets Treq email {user.email} about this alpha:
-              invitations to try it, and updates on its progress. It does not
-              change your plan or billing.
-            </p>
-            <label style={{ ...styles.checkboxLabel, marginBottom: "1rem" }}>
-              <input
-                type="checkbox"
-                checked={consent}
-                onChange={(e) => setConsent(e.target.checked)}
-                style={{ marginRight: "0.5rem" }}
-              />
-              Email me alpha invitations and updates. Unsubscribe any time.
-            </label>
-            <button
-              type="button"
-              onClick={join}
-              disabled={!consent || saving}
-              style={{
-                ...styles.primaryButton,
-                ...(!consent || saving ? styles.primaryButtonDisabled : {}),
-              }}
-            >
-              {saving ? "Joining…" : "Join the alpha"}
-            </button>
-          </div>
-        )}
-
-        {error && <div style={styles.errorText}>{error}</div>}
-      </div>
-    </div>
-  );
-}
-
 // ── Dashboard shell ──────────────────────────────────────────────────────────
 
 function DashboardContent() {
@@ -654,9 +493,7 @@ function DashboardContent() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       if (!s) {
-        // Come back to this tab after sign-in, e.g. /dashboard?tab=alpha.
-        const here = window.location.pathname + window.location.search;
-        window.location.href = `/sign-in?redirect=${encodeURIComponent(here)}`;
+        window.location.href = "/sign-in";
         return;
       }
       setSession(s);
@@ -747,15 +584,6 @@ function DashboardContent() {
           >
             Integrations
           </button>
-          <button
-            onClick={() => setActiveTab("alpha")}
-            style={{
-              ...styles.navItem,
-              ...(activeTab === "alpha" ? styles.navItemActive : {}),
-            }}
-          >
-            Alpha
-          </button>
         </nav>
 
         <button onClick={handleSignOut} style={styles.signOutButton}>
@@ -839,8 +667,6 @@ function DashboardContent() {
         )}
 
         {activeTab === "integrations" && <IntegrationsTab />}
-
-        {activeTab === "alpha" && <AlphaTab user={user} />}
       </div>
     </div>
   );
@@ -1167,26 +993,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   queueStatusText: { color: "var(--ifm-color-emphasis-600)" },
   configActions: { display: "flex", justifyContent: "flex-end" },
-  // Alpha tab
-  alphaText: {
-    fontSize: "0.85rem",
-    color: "var(--ifm-color-emphasis-700)",
-    lineHeight: 1.55,
-    margin: "0.5rem 0 1rem",
-  },
-  alphaMuted: { fontSize: "0.8rem", color: "var(--ifm-color-emphasis-500)" },
-  alphaStatusRow: { display: "flex", alignItems: "center", gap: "0.75rem" },
-  secondaryButton: {
-    padding: "0.5rem 1.2rem",
-    borderRadius: "8px",
-    border: "1px solid var(--ifm-color-emphasis-300)",
-    backgroundColor: "transparent",
-    color: "var(--ifm-font-color-base)",
-    fontSize: "0.85rem",
-    fontWeight: 600,
-    cursor: "pointer",
-  },
-  errorText: { color: "#ef4444", fontSize: "0.85rem", marginTop: "0.75rem" },
   saveButton: {
     padding: "0.45rem 1.2rem",
     borderRadius: "6px",
