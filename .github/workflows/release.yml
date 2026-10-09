@@ -8,12 +8,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  changelog:
+  prepare:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      notes: ${{ steps.gen.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,23 +37,8 @@ jobs:
             gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/${TAG}"
           fi
 
-      - name: Install git-cliff
-        uses: taiki-e/install-action@v2
-        with:
-          tool: git-cliff
-
-      - name: Generate release notes
-        id: gen
-        run: |
-          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" git-cliff --output CHANGELOG.md
-          {
-            echo 'notes<<CLIFF_EOF'
-            GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" git-cliff --unreleased --strip all
-            echo 'CLIFF_EOF'
-          } >> "$GITHUB_OUTPUT"
-
   release:
-    needs: changelog
+    needs: prepare
     permissions:
       contents: write
     strategy:
@@ -104,7 +87,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-          workspaces: "./src-tauri -> target"
+          workspaces: ". -> target"
 
       # Certificate import handled by tauri-action with auto-detect
       # Manual certificate import commented out - tauri-action handles this automatically
@@ -135,12 +118,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Desktop only links the `treq` binary. The staticlib and cdylib crate
+      # types exist for iOS/Android and the NAPI test addon, and with LTO each
+      # one is a separate whole-program link, roughly tripling link time.
+      - name: Build only the rlib for desktop
+        run: |
+          sed -i.bak 's/^crate-type = .*/crate-type = ["rlib"]/' src-tauri/Cargo.toml
+          grep -qx 'crate-type = \["rlib"\]' src-tauri/Cargo.toml
+          rm src-tauri/Cargo.toml.bak
+
       - uses: tauri-apps/tauri-action@v0
         env:
-          # Full LTO + single codegen unit for CI release builds only; local
-          # release builds keep the faster thin-LTO settings in Cargo.toml.
-          CARGO_PROFILE_RELEASE_LTO: "true"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -151,8 +139,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "v__VERSION__"
-          releaseBody: ${{ needs.changelog.outputs.notes }}
-          generateReleaseNotes: false
+          generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
           releaseAssetNamePattern: "[name]-[version]-[platform]-[arch][ext]"

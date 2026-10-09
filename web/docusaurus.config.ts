@@ -11,7 +11,7 @@ const shouldLoadGoogleTag = process.env.DOCUSAURUS_ENABLE_GTAG === 'true';
 const config: Config = {
   plugins: [
     require.resolve('./plugins/rawMarkdownPlugin'),
-    require.resolve('./plugins/versionPlugin'),
+    require.resolve('./plugins/latestReleasePlugin'),
     require.resolve('./plugins/jsonLdPlugin'),
     require.resolve('./plugins/skillsPlugin'),
     require.resolve('./plugins/landingScreenshotsPlugin'),
@@ -157,7 +157,9 @@ const config: Config = {
           ignorePatterns: [
             '/dashboard',
             '/login',
+            '/sign-in',
             '/auth/**',
+            '/integrations/**',
           ],
         },
         ...(shouldLoadGoogleTag ? {
@@ -171,8 +173,6 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
-    // TODO: Replace with branded Treq social card (1200x630)
     image: 'img/treq-social-card.png',
     colorMode: {
       respectPrefersColorScheme: true,

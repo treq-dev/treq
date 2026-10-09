@@ -2,4 +2,8 @@ User-agent: *
 Allow: /
 Disallow: /dashboard
 Disallow: /login
+Disallow: /sign-in
 Disallow: /auth/
+Disallow: /integrations/
+
+Sitemap: https://treq.dev/sitemap.xml

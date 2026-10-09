@@ -276,6 +276,16 @@ fn pick_folder_and_open_new_window(app: AppHandle) {
     });
 }
 
+/// Web page a menu item opens in the browser, on every desktop platform.
+/// Menu items handled inside the app return `None`.
+#[cfg(desktop)]
+fn menu_item_url(menu_id: &str) -> Option<&'static str> {
+  match menu_id {
+    "learn_more" => Some("https://treq.dev/docs"),
+    _ => None,
+  }
+}
+
 #[cfg(desktop)]
 fn is_cli_process<I, S>(args: I) -> bool
 where
@@ -714,14 +724,12 @@ pub fn run() {
             }
           }
           "check_for_updates" => emit_to_focused(app, "menu-check-for-updates", ()),
-          "learn_more" => {
-            #[cfg(target_os = "macos")]
-            {
+          id => {
+            if let Some(url) = menu_item_url(id) {
               use tauri_plugin_opener::OpenerExt;
-              let _ = app.opener().open_url("https://treq.dev", None::<&str>);
+              let _ = app.opener().open_url(url, None::<&str>);
             }
           }
-          _ => {}
         });
       } // #[cfg(desktop)]
 
@@ -974,6 +982,18 @@ mod tests {
     build_agent_deep_link_url, extract_repo_from_agent_deep_link, parse_agent_request_from_url,
   };
   use super::is_cli_process;
+  use super::menu_item_url;
+
+  #[test]
+  fn maps_learn_more_menu_item_to_docs_url() {
+    assert_eq!(menu_item_url("learn_more"), Some("https://treq.dev/docs"));
+  }
+
+  #[test]
+  fn returns_no_url_for_menu_items_handled_in_app() {
+    assert_eq!(menu_item_url("view_logs"), None);
+    assert_eq!(menu_item_url("settings"), None);
+  }
 
   #[test]
   fn identifies_cli_process_before_tauri_plugins_initialize() {

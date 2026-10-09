@@ -130,8 +130,8 @@ export const LinearIntegrationSettings: React.FC<
           error instanceof Error ? error.message : JSON.stringify(error),
         );
       }
-      if (data?.authorize_url) {
-        await openUrl(data.authorize_url);
+      if (data?.authorization_url) {
+        await openUrl(data.authorization_url);
       } else {
         throw new Error("No authorization URL returned");
       }

@@ -24,7 +24,7 @@ jobs:
         run: |
           HEAD_SHA=$(git rev-parse HEAD)
           PREV_SHA=$(gh api "repos/${{ github.repository }}/git/refs/tags/nightly" \
-            --jq '.object.sha' 2>/dev/null || true)
+            --jq '.object.sha' 2>/dev/null) || PREV_SHA=
 
           if [ "$HEAD_SHA" = "$PREV_SHA" ]; then
             echo "No new commits on main since last nightly build ($HEAD_SHA); skipping."
@@ -44,7 +44,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/nightly" --jq '.id' 2>/dev/null || true)
+          # On 404, gh prints the error JSON to stdout, so discard output on failure.
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/nightly" --jq '.id' 2>/dev/null) || RELEASE_ID=
 
           if [ -n "$RELEASE_ID" ]; then
             echo "Deleting existing nightly release"
@@ -75,7 +76,9 @@ jobs:
             app_bundle: "target/x86_64-apple-darwin/release/bundle/macos/Treq.app"
           - platform: "ubuntu-22.04"
             target: "x86_64-unknown-linux-gnu"
-            args: "--target x86_64-unknown-linux-gnu"
+            # Skip the AppImage: it adds ~1.5m to every nightly. Tagged
+            # releases still ship it (release.yml builds all bundles).
+            args: "--target x86_64-unknown-linux-gnu --bundles deb,rpm"
           - platform: "windows-latest"
             target: "x86_64-pc-windows-msvc"
             args: "--target x86_64-pc-windows-msvc"
@@ -104,17 +107,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-          workspaces: "./src-tauri -> target"
+          workspaces: ". -> target"
 
       - name: Install dependencies
         run: npm ci
 
+      # Desktop only links the `treq` binary. The staticlib and cdylib crate
+      # types exist for iOS/Android and the NAPI test addon, and with LTO each
+      # one is a separate whole-program link, roughly tripling link time.
+      - name: Build only the rlib for desktop
+        run: |
+          sed -i.bak 's/^crate-type = .*/crate-type = ["rlib"]/' src-tauri/Cargo.toml
+          grep -qx 'crate-type = \["rlib"\]' src-tauri/Cargo.toml
+          rm src-tauri/Cargo.toml.bak
+
       - uses: tauri-apps/tauri-action@v0
         env:
-          # Full LTO + single codegen unit for CI release builds only; local
-          # release builds keep the faster thin-LTO settings in Cargo.toml.
-          CARGO_PROFILE_RELEASE_LTO: "true"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          # Nightlies trade a slightly larger binary for a much faster link.
+          # Cargo.toml's release profile (fat LTO, 1 codegen unit) is kept
+          # for tagged releases.
+          CARGO_PROFILE_RELEASE_LTO: "thin"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -140,8 +153,12 @@ jobs:
   # since the Android/iOS toolchains are slow; signed builds live in mobile.yml.
   android:
     name: android build (unsigned debug)
-    needs: check
-    if: needs.check.outputs.should_run == 'true'
+    # After release, so the nightly release exists to attach the APK to.
+    needs: [check, release]
+    # Still build if one desktop target fails; the release exists either way.
+    if: ${{ !cancelled() && needs.check.outputs.should_run == 'true' }}
+    permissions:
+      contents: write
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -158,13 +175,13 @@ jobs:
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
           workspaces: |
-            ./src-tauri -> target
+            . -> target
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -183,15 +200,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Cargo.toml builds dev dependencies at opt-level 3 so local `tauri dev`
+      # runs fast. CI only checks that the app builds, so trade that for a
+      # faster compile. Config-file profiles override the manifest.
+      - name: Lower dependency opt-level for the debug build
+        run: |
+          mkdir -p .cargo
+          printf '[profile.dev.package."*"]\nopt-level = 1\n' >> .cargo/config.toml
+
       - name: Init Android project
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npm run mobile:android:init
 
+      # arm64 only, without debug symbols: the universal unstripped build
+      # is ~2.4 GB, too big to sideload. This keeps it under ~100 MB.
       - name: Build unsigned debug APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
-        run: npm run mobile:android:build -- --debug
+          CARGO_PROFILE_DEV_DEBUG: "false"
+          CARGO_PROFILE_DEV_STRIP: "true"
+        run: npm run mobile:android:build -- --debug --apk --target aarch64
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -200,6 +229,14 @@ jobs:
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 7
+
+      - name: Attach APK to nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -n1)
+          cp "$APK" treq-nightly-android-arm64.apk
+          gh release upload nightly treq-nightly-android-arm64.apk --clobber
 
   ios:
     name: ios build (unsigned debug)
@@ -227,10 +264,18 @@ jobs:
         with:
           cache-on-failure: true
           workspaces: |
-            ./src-tauri -> target
+            . -> target
 
       - name: Install dependencies
         run: npm ci
+
+      # Cargo.toml builds dev dependencies at opt-level 3 so local `tauri dev`
+      # runs fast. CI only checks that the app builds, so trade that for a
+      # faster compile. Config-file profiles override the manifest.
+      - name: Lower dependency opt-level for the debug build
+        run: |
+          mkdir -p .cargo
+          printf '[profile.dev.package."*"]\nopt-level = 1\n' >> .cargo/config.toml
 
       - name: Init iOS project
         run: npm run mobile:ios:init
