@@ -68,6 +68,7 @@ function HomepageHeader() {
         </p>
         <div className={styles.buttons}>
           <DownloadButton
+            location="hero"
             className={clsx('button', styles.primaryButton)}
             icon={<DownloadIcon />}
           />
@@ -77,7 +78,7 @@ function HomepageHeader() {
             Read the docs
           </Link>
         </div>
-        <OtherDownloads className={styles.heroOtherDownloads} />
+        <OtherDownloads location="hero" className={styles.heroOtherDownloads} />
         <div className={styles.platformsSupported}>
           <span>Available for</span>
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" className={styles.platformIcon} viewBox="0 0 16 16" aria-label="macOS">
@@ -641,12 +642,15 @@ function ClosingCTA(): ReactNode {
           The desktop app is Apache 2.0. Treq was used to build Treq.
         </p>
         <div className={styles.closingCTAButtons}>
-          <DownloadButton className={styles.closingCTAButton} />
+          <DownloadButton location="closing" className={styles.closingCTAButton} />
           <Link className={styles.closingCTASecondary} to="/pricing">
             See pricing
           </Link>
         </div>
-        <OtherDownloads className={styles.closingCTAOtherDownloads} />
+        <OtherDownloads
+          location="closing"
+          className={styles.closingCTAOtherDownloads}
+        />
       </div>
     </section>
   );

@@ -45,6 +45,7 @@ export default function NavbarAuthLinks({
           </a>
         ) : (
           <DownloadButton
+            location="navbar"
             className="button button--primary button--sm"
             label="Download"
           />
