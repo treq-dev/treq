@@ -16,10 +16,7 @@
 //! job — but both are real, callable, and tested.
 
 use crate::core::feature_preview::PreviewFeature;
-use crate::core::remote::{
-  self, MutationRetryOutcome, RemoteCommandError, RemoteRepoProbe, RemoteRepository,
-  TreqCommandRequest,
-};
+use crate::core::remote::{MutationRetryOutcome, RemoteCommandError, TreqCommandRequest};
 use crate::core::remote_control_plane::SshEndpoint;
 use crate::core::remote_ssh_transport::{
   CancellationToken, CutoffReason, ExecLimits, SshConnectionPool, SshTransportMetricsSnapshot,
@@ -78,54 +75,6 @@ pub async fn remote_dispatch_over_ssh(
 
 fn remote_command_error_to_string(error: RemoteCommandError) -> String {
   error.to_string()
-}
-
-/// Probes a remote path over the pooled native SSH transport for an
-/// already-registered, trust-pinned `SshEndpoint` (see
-/// `crate::core::remote_ssh_config::build_explicit_alias_endpoint` for the
-/// explicit-alias case). Never shells out to a system `ssh` binary.
-#[tauri::command]
-pub async fn remote_probe_repo_over_ssh(
-  endpoint: SshEndpoint,
-  path: String,
-  state: State<'_, RemoteExecState>,
-  app_state: State<'_, AppState>,
-) -> Result<RemoteRepoProbe, String> {
-  crate::commands::feature_preview::require(&app_state, PreviewFeature::RemoteSsh)?;
-  remote::probe_repo_native(&state.0, &endpoint, &path)
-    .await
-    .map_err(remote_command_error_to_string)
-}
-
-/// Inspects an existing remote repository over the pooled native SSH
-/// transport for an already-registered, trust-pinned `SshEndpoint`.
-#[tauri::command]
-pub async fn remote_open_repo_over_ssh(
-  endpoint: SshEndpoint,
-  path: String,
-  state: State<'_, RemoteExecState>,
-  app_state: State<'_, AppState>,
-) -> Result<RemoteRepository, String> {
-  crate::commands::feature_preview::require(&app_state, PreviewFeature::RemoteSsh)?;
-  remote::open_repo_native(&state.0, &endpoint, &path)
-    .await
-    .map_err(remote_command_error_to_string)
-}
-
-/// Clones a repository into `destination` over the pooled native SSH
-/// transport for an already-registered, trust-pinned `SshEndpoint`.
-#[tauri::command]
-pub async fn remote_clone_repo_over_ssh(
-  endpoint: SshEndpoint,
-  repo_url: String,
-  destination: String,
-  state: State<'_, RemoteExecState>,
-  app_state: State<'_, AppState>,
-) -> Result<RemoteRepository, String> {
-  crate::commands::feature_preview::require(&app_state, PreviewFeature::RemoteSsh)?;
-  remote::clone_repo_native(&state.0, &endpoint, &repo_url, &destination)
-    .await
-    .map_err(remote_command_error_to_string)
 }
 
 /// Serializable mirror of [`CutoffReason`] for the Tauri IPC boundary and

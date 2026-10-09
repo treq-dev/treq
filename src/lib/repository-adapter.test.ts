@@ -368,3 +368,26 @@ describe("transportCreateCommit", () => {
     expect(dispatchMutationOverSsh).not.toHaveBeenCalled();
   });
 });
+
+describe("remote repositories without an endpoint", () => {
+  it("fail closed instead of running locally or dispatching", async () => {
+    setActiveRepositorySingleton({
+      ...remoteRepo(),
+      endpoint: null,
+      transport: { type: "unresolved" },
+    });
+
+    await expect(createCommit(ROOT, 7, "wip")).rejects.toThrow(
+      /^endpoint_unresolved:/,
+    );
+    await expect(getWorkspaceDiff(ROOT, 7)).rejects.toThrow(
+      /^endpoint_unresolved:/,
+    );
+    await expect(mergeWorkspace(ROOT, 7, "msg", "squash")).rejects.toThrow(
+      /^unsupported:/,
+    );
+    expect(invoke).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(dispatchMutationOverSsh).not.toHaveBeenCalled();
+  });
+});

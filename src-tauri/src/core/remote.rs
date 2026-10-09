@@ -68,15 +68,6 @@ pub struct RepositoryInspection {
   pub descriptor: RepositoryDescriptor,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteRepository {
-  pub host: String,
-  pub path: String,
-  pub display_name: String,
-  pub repo_uri: String,
-  pub inspection: RepositoryInspection,
-}
-
 /// Cheap, pollable change marker for a workspace's JJ operation log (PRD
 /// "Change propagation across concurrent clients"). A client stores the
 /// last `operation_id` it observed and compares it against the latest
@@ -2786,10 +2777,8 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
 // Native (Phase 4) SSH exec transport for typed commands
 // ---------------------------------------------------------------------------
 //
-// Every reachable connection path — managed, user-managed, and explicit-alias
-// (`SshEndpointSource::ExplicitAlias`, built by
-// `crate::core::remote_ssh_config::build_explicit_alias_endpoint`) — goes
-// through the pooled native `russh` transport below and in
+// Every reachable connection path, managed or user-managed, goes through the
+// pooled native `russh` transport below and in
 // `crate::core::remote_ssh_transport`, never a system `ssh` subprocess.
 
 /// Structured error for a typed command executed over the native transport.
@@ -2938,117 +2927,6 @@ pub fn inspect_repository_path(repo_path: &str) -> Result<RepositoryInspection, 
       display_name,
     },
   })
-}
-
-pub fn remote_repository_from_inspection(
-  host: &str,
-  mut inspection: RepositoryInspection,
-) -> RemoteRepository {
-  let path = inspection.root.clone();
-  let display_name = format!("{host}:{}", repository_display_name(&path));
-  inspection.descriptor = RepositoryDescriptor {
-    id: format!("ssh:{host}:{path}"),
-    location: RepositoryLocation::Ssh {
-      host: host.to_string(),
-      path: path.clone(),
-    },
-    display_name: display_name.clone(),
-  };
-  RemoteRepository {
-    host: host.to_string(),
-    path: path.clone(),
-    display_name,
-    repo_uri: format!("ssh://{host}{path}"),
-    inspection,
-  }
-}
-
-/// A stable label for an [`SshEndpoint`] to display in place of a bare host
-/// string: the alias for an explicit-alias endpoint (matching what the user
-/// actually selected), otherwise the resolved hostname.
-fn endpoint_label(endpoint: &crate::core::remote_control_plane::SshEndpoint) -> String {
-  match &endpoint.source {
-    crate::core::remote_control_plane::SshEndpointSource::ExplicitAlias { alias } => alias.clone(),
-    _ => endpoint.hostname.clone(),
-  }
-}
-
-/// Probes a remote path over the pooled native SSH transport for an already
-/// trust-pinned [`crate::core::remote_control_plane::SshEndpoint`] (built via
-/// `crate::core::remote_ssh_config::build_explicit_alias_endpoint` for the
-/// explicit-alias case, or from a managed/user-managed registration
-/// otherwise). This never shells out to a system `ssh` binary: the exec
-/// channel runs over the same `russh`-based connection every other typed
-/// command uses.
-pub async fn probe_repo_native(
-  pool: &crate::core::remote_ssh_transport::SshConnectionPool,
-  endpoint: &crate::core::remote_control_plane::SshEndpoint,
-  path: &str,
-) -> Result<RemoteRepoProbe, RemoteCommandError> {
-  let cancellation = crate::core::remote_ssh_transport::CancellationToken::new();
-  let mut probe: RemoteRepoProbe = execute_remote_command(
-    pool,
-    endpoint,
-    TreqCommandRequest::ProbeRepo {
-      repo: path.to_string(),
-    },
-    crate::core::remote_ssh_transport::ExecLimits::default(),
-    &cancellation,
-  )
-  .await?;
-  probe.host = endpoint_label(endpoint);
-  Ok(probe)
-}
-
-/// Inspects an existing remote repository over the native transport and
-/// returns it in the same [`RemoteRepository`] shape the (now-removed)
-/// subprocess-based `open_repo` used to produce, so callers do not need to
-/// know the transport changed.
-pub async fn open_repo_native(
-  pool: &crate::core::remote_ssh_transport::SshConnectionPool,
-  endpoint: &crate::core::remote_control_plane::SshEndpoint,
-  path: &str,
-) -> Result<RemoteRepository, RemoteCommandError> {
-  let cancellation = crate::core::remote_ssh_transport::CancellationToken::new();
-  let inspection: RepositoryInspection = execute_remote_command(
-    pool,
-    endpoint,
-    TreqCommandRequest::InspectRepository {
-      repo: path.to_string(),
-    },
-    crate::core::remote_ssh_transport::ExecLimits::default(),
-    &cancellation,
-  )
-  .await?;
-  Ok(remote_repository_from_inspection(
-    &endpoint_label(endpoint),
-    inspection,
-  ))
-}
-
-/// Clones a repository into `destination` on the remote host over the native
-/// transport (the typed `CloneRepo` command), then inspects it the same way
-/// [`open_repo_native`] does.
-pub async fn clone_repo_native(
-  pool: &crate::core::remote_ssh_transport::SshConnectionPool,
-  endpoint: &crate::core::remote_control_plane::SshEndpoint,
-  repo_url: &str,
-  destination: &str,
-) -> Result<RemoteRepository, RemoteCommandError> {
-  let cancellation = crate::core::remote_ssh_transport::CancellationToken::new();
-  let _inspection: RepositoryInspection = execute_remote_command(
-    pool,
-    endpoint,
-    TreqCommandRequest::CloneRepo {
-      repo_url: repo_url.to_string(),
-      destination: destination.to_string(),
-      idempotency_key: String::new(),
-    },
-    crate::core::remote_ssh_transport::ExecLimits::default(),
-    &cancellation,
-  )
-  .await?;
-  open_repo_native(pool, endpoint, destination).await
 }
 
 pub fn parse_ssh_config_hosts(contents: &str) -> Vec<SshHost> {
@@ -3426,35 +3304,6 @@ mod tests {
   #[test]
   fn rejects_unsafe_host_aliases() {
     assert!(build_ssh_shell_command("dev; rm -rf /", None, None).is_err());
-  }
-
-  #[test]
-  fn builds_remote_repository_from_inspection() {
-    let inspection = RepositoryInspection {
-      root: "/srv/project".to_string(),
-      repository_type: "jj_colocated".to_string(),
-      current_branch: Some("main".to_string()),
-      default_branch: "main".to_string(),
-      current_change_id: "change".to_string(),
-      current_commit_id: "commit".to_string(),
-      descriptor: RepositoryDescriptor {
-        id: "local:/srv/project".to_string(),
-        location: RepositoryLocation::Local {
-          path: "/srv/project".to_string(),
-        },
-        display_name: "project".to_string(),
-      },
-    };
-
-    let repo = remote_repository_from_inspection("devbox", inspection);
-    assert_eq!(repo.display_name, "devbox:project");
-    assert_eq!(repo.repo_uri, "ssh://devbox/srv/project");
-    assert_eq!(repo.inspection.descriptor.id, "ssh:devbox:/srv/project");
-    assert!(matches!(
-        repo.inspection.descriptor.location,
-        RepositoryLocation::Ssh { ref host, ref path }
-            if host == "devbox" && path == "/srv/project"
-    ));
   }
 
   #[test]

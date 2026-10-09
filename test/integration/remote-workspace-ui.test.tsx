@@ -9,8 +9,8 @@ import {
   ensureWorkspaceIndexed,
   getWorkspaceChangedFiles,
   getWorkspaces,
-  setSetting,
 } from "../../src/lib/api";
+import { clearLastOpenedRemoteRepository } from "../../src/lib/remote-repository";
 import { useRemoteMutationFeedback } from "../../src/lib/remote-mutation-ui";
 import { useRemoteCutoffStore } from "../../src/stores/remoteCutoffStore";
 import { act, render, screen, waitFor, within } from "../test-utils";
@@ -22,38 +22,7 @@ import {
   resolveWorkspacePath,
   writeWorkspaceFile,
 } from "../utils";
-
-async function openSavedRemoteRepo(
-  repoPath: string,
-  options?: { endpointId?: string; generation?: number },
-) {
-  const endpointId = options?.endpointId ?? "endpoint-test";
-  const generation = options?.generation ?? 0;
-  await setSetting(
-    "last_opened_remote_repo",
-    JSON.stringify({
-      host: "testhost",
-      path: repoPath,
-      display_name: "testhost-project",
-      repo_uri: `ssh://testhost${repoPath}`,
-      inspection: {
-        root: repoPath,
-        repository_type: "jj_colocated",
-        current_branch: "main",
-        default_branch: "main",
-        current_change_id: "",
-        current_commit_id: "",
-        descriptor: {
-          id: `${endpointId}:${repoPath}`,
-          location: { type: "ssh", host: "testhost", path: repoPath },
-          display_name: "testhost-project",
-        },
-      },
-      endpoint_id: endpointId,
-      endpoint_generation: generation,
-    }),
-  );
-}
+import { openSavedRemoteRepo } from "../remote-repo";
 
 describe("remote workspace UI", () => {
   let user: ReturnType<typeof userEvent.setup>;
@@ -61,7 +30,7 @@ describe("remote workspace UI", () => {
   beforeEach(async () => {
     user = userEvent.setup();
     window.history.replaceState({}, "", "/");
-    await setSetting("last_opened_remote_repo", "");
+    await clearLastOpenedRemoteRepository();
     useRemoteMutationFeedback.setState({
       ambiguousReason: null,
       lastStatus: null,
