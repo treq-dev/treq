@@ -301,6 +301,11 @@ verify_jwt = true
 # gateway can verify it; the function verifies it again and checks ownership.
 verify_jwt = true
 
+[functions.gtm-metrics]
+# Called by biz-tools with the x-gtm-metrics-secret header, checked inside
+# the function against GTM_METRICS_SECRET. Returns aggregate counts only.
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
