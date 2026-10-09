@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::ffi::OsStr;
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -30,21 +31,7 @@ pub fn get_extended_path() -> String {
     return all_paths.join(";");
   }
 
-  // Common binary locations to add
-  let additional_paths = [
-    "/opt/homebrew/bin", // macOS ARM Homebrew
-    "/usr/local/bin",    // macOS Intel Homebrew, common
-    "~/.cargo/bin",      // Rust tools
-    "/usr/bin",          // System binaries
-    "/bin",              // System binaries
-  ];
-
-  // Expand ~ to home directory
-  let home = env::var("HOME").unwrap_or_default();
-  let expanded_paths: Vec<String> = additional_paths
-    .iter()
-    .map(|p| p.replace('~', &home))
-    .collect();
+  let expanded_paths = unix_extra_bin_dirs(&env::var("HOME").unwrap_or_default());
 
   // Combine existing PATH with additional paths (deduplicating)
   let mut all_paths: Vec<String> = current_path
@@ -73,6 +60,22 @@ pub fn get_extended_path() -> String {
   all_paths.join(":")
 }
 
+/// Install locations searched after PATH on Unix, with `~` expanded to
+/// `home`. An app opened from the macOS Finder gets a PATH that misses them.
+fn unix_extra_bin_dirs(home: &str) -> Vec<String> {
+  [
+    "/opt/homebrew/bin", // macOS ARM Homebrew
+    "/usr/local/bin",    // macOS Intel Homebrew, common
+    "~/.cargo/bin",      // Rust tools
+    "~/.local/bin",      // Claude Code and Cursor Agent installers
+    "/usr/bin",          // System binaries
+    "/bin",              // System binaries
+  ]
+  .iter()
+  .map(|p| p.replace('~', home))
+  .collect()
+}
+
 /// Get the directory containing the running treq executable
 pub fn get_exe_dir() -> Option<String> {
   let exe_path = std::env::current_exe().ok()?;
@@ -91,37 +94,28 @@ pub fn detect_binary(name: &str) -> Option<String> {
     // `which` isn't available by default on Windows, and `get_extended_path`
     // joins entries with `:` (a Unix path separator), so neither applies here.
     // `where` uses the process's own PATH and is present on all supported Windows versions.
-    let output = Command::new("where").arg(name).output().ok()?;
+    return first_output_line(Command::new("where").arg(name));
+  }
 
-    if output.status.success() {
-      let stdout = String::from_utf8(output.stdout).ok()?;
-      let path = stdout.lines().next().unwrap_or("").trim().to_string();
-      if !path.is_empty() {
-        return Some(path);
-      }
-    }
+  detect_binary_in(name, get_extended_path())
+}
 
+/// Finds `name` on `search_path` (a PATH-style list) and nowhere else, with
+/// the same `which` (Unix) or `where` (Windows) lookup as [`detect_binary`].
+pub fn detect_binary_in(name: &str, search_path: impl AsRef<OsStr>) -> Option<String> {
+  let finder = if cfg!(windows) { "where" } else { "which" };
+  first_output_line(Command::new(finder).arg(name).env("PATH", search_path))
+}
+
+/// The first line a successful lookup printed: the binary's path.
+fn first_output_line(command: &mut Command) -> Option<String> {
+  let output = command.output().ok()?;
+  if !output.status.success() {
     return None;
   }
-
-  let extended_path = get_extended_path();
-
-  // Try using `which` with extended PATH
-  let output = Command::new("which")
-    .arg(name)
-    .env("PATH", extended_path)
-    .output()
-    .ok()?;
-
-  if output.status.success() {
-    let path = String::from_utf8(output.stdout).ok()?;
-    let path = path.trim().to_string();
-    if !path.is_empty() {
-      return Some(path);
-    }
-  }
-
-  None
+  let stdout = String::from_utf8(output.stdout).ok()?;
+  let path = stdout.lines().next()?.trim();
+  (!path.is_empty()).then(|| path.to_string())
 }
 
 /// Initialize binary paths cache with detected paths
@@ -161,4 +155,16 @@ pub fn init_editor_apps_cache(apps: HashMap<String, bool>) {
 /// Get a cached editor-apps snapshot if initialized.
 pub fn get_editor_apps_cache() -> Option<HashMap<String, bool>> {
   EDITOR_APPS_CACHE.get().cloned()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn extra_bin_dirs_include_user_local_bin() {
+    let dirs = unix_extra_bin_dirs("/home/dev");
+
+    assert!(dirs.contains(&"/home/dev/.local/bin".to_string()));
+  }
 }

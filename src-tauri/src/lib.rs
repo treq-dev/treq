@@ -804,6 +804,7 @@ pub fn run() {
       commands::acknowledge_agent_dispatch,
       commands::detect_editor_apps,
       commands::get_treq_bin_dir,
+      commands::check_prerequisites,
       commands::get_workspaces,
       commands::create_workspace,
       commands::open_or_create_workspace_from_pr,

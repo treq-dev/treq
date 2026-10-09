@@ -291,6 +291,12 @@ export interface EditorAppsResponse {
   zed: boolean;
 }
 
+/** Whether one CLI the first-run checklist needs is on PATH. */
+export interface PrerequisiteStatus {
+  binary: string;
+  installed: boolean;
+}
+
 export interface JjBranch {
   name: string;
   is_current: boolean;
