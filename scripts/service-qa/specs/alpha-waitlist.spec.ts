@@ -1,5 +1,5 @@
 /**
- * Alpha waitlist (023_alpha_waitlist.sql + functions/alpha-unsubscribe).
+ * Alpha waitlist (030_alpha_waitlist.sql + functions/alpha-unsubscribe).
  *
  * A signed-in user joins with the same upsert the dashboard's Alpha tab
  * sends, follows the unsubscribe link from an email (GET, then the RFC 8058
@@ -19,7 +19,7 @@ import { recordOutcome } from "../record";
 
 // Must match ALPHA_FORM_VERSION in web/src/pages/dashboard.tsx.
 const FORM_VERSION = "2026-10-alpha-v1";
-const SOURCE_PAGE = "/dashboard?tab=alpha";
+const SOURCE_PAGE = "/alpha";
 
 const usersToDelete: string[] = [];
 
