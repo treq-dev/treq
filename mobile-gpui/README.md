@@ -27,7 +27,7 @@ Or copy the APK to the phone and open it, allowing installs from that source. Th
 | Mutations | Create workspace, rebase, commit, push, resolve conflicts, start/stop the agent and send it input. Each runs once per idempotency key and asks for a second tap before running. An ambiguous result is reported, never retried blindly. |
 | Agent | Status and log polling, start, input, stop. |
 | Restore | Reopens the last host, repository and workspace on launch; refetches after returning to the foreground. |
-| Terminal | Not yet (next phase). |
+| Terminal | Persistent sessions on the host (list, start, reattach, detach, stop), a VT100/xterm grid with colors and scrollback, the soft keyboard, and a key toolbar (Esc, Tab, Ctrl+C/D/Z, arrows). |
 
 ## Develop
 

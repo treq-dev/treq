@@ -135,6 +135,11 @@ pub fn spawn<T: Send + 'static>(
   rx
 }
 
+/// Runs `future` on the backend runtime without waiting for it.
+pub fn spawn_detached(future: impl Future<Output = ()> + Send + 'static) {
+  get().runtime.spawn(future);
+}
+
 impl Backend {
   pub fn emit(&self, event: AppEvent) {
     let _ = self.events.unbounded_send(event);

@@ -36,6 +36,17 @@ pub fn row(
   detail: Option<SharedString>,
   cx: &App,
 ) -> Stateful<Div> {
+  row_with(id, title, detail, None, cx)
+}
+
+/// [`row`] with an extra control before the chevron.
+pub fn row_with(
+  id: impl Into<ElementId>,
+  title: impl Into<SharedString>,
+  detail: Option<SharedString>,
+  trailing: Option<AnyElement>,
+  cx: &App,
+) -> Stateful<Div> {
   let theme = cx.theme();
   h_flex()
     .id(id)
@@ -60,6 +71,7 @@ pub fn row(
             .child(d)
         })),
     )
+    .children(trailing)
     .child(
       div()
         .text_color(theme.muted_foreground)

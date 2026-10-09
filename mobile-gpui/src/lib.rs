@@ -12,6 +12,7 @@ mod control_plane;
 mod managed;
 mod remote;
 mod store;
+mod terminal;
 mod ui;
 
 use gpui_kit::AppContext as _;

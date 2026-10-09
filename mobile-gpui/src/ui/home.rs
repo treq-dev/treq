@@ -168,26 +168,25 @@ impl HomeScreen {
       .children(hosts.into_iter().enumerate().map(|(i, host)| {
         let detail = format!("{}@{}:{}", host.username, host.hostname, host.port);
         let id = host.id.clone();
-        widgets::row(
+        let remove = Button::new(("remove-host", i))
+          .ghost()
+          .small()
+          .icon(IconName::Delete)
+          .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            store::remove_user_managed_endpoint(&id);
+            cx.refresh_windows();
+          });
+        widgets::row_with(
           ("host", i),
           host.display_name.clone(),
           Some(detail.into()),
+          Some(remove.into_any_element()),
           cx,
         )
         .when(!connecting, |row| {
           row.on_click(move |_, _, cx| super::connect_user_managed(host.clone(), cx))
         })
-        .child(
-          Button::new(("remove-host", i))
-            .ghost()
-            .small()
-            .icon(IconName::Delete)
-            .on_click(move |_, _, cx| {
-              cx.stop_propagation();
-              store::remove_user_managed_endpoint(&id);
-              cx.refresh_windows();
-            }),
-        )
       }));
     widgets::section("SSH hosts on this device", cx)
       .child(list)

@@ -257,10 +257,10 @@ impl WorkspaceScreen {
       Action::Push => "push",
     };
     Button::new(id)
-      .outline()
+      .when(!self.confirm.is_armed(action), |b| b.outline())
+      .when(self.confirm.is_armed(action), |b| b.warning())
       .label(label)
       .loading(self.confirm.is_running(action))
-      .when(self.confirm.is_armed(action), |b| b.primary())
       .on_click(cx.listener(move |this, _, window, cx| {
         this.run(action, window, cx);
         cx.notify();

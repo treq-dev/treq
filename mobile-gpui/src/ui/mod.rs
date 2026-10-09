@@ -6,6 +6,7 @@
 mod home;
 mod load;
 mod screens;
+mod terminal_view;
 pub mod theme;
 mod widgets;
 
