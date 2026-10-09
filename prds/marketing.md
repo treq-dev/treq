@@ -118,7 +118,7 @@ The Team plan and the trial are approved decisions. Any further price change, di
 | 1 | Organic search | Learn articles, comparison pages, free tools under `/tools/`, skills directory | biz-tools daily keyword report and weekly Draft content PRs |
 | 2 | Stack comments | One comment on each stacked pull request Treq creates, linking to treq.dev | Posted by the app |
 | 3 | GitHub | README, release notes, changelog, GitHub Discussions | Release notes are GitHub auto-generated |
-| 4 | Alpha waitlist | Join from the dashboard after sign-in, alpha invitations, alpha update emails | Waitlist counts reported in the GTM digest |
+| 4 | Alpha waitlist | The public treq.dev/alpha page, alpha invitations, alpha update emails | Waitlist counts reported in the GTM digest |
 | 5 | Developer communities | One post per launch moment, written for that community's rules | None. The owner posts by hand. |
 | 6 | Integration directories | GitHub Marketplace listing, Linear integration listing | None |
 
@@ -167,7 +167,7 @@ A launch waits for the feature to ship and for the site copy to match it. A road
 
 ## Alpha waitlist
 
-The private alpha covers managed cloud workspaces and SSH Remote Development. Engineers join the waitlist from the dashboard after they sign in. Joining gives marketing an account, so every waitlist member also counts as a signup.
+The private alpha covers managed cloud workspaces and SSH Remote Development. Engineers join the waitlist on the public treq.dev/alpha page, which the footer and the roadmap link to. A signed-out visitor ticks the consent box, signs in, and returns to the page, which finishes the join. Joining gives marketing an account, so every waitlist member also counts as a signup.
 
 - The join step states the purpose, which is alpha invitations and alpha updates, and asks for explicit consent. The consent record stores the date and the form version.
 - Emails go to the account email from sign-in.
