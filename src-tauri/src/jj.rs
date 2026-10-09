@@ -1504,7 +1504,8 @@ fn is_interrupted_workspace_init(
       .and_then(|entries| entries.collect::<std::io::Result<Vec<_>>>())
       .map_err(|e| JjError::IoError(format!("Failed to read workspace dir: {}", e)))?
       .iter()
-      .all(|entry| entry.file_name() == ".jj"),
+      // jj 0.46+ also writes a `.git` worktree file into colocated workspaces.
+      .all(|entry| entry.file_name() == ".jj" || entry.file_name() == ".git"),
   };
   if !only_jj {
     return Ok(false);
