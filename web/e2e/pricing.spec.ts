@@ -26,8 +26,8 @@ test('lists Free, Pro and Team with their prices', async ({ page }) => {
   await expect(pro).not.toContainText(/mobile/i);
 
   const team = plans.getByRole('article', { name: 'Team' });
-  await expect(team).toContainText('$99');
-  await expect(team).toContainText('Up to 10 members');
+  await expect(team).toContainText('$199');
+  await expect(team).toContainText('Up to 5 members');
   await expect(team).toContainText('Everything in Pro for every member');
   await expect(team).toContainText('Shared GitHub App installation');
 });
@@ -71,7 +71,7 @@ test('answers what is paid, how the trial works and how Team seats count', async
   await expect(faq).toContainText('Team has no trial');
 
   await faq.getByText('How do Team seats count?').click();
-  await expect(faq).toContainText('Pending invites count toward the 10');
+  await expect(faq).toContainText('Pending invites count toward the 5');
 });
 
 test('describes the three plans in the Product JSON-LD', () => {
@@ -81,7 +81,7 @@ test('describes the three plans in the Product JSON-LD', () => {
   ).toEqual([
     ['Free', '0', 'USD'],
     ['Pro', '15', 'USD'],
-    ['Team', '99', 'USD'],
+    ['Team', '199', 'USD'],
   ]);
   expect(JSON.stringify(PRICING_SCHEMA)).not.toMatch(/mobile/i);
 });
