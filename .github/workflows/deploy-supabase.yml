@@ -47,6 +47,17 @@ jobs:
       - name: Link project
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
 
+      # GitHub runners have no IPv6, and the direct db host is IPv6-only. The
+      # CLI only falls back to the IPv4 pooler when supabase/.temp/pooler-url
+      # exists, and `supabase link` no longer writes it, so fetch it here.
+      - name: Use the IPv4 connection pooler
+        run: |
+          curl -fsS \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/database/pooler" \
+            | jq -er 'map(select(.database_type == "PRIMARY"))[0].connection_string' \
+            > supabase/.temp/pooler-url
+
       - name: Show pending migrations
         run: supabase db push --dry-run
 
