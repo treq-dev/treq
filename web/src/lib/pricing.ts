@@ -38,7 +38,7 @@ export const PRICING_SCHEMA = {
       priceCurrency: 'USD',
       unitText: 'month',
       description:
-        'Everything in Pro for up to 5 members, with a shared GitHub App installation and a shared merge queue in private alpha. Billed per month.',
+        'Everything in Pro for 5 members, with a shared GitHub App installation and a shared merge queue in private alpha. Each extra member is US$8 per month. Billed per month.',
     },
   ],
 };
@@ -57,7 +57,7 @@ export const FAQ_ITEMS = [
   {
     question: 'How do Team seats count?',
     answer:
-      'Team costs US$199 per month and covers up to 5 members, the owner included. Pending invites count toward the 5, so revoke an invite you no longer need to free its seat. An invite link works once and expires after 7 days. A member who leaves or is removed loses Pro at once.',
+      'Team costs US$199 per month and includes 5 members, counting the owner. Each member beyond 5 adds US$8 per month, prorated from the day they join. Pending invites are not billed. An invite link works once and expires after 7 days. A member who leaves or is removed loses Pro at once, and their seat stops billing.',
   },
   {
     question: 'Is the desktop app still free on Pro?',

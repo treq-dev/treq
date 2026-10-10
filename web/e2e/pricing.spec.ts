@@ -27,7 +27,7 @@ test('lists Free, Pro and Team with their prices', async ({ page }) => {
 
   const team = plans.getByRole('article', { name: 'Team' });
   await expect(team).toContainText('$199');
-  await expect(team).toContainText('Up to 5 members');
+  await expect(team).toContainText('5 members included, US$8 per extra');
   await expect(team).toContainText('Everything in Pro for every member');
   await expect(team).toContainText('Shared GitHub App installation');
 });
@@ -71,7 +71,7 @@ test('answers what is paid, how the trial works and how Team seats count', async
   await expect(faq).toContainText('Team has no trial');
 
   await faq.getByText('How do Team seats count?').click();
-  await expect(faq).toContainText('Pending invites count toward the 5');
+  await expect(faq).toContainText('Each member beyond 5 adds US$8 per month');
 });
 
 test('describes the three plans in the Product JSON-LD', () => {

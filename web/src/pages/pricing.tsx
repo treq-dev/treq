@@ -89,7 +89,7 @@ const COMPARISON_ROWS: ComparisonRow[] = [
     feature: 'Price',
     free: {included: true, detail: 'US$0'},
     pro: {included: true, detail: 'US$15 per user per month'},
-    team: {included: true, detail: 'US$199 per month for up to 5 members'},
+    team: {included: true, detail: 'US$199 per month for 5 members, US$8 per extra member'},
   },
   {
     feature: 'Free trial',
@@ -164,7 +164,7 @@ function PlansSection(): ReactNode {
         <Heading as="h2" id="plan-team" className={styles.planName}>
           Team
         </Heading>
-        <p className={styles.planSeats}>Up to 5 members</p>
+        <p className={styles.planSeats}>5 members included, US$8 per extra</p>
         <p className={styles.planPrice}>
           <span className={styles.priceAmount}>$199</span>
           <span className={styles.priceUnit}>/month</span>
@@ -300,7 +300,7 @@ export default function PricingPage(): ReactNode {
   return (
     <Layout
       title="Pricing"
-      description="Treq pricing. The desktop app is free. Pro is $15 per user per month with a 14-day trial. Team is $199 per month for up to 5 members."
+      description="Treq pricing. The desktop app is free. Pro is $15 per user per month with a 14-day trial. Team is $199 per month for 5 members, then $8 per extra member."
     >
       <Head>
         <script type="application/ld+json">
