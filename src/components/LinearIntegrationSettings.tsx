@@ -3,6 +3,7 @@ import { ExternalLink, Loader2, Zap } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { useAuthStore } from "../stores/authStore";
+import { isProSubscription } from "../lib/subscription";
 import { FEATURES } from "../lib/features";
 import { supabase } from "../lib/supabase";
 import {
@@ -38,8 +39,7 @@ export const LinearIntegrationSettings: React.FC<
   LinearIntegrationSettingsProps
 > = ({ repoPath }) => {
   const { subscription } = useAuthStore();
-  const isPro =
-    subscription?.plan === "pro" && subscription.status === "active";
+  const isPro = isProSubscription(subscription);
   const { addToast } = useToastStore();
 
   const [apiKey, setApiKey] = useState<string | null>(null);

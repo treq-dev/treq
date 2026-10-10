@@ -1,20 +1,27 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Layout from "@theme/Layout";
 import Head from "@docusaurus/Head";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
+import type { StripeEmbeddedCheckout } from "@stripe/stripe-js";
+import { loadStripe } from "@stripe/stripe-js/pure";
 import { supabase } from "../lib/supabase";
 import {
-  PAYMENT_LINK_URL,
   GITHUB_APP_INSTALL_URL,
+  STRIPE_PUBLISHABLE_KEY,
 } from "../lib/constants";
+import {
+  fetchBillingPortalUrl,
+  fetchCheckoutClientSecret,
+} from "../lib/billing";
+import {
+  formatPeriodEnd,
+  isProSubscription,
+  subscriptionPeriodLabel,
+  subscriptionStatusLabel,
+  type Subscription,
+} from "../lib/subscription";
 import type { User, Session } from "@supabase/supabase-js";
-
-interface Subscription {
-  status: string;
-  plan: string;
-  current_period_end: string | null;
-}
 
 interface GithubRepo {
   id: number;
@@ -469,6 +476,258 @@ function IntegrationsTab() {
   );
 }
 
+// ── Subscription tab ─────────────────────────────────────────────────────────
+
+// After embedded Checkout returns, Pro appears once the stripe-webhook
+// function has recorded the subscription. Poll until then.
+const CHECKOUT_RETURN_POLL_MS = 2000;
+const CHECKOUT_RETURN_MAX_POLLS = 15;
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div role="group" aria-label={label} style={styles.field}>
+      <span style={styles.fieldLabel}>{label}</span>
+      <div style={styles.fieldValue}>{children}</div>
+    </div>
+  );
+}
+
+// Mounts Stripe's embedded Checkout. Stripe.js loads only here, and asks
+// billing-checkout for the session's client secret itself.
+function EmbeddedCheckoutPanel({
+  onError,
+}: {
+  onError: (message: string) => void;
+}) {
+  const container = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let checkout: StripeEmbeddedCheckout | null = null;
+    loadStripe(STRIPE_PUBLISHABLE_KEY)
+      .then((stripe) => {
+        if (!stripe) throw new Error("Stripe failed to load");
+        return stripe.initEmbeddedCheckout({
+          fetchClientSecret: fetchCheckoutClientSecret,
+        });
+      })
+      .then((instance) => {
+        if (cancelled) {
+          instance.destroy();
+          return;
+        }
+        checkout = instance;
+        if (container.current) instance.mount(container.current);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          onError(err instanceof Error ? err.message : "Could not start checkout");
+        }
+      });
+    return () => {
+      cancelled = true;
+      checkout?.destroy();
+    };
+  }, [onError]);
+
+  return (
+    <div
+      ref={container}
+      data-testid="stripe-embedded-checkout"
+      style={{ marginTop: "1.5rem" }}
+    />
+  );
+}
+
+function SubscriptionTab({
+  subscription,
+  reloadSubscription,
+  stripePaymentsEnabled,
+}: {
+  subscription: Subscription | null;
+  reloadSubscription: () => Promise<Subscription | null>;
+  stripePaymentsEnabled: boolean;
+}) {
+  const isPro = isProSubscription(subscription);
+  // Production builds open Checkout only once the live key is filled in.
+  const checkoutAvailable = stripePaymentsEnabled && STRIPE_PUBLISHABLE_KEY !== "";
+
+  const [billingCustomer, setBillingCustomer] = useState<
+    { trial_used_at: string | null } | null | undefined
+  >(undefined);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutReturn, setCheckoutReturn] = useState<
+    "waiting" | "timed_out" | null
+  >(() =>
+    new URLSearchParams(window.location.search).has("session_id")
+      ? "waiting"
+      : null,
+  );
+  const [portalPending, setPortalPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("billing_customers")
+      .select("trial_used_at")
+      .maybeSingle()
+      .then(({ data }) => setBillingCustomer(data ?? null));
+  }, [isPro]);
+
+  useEffect(() => {
+    if (checkoutReturn !== "waiting") return;
+    const finish = (outcome: "done" | "timed_out") => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("session_id");
+      window.history.replaceState(null, "", url.toString());
+      setCheckoutReturn(outcome === "done" ? null : "timed_out");
+    };
+    if (isPro) {
+      finish("done");
+      return;
+    }
+    let polls = 0;
+    const timer = window.setInterval(() => {
+      polls += 1;
+      void reloadSubscription().then((latest) => {
+        if (isProSubscription(latest)) return; // the isPro change finishes
+        if (polls >= CHECKOUT_RETURN_MAX_POLLS) {
+          window.clearInterval(timer);
+          finish("timed_out");
+        }
+      });
+    }, CHECKOUT_RETURN_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [checkoutReturn, isPro, reloadSubscription]);
+
+  const onCheckoutError = useCallback((message: string) => {
+    setCheckoutOpen(false);
+    setError(message);
+  }, []);
+
+  const openPortal = async () => {
+    setPortalPending(true);
+    setError(null);
+    try {
+      window.location.href = await fetchBillingPortalUrl();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open billing management");
+      setPortalPending(false);
+    }
+  };
+
+  const trialEligible = !billingCustomer?.trial_used_at;
+  const status = subscription?.status;
+  const periodEnd = subscription?.current_period_end;
+
+  return (
+    <section aria-labelledby="subscription-heading">
+      <h2 id="subscription-heading" style={styles.sectionTitle}>
+        Subscription
+      </h2>
+      <div style={styles.card}>
+        {checkoutReturn === "waiting" && (
+          <div role="status" style={styles.notice}>
+            Payment received. Activating Pro…
+          </div>
+        )}
+        {checkoutReturn === "timed_out" && (
+          <div role="status" style={styles.notice}>
+            Payment received. Pro will appear here within a few minutes.
+          </div>
+        )}
+        <Field label="Current Plan">
+          <span style={isPro ? styles.proBadge : styles.freeBadge}>
+            {isPro ? "Pro" : "Free"}
+          </span>
+        </Field>
+        {isPro && status && (
+          <Field label="Status">
+            <span
+              style={{
+                color:
+                  status === "active" || status === "trialing"
+                    ? "#10b981"
+                    : "#f59e0b",
+              }}
+            >
+              {subscriptionStatusLabel(status)}
+            </span>
+          </Field>
+        )}
+        {isPro && status && periodEnd && (
+          <Field label={subscriptionPeriodLabel(status)}>
+            {formatPeriodEnd(periodEnd)}
+          </Field>
+        )}
+        {isPro && status === "past_due" && (
+          <p style={styles.billingNote}>
+            Your last payment failed. Update your card in Manage billing to keep
+            Pro.
+          </p>
+        )}
+        {isPro && status === "canceled" && periodEnd && (
+          <p style={styles.billingNote}>
+            Your subscription is set to cancel. Pro stays on until{" "}
+            {formatPeriodEnd(periodEnd)}.
+          </p>
+        )}
+
+        <div style={styles.billingActions}>
+          {!isPro && !checkoutOpen && (
+            <div>
+              <span
+                title={!checkoutAvailable ? "Coming Soon" : undefined}
+                style={
+                  !checkoutAvailable
+                    ? { display: "inline-block", cursor: "not-allowed" }
+                    : undefined
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setCheckoutOpen(true);
+                  }}
+                  disabled={!checkoutAvailable}
+                  style={{
+                    ...styles.primaryButton,
+                    ...(!checkoutAvailable ? styles.primaryButtonDisabled : {}),
+                  }}
+                >
+                  {trialEligible ? "Start 14-day free trial" : "Upgrade to Pro"}
+                </button>
+              </span>
+              {!checkoutAvailable && (
+                <div style={styles.comingSoonSubtext}>Coming Soon</div>
+              )}
+            </div>
+          )}
+          {billingCustomer && (
+            <button
+              type="button"
+              onClick={openPortal}
+              disabled={portalPending}
+              style={styles.secondaryButton}
+            >
+              Manage billing
+            </button>
+          )}
+        </div>
+
+        {error && (
+          <div role="alert" style={styles.errorText}>
+            {error}
+          </div>
+        )}
+
+        {checkoutOpen && <EmbeddedCheckoutPanel onError={onCheckoutError} />}
+      </div>
+    </section>
+  );
+}
+
 // ── Dashboard shell ──────────────────────────────────────────────────────────
 
 function DashboardContent() {
@@ -512,25 +771,21 @@ function DashboardContent() {
     return () => authSub.unsubscribe();
   }, []);
 
+  const loadSubscription = useCallback(async () => {
+    const { data } = await supabase.from("subscriptions").select("*").single();
+    const latest = (data as Subscription | null) ?? null;
+    if (latest) setSubscription(latest);
+    return latest;
+  }, []);
+
   useEffect(() => {
     if (!session) return;
-    supabase
-      .from("subscriptions")
-      .select("*")
-      .single()
-      .then(({ data }) => {
-        if (data) setSubscription(data as Subscription);
-      });
-  }, [session]);
+    void loadSubscription();
+  }, [session, loadSubscription]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     window.location.href = "/";
-  };
-
-  const handleUpgrade = () => {
-    if (!user || !stripePaymentsEnabled) return;
-    window.location.href = `${PAYMENT_LINK_URL}?client_reference_id=${user.id}`;
   };
 
   if (loading) {
@@ -547,9 +802,6 @@ function DashboardContent() {
   const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture;
   const fullName =
     user.user_metadata?.full_name || user.user_metadata?.name || "User";
-  const isPro =
-    subscription?.plan === "pro" && subscription?.status === "active";
-
   return (
     <div className="dashboard-page" style={styles.container}>
       <div style={styles.sidebar}>
@@ -593,77 +845,11 @@ function DashboardContent() {
 
       <div style={styles.content}>
         {activeTab === "subscription" && (
-          <div>
-            <h2 style={styles.sectionTitle}>Subscription</h2>
-            <div style={styles.card}>
-              <div style={styles.field}>
-                <label style={styles.fieldLabel}>Current Plan</label>
-                <div style={styles.fieldValue}>
-                  <span style={isPro ? styles.proBadge : styles.freeBadge}>
-                    {isPro ? "Pro" : "Free"}
-                  </span>
-                </div>
-              </div>
-              {subscription?.status && (
-                <div style={styles.field}>
-                  <label style={styles.fieldLabel}>Status</label>
-                  <div style={styles.fieldValue}>
-                    <span
-                      style={{
-                        color:
-                          subscription.status === "active"
-                            ? "#10b981"
-                            : subscription.status === "canceled"
-                              ? "#f59e0b"
-                              : "#6b7280",
-                      }}
-                    >
-                      {subscription.status.charAt(0).toUpperCase() +
-                        subscription.status.slice(1).replace("_", " ")}
-                    </span>
-                  </div>
-                </div>
-              )}
-              {subscription?.current_period_end && (
-                <div style={styles.field}>
-                  <label style={styles.fieldLabel}>Current Period Ends</label>
-                  <div style={styles.fieldValue}>
-                    {new Date(subscription.current_period_end).toLocaleDateString()}
-                  </div>
-                </div>
-              )}
-              {!isPro && (
-                <div style={{ marginTop: "1.5rem" }}>
-                  <span
-                    title={
-                      !stripePaymentsEnabled ? "Coming Soon" : undefined
-                    }
-                    style={
-                      !stripePaymentsEnabled
-                        ? { display: "inline-block", cursor: "not-allowed" }
-                        : undefined
-                    }
-                  >
-                    <button
-                      onClick={handleUpgrade}
-                      disabled={!stripePaymentsEnabled}
-                      style={{
-                        ...styles.primaryButton,
-                        ...(!stripePaymentsEnabled
-                          ? styles.primaryButtonDisabled
-                          : {}),
-                      }}
-                    >
-                      Upgrade to Pro
-                    </button>
-                  </span>
-                  {!stripePaymentsEnabled && (
-                    <div style={styles.comingSoonSubtext}>Coming Soon</div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+          <SubscriptionTab
+            subscription={subscription}
+            reloadSubscription={loadSubscription}
+            stripePaymentsEnabled={stripePaymentsEnabled}
+          />
         )}
 
         {activeTab === "integrations" && <IntegrationsTab />}
@@ -813,6 +999,38 @@ const styles: Record<string, React.CSSProperties> = {
     opacity: 0.45,
     cursor: "not-allowed",
   },
+  secondaryButton: {
+    display: "inline-block",
+    padding: "0.6rem 1.25rem",
+    borderRadius: "8px",
+    border: "1px solid var(--ifm-color-emphasis-300)",
+    backgroundColor: "transparent",
+    color: "var(--ifm-font-color-base)",
+    fontSize: "0.9rem",
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  billingActions: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "0.75rem",
+    flexWrap: "wrap",
+    marginTop: "1.5rem",
+  },
+  billingNote: {
+    margin: "0.75rem 0 0",
+    fontSize: "0.85rem",
+    color: "var(--ifm-color-emphasis-700)",
+  },
+  notice: {
+    marginBottom: "0.75rem",
+    padding: "0.6rem 0.75rem",
+    borderRadius: "6px",
+    backgroundColor: "rgba(16,185,129,0.1)",
+    color: "#059669",
+    fontSize: "0.85rem",
+  },
+  errorText: { color: "#ef4444", fontSize: "0.85rem", marginTop: "0.75rem" },
   comingSoonSubtext: {
     marginTop: "0.5rem",
     fontSize: "0.8rem",

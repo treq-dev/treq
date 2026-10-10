@@ -3,6 +3,7 @@ import { ExternalLink, Github, Loader2 } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { useAuthStore } from "../stores/authStore";
+import { isProSubscription } from "../lib/subscription";
 import {
   useGitRemoteInfo,
   useMergeQueueEnabled,
@@ -147,8 +148,7 @@ export const GitHubIntegrationSettings: React.FC<
   } = useAuthStore();
   const userId = user?.id;
   const isSignedIn = !!user && !!session;
-  const isPro =
-    subscription?.plan === "pro" && subscription.status === "active";
+  const isPro = isProSubscription(subscription);
   const {
     data: repositories = [],
     isLoading: loading,
