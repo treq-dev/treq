@@ -3,8 +3,10 @@
 // behind it enforce every rule. These helpers read invite links, carry an
 // invite through sign-in, and count seats for display.
 
-/** A Team covers this many members, counting pending invites. */
-export const TEAM_SEAT_LIMIT = 10;
+/** Team's flat monthly price covers this many members. */
+export const TEAM_INCLUDED_SEATS = 5;
+/** Each member beyond the included seats adds this much per month. */
+export const TEAM_EXTRA_SEAT_USD = 8;
 
 const TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -106,8 +108,9 @@ export function forgetPendingInvite(page: InvitePage): void {
   }
 }
 
-export function seatsUsed(counts: { members: number; pendingInvites: number }): number {
-  return counts.members + counts.pendingInvites;
+/** Members billed beyond the included seats. Pending invites are not billed. */
+export function extraSeats(members: number): number {
+  return Math.max(0, members - TEAM_INCLUDED_SEATS);
 }
 
 export type OrganizationAction =

@@ -22,6 +22,8 @@ export interface BillingStore {
 export interface OrganizationBilling {
   /** Whether the user owns the organization. */
   isOwner(organizationId: string): Promise<boolean>;
+  /** Team is billed per member beyond the included seats. */
+  memberCount(organizationId: string): Promise<number>;
   store(organizationId: string): BillingStore;
 }
 
@@ -97,6 +99,14 @@ export function organizationBillingFor(
         .maybeSingle();
       if (error) throw new Error(`membership lookup failed: ${error.message}`);
       return (data as { role?: string } | null)?.role === "owner";
+    },
+    async memberCount(organizationId) {
+      const { count, error } = await client
+        .from("organization_members")
+        .select("user_id", { count: "exact", head: true })
+        .eq("org_id", organizationId);
+      if (error) throw new Error(`member count failed: ${error.message}`);
+      return (count as number | null) ?? 0;
     },
     store: (organizationId) =>
       ownerStore(client, "organization", organizationId),

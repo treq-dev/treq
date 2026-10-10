@@ -4,9 +4,15 @@
 // revoke_invite, remove_member, leave, promote_member, demote_owner,
 // delete_organization or attach_installation. The logic lives in lib.ts and
 // the rules in 028_organizations_team.sql and 029_organization_owners.sql.
-// Env: WEB_URL for invite links (default https://treq.dev).
+// Env: WEB_URL for invite links (default https://treq.dev), and
+// STRIPE_SECRET_KEY to keep Team's billed seats equal to its member count.
 
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";
+import { createStripeClient } from "../_shared/billing/stripe-api.ts";
+import {
+  syncTeamSeats,
+  teamSeatsStoreFor,
+} from "../_shared/billing/team-seats.ts";
 import { handleOrganizationsRequest } from "./lib.ts";
 
 const corsHeaders = {
@@ -53,6 +59,7 @@ Deno.serve(async (req) => {
     return json({ error: "Invalid JSON" }, 400);
   }
 
+  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
   const service = createClient(
     supabaseUrl,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -66,6 +73,13 @@ Deno.serve(async (req) => {
         return { data, error };
       },
       webUrl: Deno.env.get("WEB_URL") ?? "https://treq.dev",
+      syncSeats: stripeKey
+        ? (organizationId) =>
+            syncTeamSeats(organizationId, {
+              store: teamSeatsStoreFor(service),
+              stripe: createStripeClient(stripeKey),
+            })
+        : undefined,
     });
     return json(result.body, result.status);
   } catch (err) {

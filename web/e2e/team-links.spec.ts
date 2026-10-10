@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  extraSeats,
   forgetPendingInvite,
   INVITE_STASH_KEY,
   type InvitePage,
@@ -7,7 +8,6 @@ import {
   inviteTokenFromHash,
   inviteTokenFromInput,
   pendingInviteToken,
-  seatsUsed,
   stashInviteForSignIn,
 } from '../src/lib/teams';
 import { safeRedirectPath } from '../src/lib/utils';
@@ -115,8 +115,10 @@ test('blocked storage does not break invite links', () => {
   expect(pendingInviteToken(fakePage('/dashboard', blockedStorage).page)).toBeNull();
 });
 
-test('counts pending invites toward the seats', () => {
-  expect(seatsUsed({ members: 3, pendingInvites: 7 })).toBe(10);
+test('bills members beyond the five included seats, not pending invites', () => {
+  expect(extraSeats(3)).toBe(0);
+  expect(extraSeats(5)).toBe(0);
+  expect(extraSeats(8)).toBe(3);
 });
 
 test('keeps sign-in redirects on this site', () => {

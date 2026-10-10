@@ -24,13 +24,14 @@ import {
   type Subscription,
 } from "../lib/subscription";
 import {
+  extraSeats,
   forgetPendingInvite,
   invitePage,
   inviteTokenFromInput,
   pendingInviteToken,
-  seatsUsed,
   stashInviteForSignIn,
-  TEAM_SEAT_LIMIT,
+  TEAM_EXTRA_SEAT_USD,
+  TEAM_INCLUDED_SEATS,
   type OrganizationAction,
 } from "../lib/teams";
 import type { User, Session } from "@supabase/supabase-js";
@@ -991,9 +992,10 @@ function OrganizationCard({
         </Field>
       )}
       {isOwner ? (
-        <Field label="Seats used">
-          {seatsUsed({ members: members.length, pendingInvites: invites.length })} /{" "}
-          {TEAM_SEAT_LIMIT}
+        <Field label="Seats">
+          {members.length} of {TEAM_INCLUDED_SEATS} included
+          {extraSeats(members.length) > 0 &&
+            `, ${extraSeats(members.length)} extra at US$${TEAM_EXTRA_SEAT_USD} per month each`}
         </Field>
       ) : (
         <Field label="Members">{members.length}</Field>
@@ -1028,7 +1030,7 @@ function OrganizationCard({
               </span>
               <div style={styles.comingSoonSubtext}>
                 {checkoutAvailable
-                  ? "US$99 per month for up to 10 members. Every member gets Pro."
+                  ? `US$199 per month for ${TEAM_INCLUDED_SEATS} members, then US$${TEAM_EXTRA_SEAT_USD} per extra member. Every member gets Pro.`
                   : "Coming Soon"}
               </div>
             </div>
@@ -1242,8 +1244,9 @@ function OrganizationCard({
           <p style={styles.inputHint}>
             Treq does not send invite emails yet. Copy the link and send it to
             your teammate. A link works once, for any Treq account, and expires
-            after 7 days. New link replaces the old one. Pending invites count
-            toward the {TEAM_SEAT_LIMIT} seats.
+            after 7 days. New link replaces the old one. Team includes{" "}
+            {TEAM_INCLUDED_SEATS} members. Each member who joins beyond that
+            adds US${TEAM_EXTRA_SEAT_USD} per month, prorated.
           </p>
         </>
       )}
@@ -1559,8 +1562,9 @@ function TeamTab({
       <div style={styles.orgCard}>
         <div style={styles.orgName}>Create an organization</div>
         <p style={styles.billingNote}>
-          An organization holds a Team subscription: US$99 per month for up to{" "}
-          {TEAM_SEAT_LIMIT} members, each with everything in Pro. It can also own
+          An organization holds a Team subscription: US$199 per month for{" "}
+          {TEAM_INCLUDED_SEATS} members, then US${TEAM_EXTRA_SEAT_USD} per extra
+          member, each with everything in Pro. It can also own
           a shared GitHub App installation.
         </p>
         <form

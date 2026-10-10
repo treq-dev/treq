@@ -24,6 +24,7 @@ import {
   type StripeClient,
   type StripeParams,
 } from "../_shared/billing/stripe-api.ts";
+import { teamQuantity } from "../_shared/billing/team-seats.ts";
 
 export type CheckoutDeps = {
   user: { id: string; email?: string | null };
@@ -42,7 +43,13 @@ const PLAN_NAMES: Readonly<Record<BillingPlan, string>> = {
   team: "Team",
 };
 
-type Owner = { type: BillingOwnerType; id: string; store: BillingStore };
+type Owner = {
+  type: BillingOwnerType;
+  id: string;
+  store: BillingStore;
+  /** Units to buy: 1 for Pro, the member count for Team. */
+  quantity: number;
+};
 
 // Returns the owner's Stripe customer, creating and recording one on first
 // checkout. The idempotency key makes concurrent first checkouts share one
@@ -104,6 +111,7 @@ async function openSession(
         ownerType: owner.type,
         trialEligible: plan === "pro" && customer.trial_used_at === null,
         webUrl: deps.webUrl,
+        quantity: owner.quantity,
       }),
     );
     return { status: 200, body: { client_secret: session.client_secret } };
@@ -144,9 +152,17 @@ export async function createCheckout(
         },
       };
     }
+    // Team's price is graduated, so buying one unit per member bills the
+    // seats beyond the included five. Joins and leaves update it later.
+    const members = await deps.organizations.memberCount(parsed.organizationId);
     return openSession(
       "team",
-      { type: "organization", id: parsed.organizationId, store },
+      {
+        type: "organization",
+        id: parsed.organizationId,
+        store,
+        quantity: teamQuantity(members),
+      },
       deps,
     );
   }
@@ -161,7 +177,7 @@ export async function createCheckout(
   }
   return openSession(
     "pro",
-    { type: "user", id: deps.user.id, store: deps.store },
+    { type: "user", id: deps.user.id, store: deps.store, quantity: 1 },
     deps,
   );
 }

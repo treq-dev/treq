@@ -273,9 +273,10 @@ function fakeStore(overrides: Partial<BillingStore> = {}): BillingStore {
   };
 }
 
-function fakeOrganizations(store: BillingStore, owner = true) {
+function fakeOrganizations(store: BillingStore, owner = true, members = 7) {
   return {
     isOwner: vi.fn(async (_organizationId: string) => owner),
+    memberCount: vi.fn(async (_organizationId: string) => members),
     store: vi.fn((_organizationId: string) => store),
   } satisfies OrganizationBilling;
 }
@@ -570,9 +571,11 @@ describe("createCheckout for Team", () => {
       active: true,
       limit: 1,
     });
+    // One unit per member: the graduated price bills 2 seats beyond 5.
     expect(sessionParams(calls)).toMatchObject({
       customer: "cus_org",
       "line_items[0][price]": "price_team",
+      "line_items[0][quantity]": 7,
       client_reference_id: ORG_ID,
       "metadata[owner_type]": "organization",
       "metadata[owner_id]": ORG_ID,
