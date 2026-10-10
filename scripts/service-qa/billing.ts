@@ -74,6 +74,43 @@ export async function grantPro(
   return grant;
 }
 
+/**
+ * Gives an organization an active Team subscription, so every member has
+ * Pro. The grant's `userId` holds the organization id.
+ */
+export async function grantTeam(
+  admin: SupabaseClient,
+  organizationId: string,
+): Promise<ProGrant> {
+  const suffix = randomBytes(8).toString("hex");
+  const grant: ProGrant = {
+    userId: organizationId,
+    customerId: `cus_sqa${suffix}`,
+    subscriptionId: `sub_sqa${suffix}`,
+  };
+  const mapped = await rpcResult(admin, "billing_record_checkout_completed", {
+    p_event_id: eventId(),
+    p_customer_id: grant.customerId,
+    p_owner_type: "organization",
+    p_owner_id: organizationId,
+  });
+  if (mapped !== "applied") throw new Error(`checkout mapping: ${mapped}`);
+  const created = await rpcResult(admin, "billing_record_subscription_event", {
+    p_event_id: eventId(),
+    p_event_type: "customer.subscription.created",
+    p_event_created: new Date().toISOString(),
+    p_subscription_id: grant.subscriptionId,
+    p_customer_id: grant.customerId,
+    p_plan: "team",
+    p_status: "active",
+    p_current_period_end: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    p_cancel_at_period_end: false,
+    p_trial_end: null,
+  });
+  if (created !== "applied") throw new Error(`subscription created: ${created}`);
+  return grant;
+}
+
 /** Ends the subscription, as `customer.subscription.deleted` does. */
 export async function endPro(
   admin: SupabaseClient,

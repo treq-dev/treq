@@ -5,9 +5,9 @@
  *
  * Runs the functions' handlers (lib.ts) in this process with their real
  * service-role stores, so has_pro, github_install_intents and
- * github_app_installations are the real ones. Only the GitHub lookup of the
- * installation is a stub: local runs have no GitHub App key. Pro comes from
- * the billing write functions (../billing.ts).
+ * github_app_installations are the real ones. Only GitHub is a stub
+ * (../github.ts): local runs have no GitHub App. Pro comes from the billing
+ * write functions (../billing.ts).
  */
 import { expect, it } from "vitest";
 import {
@@ -25,16 +25,9 @@ import {
 } from "../../../supabase/functions/create-github-install-intent/lib";
 import { clearBilling, endPro, grantPro } from "../billing";
 import { getServiceClient } from "../clients";
+import { stubGitHubInstallationAccess } from "../github";
 import { recordOutcome } from "../record";
 import { createTestUser, deleteTestUser } from "../seed";
-
-function stubGitHubLookup(login: string) {
-  return async (id: number) => ({
-    id,
-    account: { login, type: "Organization", avatar_url: null },
-    app_id: 1,
-  });
-}
 
 it("requires Pro to start and to complete a GitHub App installation", async () => {
   const admin = getServiceClient();
@@ -96,10 +89,14 @@ it("requires Pro to start and to complete a GitHub App installation", async () =
       userId,
       hasPro: () => userHasPro(admin, userId),
       store: installationLinkStore(admin),
-      getInstallation: stubGitHubLookup(login),
+      // Both users authorize as a GitHub user who manages the installation.
+      github: stubGitHubInstallationAccess(
+        { "free-code": [installationId], "pro-code": [installationId] },
+        () => ({ login, type: "Organization", avatar_url: null }),
+      ),
     });
     const freeComplete = await completeInstallation(
-      { installation_id: installationId, state: freeState },
+      { installation_id: installationId, state: freeState, code: "free-code" },
       linkDeps(free.user.id),
     );
     expect(freeComplete).toEqual({
@@ -119,12 +116,17 @@ it("requires Pro to start and to complete a GitHub App installation", async () =
     expect(notLinked.data).toEqual([]);
 
     const proComplete = await completeInstallation(
-      { installation_id: installationId, state },
+      { installation_id: installationId, state, code: "pro-code" },
       linkDeps(pro.user.id),
     );
     expect(proComplete).toEqual({
       status: 200,
-      body: { ok: true, account_login: login },
+      body: {
+        ok: true,
+        account_login: login,
+        account_type: "Organization",
+        organization_id: null,
+      },
     });
     const linked = await admin
       .from("github_app_installations")

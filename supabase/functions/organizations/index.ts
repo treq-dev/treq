@@ -1,17 +1,13 @@
-// Opens an embedded Stripe Checkout session for Pro, or for Team on behalf of
-// an organization the caller owns, and returns its client secret
-// (prds/billing-and-teams.md, "Edge functions"). Called by the web dashboard
-// with the user's Supabase JWT. The logic lives in lib.ts.
-// Env: STRIPE_SECRET_KEY, and WEB_URL for the return URL (default
-// https://treq.dev).
+// Organizations and Team seats (prds/billing-and-teams.md, "Organizations
+// and seats"). Called by the web dashboard with the user's Supabase JWT.
+// Body: { action, ... } where action is create, invite, accept,
+// revoke_invite, remove_member, leave, promote_member, demote_owner,
+// delete_organization or attach_installation. The logic lives in lib.ts and
+// the rules in 028_organizations_team.sql and 029_organization_owners.sql.
+// Env: WEB_URL for invite links (default https://treq.dev).
 
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";
-import {
-  billingStoreFor,
-  organizationBillingFor,
-} from "../_shared/billing/store.ts";
-import { createStripeClient } from "../_shared/billing/stripe-api.ts";
-import { createCheckout } from "./lib.ts";
+import { handleOrganizationsRequest } from "./lib.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -50,12 +46,6 @@ Deno.serve(async (req) => {
   } = await supabaseUser.auth.getUser();
   if (authError || !user) return json({ error: "Unauthorized" }, 401);
 
-  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-  if (!stripeKey) {
-    console.error("[billing-checkout] STRIPE_SECRET_KEY is not configured");
-    return json({ error: "Billing is not configured" }, 500);
-  }
-
   let body: unknown;
   try {
     body = await req.json();
@@ -69,19 +59,20 @@ Deno.serve(async (req) => {
   );
 
   try {
-    const result = await createCheckout(body, {
-      user: { id: user.id, email: user.email },
-      store: billingStoreFor(service, user.id),
-      organizations: organizationBillingFor(service, user.id),
-      stripe: createStripeClient(stripeKey),
+    const result = await handleOrganizationsRequest(body, {
+      userId: user.id,
+      rpc: async (fn, args) => {
+        const { data, error } = await service.rpc(fn, args);
+        return { data, error };
+      },
       webUrl: Deno.env.get("WEB_URL") ?? "https://treq.dev",
     });
     return json(result.body, result.status);
   } catch (err) {
     console.error(
-      "[billing-checkout] failed:",
+      "[organizations] failed:",
       err instanceof Error ? err.message : String(err),
     );
-    return json({ error: "Checkout failed" }, 500);
+    return json({ error: "Organization request failed" }, 500);
   }
 });

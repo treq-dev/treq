@@ -1,13 +1,20 @@
 // Completes the GitHub App installation flow: verifies the single-use intent
-// state belongs to the authenticated user, confirms the installation exists
-// on GitHub via app-level auth, links it, and consumes the intent. Requires
-// Pro. The logic lives in lib.ts.
+// state belongs to the authenticated user, exchanges GitHub's OAuth `code`
+// and checks the installation is in that GitHub user's installations,
+// confirms the installation exists on GitHub via app-level auth, links it,
+// and consumes the intent. Requires Pro. The logic lives in lib.ts.
 //
 // A browser-supplied installation_id alone never determines ownership.
+//
+// Env: GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET (the App's OAuth
+// client), GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_BASE64 (app-level auth).
+// The App must have "Request user authorization (OAuth) during
+// installation" turned on, or every link fails with
+// github_authorization_required.
 
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 import { userHasPro } from "../_shared/billing/entitlement.ts";
-import { getInstallation } from "../_shared/merge-queue/github-adapter.ts";
+import { githubInstallationAccess } from "./github.ts";
 import { completeInstallation, installationLinkStore } from "./lib.ts";
 
 const corsHeaders = {
@@ -64,7 +71,10 @@ Deno.serve(async (req) => {
       userId: user.id,
       hasPro: () => userHasPro(supabase, user.id),
       store: installationLinkStore(supabase),
-      getInstallation,
+      github: githubInstallationAccess({
+        clientId: Deno.env.get("GITHUB_APP_CLIENT_ID") ?? "",
+        clientSecret: Deno.env.get("GITHUB_APP_CLIENT_SECRET") ?? "",
+      }),
     });
     return json(result.body, result.status);
   } catch (err) {
