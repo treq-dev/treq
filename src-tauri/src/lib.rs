@@ -342,6 +342,20 @@ where
   !first_arg.starts_with("treq://") && !first_arg.starts_with("-psn_")
 }
 
+/// Updater plugin keyed to `TAURI_SIGNER_PUBLIC_KEY`, read at build time so
+/// release CI supplies the key alongside `TAURI_SIGNING_PRIVATE_KEY`. Builds
+/// without it keep the empty `pubkey` from tauri.conf.json, so update checks
+/// fail signature verification instead of trusting unsigned artifacts.
+#[cfg(desktop)]
+fn updater_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R, tauri_plugin_updater::Config>
+{
+  let builder = tauri_plugin_updater::Builder::new();
+  match option_env!("TAURI_SIGNER_PUBLIC_KEY") {
+    Some(pubkey) if !pubkey.is_empty() => builder.pubkey(pubkey).build(),
+    _ => builder.build(),
+  }
+}
+
 #[cfg_attr(all(mobile, not(feature = "embed")), tauri::mobile_entry_point)]
 pub fn run() {
   telemetry::install_panic_hook();
@@ -386,7 +400,10 @@ pub fn run() {
     builder
   };
   #[cfg(desktop)]
-  let builder = builder.plugin(tauri_plugin_cli::init());
+  let builder = builder
+    .plugin(tauri_plugin_cli::init())
+    .plugin(updater_plugin())
+    .plugin(tauri_plugin_process::init());
   builder
     .on_window_event(|window, event| {
       // Fires once, after the window is actually gone (not on a
@@ -840,8 +857,6 @@ pub fn run() {
       commands::install_skill,
       commands::uninstall_skill,
       commands::set_skill_install_scope,
-      commands::check_for_app_update,
-      commands::install_app_update,
       commands::get_workspace_file_hunks,
       commands::get_workspace_file_hunks_batch,
       commands::get_workspace_file_lines,
