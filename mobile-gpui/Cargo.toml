@@ -50,9 +50,13 @@ android_logger = "0.15"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 env_logger = "0.11"
 
-# Vendored with one change, see vendor/README.md.
+# gpui-kit fork with a native touch selection opt-out and
+# `set_selected_text_range`, so tauri-plugin-gpui's native Android toolbar and
+# drag handles replace gpui-kit's own. Drop once upstream has both.
 [patch.crates-io]
-gpui-component = { path = "vendor/gpui-component" }
+gpui-kit = { git = "https://github.com/Ziinc/gpui-kit", branch = "main" }
+gpui-component = { git = "https://github.com/Ziinc/gpui-kit", branch = "main" }
+gpui-base = { git = "https://github.com/Ziinc/gpui-kit", branch = "main" }
 
 [profile.dev]
 opt-level = 1
