@@ -2,12 +2,13 @@
 // it runs under the unit tests and service-qa. index.ts verifies the user's
 // JWT and supplies an RPC function bound to the service role.
 //
-// Every rule (who may do what, the 5-seat cap, token expiry and single use,
+// Every rule (who may do what, token expiry and single use,
 // last-owner protection, installation ownership, deleting an organization)
 // lives in the SQL functions of 028_organizations_team.sql and
 // 029_organization_owners.sql. This file checks the shape of the request,
 // calls one function as the verified user, and turns its refusals into HTTP
-// answers.
+// answers. After a join, leave or removal it updates the Team's billed seats
+// (_shared/billing/team-seats.ts).
 
 import { UUID_PATTERN } from "../_shared/billing/checkout.ts";
 import type { HandlerResult } from "../_shared/intent-state.ts";
@@ -26,6 +27,12 @@ export type OrganizationsDeps = {
   rpc: (fn: string, args: Record<string, unknown>) => Promise<RpcResult>;
   /** Base URL for invite links, for example https://treq.dev. */
   webUrl: string;
+  /**
+   * Sets the organization's Team quantity to its member count. Missing when
+   * Stripe is not configured. A failure is logged, never returned: the
+   * membership change has already committed.
+   */
+  syncSeats?: (organizationId: string) => Promise<unknown>;
 };
 
 /**
@@ -43,6 +50,8 @@ type Call = {
   fn: string;
   args: Record<string, unknown>;
   respond: (data: unknown) => Record<string, unknown>;
+  /** The organization whose member count this call changed, if any. */
+  seatsChanged?: (data: unknown) => string | null;
 };
 
 function uuid(fields: Fields, key: string): string | null {
@@ -120,6 +129,10 @@ function callFor(
             result: joined.result,
           };
         },
+        seatsChanged: (data) => {
+          const joined = data as { organization_id: string; result: string };
+          return joined.result === "joined" ? joined.organization_id : null;
+        },
       };
     }
     case "revoke_invite": {
@@ -141,6 +154,7 @@ function callFor(
         fn: "organization_remove_member",
         args: { ...actor, p_org_id: orgId, p_user_id: memberId },
         respond: ok,
+        seatsChanged: () => orgId,
       };
     }
     case "leave": {
@@ -150,6 +164,7 @@ function callFor(
         fn: "organization_leave",
         args: { ...actor, p_org_id: orgId },
         respond: ok,
+        seatsChanged: () => orgId,
       };
     }
     case "promote_member":
@@ -230,6 +245,24 @@ export async function handleOrganizationsRequest(
       }),
     );
     return { status: 500, body: { error: "Organization request failed" } };
+  }
+
+  const changedOrg = call.seatsChanged?.(data) ?? null;
+  if (changedOrg && deps.syncSeats) {
+    try {
+      await deps.syncSeats(changedOrg);
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          function: "organizations",
+          level: "error",
+          action: fields.action,
+          message: "Team seat sync failed",
+          organization_id: changedOrg,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
   }
   return { status: 200, body: call.respond(data) };
 }

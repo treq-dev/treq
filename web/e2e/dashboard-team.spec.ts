@@ -289,7 +289,7 @@ test.describe('Dashboard team tab', () => {
 
     await expect(acme.getByRole('group', { name: 'Your role' })).toContainText('Owner');
     await expect(acme.getByRole('group', { name: 'Plan' })).toContainText('No Team subscription');
-    await expect(acme.getByRole('group', { name: 'Seats used' })).toContainText('3 / 5');
+    await expect(acme.getByRole('group', { name: 'Seats' })).toContainText('2 of 5 included');
     await expect(acme.getByRole('list', { name: 'Members' })).toContainText('Mia Member');
     await expect(acme.getByRole('list', { name: 'Pending invites' })).toContainText('sam@example.com');
 
@@ -298,7 +298,6 @@ test.describe('Dashboard team tab', () => {
     await expect(acme.getByRole('textbox', { name: 'Invite link for lee@example.com' })).toHaveValue(
       ACCEPT_URL,
     );
-    await expect(acme.getByRole('group', { name: 'Seats used' })).toContainText('4 / 5');
     expect(calls.organizations).toContainEqual({
       action: 'invite',
       organization_id: ORG,
@@ -314,20 +313,20 @@ test.describe('Dashboard team tab', () => {
     await close();
   });
 
-  test('a full Team shows the limit the server names', async ({ browser }) => {
+  test('a refused invite shows the message the server names', async ({ browser }) => {
     const team = acmeTeam('owner');
     team.refuse = {
       invite: {
         status: 409,
-        error: 'A Team covers 5 members, counting pending invites. Remove a member or revoke an invite first.',
-        code: 'seat_limit',
+        error: 'That address already belongs to a member.',
+        code: 'already_member',
       },
     };
     const { page, close } = await openTeamTab(browser, team);
     const acme = orgCard(page, 'Acme');
-    await acme.getByRole('textbox', { name: 'Email to invite' }).fill('eleventh@example.com');
+    await acme.getByRole('textbox', { name: 'Email to invite' }).fill('mia@example.com');
     await acme.getByRole('button', { name: 'Invite', exact: true }).click();
-    await expect(acme.getByRole('alert')).toContainText('A Team covers 5 members');
+    await expect(acme.getByRole('alert')).toContainText('That address already belongs to a member.');
     await close();
   });
 

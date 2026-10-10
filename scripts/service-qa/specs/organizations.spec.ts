@@ -54,7 +54,7 @@ function tokenOf(acceptUrl: unknown): string {
   return token;
 }
 
-it("runs an organization: invites by token, a 5-seat cap and Team for every member", async () => {
+it("runs an organization: invites by token, no member cap and Team for every member", async () => {
   const admin = getServiceClient();
   const owner = await createTestUser();
   const member = await createTestUser();
@@ -149,9 +149,9 @@ it("runs an organization: invites by token, a 5-seat cap and Team for every memb
       details: { orgId, accepted, replay, memberView: memberView.data },
     });
 
-    // ── Seat cap, and two accepts racing for one invite ──────────────────
+    // ── No member cap, and two accepts racing for one invite ──────────────────
     const seatInvites = [];
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       const seat = await asOwner({
         action: "invite",
         organization_id: orgId,
@@ -160,19 +160,13 @@ it("runs an organization: invites by token, a 5-seat cap and Team for every memb
       expect(seat.status).toBe(200);
       seatInvites.push(seat);
     }
-    const sixth = await asOwner({
+    const eleventh = await asOwner({
       action: "invite",
       organization_id: orgId,
-      email: "sixth@example.com",
+      email: "eleventh@example.com",
     });
-    expect(sixth).toEqual({
-      status: 409,
-      body: {
-        error:
-          "A Team covers 5 members, counting pending invites. Remove a member or revoke an invite first.",
-        code: "seat_limit",
-      },
-    });
+    // Team has no member cap: seats beyond 5 are billed, not refused.
+    expect(eleventh.status).toBe(200);
 
     const raceToken = tokenOf(seatInvites[0].body.accept_url);
     const race = await Promise.all(
@@ -189,11 +183,11 @@ it("runs an organization: invites by token, a 5-seat cap and Team for every memb
 
     await recordOutcome("organizations-02-seat-cap-and-race", {
       expectations: [
-        "With 2 members and 3 pending invites, a sixth seat answers 409 seat_limit with the message that names the 5-member limit.",
+        "With 2 members and 8 pending invites, an eleventh seat is still invited: Team has no member cap.",
         "Two accounts accepting the same token at the same moment: exactly one gets 200, the other 410, and the organization gains one member.",
       ],
       details: {
-        sixth,
+        eleventh,
         raceStatuses: race.map((r) => r.status),
         memberCount,
       },

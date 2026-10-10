@@ -81,6 +81,8 @@ export function buildCheckoutSessionParams(input: {
   ownerType?: BillingOwnerType;
   trialEligible: boolean;
   webUrl: string;
+  /** Team's member count. Pro is always 1. */
+  quantity?: number;
 }): StripeParams {
   const ownerType = input.ownerType ?? "user";
   const params: StripeParams = {
@@ -88,7 +90,7 @@ export function buildCheckoutSessionParams(input: {
     mode: "subscription",
     customer: input.customerId,
     "line_items[0][price]": input.priceId,
-    "line_items[0][quantity]": 1,
+    "line_items[0][quantity]": input.quantity ?? 1,
     payment_method_collection: "always",
     client_reference_id: input.ownerId,
     "metadata[owner_type]": ownerType,

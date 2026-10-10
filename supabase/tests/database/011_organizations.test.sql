@@ -1,6 +1,6 @@
 -- Organizations from 028_organizations_team.sql: creating one, invites
--- matched by a single-use token that expires after 7 days, the 5-seat cap
--- that counts pending invites, last-owner protection, and row-level
+-- matched by a single-use token that expires after 7 days, no member cap
+-- (030_team_seat_billing.sql), last-owner protection, and row-level
 -- security on the new tables.
 begin;
 select plan(77);
@@ -193,55 +193,52 @@ select throws_ok(
     (current_setting('test.invite_revoked')::jsonb->>'invite_id')::uuid)$$,
   'PT409', null, 'an invite that is no longer pending cannot be revoked again');
 
--- ── Seat cap: 5 seats, counting pending invites ───────────────────────────
--- Two members (e1, e2), no pending invites: the expired and revoked ones do
--- not count. Three more invites fill the Team.
+-- ── No member cap: seats beyond 5 are billed, not refused ────────────────
+-- Two members (e1, e2) and eight invites, then more past what 028 allowed.
 do $$
 begin
-  for i in 1..3 loop
+  for i in 1..8 loop
     perform public.organization_invite('00000000-0000-0000-0000-0000000000e1',
       current_setting('test.org')::uuid, format('seat%s@example.com', i));
   end loop;
 end;
 $$;
-select throws_ok(
+select lives_ok(
   $$select public.organization_invite('00000000-0000-0000-0000-0000000000e1',
-    current_setting('test.org')::uuid, 'sixth@example.com')$$,
-  'PT409',
-  'A Team covers 5 members, counting pending invites. Remove a member or revoke an invite first.',
-  'the sixth seat is refused with a message that names the limit');
+    current_setting('test.org')::uuid, 'eleventh@example.com')$$,
+  'an eleventh seat is invited: Team has no member cap');
 select lives_ok(
   $$select public.organization_invite('00000000-0000-0000-0000-0000000000e1',
     current_setting('test.org')::uuid, 'seat1@example.com')$$,
-  'a new link for a pending invite still works at the limit');
-select set_config('test.token_seat3',
+  'a new link for a pending invite reuses it');
+select set_config('test.token_seat8',
   public.organization_invite('00000000-0000-0000-0000-0000000000e1',
-    current_setting('test.org')::uuid, 'seat3@example.com')->>'token', true);
+    current_setting('test.org')::uuid, 'seat8@example.com')->>'token', true);
 select lives_ok(
   $$select public.organization_revoke_invite('00000000-0000-0000-0000-0000000000e1',
     (select id from public.organization_invites where email = 'seat2@example.com'))$$,
-  'revoking a pending invite frees its seat');
+  'a pending invite can be revoked');
 select lives_ok(
   $$select public.organization_invite('00000000-0000-0000-0000-0000000000e1',
-    current_setting('test.org')::uuid, 'sixth@example.com')$$,
-  'the freed seat can be invited');
+    current_setting('test.org')::uuid, 'eleventh@example.com')$$,
+  'a pending invite gets a new link');
 
--- Accepting turns a pending seat into a member, so the count stays at 5.
+-- Accepting turns a pending invite into a member.
 select is(
   public.organization_accept_invite('00000000-0000-0000-0000-0000000000e4',
-    current_setting('test.token_seat3'))->>'result',
-  'joined', 'a pending invite is accepted at the limit');
-select throws_ok(
+    current_setting('test.token_seat8'))->>'result',
+  'joined', 'a pending invite is accepted');
+select lives_ok(
   $$select public.organization_invite('00000000-0000-0000-0000-0000000000e1',
-    current_setting('test.org')::uuid, 'seventh@example.com')$$,
-  'PT409', null, 'the Team is still full after the accept');
+    current_setting('test.org')::uuid, 'twelfth@example.com')$$,
+  'inviting still works after the accept');
 
 -- A member who accepts an invite meant for someone else's address uses it up
 -- without joining twice.
 select is(
   public.organization_accept_invite('00000000-0000-0000-0000-0000000000e2',
     public.organization_invite('00000000-0000-0000-0000-0000000000e1',
-      current_setting('test.org')::uuid, 'seat1@example.com')->>'token')->>'result',
+      current_setting('test.org')::uuid, 'seat3@example.com')->>'token')->>'result',
   'already_member', 'an existing member accepting an invite does not join twice');
 select is((select count(*)::int from public.organization_members
            where org_id = current_setting('test.org')::uuid
@@ -249,8 +246,8 @@ select is((select count(*)::int from public.organization_members
   1, 'the member still has one membership');
 select lives_ok(
   $$select public.organization_invite('00000000-0000-0000-0000-0000000000e1',
-    current_setting('test.org')::uuid, 'seventh@example.com')$$,
-  'the invite the member used up frees its seat');
+    current_setting('test.org')::uuid, 'twelfth@example.com')$$,
+  'a new link for that pending invite still works');
 
 -- ── RLS: members ──────────────────────────────────────────────────────────
 reset role;
@@ -293,7 +290,7 @@ select set_config('request.jwt.claims',
 select is(
   (select count(*)::int from public.organization_invites
    where accepted_at is null and revoked_at is null and expires_at > now()),
-  2, 'the owner reads the pending invites (2 pending + 3 members = 5 seats)');
+  7, 'the owner reads the pending invites');
 select lives_ok($$select id, email, expires_at, accepted_at, revoked_at from public.organization_invites$$,
   'the owner reads the invite columns the dashboard needs');
 
@@ -368,16 +365,16 @@ select is((select count(*)::int from public.organization_members
            where org_id = current_setting('test.org')::uuid and role = 'owner'),
   1, 'the organization always keeps an owner');
 
--- Seats freed by leaving and removal can be invited again.
+-- Inviting still works after removal and leaving.
 select is(
   (select count(*)::int from public.organization_invites
    where org_id = current_setting('test.org')::uuid
      and accepted_at is null and revoked_at is null and expires_at > now()),
-  2, 'removing and leaving leave the pending invites alone');
+  7, 'removing and leaving leave the pending invites alone');
 select lives_ok(
   $$select public.organization_invite('00000000-0000-0000-0000-0000000000e5',
     current_setting('test.org')::uuid, 'after-leave@example.com')$$,
-  'a seat freed by a member leaving can be invited');
+  'inviting works after members leave');
 
 reset role;
 

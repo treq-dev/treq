@@ -1,12 +1,15 @@
--- Team covers 5 members instead of 10 (prds/billing-and-teams.md, "Plans").
--- Pending invites still count toward the limit. Organizations already past
--- 5 keep their members and invites; they cannot invite again until they are
--- back under the limit.
+-- Team has no member cap (prds/billing-and-teams.md, "Organizations and
+-- seats"). Its flat price covers 5 members and each member beyond that is
+-- billed as an extra seat: the organizations Edge Function sets the Stripe
+-- subscription's quantity to the member count after every join, leave and
+-- removal. Pending invites are not billed, so inviting no longer counts
+-- seats. These replace the functions of 028_organizations_team.sql with the
+-- seat checks removed.
 
 -- Returns the invite and its token. The token is never stored, so this is
 -- the only time anyone sees it. Inviting an address that already has a
 -- pending invite issues a new token for that invite (the old link stops
--- working) and a fresh 7 days, without taking another seat.
+-- working) and a fresh 7 days, instead of a second invite.
 create or replace function public.organization_invite(p_actor uuid, p_org_id uuid, p_email text)
 returns jsonb
 language plpgsql
@@ -49,10 +52,6 @@ begin
   returning * into v_invite;
 
   if not found then
-    if treq_internal.organization_seats_used(p_org_id) >= 5 then
-      raise exception 'A Team covers 5 members, counting pending invites. Remove a member or revoke an invite first.'
-        using errcode = 'PT409', hint = 'seat_limit';
-    end if;
     insert into public.organization_invites (org_id, email, token_hash, invited_by, expires_at)
     values (
       p_org_id, v_email, encode(sha256(convert_to(v_token, 'UTF8')), 'hex'), p_actor,
@@ -72,7 +71,7 @@ $$;
 
 -- Any signed-in account holding the token joins as a member. The token
 -- works once. A user who is already a member uses it up without joining
--- twice, which frees its seat.
+-- twice.
 create or replace function public.organization_accept_invite(p_actor uuid, p_token text)
 returns jsonb
 language plpgsql
@@ -122,12 +121,6 @@ begin
   if treq_internal.organization_role(v_org.id, p_actor) is not null then
     v_result := 'already_member';
   else
-    -- The invite already holds a seat, so this only fails if the count was
-    -- broken some other way.
-    if (select count(*) from public.organization_members m where m.org_id = v_org.id) >= 5 then
-      raise exception 'A Team covers 5 members, counting pending invites. Remove a member or revoke an invite first.'
-        using errcode = 'PT409', hint = 'seat_limit';
-    end if;
     insert into public.organization_members (org_id, user_id, role)
     values (v_org.id, p_actor, 'member');
     v_result := 'joined';
