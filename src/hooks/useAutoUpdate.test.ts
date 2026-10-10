@@ -48,7 +48,7 @@ describe("useAutoUpdate", () => {
       useAutoUpdate({ autoCheck: false, listenMenu: false }),
     );
     await act(() => result.current.checkForUpdate());
-    const prompt = addToast.mock.calls[0][0];
+    const [[prompt]] = addToast.mock.calls;
     expect(prompt.title).toBe("Update available: v0.4.0");
     await act(async () => {
       prompt.action.onClick();
