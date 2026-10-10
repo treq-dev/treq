@@ -11,7 +11,7 @@ const UA = {
 
 const asset = (name: string) => ({
   name,
-  url: `https://github.com/treq-dev/treq/releases/download/v0.3.0/${name}`,
+  url: `https://github.com/tznc/treq/releases/download/v0.3.0/${name}`,
 });
 
 const macOnly = [
@@ -69,7 +69,7 @@ test.describe('Landing page download links on macOS', () => {
   test.use({ userAgent: UA.mac });
 
   // Asset URLs come from the live releases API, which reports the repo's
-  // canonical owner rather than the treq-dev alias, so the owner is not pinned.
+  // canonical owner rather than an alias, so the owner is not pinned.
   test('link the latest release DMGs directly', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('link', { name: 'Download for macOS' }).first())

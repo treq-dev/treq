@@ -75,7 +75,7 @@ test.describe('Navbar navigation', () => {
   test('Download button links to the latest release when signed out', async ({ page }) => {
     await page.goto('/');
     await expect(nav(page).getByRole('link', { name: 'Download', exact: true }))
-      .toHaveAttribute('href', /^https:\/\/github\.com\/treq-dev\/treq\/releases\//);
+      .toHaveAttribute('href', /^https:\/\/github\.com\/tznc\/treq\/releases\//);
   });
 
   test('installation lists each release target', async ({ page }) => {
@@ -117,7 +117,7 @@ test.describe('Navbar navigation', () => {
   test('GitHub link points to the correct repo', async ({ page }) => {
     await page.goto('/');
     await expect(nav(page).getByRole('link', { name: 'GitHub repository' }))
-      .toHaveAttribute('href', 'https://github.com/treq-dev/treq');
+      .toHaveAttribute('href', 'https://github.com/tznc/treq');
   });
 
   test('Sign in link navigates to login page when signed out', async ({ page }) => {
@@ -406,7 +406,7 @@ test.describe('Footer navigation', () => {
   test('GitHub link points to the correct repo', async ({ page }) => {
     await page.goto('/');
     await expect(footer(page).getByRole('link', { name: 'GitHub' }))
-      .toHaveAttribute('href', 'https://github.com/treq-dev/treq');
+      .toHaveAttribute('href', 'https://github.com/tznc/treq');
   });
 
   test('Pricing link navigates to pricing page', async ({ page }) => {

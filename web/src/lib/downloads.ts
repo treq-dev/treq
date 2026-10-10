@@ -1,4 +1,4 @@
-export const DOWNLOAD_HREF = 'https://github.com/treq-dev/treq/releases/latest';
+export const DOWNLOAD_HREF = 'https://github.com/tznc/treq/releases/latest';
 
 export type DownloadPlatform =
   | 'mac-arm64'

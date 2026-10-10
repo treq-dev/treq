@@ -671,7 +671,7 @@ const SOFTWARE_APP_SCHEMA = {
     priceCurrency: 'USD',
   },
   downloadUrl: DOWNLOAD_HREF,
-  codeRepository: 'https://github.com/treq-dev/treq',
+  codeRepository: 'https://github.com/tznc/treq',
   license: 'https://www.apache.org/licenses/LICENSE-2.0',
 };
 
