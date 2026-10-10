@@ -41,6 +41,11 @@ if ! wait_for "treq-gpui: attached" 120; then
   shot 00-not-attached || true
   adb logcat -d > "$OUT/logcat.txt" || true
 fi
+# The plugin logs this once GPUI has a GPU surface; without it the screen is blank.
+if ! wait_for "tauri-plugin-gpui: GPUI attached" 60; then
+  shot 00-gpui-not-attached || true
+  adb logcat -d > "$OUT/logcat.txt" || true
+fi
 sleep 6
 shot 01-home
 
@@ -67,7 +72,7 @@ if ! adb shell pidof "$PKG" > /dev/null; then
   echo "FAIL: app is not running"
   failures=$((failures + 1))
 fi
-if grep -E "FATAL EXCEPTION|panicked at" "$OUT/logcat.txt"; then
+if grep -E "FATAL EXCEPTION|panicked at|attaching GPUI failed" "$OUT/logcat.txt"; then
   echo "FAIL: crash in logcat"
   failures=$((failures + 1))
 fi

@@ -54,6 +54,12 @@ opt-level = 1
 opt-level = 3
 debug = false
 
+# wgpu turns on shader debug info in debug builds, and the Android emulator's
+# SwiftShader Vulkan rejects the SPIR-V that produces. Build wgpu-types as in
+# release so its default instance flags leave that off.
+[profile.dev.package.wgpu-types]
+debug-assertions = false
+
 [profile.release]
 opt-level = "s"
 lto = "thin"

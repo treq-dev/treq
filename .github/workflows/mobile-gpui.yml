@@ -124,14 +124,12 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Run on the emulator
         timeout-minutes: 20
-        # SwiftShader's Vulkan crashes the emulator on wgpu's shaders; without Vulkan
-        # wgpu uses GLES (phones keep Vulkan).
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -feature -Vulkan
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: mobile-gpui/scripts/android-smoke.sh ${{ runner.temp }}/apk/treq-gpui-debug.apk target/android-smoke
       - uses: actions/upload-artifact@v4
