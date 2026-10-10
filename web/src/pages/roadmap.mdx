@@ -63,6 +63,12 @@ These checks live with the workspace, so each stacked layer can verify its own i
 
 ## SSH Remote Development
 
+:::note[Private alpha]
+
+SSH Remote Development and managed cloud workspaces are in a private alpha. [Join the waitlist](/alpha?from=/roadmap) to get invitations and updates by email.
+
+:::
+
 Today, [Treq workspaces](/docs/concepts/workspaces) and [terminal sessions](/docs/concepts/terminal-sessions) run on your local machine. **SSH Remote Development** opens a workspace on a remote host over SSH and lets you develop there directly from the same UI.
 
 You connect to a remote machine, attach to a repository path there, and get the same stacked workspace model: diffs, commits, agents, and checks against that remote working copy. Shell and agent processes run on the remote host. File reads and writes go over the SSH session instead of the local disk.

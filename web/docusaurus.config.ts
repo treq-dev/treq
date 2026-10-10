@@ -273,6 +273,10 @@ const config: Config = {
               to: '/roadmap',
             },
             {
+              label: 'Private alpha',
+              to: '/alpha',
+            },
+            {
               label: 'Changelog',
               to: '/changelog',
             },
