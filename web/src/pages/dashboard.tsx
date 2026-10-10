@@ -6,6 +6,7 @@ import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import type { StripeEmbeddedCheckout } from "@stripe/stripe-js";
 import { loadStripe } from "@stripe/stripe-js/pure";
 import { supabase } from "../lib/supabase";
+import { proRequiredMessage } from "../lib/pro-required";
 import {
   GITHUB_APP_INSTALL_URL,
   STRIPE_PUBLISHABLE_KEY,
@@ -324,7 +325,7 @@ function RepoConfigPanel({
 
 // ── Integrations tab ─────────────────────────────────────────────────────────
 
-function IntegrationsTab() {
+function IntegrationsTab({ onUpgrade }: { onUpgrade: () => void }) {
   const { siteConfig } = useDocusaurusContext();
   const flags = siteConfig.customFields?.featureFlags as
     | { githubApp?: boolean; mergeQueue?: boolean }
@@ -335,16 +336,24 @@ function IntegrationsTab() {
   const [repos, setRepos] = useState<GithubRepo[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(true);
   const [installError, setInstallError] = useState<string | null>(null);
+  // The server refused the install because the user has no Pro.
+  const [installNeedsPro, setInstallNeedsPro] = useState<string | null>(null);
 
   // Installation linking requires a server-created single-use intent; the
   // opaque state travels through GitHub's install flow back to our callback.
   const startInstall = useCallback(async () => {
     if (!githubAppEnabled) return;
     setInstallError(null);
+    setInstallNeedsPro(null);
     const { data, error } = await supabase.functions.invoke(
       "create-github-install-intent",
       { body: {} }
     );
+    const needsPro = await proRequiredMessage(error);
+    if (needsPro) {
+      setInstallNeedsPro(needsPro);
+      return;
+    }
     if (error || !data?.state) {
       setInstallError(error?.message ?? "Failed to start installation");
       return;
@@ -438,6 +447,22 @@ function IntegrationsTab() {
         {installError && (
           <div style={{ color: "#ef4444", fontSize: "0.85rem", marginTop: "0.5rem" }}>
             {installError}
+          </div>
+        )}
+
+        {installNeedsPro && (
+          <div style={{ fontSize: "0.85rem", marginTop: "0.75rem" }}>
+            <div>
+              {installNeedsPro}
+              <span style={styles.featureProBadge}>PRO</span>
+            </div>
+            <button
+              type="button"
+              onClick={onUpgrade}
+              style={{ ...styles.primaryButton, marginTop: "0.5rem" }}
+            >
+              Upgrade to Pro
+            </button>
           </div>
         )}
 
@@ -852,7 +877,9 @@ function DashboardContent() {
           />
         )}
 
-        {activeTab === "integrations" && <IntegrationsTab />}
+        {activeTab === "integrations" && (
+          <IntegrationsTab onUpgrade={() => setActiveTab("subscription")} />
+        )}
       </div>
     </div>
   );

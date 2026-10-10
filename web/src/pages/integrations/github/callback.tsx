@@ -2,10 +2,11 @@ import React, { useEffect, useState } from "react";
 import Layout from "@theme/Layout";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
+import { proRequiredMessage } from "../../../lib/pro-required";
 import { supabase } from "../../../lib/supabase";
 import { signInHrefFor } from "../../../lib/utils";
 
-type State = "loading" | "success" | "error" | "unauthenticated";
+type State = "loading" | "success" | "error" | "needs_pro" | "unauthenticated";
 
 function CallbackContent() {
   const [state, setState] = useState<State>("loading");
@@ -55,6 +56,12 @@ function CallbackContent() {
         }
       );
 
+      const needsPro = await proRequiredMessage(error);
+      if (needsPro) {
+        setState("needs_pro");
+        setMessage(needsPro);
+        return;
+      }
       if (error || data?.error) {
         setState("error");
         setMessage(data?.error ?? error?.message ?? "Unknown error");
@@ -98,6 +105,15 @@ function CallbackContent() {
           </p>
           <a href="/dashboard?tab=integrations" style={styles.link}>
             Return to dashboard
+          </a>
+        </>
+      )}
+
+      {state === "needs_pro" && (
+        <>
+          <p style={styles.text}>{message}</p>
+          <a href="/dashboard?tab=subscription" style={styles.link}>
+            Upgrade to Pro
           </a>
         </>
       )}
