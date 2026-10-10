@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Installs the treq-gpui debug APK on a running emulator, opens the home and
-# add-host screens, and checks the app renders without crashing. Screenshots
+# Installs the treq-gpui debug APK on a running emulator, opens the signed-out
+# landing page, swipes it, and checks the app renders without crashing. Screenshots
 # and logcat go to the output directory.
 #
 #   mobile-gpui/scripts/android-smoke.sh <app.apk> [output-dir]
@@ -54,8 +54,9 @@ fi
 sleep 6
 shot 01-home
 
-# "Add SSH host" sits below the account and remote cards; scroll and tap it
-# by its approximate position, then come back with the back button.
+# The signed-out landing page fits on one screen (no saved hosts on a fresh
+# install), so the swipe only checks that scrolling it is harmless. Tapping
+# "Sign in" would leave the app for the browser, so it is not exercised.
 dismiss_dialogs
 size=$(adb shell wm size | awk '/Physical/ {print $3}' | tr -d '\r')
 width=${size%x*}
