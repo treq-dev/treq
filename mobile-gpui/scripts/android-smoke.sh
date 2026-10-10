@@ -20,8 +20,19 @@ dismiss_dialogs() { adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM
 timeout 300 "$ADB_BIN" wait-for-device
 adb shell settings put global hide_error_dialogs 1 || true
 adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS > /dev/null || true
-adb install -r -g "$APK"
 adb logcat -c
+adb install -r -g "$APK"
+# Let the install settle before the first launch. The system's post-install
+# handling (PACKAGE_ADDED broadcast, `onPackageAdded` in the launcher) relaunches
+# an activity that is already running, and tauri-plugin-gpui does not yet
+# re-attach to a recreated activity, so the screen would go blank. Both waits
+# are best-effort: `wait-for-broadcast-idle` needs API 30+, the logcat wait is
+# capped at 20 s.
+adb shell am wait-for-broadcast-idle || sleep 5
+for _ in $(seq 20); do
+  if adb logcat -d | grep "onPackageAdded: $PKG" > /dev/null; then break; fi
+  sleep 1
+done
 # Keep a live capture so the logs survive an emulator crash.
 "$ADB_BIN" logcat > "$OUT/logcat-stream.txt" 2>&1 &
 LOGCAT_PID=$!
