@@ -1,0 +1,59 @@
+name: Deploy Supabase
+
+# Applies pending migrations and deploys every edge function to the hosted
+# project when supabase/** lands on main. Migrations run first so functions
+# never ship against a schema they don't expect.
+#
+# Requires, on the `production` environment (or repo-level):
+#   secrets.SUPABASE_ACCESS_TOKEN  personal access token for the Supabase CLI
+#   secrets.SUPABASE_DB_PASSWORD   database password for the hosted project
+#   vars.SUPABASE_PROJECT_ID       project ref (the <ref> in <ref>.supabase.co)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/functions/**"
+      - "supabase/config.toml"
+      - ".github/workflows/deploy-supabase.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-supabase
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: db push + functions deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Show pending migrations
+        run: supabase db push --dry-run
+
+      - name: Apply migrations
+        run: supabase db push
+
+      # With no names, deploys every supabase/functions/*/index.ts (skipping
+      # _shared and tests) and applies the verify_jwt settings in config.toml.
+      - name: Deploy edge functions
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID" --use-api
