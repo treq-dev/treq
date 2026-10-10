@@ -149,7 +149,7 @@ jobs:
           releaseDraft: true
           prerelease: false
           releaseAssetNamePattern: "[name]-[version]-[platform]-[arch][ext]"
-          # Uploads latest.json, the manifest the in-app updater reads.
+          # Uploads latest.json; the web build republishes it as treq.dev/version.json.
           includeUpdaterJson: true
           # Updater artifacts need the signing key, so only release builds make them.
           args: ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":true}}'

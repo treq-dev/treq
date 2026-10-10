@@ -22,7 +22,7 @@ function isAutoUpdateDisabledInTests(): boolean {
 
 /**
  * Desktop auto-update via `tauri-plugin-updater`: checks the signed
- * `latest.json` on the latest GitHub release once on startup, prompts when a
+ * updater manifest at treq.dev/version.json once on startup, prompts when a
  * newer release exists, then downloads, verifies, installs and relaunches on
  * confirm. Users can also trigger a check from Help → Check for Updates….
  */
