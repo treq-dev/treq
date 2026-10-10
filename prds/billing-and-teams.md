@@ -26,7 +26,7 @@ This document defines how Treq sells Pro and Team, how the service decides who i
 | --- | --- | --- |
 | Free | US$0 | No cloud features. |
 | Pro | US$15 per user per month, 14-day trial with a card | `pro` for the subscribing user. |
-| Team | US$99 per month for up to 10 members | `pro` for every member of the organization. |
+| Team | US$199 per month for up to 5 members | `pro` for every member of the organization. |
 
 The trial applies to Pro only. A user gets one Pro trial per Stripe customer, recorded when the first trial starts.
 
@@ -91,7 +91,7 @@ Sprites have no stop call. A Sprite pauses on its own about 30 seconds after its
 
 ## Organizations and seats
 
-The user who creates an organization becomes its owner. The owner buys Team, invites members by email, and removes them. A Team covers 10 members, counting pending invites. An invite beyond that fails with a message that names the limit.
+The user who creates an organization becomes its owner. The owner buys Team, invites members by email, and removes them. A Team covers 5 members, counting pending invites. An invite beyond that fails with a message that names the limit.
 
 An invite link holds a single-use token that expires after 7 days. The token sits in the URL fragment, so it never reaches analytics or server logs. Accepting it requires signing in with any account. The invite is matched by token, not by email, so a member can join with a different address.
 
@@ -108,7 +108,7 @@ When an account is deleted and it was the last owner, the longest-standing membe
 Web dashboard:
 
 - The Subscription tab opens embedded Checkout for Pro, shows trial and renewal dates, and links to the customer portal.
-- A Team tab creates an organization, buys Team, lists members and pending invites, and shows seats used out of 10.
+- A Team tab creates an organization, buys Team, lists members and pending invites, and shows seats used out of 5.
 - The pricing page links its Pro and Team buttons to the matching Checkout.
 
 Desktop app:

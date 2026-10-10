@@ -4,7 +4,7 @@
 // invite through sign-in, and count seats for display.
 
 /** A Team covers this many members, counting pending invites. */
-export const TEAM_SEAT_LIMIT = 10;
+export const TEAM_SEAT_LIMIT = 5;
 
 const TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 

@@ -2,7 +2,7 @@
 // it runs under the unit tests and service-qa. index.ts verifies the user's
 // JWT and supplies an RPC function bound to the service role.
 //
-// Every rule (who may do what, the 10-seat cap, token expiry and single use,
+// Every rule (who may do what, the 5-seat cap, token expiry and single use,
 // last-owner protection, installation ownership, deleting an organization)
 // lives in the SQL functions of 028_organizations_team.sql and
 // 029_organization_owners.sql. This file checks the shape of the request,

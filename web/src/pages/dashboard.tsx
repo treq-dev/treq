@@ -1028,7 +1028,7 @@ function OrganizationCard({
               </span>
               <div style={styles.comingSoonSubtext}>
                 {checkoutAvailable
-                  ? "US$99 per month for up to 10 members. Every member gets Pro."
+                  ? `US$199 per month for up to ${TEAM_SEAT_LIMIT} members. Every member gets Pro.`
                   : "Coming Soon"}
               </div>
             </div>
@@ -1559,7 +1559,7 @@ function TeamTab({
       <div style={styles.orgCard}>
         <div style={styles.orgName}>Create an organization</div>
         <p style={styles.billingNote}>
-          An organization holds a Team subscription: US$99 per month for up to{" "}
+          An organization holds a Team subscription: US$199 per month for up to{" "}
           {TEAM_SEAT_LIMIT} members, each with everything in Pro. It can also own
           a shared GitHub App installation.
         </p>

@@ -54,7 +54,7 @@ function tokenOf(acceptUrl: unknown): string {
   return token;
 }
 
-it("runs an organization: invites by token, a 10-seat cap and Team for every member", async () => {
+it("runs an organization: invites by token, a 5-seat cap and Team for every member", async () => {
   const admin = getServiceClient();
   const owner = await createTestUser();
   const member = await createTestUser();
@@ -151,7 +151,7 @@ it("runs an organization: invites by token, a 10-seat cap and Team for every mem
 
     // ── Seat cap, and two accepts racing for one invite ──────────────────
     const seatInvites = [];
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       const seat = await asOwner({
         action: "invite",
         organization_id: orgId,
@@ -160,16 +160,16 @@ it("runs an organization: invites by token, a 10-seat cap and Team for every mem
       expect(seat.status).toBe(200);
       seatInvites.push(seat);
     }
-    const eleventh = await asOwner({
+    const sixth = await asOwner({
       action: "invite",
       organization_id: orgId,
-      email: "eleventh@example.com",
+      email: "sixth@example.com",
     });
-    expect(eleventh).toEqual({
+    expect(sixth).toEqual({
       status: 409,
       body: {
         error:
-          "A Team covers 10 members, counting pending invites. Remove a member or revoke an invite first.",
+          "A Team covers 5 members, counting pending invites. Remove a member or revoke an invite first.",
         code: "seat_limit",
       },
     });
@@ -189,11 +189,11 @@ it("runs an organization: invites by token, a 10-seat cap and Team for every mem
 
     await recordOutcome("organizations-02-seat-cap-and-race", {
       expectations: [
-        "With 2 members and 8 pending invites, a ninth invite answers 409 seat_limit with the message that names the 10-member limit.",
+        "With 2 members and 3 pending invites, a sixth seat answers 409 seat_limit with the message that names the 5-member limit.",
         "Two accounts accepting the same token at the same moment: exactly one gets 200, the other 410, and the organization gains one member.",
       ],
       details: {
-        eleventh,
+        sixth,
         raceStatuses: race.map((r) => r.status),
         memberCount,
       },

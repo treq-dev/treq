@@ -266,7 +266,7 @@ describe("handleOrganizationsRequest", () => {
   ])("answers a %s refusal with HTTP %i and its code", async (code, status) => {
     const { deps: d } = deps({
       data: null,
-      error: { message: "A Team covers 10 members.", code, hint: "seat_limit" },
+      error: { message: "A Team covers 5 members.", code, hint: "seat_limit" },
     });
     const result = await handleOrganizationsRequest(
       { action: "invite", organization_id: ORG_ID, email: "x@example.com" },
@@ -274,7 +274,7 @@ describe("handleOrganizationsRequest", () => {
     );
     expect(result).toEqual({
       status,
-      body: { error: "A Team covers 10 members.", code: "seat_limit" },
+      body: { error: "A Team covers 5 members.", code: "seat_limit" },
     });
   });
 
