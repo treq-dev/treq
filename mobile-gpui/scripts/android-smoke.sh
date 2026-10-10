@@ -13,8 +13,13 @@ mkdir -p "$OUT"
 # Bound every adb call so a wedged device fails the run instead of hanging it.
 ADB_BIN=$(command -v adb)
 adb() { timeout 90 "$ADB_BIN" "$@"; }
+# System ANR dialogs ("Pixel Launcher isn't responding") cover the app and eat
+# `input` events, so close them before interacting.
+dismiss_dialogs() { adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS > /dev/null || true; }
 
 timeout 300 "$ADB_BIN" wait-for-device
+adb shell settings put global hide_error_dialogs 1 || true
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS > /dev/null || true
 adb install -r -g "$APK"
 adb logcat -c
 # Keep a live capture so the logs survive an emulator crash.
@@ -51,6 +56,7 @@ shot 01-home
 
 # "Add SSH host" sits below the account and remote cards; scroll and tap it
 # by its approximate position, then come back with the back button.
+dismiss_dialogs
 size=$(adb shell wm size | awk '/Physical/ {print $3}' | tr -d '\r')
 width=${size%x*}
 height=${size#*x}

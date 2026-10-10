@@ -43,4 +43,6 @@ npm run tauri -- android init  # generates gen/android (not committed)
 npm run tauri -- android build --debug --apk --target aarch64
 ```
 
+The UI font is Inter (OFL 1.1, `assets/fonts/OFL.txt`), bundled so bold and semibold weights render on Android, where the system font is a single variable face.
+
 Builds use the production Supabase project. Set `TREQ_GPUI_ENV=dev` at build time to use a local Supabase stack. The app is a separate Cargo workspace: tauri-plugin-gpui needs tauri 2.12, and this keeps the desktop app's lockfile unchanged.

@@ -29,6 +29,8 @@ chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 log = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Only here to turn on `debug-embed`, so gpui-kit's icons are compiled into debug builds (a phone cannot read the build machine's files).
+rust-embed = { version = "8.13", features = ["debug-embed"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
