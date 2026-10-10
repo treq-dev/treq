@@ -36,7 +36,7 @@ test('points each plan at the right next step', async ({ page }) => {
   const plans = await openPricing(page);
   await expect(plans.getByRole('link', { name: 'Download Treq' })).toHaveAttribute(
     'href',
-    'https://github.com/Ziinc/treq/releases',
+    'https://github.com/tznc/treq/releases/latest',
   );
   await expect(plans.getByRole('link', { name: 'Start 14-day free trial' })).toHaveAttribute(
     'href',
