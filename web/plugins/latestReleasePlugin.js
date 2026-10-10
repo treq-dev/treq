@@ -35,7 +35,8 @@ async function fetchLatestRelease() {
   };
 }
 
-// Writes static/version (read by the macOS updater via treq.dev/version) and
+// Writes static/version (read by the pre-plugin macOS updater in builds up to
+// v0.3.0 via treq.dev/version, so they can still reach a newer release) and
 // exposes the latest release to the client as global data.
 /** @type {import('@docusaurus/types').PluginModule} */
 function latestReleasePlugin(context) {

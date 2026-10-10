@@ -24,6 +24,12 @@
     }
   },
   "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY",
+      "endpoints": [
+        "https://github.com/tznc/treq/releases/latest/download/latest.json"
+      ]
+    },
     "cli": {
       "description": "Treq - Stacking ADE",
       "subcommands": {

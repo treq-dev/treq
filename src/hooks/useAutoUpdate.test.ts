@@ -1,38 +1,74 @@
-import { describe, expect, it } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Mirror of the Rust evaluate_update / is_newer_version contract so the
- * frontend toast copy stays aligned with backend version comparison.
- */
-function parseSemver(version: string): [number, number, number] | null {
-  const trimmed = version.trim().replace(/^v/, "");
-  const parts = trimmed.split(".");
-  if (parts.length !== 3) return null;
-  const nums = parts.map((part) => Number(part));
-  if (nums.some((n) => !Number.isInteger(n) || n < 0)) return null;
-  return nums as [number, number, number];
-}
+const addToast = vi.fn();
+const check = vi.fn();
+const relaunch = vi.fn();
+const ask = vi.fn();
 
-function isNewerVersion(current: string, latest: string): boolean {
-  const a = parseSemver(current);
-  const b = parseSemver(latest);
-  if (!a || !b) return false;
-  for (let i = 0; i < 3; i++) {
-    if (b[i] > a[i]) return true;
-    if (b[i] < a[i]) return false;
-  }
-  return false;
-}
+vi.mock("../components/ui/toast", () => ({ useToast: () => ({ addToast }) }));
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: () => check() }));
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: () => relaunch() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  ask: (...a: unknown[]) => ask(...a),
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => () => {}),
+}));
 
-describe("auto-update version compare", () => {
-  it("detects newer patch/minor/major", () => {
-    expect(isNewerVersion("0.1.3", "0.1.4")).toBe(true);
-    expect(isNewerVersion("0.1.3", "0.2.0")).toBe(true);
-    expect(isNewerVersion("0.9.9", "1.0.0")).toBe(true);
+import { useAutoUpdate } from "./useAutoUpdate";
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe("useAutoUpdate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it("rejects equal or older versions", () => {
-    expect(isNewerVersion("0.1.3", "0.1.3")).toBe(false);
-    expect(isNewerVersion("0.1.4", "0.1.3")).toBe(false);
+  it("reports up to date when the updater finds nothing", async () => {
+    check.mockResolvedValue(null);
+    const { result } = renderHook(() =>
+      useAutoUpdate({ autoCheck: false, listenMenu: false }),
+    );
+    await act(() => result.current.checkForUpdate());
+    expect(addToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "You're up to date" }),
+    );
+  });
+
+  it("downloads, installs and relaunches on confirm", async () => {
+    const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+    check.mockResolvedValue({
+      version: "0.4.0",
+      currentVersion: "0.3.0",
+      downloadAndInstall,
+    });
+    ask.mockResolvedValue(true);
+    const { result } = renderHook(() =>
+      useAutoUpdate({ autoCheck: false, listenMenu: false }),
+    );
+    await act(() => result.current.checkForUpdate());
+    const prompt = addToast.mock.calls[0][0];
+    expect(prompt.title).toBe("Update available: v0.4.0");
+    await act(async () => {
+      prompt.action.onClick();
+      await flush();
+    });
+    expect(downloadAndInstall).toHaveBeenCalledOnce();
+    expect(relaunch).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces check errors on a manual check", async () => {
+    check.mockRejectedValue(new Error("signature mismatch"));
+    const { result } = renderHook(() =>
+      useAutoUpdate({ autoCheck: false, listenMenu: false }),
+    );
+    await act(() => result.current.checkForUpdate());
+    expect(addToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Update check failed",
+        description: "signature mismatch",
+      }),
+    );
   });
 });

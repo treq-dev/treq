@@ -386,7 +386,10 @@ pub fn run() {
     builder
   };
   #[cfg(desktop)]
-  let builder = builder.plugin(tauri_plugin_cli::init());
+  let builder = builder
+    .plugin(tauri_plugin_cli::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_process::init());
   builder
     .on_window_event(|window, event| {
       // Fires once, after the window is actually gone (not on a
@@ -840,8 +843,6 @@ pub fn run() {
       commands::install_skill,
       commands::uninstall_skill,
       commands::set_skill_install_scope,
-      commands::check_for_app_update,
-      commands::install_app_update,
       commands::get_workspace_file_hunks,
       commands::get_workspace_file_hunks_batch,
       commands::get_workspace_file_lines,
